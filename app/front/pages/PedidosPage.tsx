@@ -1,0 +1,618 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import Table, { Column } from '../components/ui/Table';
+import Card, { CardContent } from '../components/ui/Card';
+import { Pedido, DocumentItem } from '../types';
+import StatusBadge from '../components/ui/StatusBadge';
+import { useNavigation } from '../hooks/useNavigation';
+import Modal from '../components/ui/Modal';
+import { useTable } from '../hooks/useTable';
+import { TableToolbar } from '../components/ui/TableToolbar';
+import TablePagination from '../components/ui/TablePagination';
+import { useNotifications } from '../hooks/useNotifications';
+import ApprovalSuccessModal from '../components/ui/ApprovalSuccessModal';
+import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
+import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
+// FIX: Changed to a named import as PedidoPDF is now a named export.
+import { PedidoPDF } from '../components/comercial/PedidoPDF';
+import PedidoEditForm from '../components/comercial/PedidoEditForm';
+import { useAuth } from '../hooks/useAuth';
+import ProtectedComponent from '../components/auth/ProtectedComponent';
+import { useData } from '../hooks/useData';
+import { logger } from '../utils/logger';
+
+const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+}
+
+const getPedidoProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'incomplete' => {
+    if (!pedido || pedido.estado === 'CANCELADO') return 'incomplete';
+    if (pedido.estado === 'CONFIRMADO') return 'current';
+    return 'complete';
+}
+
+const getRemisionProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'incomplete' => {
+    if (!pedido || pedido.estado === 'CANCELADO' || pedido.estado === 'REMITIDO') return 'incomplete';
+    if (pedido.estado === 'EN_PROCESO' || pedido.estado === 'PARCIALMENTE_REMITIDO') return 'current';
+    return 'complete';
+}
+
+const filterOptions = [
+    { label: 'Todos', value: 'Todos' },
+    { label: 'Confirmado', value: 'CONFIRMADO' },
+    { label: 'En Proceso', value: 'EN_PROCESO' },
+    { label: 'Remisionado Parcial', value: 'PARCIALMENTE_REMITIDO' },
+    { label: 'Remisionado Total', value: 'REMITIDO' },
+];
+
+const PedidosPage: React.FC = () => {
+  const { params, setPage } = useNavigation();
+  const { user } = useAuth();
+  const { addNotification } = useNotifications();
+  const { pedidos, clientes, cotizaciones, datosEmpresa, productos, aprobarPedido, actualizarPedido, marcarPedidoListoParaDespacho } = useData();
+
+  const [statusFilter, setStatusFilter] = useState('Todos');
+  const [isDetailModalOpen, setDetailModalOpen] = useState(false);
+  const [selectedPedido, setSelectedPedido] = useState<Pedido | null>(null);
+  const [pedidoToEdit, setPedidoToEdit] = useState<Pedido | null>(null);
+  const [orderToPreview, setOrderToPreview] = useState<Pedido | null>(null);
+  const [approvalResult, setApprovalResult] = useState<Pedido | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+
+  const filteredData = useMemo(() => {
+    const sortedPedidos = [...pedidos].sort((a, b) => new Date(b.fechaPedido).getTime() - new Date(a.fechaPedido).getTime());
+    if (statusFilter === 'Todos') {
+      return sortedPedidos;
+    }
+    return sortedPedidos.filter(p => p.estado === statusFilter);
+  }, [pedidos, statusFilter]);
+
+  const {
+    paginatedData,
+    requestSort,
+    sortConfig,
+    searchTerm,
+    handleSearch,
+    currentPage,
+    totalPages,
+    nextPage,
+    prevPage,
+    goToPage,
+    totalItems,
+    rowsPerPage,
+    setRowsPerPage,
+  } = useTable<Pedido>({
+    data: filteredData,
+    searchKeys: [
+        'numeroPedido',
+        'estado',
+        (item) => {
+            const cliente = clientes.find(c => 
+                String(c.id) === String(item.clienteId) ||
+                c.numeroDocumento === item.clienteId ||
+                c.codter === item.clienteId
+            );
+            return cliente?.nombreCompleto || cliente?.razonSocial || '';
+        },
+        (item) => item.cotizacionId ? cotizaciones.find(c => c.id === item.cotizacionId)?.numeroCotizacion || '' : '',
+    ],
+  });
+
+  const selectedPedidoTotals = useMemo(() => {
+    if (!selectedPedido) {
+      return { subtotalBruto: 0, descuentoTotal: 0, subtotalNeto: 0, iva: 0, total: 0 };
+    }
+    const subtotalBruto = selectedPedido.items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
+    const descuentoTotal = selectedPedido.items.reduce((acc, item) => {
+        const itemTotalBruto = item.precioUnitario * item.cantidad;
+        return acc + (itemTotalBruto * ((item.descuentoPorcentaje || 0) / 100));
+    }, 0);
+    const subtotalNeto = subtotalBruto - descuentoTotal;
+    const iva = selectedPedido.items.reduce((acc, item) => {
+        const itemSubtotal = (item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100);
+        const itemIva = itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
+        return acc + itemIva;
+    }, 0);
+    const total = subtotalNeto + iva;
+
+    return { subtotalBruto, descuentoTotal, subtotalNeto, iva, total };
+  }, [selectedPedido]);
+
+
+  const handleOpenDetailModal = (pedido: Pedido) => {
+    setSelectedPedido(pedido);
+    setDetailModalOpen(true);
+  };
+
+  useEffect(() => {
+    const focusId = params?.focusId;
+    if (!focusId) {
+      return;
+    }
+
+    const targetPedido = pedidos.find((pedido) => String(pedido.id) === String(focusId) || String(pedido.numeroPedido) === String(focusId));
+    if (targetPedido) {
+      handleOpenDetailModal(targetPedido);
+    }
+  }, [params?.focusId, pedidos]);
+
+  const handleCloseModals = () => {
+    setDetailModalOpen(false);
+    setSelectedPedido(null);
+    if (params?.focusId || params?.highlightId) {
+      const { focusId: _focus, highlightId: _highlight, ...rest } = params;
+      setPage('pedidos', rest);
+    }
+  };
+
+  const handleUpdatePedido = async (data: Pick<Pedido, 'items' | 'subtotal' | 'ivaValor' | 'total'>) => {
+    if (!pedidoToEdit || !user) return;
+
+    const pedidoActualizado = await actualizarPedido(pedidoToEdit.id, data, user.nombre);
+    
+    if (pedidoActualizado) {
+        addNotification({ message: `Pedido ${pedidoActualizado.numeroPedido} actualizado correctamente.`, type: 'success' });
+    }
+    setPedidoToEdit(null);
+  };
+
+
+  const executeApproval = async () => {
+    if (!orderToPreview) return;
+    setIsConfirming(true);
+    
+    try {
+      const pedidoAprobado = await aprobarPedido(orderToPreview.id);
+      
+      if (pedidoAprobado) {
+        // Actualizar el pedido en el preview para reflejar el cambio
+        setOrderToPreview(pedidoAprobado);
+        
+        // Cerrar el modal de preview y mostrar el resultado
+        setTimeout(() => {
+          setOrderToPreview(null);
+          setApprovalResult(pedidoAprobado);
+        }, 500); // Pequeño delay para mostrar el cambio
+        
+        addNotification({
+          message: `Pedido ${pedidoAprobado.numeroPedido} aprobado. Listo para remisionar.`,
+          type: 'success',
+        });
+      } else {
+        addNotification({
+          message: 'No se pudo aprobar el pedido. Por favor, intenta nuevamente.',
+          type: 'error',
+        });
+      }
+    } catch (error) {
+      logger.error({ prefix: 'PedidosPage' }, 'Error aprobando pedido:', error);
+      addNotification({
+        message: 'Error al aprobar el pedido. Por favor, intenta nuevamente.',
+        type: 'error',
+      });
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  const handleApproveFromModal = async () => {
+    if (!selectedPedido) return;
+    setIsApproving(true);
+    
+    try {
+      const pedidoAprobado = await aprobarPedido(selectedPedido.id);
+      
+      if (pedidoAprobado) {
+        // Actualizar el pedido en el modal de detalles
+        setSelectedPedido(pedidoAprobado);
+        
+        addNotification({
+          message: `Pedido ${pedidoAprobado.numeroPedido} aprobado.`,
+          type: 'success',
+        });
+      } else {
+        addNotification({
+          message: 'No se pudo aprobar el pedido. Por favor, intenta nuevamente.',
+          type: 'error',
+        });
+      }
+    } catch (error) {
+      logger.error({ prefix: 'PedidosPage' }, 'Error aprobando pedido:', error);
+      addNotification({
+        message: 'Error al aprobar el pedido. Por favor, intenta nuevamente.',
+        type: 'error',
+      });
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const handleMarkReadyForDispatch = async (pedidoId: string) => {
+      const updatedPedido = await marcarPedidoListoParaDespacho(pedidoId);
+      if (updatedPedido) {
+          setSelectedPedido(updatedPedido);
+          addNotification({ message: `Pedido ${updatedPedido.numeroPedido} listo para despacho.`, type: 'success' });
+      }
+  };
+
+
+  const handleCreateRemision = (pedidoId: string) => {
+    handleCloseModals();
+    setApprovalResult(null);
+    setPage('remisiones', { openCreateForPedidoId: pedidoId });
+  };
+
+  const columns: Column<Pedido>[] = [
+    { header: 'Número', accessor: 'numeroPedido' },
+    { header: 'Cotización Origen', accessor: 'cotizacionId', cell: (item) => item.cotizacionId ? cotizaciones.find(c => c.id === item.cotizacionId)?.numeroCotizacion : 'N/A' },
+    { 
+        header: 'Cliente', 
+        accessor: 'clienteId', 
+        cell: (item) => {
+            // Buscar cliente por ID numérico o por codter/numeroDocumento
+            const cliente = clientes.find(c => 
+                String(c.id) === String(item.clienteId) ||
+                c.numeroDocumento === item.clienteId ||
+                c.codter === item.clienteId
+            );
+            return cliente?.nombreCompleto || cliente?.razonSocial || item.clienteId || 'N/A';
+        }
+    },
+    { header: 'Fecha', accessor: 'fechaPedido' },
+    { header: 'Total', accessor: 'total', cell: (item) => formatCurrency(item.total) },
+    { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
+    { header: 'Acciones', accessor: 'id', cell: (item) => (
+      <div className="space-x-3">
+        <button onClick={() => handleOpenDetailModal(item)} className="text-sky-500 hover:underline text-sm font-medium">Detalles</button>
+        <ProtectedComponent permission="pedidos:approve">
+          {(item.estado === 'ENVIADA' || item.estado === 'BORRADOR') && (
+              <button onClick={() => setOrderToPreview(item)} className="text-green-500 hover:underline text-sm font-medium">Aprobar</button>
+          )}
+        </ProtectedComponent>
+      </div>
+    )},
+  ];
+
+  const additionalFilters = (
+    <div className="flex flex-col sm:flex-row gap-4">
+        <div>
+            <label htmlFor="statusFilter" className="sr-only">Estado</label>
+            <select
+              id="statusFilter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+                {filterOptions.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+            </select>
+        </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Gestión de Pedidos</h1>
+      </div>
+      <Card>
+        <TableToolbar 
+            searchTerm={searchTerm}
+            onSearchChange={handleSearch}
+            createActionLabel="Nuevo Pedido"
+            onCreateAction={() => setPage('nuevo_pedido')}
+            additionalFilters={additionalFilters}
+        />
+        <CardContent className="p-0">
+            <Table 
+              columns={columns} 
+              data={paginatedData} 
+              onSort={requestSort} 
+              sortConfig={sortConfig}
+              highlightRowId={params?.highlightId ?? params?.focusId}
+            />
+        </CardContent>
+        <TablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={goToPage}
+          canPreviousPage={currentPage > 1}
+          canNextPage={currentPage < totalPages}
+          onPreviousPage={prevPage}
+          onNextPage={nextPage}
+          totalItems={totalItems}
+          rowsPerPage={rowsPerPage}
+          setRowsPerPage={setRowsPerPage}
+        />
+      </Card>
+
+      {selectedPedido && (
+        <Modal 
+            isOpen={isDetailModalOpen} 
+            onClose={handleCloseModals} 
+            title={`Detalle Pedido: ${selectedPedido.numeroPedido}`}
+            size="5xl"
+        >
+            <div className="space-y-6 text-sm">
+                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg">
+                    <h4 className="text-base font-semibold mb-4 text-center text-slate-700 dark:text-slate-300">Progreso del Ciclo de Venta</h4>
+                    <ProgressFlow>
+                        <ProgressStep title="Cotización" status={selectedPedido.cotizacionId ? 'complete' : 'incomplete'} />
+                        <ProgressStep title="Pedido" status={getPedidoProgressStatus(selectedPedido)}><StatusBadge status={selectedPedido.estado as any} /></ProgressStep>
+                        <ProgressStep title="Remisión" status={getRemisionProgressStatus(selectedPedido)}>
+                             <StatusBadge status={selectedPedido.estado as any} />
+                        </ProgressStep>
+                    </ProgressFlow>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                    <div>
+                        <p className="font-semibold text-slate-600 dark:text-slate-400">Cliente</p>
+                        <p className="text-slate-800 dark:text-slate-200">
+                            {(() => {
+                                // Buscar cliente por ID numérico o por codter/numeroDocumento
+                                const cliente = clientes.find(c => 
+                                    String(c.id) === String(selectedPedido.clienteId) ||
+                                    c.numeroDocumento === selectedPedido.clienteId ||
+                                    c.codter === selectedPedido.clienteId
+                                );
+                                return cliente?.nombreCompleto || cliente?.razonSocial || selectedPedido.clienteId || 'N/A';
+                            })()}
+                        </p>
+                    </div>
+                    <div>
+                        <p className="font-semibold text-slate-600 dark:text-slate-400">Cotización Origen</p>
+                        <p className="text-slate-800 dark:text-slate-200">{selectedPedido.cotizacionId ? cotizaciones.find(c => c.id === selectedPedido.cotizacionId)?.numeroCotizacion : 'N/A'}</p>
+                    </div>
+                    <div>
+                        <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Emisión</p>
+                        <p className="text-slate-800 dark:text-slate-200">{selectedPedido.fechaPedido}</p>
+                    </div>
+                    <div>
+                        <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Entrega Estimada</p>
+                        <p className="text-slate-800 dark:text-slate-200">{selectedPedido.fechaEntregaEstimada || 'N/A'}</p>
+                    </div>
+                    <div className="sm:col-span-2">
+                        <p className="font-semibold text-slate-600 dark:text-slate-400">Instrucciones de Entrega</p>
+                        <p className="text-slate-800 dark:text-slate-200">{selectedPedido.instruccionesEntrega || 'Sin instrucciones.'}</p>
+                    </div>
+                    <div className="flex flex-col items-start">
+                        <p className="font-semibold text-slate-600 dark:text-slate-400">Estado</p>
+                        <StatusBadge status={selectedPedido.estado as any} />
+                    </div>
+                </div>
+                
+                <div>
+                    <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-2">Items del Pedido</h4>
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                        <table className="w-full divide-y divide-slate-200 dark:divide-slate-700 table-auto">
+                            <thead className="bg-slate-50 dark:bg-slate-700">
+                                <tr>
+                                    <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Producto</th>
+                                    <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Unidad</th>
+                                    <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Cant.</th>
+                                    <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">P. Unit.</th>
+                                    <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Desc. %</th>
+                                    <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">IVA %</th>
+                                    <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Subtotal</th>
+                                    <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Valor IVA</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
+                                {selectedPedido.items.map((item: DocumentItem, index: number) => {
+                                    // Buscar producto por ID (puede ser numérico o string)
+                                    const product = productos.find(p => 
+                                        String(p.id) === String(item.productoId) ||
+                                        p.id === item.productoId
+                                    );
+                                    
+                                    // Obtener nombre del producto: primero del producto encontrado, luego del item
+                                    const productoNombre = product?.nombre || 
+                                                          item.descripcion || 
+                                                          item.nombre || 
+                                                          `Producto ${index + 1}`;
+                                    
+                                    // Obtener unidad de medida: primero del producto, luego del item
+                                    const unidadMedida = product?.unidadMedida || 
+                                                       item.unidadMedida || 
+                                                       'Unidad';
+                                    
+                                    const itemSubtotal = (item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100);
+                                    const itemIva = itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
+                                    
+                                    return (
+                                        <tr key={item.productoId || `item-${index}`}>
+                                            <td className="px-4 py-3 break-words text-sm text-slate-700 dark:text-slate-300">
+                                                {productoNombre}
+                                                {!product && (
+                                                    <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
+                                                        <i className="fas fa-exclamation-triangle"></i>
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{unidadMedida}</td>
+                                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{item.cantidad}</td>
+                                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{formatCurrency(item.precioUnitario)}</td>
+                                            <td className="px-4 py-3 text-sm text-red-600 dark:text-red-500 text-right">{item.descuentoPorcentaje.toFixed(2)}%</td>
+                                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{item.ivaPorcentaje}%</td>
+                                            <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-200 text-right">{formatCurrency(itemSubtotal)}</td>
+                                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{formatCurrency(itemIva)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div className="flex justify-end pt-4">
+                    <div className="w-full max-w-sm space-y-2 text-slate-700 dark:text-slate-300 text-sm">
+                        <div className="flex justify-between">
+                            <span>Subtotal Bruto</span>
+                            <span>{formatCurrency(selectedPedidoTotals.subtotalBruto)}</span>
+                        </div>
+                        <div className="flex justify-between text-red-600 dark:text-red-500">
+                            <span>Descuento</span>
+                            <span>-{formatCurrency(selectedPedidoTotals.descuentoTotal)}</span>
+                        </div>
+                        <div className="flex justify-between font-semibold border-t border-slate-300 dark:border-slate-600 pt-2 mt-2">
+                            <span>Subtotal Neto</span>
+                            <span>{formatCurrency(selectedPedidoTotals.subtotalNeto)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>IVA</span>
+                            <span>{formatCurrency(selectedPedidoTotals.iva)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-base border-t-2 border-slate-400 dark:border-slate-500 pt-2 mt-2 text-blue-600 dark:text-blue-400">
+                            <span>TOTAL</span>
+                            <span>{formatCurrency(selectedPedidoTotals.total)}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {selectedPedido.historial && selectedPedido.historial.length > 0 && (
+                    <div>
+                        <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-2">Historial de Cambios</h4>
+                        <div className="max-h-40 overflow-y-auto bg-slate-50 dark:bg-slate-700/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2">
+                            {selectedPedido.historial.slice().reverse().map((log, index) => (
+                                <div key={index} className="text-xs">
+                                    <span className="font-semibold text-slate-800 dark:text-slate-200">{new Date(log.timestamp).toLocaleString('es-CO')} - {log.usuario}: </span>
+                                    <span className="text-slate-600 dark:text-slate-300">{log.accion}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                 <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                     <div>
+                        <ProtectedComponent permission="pedidos:edit">
+                            { (selectedPedido.estado === 'ENVIADA' || selectedPedido.estado === 'BORRADOR') && (
+                                <button onClick={() => { handleCloseModals(); setPedidoToEdit(selectedPedido); }} className="px-4 py-2 bg-yellow-500 text-white font-semibold rounded-lg hover:bg-yellow-600 transition-colors">
+                                    <i className="fas fa-pencil-alt mr-2"></i>Editar Pedido
+                                </button>
+                            )}
+                        </ProtectedComponent>
+                     </div>
+                     <div className="flex items-center gap-3">
+                        <button onClick={handleCloseModals} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">
+                            Cerrar
+                        </button>
+                        <ProtectedComponent permission="pedidos:approve">
+                          {(selectedPedido.estado === 'ENVIADA' || selectedPedido.estado === 'BORRADOR') && (
+                              <button onClick={handleApproveFromModal} disabled={isApproving} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-slate-400">
+                                  {isApproving ? <><i className="fas fa-spinner fa-spin mr-2"></i>Aprobando...</> : <><i className="fas fa-check mr-2"></i>Aprobar Pedido</>}
+                              </button>
+                          )}
+                        </ProtectedComponent>
+                        {(selectedPedido.estado === 'EN_PROCESO' || selectedPedido.estado === 'PARCIALMENTE_REMITIDO') && (
+                             <button onClick={() => handleCreateRemision(selectedPedido.id)} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
+                                <i className="fas fa-truck mr-2"></i>Crear Remisión
+                            </button>
+                        )}
+                     </div>
+                 </div>
+            </div>
+        </Modal>
+      )}
+
+      {pedidoToEdit && (
+          <Modal
+            isOpen={!!pedidoToEdit}
+            onClose={() => setPedidoToEdit(null)}
+            title={`Editar Pedido: ${pedidoToEdit.numeroPedido}`}
+            size="4xl"
+          >
+              <PedidoEditForm
+                initialData={pedidoToEdit}
+                onSubmit={handleUpdatePedido}
+                onCancel={() => setPedidoToEdit(null)}
+              />
+          </Modal>
+      )}
+      
+      {orderToPreview && (() => {
+          // Buscar cliente por ID numérico o por codter/numeroDocumento
+          const cliente = clientes.find(c => 
+              String(c.id) === String(orderToPreview.clienteId) ||
+              c.numeroDocumento === orderToPreview.clienteId ||
+              c.codter === orderToPreview.clienteId
+          );
+          if (!cliente) return null;
+          return (
+            <DocumentPreviewModal
+                isOpen={!!orderToPreview}
+                onClose={() => setOrderToPreview(null)}
+                title={`Previsualizar Pedido: ${orderToPreview.numeroPedido}`}
+                onConfirm={executeApproval}
+                onEdit={() => {
+                    setOrderToPreview(null);
+                    setPedidoToEdit(orderToPreview);
+                }}
+                isConfirming={isConfirming}
+                documentType="pedido"
+                clientEmail={cliente.email}
+                clientName={cliente.nombreCompleto}
+            >
+                <PedidoPDF
+                    pedido={orderToPreview}
+                    cliente={cliente}
+                    empresa={datosEmpresa}
+                />
+            </DocumentPreviewModal>
+          );
+      })()}
+
+      {approvalResult && (() => {
+        const pedido = approvalResult;
+        const subtotalBruto = pedido.items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
+        const descuentoTotal = pedido.items.reduce((acc, item) => {
+            const itemTotalBruto = item.precioUnitario * item.cantidad;
+            return acc + (itemTotalBruto * (item.descuentoPorcentaje / 100));
+        }, 0);
+
+        return (
+            <ApprovalSuccessModal
+                isOpen={!!approvalResult}
+                onClose={() => setApprovalResult(null)}
+                title="¡Pedido Aprobado!"
+                message={
+                    <>
+                        El pedido <strong>{pedido.numeroPedido}</strong> ha sido aprobado y está listo para ser remisionado.
+                    </>
+                }
+                summaryTitle="Resumen del Pedido"
+                summaryDetails={[
+                    { 
+                        label: 'Cliente', 
+                        value: (() => {
+                            const cliente = clientes.find(c => 
+                                String(c.id) === String(pedido.clienteId) ||
+                                c.numeroDocumento === pedido.clienteId ||
+                                c.codter === pedido.clienteId
+                            );
+                            return cliente?.nombreCompleto || cliente?.razonSocial || pedido.clienteId || 'N/A';
+                        })()
+                    },
+                    { label: 'Nº Items', value: pedido.items.length },
+                    { label: 'sep1', value: '', isSeparator: true },
+                    { label: 'Subtotal Bruto', value: formatCurrency(subtotalBruto) },
+                    { label: 'Descuento Total', value: `-${formatCurrency(descuentoTotal)}`, isDiscount: true },
+                    { label: 'Subtotal Neto', value: formatCurrency(pedido.subtotal) },
+                    { label: 'IVA (19%)', value: formatCurrency(pedido.ivaValor) },
+                    { label: 'Total Pedido', value: formatCurrency(pedido.total), isTotal: true },
+                ]}
+                primaryAction={{
+                    label: 'Crear Remisión',
+                    onClick: () => handleCreateRemision(pedido.id),
+                }}
+            />
+        );
+      })()}
+
+    </div>
+  );
+};
+
+export default PedidosPage;

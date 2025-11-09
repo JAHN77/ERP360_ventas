@@ -1,0 +1,1 @@
+// Este archivo puede ser utilizado para constantes globales del proyecto.

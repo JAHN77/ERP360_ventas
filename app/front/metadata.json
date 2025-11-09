@@ -1,0 +1,5 @@
+{
+  "name": " ERP360 Comercial conectado a la base de datos",
+  "description": "Un sistema de gestión empresarial (ERP) para la gestión comercial, desarrollado en React/TypeScript con una arquitectura moderna y modular.",
+  "requestFramePermissions": []
+}

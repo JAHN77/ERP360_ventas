@@ -1,0 +1,24 @@
+import React from 'react';
+import { useNavigation } from '../hooks/useNavigation';
+
+const NotFoundPage: React.FC = () => {
+    const { setPage } = useNavigation();
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center">
+      <i className="fas fa-exclamation-triangle fa-5x text-yellow-500 mb-4"></i>
+      <h1 className="text-4xl font-bold text-slate-800 dark:text-slate-100">Página no Encontrada</h1>
+      <p className="text-lg text-slate-600 dark:text-slate-400 mt-2">
+        La página que buscas no existe o ha sido movida.
+      </p>
+      <button 
+        onClick={() => setPage('dashboard')}
+        className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+      >
+        Volver al Dashboard
+      </button>
+    </div>
+  );
+};
+
+export default NotFoundPage;
