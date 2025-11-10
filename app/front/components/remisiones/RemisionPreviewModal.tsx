@@ -8,18 +8,13 @@ import DocumentOptionsToolbar from '../comercial/DocumentOptionsToolbar';
 import SendEmailModal from '../comercial/SendEmailModal';
 import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
+import { descargarElementoComoPDF } from '../../utils/pdfClient';
 
 interface RemisionPreviewModalProps {
     remision: Remision | null;
     onClose: () => void;
 }
 
-declare global {
-  interface Window {
-    jspdf: any;
-    html2canvas: any;
-  }
-}
 
 const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, onClose }) => {
     const { addNotification } = useNotifications();
@@ -42,50 +37,21 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
     }, [remision, pedidos, clientes]);
 
     const handlePrint = async () => {
-        if (!remision || !componentRef.current) return;
+        if (!remision || !relatedData?.cliente || !componentRef.current) return;
     
         addNotification({ message: `Preparando impresión para ${remision.numeroRemision}...`, type: 'info' });
     
         try {
-            const { jsPDF } = window.jspdf;
-            const canvas = await window.html2canvas(componentRef.current, { scale: 2, useCORS: true });
-            const imgData = canvas.toDataURL('image/png');
+            const cliente = relatedData.cliente;
+            const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
+            await descargarElementoComoPDF(componentRef.current, {
+                fileName: `Remision-${remision.numeroRemision}-${safeClientName}-${remision.fechaRemision}.pdf`,
+            });
             
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            const imgProps = pdf.getImageProperties(imgData);
-            const ratio = imgProps.width / imgProps.height;
-            let finalWidth = pdfWidth;
-            let finalHeight = finalWidth / ratio;
-            
-            if (finalHeight > pdfHeight) {
-                finalHeight = pdfHeight;
-                finalWidth = finalHeight * ratio;
-            }
-    
-            const x = (pdfWidth - finalWidth) / 2;
-            const y = (pdfHeight - finalHeight) / 2;
-    
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            pdf.autoPrint();
-            
-            const pdfBlob = pdf.output('blob');
-            const blobUrl = URL.createObjectURL(pdfBlob);
-    
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.src = blobUrl;
-    
-            iframe.onload = () => {
-                URL.revokeObjectURL(blobUrl);
-                if (document.body.contains(iframe)) {
-                    document.body.removeChild(iframe);
-                }
-            };
-    
-            document.body.appendChild(iframe);
-    
+            // Abrir el PDF en una nueva ventana para imprimir
+            setTimeout(() => {
+                window.print();
+            }, 500);
         } catch (error) {
             console.error('Error al generar el PDF para impresión:', error);
             addNotification({ message: 'No se pudo generar el documento para imprimir.', type: 'warning' });
@@ -97,36 +63,14 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
         
         const cliente = relatedData.cliente;
 
-        addNotification({ message: `La descarga de la remisión ${remision.numeroRemision} ha comenzado...`, type: 'info' });
+        addNotification({ message: `Generando PDF para ${remision.numeroRemision}...`, type: 'info' });
 
         try {
-            const { jsPDF } = window.jspdf;
-            const canvas = await window.html2canvas(componentRef.current, { scale: 2, useCORS: true });
-            const imgData = canvas.toDataURL('image/png');
-            
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            const imgProps = pdf.getImageProperties(imgData);
-            const ratio = imgProps.width / imgProps.height;
-            let finalWidth = pdfWidth;
-            let finalHeight = finalWidth / ratio;
-            
-            if (finalHeight > pdfHeight) {
-                finalHeight = pdfHeight;
-                finalWidth = finalHeight * ratio;
-            }
-
-            const x = (pdfWidth - finalWidth) / 2;
-            const y = (pdfHeight - finalHeight) / 2;
-
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            
             const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
-            const fileName = `Remision-${remision.numeroRemision}-${safeClientName}-${remision.fechaRemision}.pdf`;
-            
-            pdf.save(fileName);
-
+            await descargarElementoComoPDF(componentRef.current, {
+                fileName: `Remision-${remision.numeroRemision}-${safeClientName}-${remision.fechaRemision}.pdf`,
+            });
+            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
         } catch (error) {
             console.error('Error al generar el PDF:', error);
             addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });

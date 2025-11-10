@@ -8,18 +8,13 @@ import DocumentOptionsToolbar from '../comercial/DocumentOptionsToolbar';
 import SendEmailModal from '../comercial/SendEmailModal';
 import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
+import { descargarElementoComoPDF } from '../../utils/pdfClient';
 
 interface FacturaPreviewModalProps {
     factura: Factura | null;
     onClose: () => void;
 }
 
-declare global {
-  interface Window {
-    jspdf: any;
-    html2canvas: any;
-  }
-}
 
 const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onClose }) => {
     const { addNotification } = useNotifications();
@@ -41,79 +36,19 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
             addNotification({ message: 'No hay contenido para imprimir. Por favor, intenta nuevamente.', type: 'warning' });
             return;
         }
-
-        // Verificar que las librerías estén disponibles
-        if (!window.html2canvas || typeof window.html2canvas !== 'function') {
-            addNotification({ 
-                message: 'La biblioteca html2canvas no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('html2canvas no disponible:', typeof window.html2canvas);
-            return;
-        }
-
-        if (!window.jspdf || typeof window.jspdf !== 'object') {
-            addNotification({ 
-                message: 'La biblioteca jsPDF no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('jsPDF no disponible:', typeof window.jspdf);
-            return;
-        }
     
         addNotification({ message: `Preparando impresión para ${factura.numeroFactura}...`, type: 'info' });
     
         try {
-            const { jsPDF } = window.jspdf;
+            const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
+            await descargarElementoComoPDF(componentRef.current, {
+                fileName: `Factura-${factura.numeroFactura}-${safeClientName}-${factura.fechaFactura}.pdf`,
+            });
             
-            if (!jsPDF) {
-                throw new Error('jsPDF no está disponible en window.jspdf');
-            }
-            
-            const canvas = await window.html2canvas(componentRef.current, { scale: 2, useCORS: true });
-            const imgData = canvas.toDataURL('image/png');
-            
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-            
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            
-            const imgProps = pdf.getImageProperties(imgData);
-            const imgWidth = imgProps.width;
-            const imgHeight = imgProps.height;
-            
-            const ratio = imgWidth / imgHeight;
-            let finalWidth = pdfWidth;
-            let finalHeight = finalWidth / ratio;
-            
-            if (finalHeight > pdfHeight) {
-                finalHeight = pdfHeight;
-                finalWidth = finalHeight * ratio;
-            }
-    
-            const x = (pdfWidth - finalWidth) / 2;
-            const y = (pdfHeight - finalHeight) / 2;
-            
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            
-            pdf.autoPrint();
-
-            const pdfBlob = pdf.output('blob');
-            const blobUrl = URL.createObjectURL(pdfBlob);
-    
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.src = blobUrl;
-
-            iframe.onload = () => {
-                URL.revokeObjectURL(blobUrl);
-                if (document.body.contains(iframe)) {
-                    document.body.removeChild(iframe);
-                }
-            };
-    
-            document.body.appendChild(iframe);
-    
+            // Abrir el PDF en una nueva ventana para imprimir
+            setTimeout(() => {
+                window.print();
+            }, 500);
         } catch (error) {
             console.error('Error al generar el PDF para impresión:', error);
             addNotification({ message: 'No se pudo generar el documento para imprimir.', type: 'warning' });
@@ -126,65 +61,14 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
             return;
         }
 
-        // Verificar que las librerías estén disponibles
-        if (!window.html2canvas || typeof window.html2canvas !== 'function') {
-            addNotification({ 
-                message: 'La biblioteca html2canvas no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('html2canvas no disponible:', typeof window.html2canvas);
-            return;
-        }
-
-        if (!window.jspdf || typeof window.jspdf !== 'object') {
-            addNotification({ 
-                message: 'La biblioteca jsPDF no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('jsPDF no disponible:', typeof window.jspdf);
-            return;
-        }
-
-        addNotification({ message: `La descarga de la factura ${factura.numeroFactura} ha comenzado...`, type: 'info' });
+        addNotification({ message: `Generando PDF para ${factura.numeroFactura}...`, type: 'info' });
 
         try {
-            const { jsPDF } = window.jspdf;
-            
-            if (!jsPDF) {
-                throw new Error('jsPDF no está disponible en window.jspdf');
-            }
-            
-            const canvas = await window.html2canvas(componentRef.current, { scale: 2, useCORS: true });
-            const imgData = canvas.toDataURL('image/png');
-            
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-            
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            
-            const imgProps = pdf.getImageProperties(imgData);
-            const imgWidth = imgProps.width;
-            const imgHeight = imgProps.height;
-            
-            const ratio = imgWidth / imgHeight;
-            let finalWidth = pdfWidth;
-            let finalHeight = finalWidth / ratio;
-            
-            if (finalHeight > pdfHeight) {
-                finalHeight = pdfHeight;
-                finalWidth = finalHeight * ratio;
-            }
-
-            const x = (pdfWidth - finalWidth) / 2;
-            const y = (pdfHeight - finalHeight) / 2;
-            
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            
             const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
-            const fileName = `Factura-${factura.numeroFactura}-${safeClientName}-${factura.fechaFactura}.pdf`;
-            
-            pdf.save(fileName);
-            
+            await descargarElementoComoPDF(componentRef.current, {
+                fileName: `Factura-${factura.numeroFactura}-${safeClientName}-${factura.fechaFactura}.pdf`,
+            });
+            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
         } catch (error) {
             console.error('Error al generar el PDF:', error);
             addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });

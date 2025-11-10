@@ -6,7 +6,7 @@ const { QUERIES } = require('./services/dbConfig.cjs');
 const { getConnection } = require('./services/sqlServerClient.cjs');
 const sql = require('mssql');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const puppeteer = require('puppeteer');
+// puppeteer ahora se usa a través de PuppeteerService
 
 // Cargar variables de entorno
 dotenv.config();
@@ -67,7 +67,18 @@ const getGeminiModel = () => {
 };
 
 // Middleware
-app.use(cors());
+// CORS configurado para permitir solicitudes desde el frontend
+// En Vercel, el frontend y backend están en el mismo dominio, así que cors() sin opciones es suficiente
+if (process.env.VERCEL) {
+  // En Vercel, frontend y backend están en el mismo dominio, permitir todas las solicitudes
+  app.use(cors());
+} else {
+  // En desarrollo, configurar CORS explícitamente
+  app.use(cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials: true
+  }));
+}
 app.use(express.json({ limit: '5mb' }));
 
 // Middleware de logging
@@ -76,39 +87,35 @@ app.use((req, res, next) => {
   next();
 });
 
+// Importar servicios refactorizados
+const PdfService = require('./services/pdf/PdfService');
+
 app.post('/api/generar-pdf', async (req, res) => {
   const { html, fileName } = req.body || {};
-  console.log('[PDF] Request recibido. html length:', html ? html.length : 0, 'fileName:', fileName);
-  if (html) {
-    console.log('[PDF] HTML preview:', html.substring(0, 500).replace(/\s+/g, ' ').trim(), '...');
-  }
-
+  
   if (!html || typeof html !== 'string' || !html.trim()) {
-    return res.status(400).json({ success: false, message: 'El contenido HTML es requerido.' });
+    return res.status(400).json({ 
+      success: false, 
+      message: 'El contenido HTML es requerido.' 
+    });
   }
 
-  let browser;
+  const pdfService = new PdfService();
+  
   try {
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-
-    const page = await browser.newPage();
-    page.on('requestfailed', req => {
-      console.warn('[PDF] request failed:', req.url(), req.failure()?.errorText);
-    });
-    page.on('requestfinished', req => {
-      console.log('[PDF] request finished:', req.url());
-    });
-    await page.setContent(html, { waitUntil: ['load', 'networkidle0'] });
-
-    const pdfBuffer = await page.pdf({
+    // Generar PDF usando el servicio refactorizado
+    const pdfBuffer = await pdfService.generatePdf(html, {
+      fileName,
       format: 'A4',
-      printBackground: true,
-      margin: { top: '10mm', right: '12mm', bottom: '12mm', left: '12mm' },
+      margin: {
+        top: '10mm',
+        right: '12mm',
+        bottom: '12mm',
+        left: '12mm'
+      }
     });
 
+    // Preparar respuesta
     const safeName = typeof fileName === 'string' && fileName.trim()
       ? fileName.trim().replace(/[^\w.-]/g, '_')
       : 'documento.pdf';
@@ -120,17 +127,14 @@ app.post('/api/generar-pdf', async (req, res) => {
     });
 
     res.send(pdfBuffer);
+
   } catch (error) {
-    console.error('Error generando PDF con Puppeteer:', error);
-    res.status(500).json({ success: false, message: 'No se pudo generar el PDF' });
-  } finally {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (closeError) {
-        console.warn('Error cerrando instancia de Puppeteer:', closeError);
-      }
-    }
+    console.error('[PDF] Error generando PDF:', error);
+    res.status(500).json({
+      success: false,
+      message: 'No se pudo generar el PDF',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -4547,16 +4551,21 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Iniciar servidor
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor API ejecutándose en puerto ${PORT}`);
-  console.log(`📡 URL: http://localhost:${PORT}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🔗 Test connection: http://localhost:${PORT}/api/test-connection`);
-  console.log(`\n📋 Endpoints de Facturas disponibles:`);
-  console.log(`   GET  /api/facturas - Listar facturas`);
-  console.log(`   POST /api/facturas - Crear factura`);
-  console.log(`   PUT  /api/facturas/:id - Actualizar factura`);
-});
+// Iniciar servidor solo si no estamos en Vercel (serverless)
+// En Vercel, el servidor se ejecuta como función serverless
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor API ejecutándose en puerto ${PORT}`);
+    console.log(`📡 URL: http://localhost:${PORT}`);
+    console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`🔗 Test connection: http://localhost:${PORT}/api/test-connection`);
+    console.log(`\n📋 Endpoints de Facturas disponibles:`);
+    console.log(`   GET  /api/facturas - Listar facturas`);
+    console.log(`   POST /api/facturas - Crear factura`);
+    console.log(`   PUT  /api/facturas/:id - Actualizar factura`);
+  });
+} else {
+  console.log('🌐 Ejecutándose en Vercel (Serverless Functions)');
+}
 
 module.exports = app;
