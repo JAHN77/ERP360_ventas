@@ -21,6 +21,9 @@ interface CotizacionFormData {
     observacionesInternas?: string;
     cliente?: Cliente | null;
     vendedor?: Vendedor | null;
+    formaPago?: string;
+    valorAnticipo?: number;
+    numOrdenCompra?: string;
     // domicilios removido por optimización de UI
 }
 
@@ -47,6 +50,9 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     const [isVendedorOpen, setIsVendedorOpen] = useState(false);
     const [items, setItems] = useState<DocumentItem[]>([]);
     const [observacionesInternas, setObservacionesInternas] = useState('');
+    const [formaPago, setFormaPago] = useState('01'); // Por defecto: Contado
+    const [valorAnticipo, setValorAnticipo] = useState<number | string>(0);
+    const [numOrdenCompra, setNumOrdenCompra] = useState<string>('');
     // Removido: domicilios
 
     const [currentProductId, setCurrentProductId] = useState('');
@@ -72,6 +78,9 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             setSelectedVendedor(vendedores.find(v => v.id === initialData.vendedorId) || null);
             setItems(initialData.items);
             setObservacionesInternas(initialData.observacionesInternas || '');
+            setFormaPago(initialData.formaPago || '01');
+            setValorAnticipo(initialData.valorAnticipo || 0);
+            setNumOrdenCompra(initialData.numOrdenCompra?.toString() || '');
             // domicilios removido
         }
     }, [initialData, clientes, vendedores]);
@@ -370,7 +379,10 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             observacionesInternas,
             cliente: selectedCliente,
             vendedor: selectedVendedor,
-        });
+            formaPago,
+            valorAnticipo: Number(valorAnticipo) || 0,
+            numOrdenCompra: numOrdenCompra.trim() || undefined,
+        } as any);
     }
     
     const canSubmit = clienteId && vendedorId && items.length > 0;
@@ -633,6 +645,54 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         </div> */}
                     </Card>
                 )}
+            </div>
+
+            {/* Campos adicionales de cotización */}
+            <div className="grid md:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
+                        Forma de Pago
+                    </label>
+                    <select
+                        id="formaPago"
+                        value={formaPago}
+                        onChange={(e) => setFormaPago(e.target.value)}
+                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        <option value="01">Contado</option>
+                        <option value="02">Crédito</option>
+                        <option value="03">Mixto</option>
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="valorAnticipo" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
+                        Valor Anticipo (Opcional)
+                    </label>
+                    <input
+                        type="text"
+                        id="valorAnticipo"
+                        value={valorAnticipo}
+                        onChange={(e) => {
+                            const val = e.target.value.replace(/[^0-9]/g, '');
+                            setValorAnticipo(val === '' ? '' : val);
+                        }}
+                        placeholder="0"
+                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-right"
+                    />
+                </div>
+                <div>
+                    <label htmlFor="numOrdenCompra" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
+                        N° Orden de Compra (Opcional)
+                    </label>
+                    <input
+                        type="text"
+                        id="numOrdenCompra"
+                        value={numOrdenCompra}
+                        onChange={(e) => setNumOrdenCompra(e.target.value)}
+                        placeholder="Número de orden del cliente"
+                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                </div>
             </div>
             
             <div className="border-t border-b border-slate-200 dark:border-slate-700 py-4 mb-4">

@@ -4,7 +4,6 @@ import Card, { CardContent } from '../components/ui/Card';
 import { InvProducto } from '../types';
 import { useNavigation } from '../hooks/useNavigation';
 import Modal from '../components/ui/Modal';
-import { useTable } from '../hooks/useTable';
 import { TableToolbar } from '../components/ui/TableToolbar';
 import TablePagination from '../components/ui/TablePagination';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
@@ -20,20 +19,66 @@ const ProductosPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const [productos, setProductos] = useState<InvProducto[]>([]);
   const [categorias, setCategorias] = useState<Array<{ id: number; nombre: string; estado: number }>>([]);
-  useEffect(() => {
-    (async () => {
-      const [prodRes, catRes] = await Promise.all([
-        apiClient.getProductos(),
-        apiClient.getCategorias()
-      ]);
-      if (prodRes.success) setProductos((prodRes.data as any[]) as InvProducto[]);
-      if (catRes.success) setCategorias((catRes.data as any[]) as any);
-    })();
-  }, []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedProducto, setSelectedProducto] = useState<InvProducto | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('Todos');
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
+  
+  // Estados para paginación del servidor
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof InvProducto | null; direction: 'asc' | 'desc' } | null>(null);
+  
+  // Cargar categorías una sola vez
+  useEffect(() => {
+    (async () => {
+      const catRes = await apiClient.getCategorias();
+      if (catRes.success) setCategorias((catRes.data as any[]) as any);
+    })();
+  }, []);
+
+  // Cargar productos con paginación (con debounce para búsqueda)
+  useEffect(() => {
+    const loadProductos = async () => {
+      setIsLoading(true);
+      try {
+        const prodRes = await apiClient.getProductos(undefined, currentPage, pageSize, searchTerm || undefined);
+        if (prodRes.success) {
+          let productosData = (prodRes.data as any[]) as InvProducto[];
+          
+          // Aplicar filtro de categoría en el cliente
+          if (categoryFilter !== 'Todos') {
+            productosData = productosData.filter(p => p.idCategoria === parseInt(categoryFilter));
+          }
+          
+          setProductos(productosData);
+          
+          // Usar información de paginación del servidor
+          if ((prodRes as any).pagination) {
+            // Nota: El total puede no ser exacto si se aplica filtro de categoría en el cliente
+            // Para mejor precisión, considera mover el filtro de categoría al servidor
+            setTotalItems((prodRes as any).pagination.total);
+            setTotalPages((prodRes as any).pagination.totalPages);
+          }
+        }
+      } catch (error) {
+        console.error('Error cargando productos:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    // Debounce para búsqueda: esperar 500ms después de que el usuario deje de escribir
+    const timeoutId = setTimeout(() => {
+      loadProductos();
+    }, searchTerm ? 500 : 0); // Si hay búsqueda, esperar; si no, cargar inmediatamente
+    
+    return () => clearTimeout(timeoutId);
+  }, [currentPage, pageSize, searchTerm, categoryFilter]);
   
   const handleOpenModal = (producto: InvProducto) => {
     setSelectedProducto(producto);
@@ -89,30 +134,35 @@ const ProductosPage: React.FC = () => {
     resetManagedColumns
   } = useColumnManager('productos', defaultColumns);
 
-  const filteredProducts = useMemo(() => {
-    return productos.filter(producto => {
-      return categoryFilter === 'Todos' || producto.idCategoria === parseInt(categoryFilter);
-    });
-  }, [productos, categoryFilter]);
+  // Handlers para paginación
+  const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setSearchTerm(value);
+    setCurrentPage(1); // Reset a primera página al buscar
+  };
 
-  const {
-    paginatedData,
-    requestSort,
-    sortConfig,
-    searchTerm,
-    handleSearch,
-    currentPage,
-    totalPages,
-    nextPage,
-    prevPage,
-    goToPage,
-    totalItems,
-    rowsPerPage,
-    setRowsPerPage,
-  } = useTable<InvProducto>({
-    data: filteredProducts,
-    searchKeys: ['nombre', 'referencia'],
-  });
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPageSize(newPageSize);
+    setCurrentPage(1); // Reset a primera página al cambiar tamaño
+  };
+
+  const handleCategoryFilterChange = (value: string) => {
+    setCategoryFilter(value);
+    setCurrentPage(1); // Reset a primera página al cambiar categoría
+  };
+
+  const requestSort = (key: keyof InvProducto) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+    // TODO: Implementar ordenamiento en el servidor si es necesario
+  };
 
   const additionalFilters = (
     <div className="flex flex-col sm:flex-row gap-4">
@@ -121,7 +171,7 @@ const ProductosPage: React.FC = () => {
             <select
               id="categoryFilter"
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
+              onChange={(e) => handleCategoryFilterChange(e.target.value)}
               className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
                 <option value="Todos">Todas las Categorías</option>
@@ -146,25 +196,31 @@ const ProductosPage: React.FC = () => {
               onCustomizeColumns={() => setIsColumnModalOpen(true)}
             />
             <CardContent className="p-0">
-                <Table 
-                  columns={visibleColumns} 
-                  data={paginatedData} 
-                  onSort={requestSort} 
-                  sortConfig={sortConfig}
-                  highlightRowId={params?.highlightId ?? params?.focusId}
-                />
+                {isLoading ? (
+                  <div className="p-8 text-center text-slate-600 dark:text-slate-400">
+                    Cargando productos...
+                  </div>
+                ) : (
+                  <Table 
+                    columns={visibleColumns} 
+                    data={productos} 
+                    onSort={requestSort} 
+                    sortConfig={sortConfig}
+                    highlightRowId={params?.highlightId ?? params?.focusId}
+                  />
+                )}
             </CardContent>
              <TablePagination
               currentPage={currentPage}
               totalPages={totalPages}
-              onPageChange={goToPage}
+              onPageChange={handlePageChange}
               canPreviousPage={currentPage > 1}
               canNextPage={currentPage < totalPages}
-              onPreviousPage={prevPage}
-              onNextPage={nextPage}
+              onPreviousPage={() => handlePageChange(currentPage - 1)}
+              onNextPage={() => handlePageChange(currentPage + 1)}
               totalItems={totalItems}
-              rowsPerPage={rowsPerPage}
-              setRowsPerPage={setRowsPerPage}
+              rowsPerPage={pageSize}
+              setRowsPerPage={handlePageSizeChange}
             />
         </Card>
 

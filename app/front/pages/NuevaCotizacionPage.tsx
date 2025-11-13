@@ -115,10 +115,12 @@ const NuevaCotizacionPage: React.FC = () => {
                 ivaValor: formData.ivaValor,
                 total: formData.total,
                 descuentoValor: descuentoTotal,
-
                 observacionesInternas: formData.observacionesInternas,
                 estado: 'ENVIADA',
                 empresaId: datosEmpresa.id,
+                formaPago: formData.formaPago,
+                valorAnticipo: formData.valorAnticipo,
+                numOrdenCompra: formData.numOrdenCompra ? parseInt(formData.numOrdenCompra, 10) : undefined,
             };
             setPreviewCliente(resolvedCliente);
             setPreviewVendedor(resolvedVendedor);

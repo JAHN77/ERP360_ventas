@@ -116,8 +116,27 @@ const CotizacionesPage: React.FC = () => {
       'estado',
       (item) => clientes.find(c => c.id === item.clienteId)?.nombreCompleto || '',
       (item) => {
-          const vendedor = vendedores.find(v => v.id === item.vendedorId);
-          return vendedor ? `${vendedor.primerNombre} ${vendedor.primerApellido}` : '';
+          let vendedor = null;
+          if (item.vendedorId) {
+            vendedor = vendedores.find(v => String(v.id) === String(item.vendedorId));
+          }
+          if (!vendedor && item.codVendedor) {
+            const codVendedor = String(item.codVendedor).trim();
+            vendedor = vendedores.find(v => {
+              if (v.codigoVendedor && String(v.codigoVendedor).trim() === codVendedor) return true;
+              if (v.codigo && String(v.codigo).trim() === codVendedor) return true;
+              return false;
+            });
+          }
+          if (!vendedor && item.vendedorId) {
+            const codBuscado = String(item.vendedorId).trim();
+            vendedor = vendedores.find(v => {
+              if (v.codigoVendedor && String(v.codigoVendedor).trim() === codBuscado) return true;
+              if (v.codigo && String(v.codigo).trim() === codBuscado) return true;
+              return false;
+            });
+          }
+          return vendedor ? `${vendedor.primerNombre || ''} ${vendedor.primerApellido || ''}`.trim() : '';
       },
     ],
   });
@@ -436,8 +455,31 @@ const CotizacionesPage: React.FC = () => {
       }
     },
     { header: 'Vendedor', accessor: 'vendedorId', cell: (item) => {
-        const vendedor = vendedores.find(v => v.id === item.vendedorId);
-        return vendedor ? `${vendedor.primerNombre} ${vendedor.primerApellido}` : 'N/A';
+        // Buscar vendedor por ID o código
+        let vendedor = null;
+        if (item.vendedorId) {
+          // Primero buscar por ID numérico (ideven)
+          vendedor = vendedores.find(v => String(v.id) === String(item.vendedorId));
+        }
+        // Si no se encuentra por ID, buscar por código (codven)
+        if (!vendedor && item.codVendedor) {
+          vendedor = vendedores.find(v => {
+            const codVendedor = String(item.codVendedor || '').trim();
+            if (v.codigoVendedor && String(v.codigoVendedor).trim() === codVendedor) return true;
+            if (v.codigo && String(v.codigo).trim() === codVendedor) return true;
+            return false;
+          });
+        }
+        // Si aún no se encuentra, intentar buscar por vendedorId como código
+        if (!vendedor && item.vendedorId) {
+          vendedor = vendedores.find(v => {
+            const codBuscado = String(item.vendedorId).trim();
+            if (v.codigoVendedor && String(v.codigoVendedor).trim() === codBuscado) return true;
+            if (v.codigo && String(v.codigo).trim() === codBuscado) return true;
+            return false;
+          });
+        }
+        return vendedor ? `${vendedor.primerNombre || ''} ${vendedor.primerApellido || ''}`.trim() : 'N/A';
     } },
     { header: 'Total', accessor: 'total', cell: (item) => formatCurrency(item.total) },
     { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
@@ -600,7 +642,32 @@ const CotizacionesPage: React.FC = () => {
               </div>
               <div>
                 <p className="font-semibold text-slate-600 dark:text-slate-400">Vendedor:</p>
-                <p>{(() => { const v = vendedores.find(v => v.id === selectedCotizacion.vendedorId); return v ? `${v.primerNombre} ${v.primerApellido}` : null; })()}</p>
+                <p>{(() => { 
+                  let v = null;
+                  // Buscar por ID primero
+                  if (selectedCotizacion.vendedorId) {
+                    v = vendedores.find(v => String(v.id) === String(selectedCotizacion.vendedorId));
+                  }
+                  // Si no se encuentra, buscar por código
+                  if (!v && selectedCotizacion.codVendedor) {
+                    const codVendedor = String(selectedCotizacion.codVendedor).trim();
+                    v = vendedores.find(v => {
+                      if (v.codigoVendedor && String(v.codigoVendedor).trim() === codVendedor) return true;
+                      if (v.codigo && String(v.codigo).trim() === codVendedor) return true;
+                      return false;
+                    });
+                  }
+                  // Si aún no se encuentra, intentar vendedorId como código
+                  if (!v && selectedCotizacion.vendedorId) {
+                    const codBuscado = String(selectedCotizacion.vendedorId).trim();
+                    v = vendedores.find(v => {
+                      if (v.codigoVendedor && String(v.codigoVendedor).trim() === codBuscado) return true;
+                      if (v.codigo && String(v.codigo).trim() === codBuscado) return true;
+                      return false;
+                    });
+                  }
+                  return v ? `${v.primerNombre || ''} ${v.primerApellido || ''}`.trim() : 'N/A';
+                })()}</p>
               </div>
               <div>
                 <p className="font-semibold text-slate-600 dark:text-slate-400">Teléfono:</p>
@@ -618,6 +685,48 @@ const CotizacionesPage: React.FC = () => {
                 <p className="font-semibold text-slate-600 dark:text-slate-400">Estado:</p>
                 <p><StatusBadge status={selectedCotizacion.estado as any} /></p>
               </div>
+              {selectedCotizacion.fechaVencimiento && (
+                <div>
+                  <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Vencimiento:</p>
+                  <p>{String(selectedCotizacion.fechaVencimiento).split('T')[0]}</p>
+                </div>
+              )}
+              {selectedCotizacion.formaPago && (
+                <div>
+                  <p className="font-semibold text-slate-600 dark:text-slate-400">Forma de Pago:</p>
+                  <p>{selectedCotizacion.formaPago === '01' ? 'Contado' : selectedCotizacion.formaPago === '02' ? 'Crédito' : selectedCotizacion.formaPago === '03' ? 'Mixto' : selectedCotizacion.formaPago}</p>
+                </div>
+              )}
+              {selectedCotizacion.valorAnticipo && selectedCotizacion.valorAnticipo > 0 && (
+                <div>
+                  <p className="font-semibold text-slate-600 dark:text-slate-400">Valor Anticipo:</p>
+                  <p>{formatCurrency(selectedCotizacion.valorAnticipo)}</p>
+                </div>
+              )}
+              {selectedCotizacion.numOrdenCompra && (
+                <div>
+                  <p className="font-semibold text-slate-600 dark:text-slate-400">N° Orden de Compra:</p>
+                  <p>{selectedCotizacion.numOrdenCompra}</p>
+                </div>
+              )}
+              {selectedCotizacion.fechaAprobacion && (
+                <div>
+                  <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Aprobación:</p>
+                  <p>{String(selectedCotizacion.fechaAprobacion).split('T')[0]}</p>
+                </div>
+              )}
+              {selectedCotizacion.codUsuario && (
+                <div>
+                  <p className="font-semibold text-slate-600 dark:text-slate-400">Usuario Creador:</p>
+                  <p>{selectedCotizacion.codUsuario}</p>
+                </div>
+              )}
+              {selectedCotizacion.fechaCreacion && (
+                <div>
+                  <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Creación:</p>
+                  <p>{new Date(selectedCotizacion.fechaCreacion).toLocaleString('es-CO')}</p>
+                </div>
+              )}
               {selectedCotizacion.observacionesInternas && (
                 <div className="sm:col-span-2">
                     <p className="font-semibold text-slate-600 dark:text-slate-400">Observaciones Internas (Supervisor):</p>
@@ -687,13 +796,27 @@ const CotizacionesPage: React.FC = () => {
                                             </span>
                                         )}
                                     </td>
-                                    <td className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300">{product?.unidadMedida || 'N/A'}</td>
-                                    <td className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300 text-right">{item.cantidad}</td>
+                                    <td className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300">{product?.unidadMedida || item.codigoMedida || 'N/A'}</td>
+                                    <td className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300 text-right">
+                                      {item.cantidad}
+                                      {item.cantFacturada && item.cantFacturada > 0 && (
+                                        <span className="ml-2 text-xs text-blue-600 dark:text-blue-400" title="Cantidad facturada">
+                                          ({item.cantFacturada} fact.)
+                                        </span>
+                                      )}
+                                    </td>
                                     <td className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300 text-right">{formatCurrency(item.precioUnitario)}</td>
                                     <td className="px-4 py-2 text-sm text-red-600 dark:text-red-500 text-right">{item.descuentoPorcentaje}%</td>
                                     <td className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300 text-right">{item.ivaPorcentaje}%</td>
                                     <td className="px-4 py-2 text-sm font-semibold text-slate-800 dark:text-slate-200 text-right">{formatCurrency(itemSubtotal)}</td>
-                                    <td className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300 text-right">{formatCurrency(itemIva)}</td>
+                                    <td className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300 text-right">
+                                      {formatCurrency(itemIva)}
+                                      {item.numFactura && (
+                                        <div className="text-xs text-blue-600 dark:text-blue-400 mt-1" title="Factura relacionada">
+                                          Fact: {item.numFactura}
+                                        </div>
+                                      )}
+                                    </td>
                                 </tr>
                             );
                         })}
@@ -777,7 +900,26 @@ const CotizacionesPage: React.FC = () => {
 
       {quoteToPreview && (() => {
         const cliente = clientes.find(c => c.id === quoteToPreview.clienteId);
-        const vendedor = vendedores.find(v => v.id === quoteToPreview.vendedorId);
+        let vendedor = null;
+        if (quoteToPreview.vendedorId) {
+          vendedor = vendedores.find(v => String(v.id) === String(quoteToPreview.vendedorId));
+        }
+        if (!vendedor && quoteToPreview.codVendedor) {
+          const codVendedor = String(quoteToPreview.codVendedor).trim();
+          vendedor = vendedores.find(v => {
+            if (v.codigoVendedor && String(v.codigoVendedor).trim() === codVendedor) return true;
+            if (v.codigo && String(v.codigo).trim() === codVendedor) return true;
+            return false;
+          });
+        }
+        if (!vendedor && quoteToPreview.vendedorId) {
+          const codBuscado = String(quoteToPreview.vendedorId).trim();
+          vendedor = vendedores.find(v => {
+            if (v.codigoVendedor && String(v.codigoVendedor).trim() === codBuscado) return true;
+            if (v.codigo && String(v.codigo).trim() === codBuscado) return true;
+            return false;
+          });
+        }
         if (!cliente || !vendedor) return null;
 
         return (
@@ -829,7 +971,29 @@ const CotizacionesPage: React.FC = () => {
                 summaryTitle="Resumen del Pedido Creado"
                 summaryDetails={[
                     { label: 'Cliente', value: clientes.find(c => c.id === pedido.clienteId)?.nombreCompleto || 'N/A' },
-                    { label: 'Vendedor', value: (() => { const v = vendedores.find(v => v.id === cotizacion.vendedorId); return v ? `${v.primerNombre} ${v.primerApellido}` : 'N/A'; })() },
+                    { label: 'Vendedor', value: (() => { 
+                      let v = null;
+                      if (cotizacion.vendedorId) {
+                        v = vendedores.find(v => String(v.id) === String(cotizacion.vendedorId));
+                      }
+                      if (!v && cotizacion.codVendedor) {
+                        const codVendedor = String(cotizacion.codVendedor).trim();
+                        v = vendedores.find(v => {
+                          if (v.codigoVendedor && String(v.codigoVendedor).trim() === codVendedor) return true;
+                          if (v.codigo && String(v.codigo).trim() === codVendedor) return true;
+                          return false;
+                        });
+                      }
+                      if (!v && cotizacion.vendedorId) {
+                        const codBuscado = String(cotizacion.vendedorId).trim();
+                        v = vendedores.find(v => {
+                          if (v.codigoVendedor && String(v.codigoVendedor).trim() === codBuscado) return true;
+                          if (v.codigo && String(v.codigo).trim() === codBuscado) return true;
+                          return false;
+                        });
+                      }
+                      return v ? `${v.primerNombre || ''} ${v.primerApellido || ''}`.trim() : 'N/A';
+                    })() },
                     { label: 'Items Aprobados', value: pedido.items.length },
                     { label: 'sep1', value: '', isSeparator: true },
                     { label: 'Subtotal Bruto', value: formatCurrency(subtotalBruto) },

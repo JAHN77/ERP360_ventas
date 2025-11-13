@@ -42,52 +42,52 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       try {
         setIsLoadingBodegas(true);
         logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Cargando bodegas desde la BD...');
-        const response = await fetchBodegas();
+        
+        let response;
+        try {
+          response = await fetchBodegas();
+        } catch (fetchError) {
+          logger.warn({ prefix: 'AuthContext' }, 'Error de red al cargar bodegas (backend puede no estar disponible):', fetchError);
+          // Si hay error de red, usar datos mock
+          response = { success: false, data: [] };
+        }
+        
         logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Respuesta bodegas:', response);
-        if (response.success && response.data && Array.isArray(response.data)) {
-          // Función para asignar código según el nombre de la bodega
-          const asignarCodigoPorNombre = (nombre: string): string | null => {
-            const nombreNormalizado = nombre.trim().toUpperCase();
-            
-            // Mapeo: 001 = Bodega Principal, 002 = Bodega Norte, 003 = Bodega Sur
-            if (nombreNormalizado.includes('PRINCIPAL')) {
-              return '001';
-            } else if (nombreNormalizado.includes('NORTE')) {
-              return '002';
-            } else if (nombreNormalizado.includes('SUR')) {
-              return '003';
-            }
-            
-            // Si no coincide con ninguno, retornar null para usar el código original
-            return null;
-          };
-          
+        
+        // Verificar que la respuesta sea válida y tenga datos
+        if (response && response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
           // Mapear bodegas de la BD al formato Sede
-          // Usar el id de la BD si está disponible, sino usar índice + 1
+          // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
           const mappedBodegas = response.data.map((b: any, index: number) => {
-            // El id viene como string desde la BD, convertirlo a número si es posible
-            const bodegaId = typeof b.id === 'string' ? parseInt(b.id, 10) : (b.id || index + 1);
-            const nombreBodega = (b.nombre || '').trim();
+            // El código viene directamente desde la BD (codalm)
+            const codigoAlmacen = String(b.codigo || b.codalm || b.id || '').trim();
             
-            // Asignar código según el nombre de la bodega
-            let bodegaCodigo = asignarCodigoPorNombre(nombreBodega);
-            
-            // Si no se asignó código por nombre, usar el original o generar uno
-            if (!bodegaCodigo) {
-              bodegaCodigo = b.codigo || b.id || String(index + 1).padStart(3, '0');
+            // Convertir código a número para el ID si es posible (ej: "001" -> 1, "002" -> 2)
+            // Si no es numérico, usar el índice + 1
+            let bodegaId: number;
+            if (codigoAlmacen && /^\d+$/.test(codigoAlmacen)) {
+              bodegaId = parseInt(codigoAlmacen, 10);
+            } else {
+              bodegaId = index + 1;
             }
             
-            // Asegurar que el código tenga formato de 3 dígitos
-            bodegaCodigo = String(bodegaCodigo).padStart(3, '0');
+            const nombreBodega = (b.nombre || b.nomalm || '').trim();
+            const direccionBodega = (b.direccion || b.diralm || '').trim();
+            const ciudadBodega = (b.ciudad || b.ciualm || '').trim();
+            
+            // Usar el código directamente de la BD (ya viene formateado)
+            const bodegaCodigo = codigoAlmacen.padStart(3, '0');
+            
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, `Mapeando bodega: ${nombreBodega} (${bodegaCodigo})`);
             
             return {
-              id: isNaN(bodegaId) ? index + 1 : bodegaId, // Asegurar ID numérico válido
+              id: bodegaId, // ID numérico para compatibilidad
               nombre: nombreBodega,
-              codigo: bodegaCodigo, // Código asignado según el nombre
+              codigo: bodegaCodigo, // Código del almacén desde BD (codalm)
               empresaId: 1, // Por defecto asignar a la empresa principal
               municipioId: 11001, // Bogotá por defecto
-              direccion: b.direccion || '',
-              ciudad: b.ciudad || ''
+              direccion: direccionBodega,
+              ciudad: ciudadBodega
             };
           });
           logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas mapeadas con códigos asignados:', mappedBodegas.map(b => ({
@@ -107,9 +107,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', error);
           }
           
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas cargadas. Usuario debe seleccionar una bodega manualmente.');
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas cargadas desde BD. Usuario debe seleccionar una bodega manualmente.');
         } else {
-          logger.warn({ prefix: 'AuthContext' }, 'Sin datos de bodegas, usando mock');
+          // Si no hay datos o la respuesta no fue exitosa, usar datos mock como fallback
+          const reason = !response ? 'Sin respuesta' : !response.success ? 'Respuesta no exitosa' : !response.data ? 'Sin datos' : 'Array vacío';
+          logger.warn({ prefix: 'AuthContext' }, `Sin datos de bodegas desde BD (${reason}), usando datos mock como fallback`);
           setBodegas(allSedes);
           
           // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
@@ -121,7 +123,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage (mock):', error);
           }
           
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas mock cargadas. Usuario debe seleccionar una bodega manualmente.');
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas mock cargadas como fallback. Usuario debe seleccionar una bodega manualmente.');
         }
       } catch (error) {
         logger.error({ prefix: 'AuthContext' }, 'Error cargando bodegas:', error);
@@ -153,9 +155,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas estado:', bodegas);
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas.length:', bodegas.length);
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - sedesToUse:', sedesToUse);
+      // Asignar todas las bodegas a todas las empresas (ya que las bodegas son compartidas)
       const empresasWithSedes = allEmpresas.map(e => ({
           ...e,
-          sedes: sedesToUse.filter(s => s.empresaId === e.id)
+          sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id })) // Asignar todas las bodegas a cada empresa
       }));
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - empresasWithSedes:', empresasWithSedes);
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - empresasWithSedes[0].sedes:', empresasWithSedes[0]?.sedes);
@@ -255,7 +258,33 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         }
       }
       
-      // 4. Si aún no se encuentra, intentar por índice (último recurso)
+      // 4. Si aún no se encuentra, buscar en todas las bodegas cargadas (no solo las de la empresa)
+      if (!sede && (sedeData?.codigo || sedeData?.nombre)) {
+        const bodegaEncontrada = bodegas.find(b => {
+          if (sedeData?.codigo) {
+            const codigoBuscado = String(sedeData.codigo).trim().toUpperCase();
+            const codigoBodega = String(b.codigo || '').trim().toUpperCase();
+            if (codigoBodega === codigoBuscado) return true;
+          }
+          if (sedeData?.nombre) {
+            const nombreBuscado = sedeData.nombre.trim().toUpperCase();
+            const nombreBodega = String(b.nombre || '').trim().toUpperCase();
+            if (nombreBodega === nombreBuscado) return true;
+          }
+          return false;
+        });
+        
+        if (bodegaEncontrada) {
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega encontrada en lista global, creando sede:', bodegaEncontrada);
+          // Crear una sede temporal con los datos de la bodega encontrada
+          sede = {
+            ...bodegaEncontrada,
+            empresaId: selectedCompany.id
+          };
+        }
+      }
+      
+      // 5. Si aún no se encuentra, intentar por índice (último recurso)
       if (!sede && sedeId > 0 && sedeId <= (selectedCompany.sedes?.length || 0)) {
         const sedeByIndex = selectedCompany.sedes?.[sedeId - 1];
         if (sedeByIndex && sedeByIndex.id === sedeId) {

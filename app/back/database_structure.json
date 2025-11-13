@@ -1,0 +1,2930 @@
+{
+  "tables": {
+    "dbo": [
+      "ANALISIS",
+      "auditoriacxc",
+      "cartera",
+      "com_autoriza",
+      "com_centros",
+      "com_conceptos",
+      "com_defgastos",
+      "com_facturas",
+      "com_maeconceptos",
+      "com_maeocompra",
+      "com_movcxp",
+      "com_notas",
+      "com_ocompra",
+      "con_acum_auxiliar",
+      "con_acum_cencostos",
+      "con_acum_codalm",
+      "con_acum_general",
+      "con_acum_terceros",
+      "con_cencostos",
+      "con_comprob",
+      "con_conceptos",
+      "con_cuentas",
+      "con_diferencia",
+      "con_fuentes",
+      "con_fuentes1",
+      "con_fuentes2",
+      "con_interfaz_producto",
+      "con_libros",
+      "CON_PARAMETROS_IMPUESTO",
+      "con_periodo",
+      "con_terceros",
+      "DataGrid_Contable",
+      "DataGrid_Ventas",
+      "dian_conceptos_notas",
+      "dian_descuentos",
+      "dian_Formatos",
+      "dian_parametros",
+      "dian_parametros_fe",
+      "Dian_Regimenes",
+      "Dian_Resoluciones",
+      "Dian_Resoluciones_electronica",
+      "Dian_tipodocumento",
+      "DIFERENCIACXC",
+      "diferencias",
+      "facturas_marzo",
+      "facturas_nov",
+      "facturas_pendientes",
+      "facturas_proveedor",
+      "facturas_recibidas",
+      "gen_actividades",
+      "gen_actividades_ciiu",
+      "gen_aplicaciones",
+      "gen_autousua",
+      "Gen_Componentes",
+      "gen_consecutivos",
+      "Gen_ControlConsecutivos",
+      "gen_departamentos",
+      "gen_detalle_movimientos",
+      "gen_detaperfil",
+      "gen_division",
+      "gen_empresa",
+      "gen_especialidades",
+      "Gen_Interfase_Compras",
+      "gen_menu",
+      "gen_menulite",
+      "Gen_Modulos",
+      "gen_movimiento_notas",
+      "gen_municipios",
+      "gen_notas",
+      "Gen_Parametros_contabilidad",
+      "gen_parametros_ventas",
+      "gen_perfil",
+      "GEN_PERFXUSUA",
+      "gen_periodo",
+      "gen_permisos",
+      "gen_seccion",
+      "Gen_Seguridad",
+      "gen_sucursal",
+      "gen_tarifas_ica",
+      "gen_tarifas_retencion",
+      "Gen_TrazaCambioTercero",
+      "gen_unidades",
+      "gen_usuarios",
+      "Gen_Ususxalm",
+      "gen_zonas",
+      "inv_almacen",
+      "inv_auditoria_precios",
+      "inv_captura_lotes",
+      "inv_categorias",
+      "inv_colores",
+      "inv_conceptos",
+      "inv_detaprecios",
+      "inv_exislote",
+      "inv_insumos",
+      "inv_invent",
+      "inv_invfisico",
+      "inv_invprocesados",
+      "inv_kardex",
+      "inv_laboratorios",
+      "inv_lineas",
+      "inv_listaprecios",
+      "Inv_Marcas",
+      "inv_medidas",
+      "Inv_Precios_Linea",
+      "inv_sublinea",
+      "K_diferencias",
+      "Lista_precios",
+      "log_errores_trigger_precios",
+      "log_upsert_detaprecios",
+      "nom_acumulado",
+      "nom_aportes",
+      "nom_arpgrupos",
+      "nom_auxilios",
+      "nom_bancos",
+      "nom_cargos",
+      "nom_carreras",
+      "nom_cartera",
+      "nom_categorias",
+      "nom_causales",
+      "nom_centros",
+      "nom_certificados",
+      "nom_cierre",
+      "nom_ciudad",
+      "nom_civil",
+      "nom_contratos",
+      "nom_control",
+      "nom_control_procesos",
+      "nom_controlcierre",
+      "nom_dataemple",
+      "nom_deducibles",
+      "nom_detacapa",
+      "nom_detacartera",
+      "nom_detavacacion",
+      "nom_devengos",
+      "nom_diastrab",
+      "nom_empleado",
+      "nom_entidad",
+      "nom_estados",
+      "nom_festivos",
+      "nom_fondos",
+      "nom_histhoras",
+      "nom_historia",
+      "nom_hojpago",
+      "nom_horas",
+      "nom_labores",
+      "nom_maeviaticos",
+      "nom_menu1",
+      "nom_meses",
+      "nom_movperso",
+      "nom_niveles",
+      "nom_novcartera",
+      "nom_novedad",
+      "nom_obra",
+      "nom_otrdat",
+      "nom_pagos",
+      "nom_prestcierre",
+      "nom_primsnav",
+      "nom_profesion",
+      "nom_pruebas",
+      "nom_rangoviaticos",
+      "nom_reajustes",
+      "nom_reserva",
+      "nom_resueldo",
+      "nom_retencion",
+      "nom_seccion",
+      "nom_sucursal",
+      "nom_tablacon",
+      "nom_tipociudad",
+      "nom_transaccion",
+      "nom_vacaciones",
+      "nom_viaconceptos",
+      "nom_viaticos",
+      "notification_fe",
+      "Nov_contable",
+      "procesar_detalle_precios",
+      "servicios",
+      "sysdiagrams",
+      "tarjetas_principal$",
+      "tes_anucheques",
+      "Tes_Bancos",
+      "tes_cajas_almacen",
+      "Tes_CargosxRC",
+      "tes_chedevuelto",
+      "tes_cheques",
+      "tes_conceptos",
+      "Tes_ConceptosCM",
+      "tes_consignacion",
+      "tes_controlcaja",
+      "tes_cuadrecaja",
+      "Tes_Cuenban",
+      "Tes_Descuentos",
+      "Tes_DescuentosRC",
+      "tes_detaconsigna",
+      "tes_detaegreso",
+      "Tes_Detalle_Autoriza",
+      "tes_devolucion",
+      "Tes_Egresos",
+      "Tes_Egresosdesc",
+      "Tes_formapago",
+      "Tes_Franquicia",
+      "tes_maecaja",
+      "tes_notabancaria",
+      "tes_notabancos",
+      "tes_ocaja",
+      "tes_tarjetas",
+      "tmp_fisico",
+      "Ven_Acumulado_Mensual",
+      "Ven_Acumulado_Producto",
+      "ven_anticipos",
+      "Ven_Anulacion",
+      "ven_comision",
+      "ven_conceptos",
+      "ven_cotizacion",
+      "Ven_CuposxCli",
+      "ven_detacotiz",
+      "ven_detacotizacion",
+      "ven_detafact",
+      "ven_detapago",
+      "ven_detapedidos",
+      "ven_detarecibo",
+      "Ven_Devolucion",
+      "ven_establecimientos",
+      "ven_facturas",
+      "ven_maeanticipo",
+      "ven_movcli",
+      "ven_notacotiz",
+      "ven_notas",
+      "ven_recibos",
+      "VEN_SALDOS",
+      "ven_servicios",
+      "ven_vendedor",
+      "ven_zonas"
+    ]
+  },
+  "tableStructures": {
+    "con_terceros": [
+      {
+        "column_name": "id",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "codter",
+        "data_type": "varchar",
+        "max_length": 15,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "nomter",
+        "data_type": "varchar",
+        "max_length": 150,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "Tipo_documento",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "tipter",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "isproveedor",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "apl1",
+        "data_type": "varchar",
+        "max_length": 50,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "apl2",
+        "data_type": "varchar",
+        "max_length": 50,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "nom1",
+        "data_type": "varchar",
+        "max_length": 50,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "nom2",
+        "data_type": "varchar",
+        "max_length": 50,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "dirter",
+        "data_type": "varchar",
+        "max_length": 180,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "TELTER",
+        "data_type": "varchar",
+        "max_length": 20,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codzon",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "CELTER",
+        "data_type": "varchar",
+        "max_length": 30,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "EMAIL",
+        "data_type": "varchar",
+        "max_length": 70,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "ciudad",
+        "data_type": "varchar",
+        "max_length": 40,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "coddane",
+        "data_type": "char",
+        "max_length": 5,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codacteconomica",
+        "data_type": "varchar",
+        "max_length": 6,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codven",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "direnvio",
+        "data_type": "varchar",
+        "max_length": 100,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "FECING",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codtar",
+        "data_type": "varchar",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "Forma_pago",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cupo_credito",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "plazo",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_descuento",
+        "data_type": "decimal",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "clase_tercero",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "regimen_tributario",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codbco",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cta_bancaria",
+        "data_type": "varchar",
+        "max_length": 50,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tipo_cuenta",
+        "data_type": "char",
+        "max_length": 1,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codcue_cartera",
+        "data_type": "varchar",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codcue_cxpagar",
+        "data_type": "varchar",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "autoretenedor_iva",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "autoretenedor_renta",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "autoretenedor_ica",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "aplica_retencion_base0",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codigo_retencion",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_retencion",
+        "data_type": "decimal",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_reteiva",
+        "data_type": "decimal",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codigo_reteica",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_reteica",
+        "data_type": "decimal",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "contacto",
+        "data_type": "varchar",
+        "max_length": 150,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "activo",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "id_descuento",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((1))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "CodterINi",
+        "data_type": "varchar",
+        "max_length": 15,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      }
+    ],
+    "inv_insumos": [
+      {
+        "column_name": "id",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "codins",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "nomins",
+        "data_type": "varchar",
+        "max_length": 150,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codigo_linea",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codigo_sublinea",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "Codigo_Medida",
+        "data_type": "nchar",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "unidades_empaque",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "undins",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_iva",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_retencion",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "Tasa_ICO",
+        "data_type": "decimal",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "costo_promedio",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tipo_producto",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codigo_interfase",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cuenta_compras",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cuenta_ventas",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cuenta_costo_ventas",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codter",
+        "data_type": "varchar",
+        "max_length": 15,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "ultimo_costo",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "costo_dolares",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "INSUMO_VENTA",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "MARGEN_VENTA",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "precio_mayorista",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "precio_minorista",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "precio_publico",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "referencia",
+        "data_type": "varchar",
+        "max_length": 15,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "karins",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "dias_garantia",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "activo",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codusu",
+        "data_type": "char",
+        "max_length": 10,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecsys",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "ruta_grafico",
+        "data_type": "text",
+        "max_length": 2147483647,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      }
+    ],
+    "ven_facturas": [
+      {
+        "column_name": "ID",
+        "data_type": "bigint",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "codalm",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "numfact",
+        "data_type": "varchar",
+        "max_length": 15,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "tipfac",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codter",
+        "data_type": "varchar",
+        "max_length": 15,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "doccoc",
+        "data_type": "char",
+        "max_length": 12,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecfac",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "venfac",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codven",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": "('001')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valvta",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "valiva",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valotr",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valant",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valdev",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "abofac",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valdcto",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valret",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valrica",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valriva",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "netfac",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "valcosto",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codcue",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "efectivo",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cheques",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "credito",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tarjetacr",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "TarjetaDB",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "Transferencia",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valpagado",
+        "data_type": "decimal",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "resolucion_dian",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": "('01')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "Observa",
+        "data_type": "varchar",
+        "max_length": 150,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "TARIFA_CREE",
+        "data_type": "decimal",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "RETECREE",
+        "data_type": "decimal",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codusu",
+        "data_type": "varchar",
+        "max_length": 10,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecsys",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "estfac",
+        "data_type": "varchar",
+        "max_length": 1,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "VALDOMICILIO",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "estado_envio",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "sey_key",
+        "data_type": "varchar",
+        "max_length": 120,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "CUFE",
+        "data_type": "varchar",
+        "max_length": 600,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "IdCaja",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "Valnotas",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      }
+    ],
+    "ven_detafact": [
+      {
+        "column_name": "ID",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "codalm",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "tipfact",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "numfac",
+        "data_type": "char",
+        "max_length": 12,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codins",
+        "data_type": "varchar",
+        "max_length": 8,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "numord",
+        "data_type": "varchar",
+        "max_length": 18,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecord",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "qtyins",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "devins",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valins",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "ivains",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "desins",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "valdescuento",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "cosins",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "observa",
+        "data_type": "varchar",
+        "max_length": 50,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "estfac",
+        "data_type": "char",
+        "max_length": 1,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "UNDVTA",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "PRECIOUND",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "QTYVTA",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "COSVTA",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "CODTAR",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "PRECIO_LISTA",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "EXCEDENTE",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "FACTOR",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "id_factura",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_reteica",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_reteiva",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_retencion",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      }
+    ],
+    "ven_cotizacion": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "codalm",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "numcot",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codter",
+        "data_type": "varchar",
+        "max_length": 15,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecha",
+        "data_type": "date",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecha_vence",
+        "data_type": "date",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "cod_vendedor",
+        "data_type": "char",
+        "max_length": 10,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "formapago",
+        "data_type": "nchar",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": "((1))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valor_anticipo",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "subtotal",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "val_iva",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "val_descuento",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "observa",
+        "data_type": "varchar",
+        "max_length": 200,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cod_usuario",
+        "data_type": "varchar",
+        "max_length": 10,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "num_orden_compra",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecha_aprobacion",
+        "data_type": "date",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecsys",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "estado",
+        "data_type": "char",
+        "max_length": 1,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "id_usuario",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "COD_TARIFA",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": "(space((2)))",
+        "is_identity": 0
+      }
+    ],
+    "ven_detacotizacion": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "id_cotizacion",
+        "data_type": "bigint",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "num_factura",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": "(space((1)))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cod_producto",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "cantidad",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "cant_facturada",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "valor",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codigo_medida",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_descuento",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tasa_iva",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "estado",
+        "data_type": "char",
+        "max_length": 1,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "qtycot",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0.00))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "preciound",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0.00))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "costo_unidad",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0.00))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "costo_cot",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0.00))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "precio_lista",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0.00))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cantidad_medida",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0.00))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "excedente",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0.00))",
+        "is_identity": 0
+      }
+    ],
+    "ven_detapedidos": [
+      {
+        "column_name": "numped",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codins",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "valins",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "canped",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "canent",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "canfac",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "ivaped",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "dctped",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "estped",
+        "data_type": "char",
+        "max_length": 1,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codalm",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "serial",
+        "data_type": "varchar",
+        "max_length": 30,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "reservado",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "usureserva",
+        "data_type": "char",
+        "max_length": 10,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "numfac",
+        "data_type": "varchar",
+        "max_length": 12,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "DiasGar",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "Numord",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "Fecsys",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "msisdn",
+        "data_type": "varchar",
+        "max_length": 20,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "imei",
+        "data_type": "varchar",
+        "max_length": 20,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "iccid",
+        "data_type": "varchar",
+        "max_length": 20,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codplan",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "feccargo",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codtec",
+        "data_type": "varchar",
+        "max_length": 4,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      }
+    ],
+    "ven_recibos": [
+      {
+        "column_name": "id",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "codalm",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "numrec",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tipdoc",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codter",
+        "data_type": "varchar",
+        "max_length": 15,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecrec",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codcue",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "doccoc",
+        "data_type": "varchar",
+        "max_length": 12,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "numped",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "valrec",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "estrec",
+        "data_type": "char",
+        "max_length": 1,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "efectivo",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cheques",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "TarjetaDB",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "tarjeta",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "Consignado",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "desrec",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "retfte",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "otrdesc",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "rtefte",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "retserv",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "retiva",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "retica",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "bono",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "otros",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "otrosi",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "netrec",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "observa",
+        "data_type": "varchar",
+        "max_length": 100,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codusu",
+        "data_type": "varchar",
+        "max_length": 10,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecsys",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "(getdate())",
+        "is_identity": 0
+      },
+      {
+        "column_name": "clarec",
+        "data_type": "char",
+        "max_length": 1,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codban",
+        "data_type": "char",
+        "max_length": 4,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codcaja",
+        "data_type": "char",
+        "max_length": 4,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "TRANSFERENCIA",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "CODVEN",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": "(space((3)))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "NRECAUDOVENDEDOR",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": "(space((8)))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "ORICOC",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "SYNCRO",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      }
+    ],
+    "ven_detarecibo": [
+      {
+        "column_name": "id",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "codalm",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "tipdoc",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "numrec",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "valcuo",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "forpag",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "numdoc",
+        "data_type": "char",
+        "max_length": 15,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codban",
+        "data_type": "char",
+        "max_length": 10,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "feccheq",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "abocuo",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "salcuo",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "estrec",
+        "data_type": "char",
+        "max_length": 1,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      }
+    ],
+    "ven_notas": [
+      {
+        "column_name": "ID",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "NUMNOTA",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "fecnot",
+        "data_type": "datetime",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "valnot",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "tipnot",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codalm",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "concepto",
+        "data_type": "varchar",
+        "max_length": 200,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "SALDO",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "CODTER",
+        "data_type": "varchar",
+        "max_length": 15,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "TIPFAC",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "NUMFAC",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "VALVTA",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "VALIVA",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "VALRETIVA",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "VALRETEICA",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "VALRETFTE",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "CODUSU",
+        "data_type": "char",
+        "max_length": 10,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "APLICA_FACTURA",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "CODCLI",
+        "data_type": "char",
+        "max_length": 6,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "abofac",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      }
+    ],
+    "inv_medidas": [
+      {
+        "column_name": "codmed",
+        "data_type": "nchar",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "nommed",
+        "data_type": "varchar",
+        "max_length": 30,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "abreviatura",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "cantidad",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "principal",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "PADRE",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "excedente",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "permite_fraccion",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "FACTOR",
+        "data_type": "decimal",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "id_medida_dian",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": "((642))",
+        "is_identity": 0
+      }
+    ],
+    "inv_categorias": [
+      {
+        "column_name": "id",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "nombre",
+        "data_type": "varchar",
+        "max_length": 50,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      }
+    ],
+    "gen_departamentos": [
+      {
+        "column_name": "coddep",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "nomdep",
+        "data_type": "varchar",
+        "max_length": 250,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      }
+    ],
+    "gen_municipios": [
+      {
+        "column_name": "coddane",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "coddep",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codmun",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "nommun",
+        "data_type": "varchar",
+        "max_length": 100,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "ID",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      }
+    ],
+    "Dian_tipodocumento": [
+      {
+        "column_name": "Tipdoc",
+        "data_type": "varchar",
+        "max_length": 2,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "Nomdoc",
+        "data_type": "varchar",
+        "max_length": 100,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "Razon",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      }
+    ],
+    "Dian_Regimenes": [
+      {
+        "column_name": "codigo",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "nombre",
+        "data_type": "varchar",
+        "max_length": 20,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      }
+    ],
+    "ven_vendedor": [
+      {
+        "column_name": "id",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 1
+      },
+      {
+        "column_name": "idUsuario",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "ideven",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codven",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "nomven",
+        "data_type": "char",
+        "max_length": 50,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "dirven",
+        "data_type": "varchar",
+        "max_length": 50,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "telven",
+        "data_type": "varchar",
+        "max_length": 20,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "celven",
+        "data_type": "varchar",
+        "max_length": 20,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codusu",
+        "data_type": "varchar",
+        "max_length": 10,
+        "is_nullable": "YES",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "Activo",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codalm",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": "('')",
+        "is_identity": 0
+      },
+      {
+        "column_name": "codigo_caja",
+        "data_type": "char",
+        "max_length": 2,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "cajero",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "Tecnico",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "cobrador",
+        "data_type": "bit",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      }
+    ],
+    "inv_invent": [
+      {
+        "column_name": "codalm",
+        "data_type": "char",
+        "max_length": 3,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "codins",
+        "data_type": "char",
+        "max_length": 8,
+        "is_nullable": "NO",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "caninv",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "valinv",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "ucoins",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "pvdins",
+        "data_type": "numeric",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": null,
+        "is_identity": 0
+      },
+      {
+        "column_name": "minimo",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      },
+      {
+        "column_name": "maximo",
+        "data_type": "int",
+        "max_length": null,
+        "is_nullable": "YES",
+        "default_value": "((0))",
+        "is_identity": 0
+      }
+    ]
+  },
+  "foreignKeys": [],
+  "indexes": [
+    {
+      "table_name": "con_terceros",
+      "index_name": "IX_con_terceros",
+      "index_type": "NONCLUSTERED",
+      "columns": "codter"
+    },
+    {
+      "table_name": "con_terceros",
+      "index_name": "IX_con_terceros_1",
+      "index_type": "NONCLUSTERED",
+      "columns": "nomter"
+    },
+    {
+      "table_name": "inv_insumos",
+      "index_name": "IX_inv_insumos",
+      "index_type": "NONCLUSTERED",
+      "columns": "codins"
+    },
+    {
+      "table_name": "inv_insumos",
+      "index_name": "IX_inv_insumos_1",
+      "index_type": "NONCLUSTERED",
+      "columns": "referencia"
+    },
+    {
+      "table_name": "ven_detafact",
+      "index_name": "IX_ven_detafact",
+      "index_type": "NONCLUSTERED",
+      "columns": "codalm, tipfact, numfac, codins"
+    },
+    {
+      "table_name": "ven_notas",
+      "index_name": "IX_ven_notas",
+      "index_type": "NONCLUSTERED",
+      "columns": "codalm, NUMNOTA"
+    },
+    {
+      "table_name": "ven_recibos",
+      "index_name": "IX_ven_recibos",
+      "index_type": "NONCLUSTERED",
+      "columns": "codalm, numrec, codter"
+    }
+  ],
+  "analyzedAt": "2025-11-10T21:44:58.624Z"
+}

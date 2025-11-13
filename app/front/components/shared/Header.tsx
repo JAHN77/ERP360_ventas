@@ -282,10 +282,20 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                 setBodegasDisponibles([]);
                 
                 try {
-                  const response = await fetchBodegas();
-                  
-                  if (!response || !response.success) {
+                  let response;
+                  try {
+                    response = await fetchBodegas();
+                  } catch (fetchError) {
+                    logger.warn({ prefix: 'Header' }, 'Error de red al cargar bodegas:', fetchError);
                     setBodegasDisponibles([]);
+                    setIsLoadingBodegasLocal(false);
+                    return;
+                  }
+                  
+                  if (!response || !response.success || !response.data || !Array.isArray(response.data) || response.data.length === 0) {
+                    logger.warn({ prefix: 'Header' }, 'No se pudieron cargar bodegas desde la BD');
+                    setBodegasDisponibles([]);
+                    setIsLoadingBodegasLocal(false);
                     return;
                   }
                   
@@ -305,46 +315,30 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                   const bodegasData = extractArrayData(response);
                   
                   if (bodegasData.length > 0) {
-                    // Función para asignar código según el nombre de la bodega
-                    const asignarCodigoPorNombre = (nombre: string): string | null => {
-                      const nombreNormalizado = nombre.trim().toUpperCase();
-                      
-                      // Mapeo: 001 = Bodega Principal, 002 = Bodega Norte, 003 = Bodega Sur
-                      if (nombreNormalizado.includes('PRINCIPAL')) {
-                        return '001';
-                      } else if (nombreNormalizado.includes('NORTE')) {
-                        return '002';
-                      } else if (nombreNormalizado.includes('SUR')) {
-                        return '003';
-                      }
-                      
-                      // Si no coincide con ninguno, retornar null para usar el código original
-                      return null;
-                    };
-                    
+                    // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
                     const mappedBodegas = bodegasData.map((b: any, index: number) => {
-                      const nombreBodega = b.nombre?.trim() || b.nomalm?.trim() || `Bodega ${index + 1}`;
-                      const bodegaId = b.id || b.codigo || b.codalm || String(index + 1);
+                      const nombreBodega = (b.nombre || b.nomalm || '').trim() || `Bodega ${index + 1}`;
+                      const codigoAlmacen = String(b.codigo || b.codalm || b.id || '').trim();
                       
-                      // Asignar código según el nombre de la bodega
-                      let bodegaCodigo = asignarCodigoPorNombre(nombreBodega);
-                      
-                      // Si no se asignó código por nombre, usar el original o generar uno
-                      if (!bodegaCodigo) {
-                        bodegaCodigo = b.codigo || b.codalm || String(index + 1).padStart(3, '0');
+                      // Convertir código a número para el ID si es posible
+                      let bodegaId: number;
+                      if (codigoAlmacen && /^\d+$/.test(codigoAlmacen)) {
+                        bodegaId = parseInt(codigoAlmacen, 10);
+                      } else {
+                        bodegaId = index + 1;
                       }
                       
-                      // Asegurar que el código tenga formato de 3 dígitos
-                      bodegaCodigo = String(bodegaCodigo).padStart(3, '0');
+                      // Usar el código directamente de la BD (ya viene formateado)
+                      const bodegaCodigo = codigoAlmacen.padStart(3, '0');
                       
                       return {
-                        id: typeof bodegaId === 'number' ? bodegaId : index + 1,
+                        id: bodegaId,
                         nombre: nombreBodega,
                         codigo: bodegaCodigo,
                         empresaId: selectedCompany?.id || 1,
                         municipioId: 11001,
-                        direccion: b.direccion || b.diralm || '',
-                        ciudad: b.ciudad || b.ciualm || ''
+                        direccion: (b.direccion || b.diralm || '').trim(),
+                        ciudad: (b.ciudad || b.ciualm || '').trim()
                       };
                     });
                     
