@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useData } from '../../hooks/useData';
 import Card, { CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import Table, { Column } from '../../components/ui/Table';
@@ -6,7 +6,8 @@ import { useTable } from '../../hooks/useTable';
 import { TableToolbar } from '../../components/ui/TableToolbar';
 import TablePagination from '../../components/ui/TablePagination';
 import StatusBadge from '../../components/ui/StatusBadge';
-import { exportToCSV } from '../../utils/exportUtils';
+import { exportMovimientosInventarioExcel } from '../../utils/excelExport';
+import { useNotifications } from '../../hooks/useNotifications';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -40,7 +41,9 @@ interface InventoryMovement {
 }
 
 const MovimientosInventarioReport: React.FC = () => {
-    const { activityLog, remisiones, productos, notasCredito, facturas } = useData();
+    const { activityLog, remisiones, productos, notasCredito, facturas, categorias } = useData();
+    const { addNotification } = useNotifications();
+    const [isExporting, setIsExporting] = useState(false);
 
     const movements = useMemo(() => {
         const allMovements: InventoryMovement[] = [];
@@ -143,15 +146,28 @@ const MovimientosInventarioReport: React.FC = () => {
         { header: 'Usuario', accessor: 'user' },
     ];
 
-    const handleExport = () => {
-        const exportData = movements.map(m => ({
-            ...m,
-            timestamp: new Date(m.timestamp).toLocaleString('es-CO'),
-            quantity: m.type === 'Entrada' ? m.quantity : -m.quantity,
-        }));
+    const handleExport = async () => {
+        if (isExporting) return;
         
-        const exportColumns = columns.map(({ header, accessor }) => ({ header, accessor }));
-        exportToCSV(exportData, exportColumns, 'reporte_movimientos_inventario');
+        setIsExporting(true);
+        addNotification({ message: 'Generando informe Excel profesional...', type: 'info' });
+        
+        try {
+            await exportMovimientosInventarioExcel(
+                facturas,
+                notasCredito,
+                productos,
+                categorias,
+                activityLog,
+                'Informe_Movimientos_Inventario'
+            );
+            addNotification({ message: 'Informe Excel generado correctamente', type: 'success' });
+        } catch (error) {
+            console.error('Error al generar informe:', error);
+            addNotification({ message: 'Error al generar el informe. Intenta nuevamente.', type: 'warning' });
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -162,7 +178,8 @@ const MovimientosInventarioReport: React.FC = () => {
                     searchTerm={searchTerm} 
                     onSearchChange={handleSearch}
                     onExportAction={handleExport}
-                    exportActionLabel="Exportar CSV"
+                    exportActionLabel={isExporting ? "Generando..." : "Exportar Excel"}
+                    exportActionDisabled={isExporting}
                 />
                 <CardContent className="p-0">
                     <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} />

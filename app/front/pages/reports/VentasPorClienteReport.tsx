@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import Card, { CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import SimpleChart from '../../components/charts/SimpleChart';
 import Table, { Column } from '../../components/ui/Table';
@@ -6,7 +6,8 @@ import { useTable } from '../../hooks/useTable';
 import TablePagination from '../../components/ui/TablePagination';
 import { TableToolbar } from '../../components/ui/TableToolbar';
 import { useData } from '../../hooks/useData';
-import { exportToCSV } from '../../utils/exportUtils';
+import { exportVentasPorClienteExcel } from '../../utils/excelExport';
+import { useNotifications } from '../../hooks/useNotifications';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -21,7 +22,9 @@ interface ClientSalesData {
 }
 
 const VentasPorClienteReport: React.FC = () => {
-    const { getSalesDataByClient } = useData();
+    const { getSalesDataByClient, facturas, notasCredito, clientes, productos, categorias } = useData();
+    const { addNotification } = useNotifications();
+    const [isExporting, setIsExporting] = useState(false);
     
     // ✅ Validación defensiva: Verificar que la función existe
     const salesData = useMemo(() => {
@@ -71,9 +74,28 @@ const VentasPorClienteReport: React.FC = () => {
         { header: 'Última Compra', accessor: 'lastOrder' },
     ];
 
-    const handleExport = () => {
-        const exportColumns = columns.map(({ header, accessor }) => ({ header, accessor }));
-        exportToCSV(salesData, exportColumns, 'reporte_ventas_por_cliente');
+    const handleExport = async () => {
+        if (isExporting) return;
+        
+        setIsExporting(true);
+        addNotification({ message: 'Generando informe Excel profesional...', type: 'info' });
+        
+        try {
+            await exportVentasPorClienteExcel(
+                facturas,
+                notasCredito,
+                clientes,
+                productos,
+                categorias,
+                'Informe_Ventas_Por_Cliente'
+            );
+            addNotification({ message: 'Informe Excel generado correctamente', type: 'success' });
+        } catch (error) {
+            console.error('Error al generar informe:', error);
+            addNotification({ message: 'Error al generar el informe. Intenta nuevamente.', type: 'warning' });
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -97,7 +119,8 @@ const VentasPorClienteReport: React.FC = () => {
                     searchTerm={searchTerm} 
                     onSearchChange={handleSearch}
                     onExportAction={handleExport}
-                    exportActionLabel="Exportar CSV"
+                    exportActionLabel={isExporting ? "Generando..." : "Exportar Excel"}
+                    exportActionDisabled={isExporting}
                 />
                 <CardContent className="p-0">
                     <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} />

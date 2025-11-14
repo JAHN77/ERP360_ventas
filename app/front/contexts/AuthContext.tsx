@@ -302,20 +302,62 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage:', error);
         }
       } else {
-        logger.warn({ prefix: 'AuthContext' }, 'Sede no encontrada con ID:', sedeId);
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sedes disponibles:', selectedCompany.sedes?.map(s => ({
-          id: s.id,
-          nombre: s.nombre,
-          codigo: s.codigo
-        })));
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Datos adicionales proporcionados:', sedeData);
-        setSelectedSede(null);
-        // Limpiar localStorage si no se encuentra
-        try {
-          localStorage.removeItem('selectedSedeId');
-          localStorage.removeItem('selectedSedeData');
-        } catch (error) {
-          // Ignorar errores de localStorage
+        // 5. Si aún no se encuentra pero tenemos datos suficientes, crear una nueva sede temporal
+        if (sedeData && sedeData.nombre && sedeId) {
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede no encontrada en selectedCompany.sedes, creando nueva sede con datos proporcionados');
+          const nuevaSede: Sede = {
+            id: sedeId,
+            nombre: sedeData.nombre,
+            codigo: sedeData.codigo || String(sedeId).padStart(3, '0'),
+            empresaId: selectedCompany.id,
+            municipioId: 11001
+          };
+          
+          // Agregar la nueva sede a selectedCompany.sedes para futuras búsquedas
+          if (!selectedCompany.sedes) {
+            selectedCompany.sedes = [];
+          }
+          // Verificar si no existe ya antes de agregar
+          const exists = selectedCompany.sedes.some(s => s.id === sedeId);
+          if (!exists) {
+            selectedCompany.sedes.push(nuevaSede);
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Nueva sede agregada a selectedCompany.sedes');
+          }
+          
+          // Establecer la nueva sede como seleccionada
+          setSelectedSede(nuevaSede);
+          
+          // Guardar en localStorage
+          try {
+            localStorage.setItem('selectedSedeId', String(nuevaSede.id));
+            localStorage.setItem('selectedSedeData', JSON.stringify({
+              id: nuevaSede.id,
+              nombre: nuevaSede.nombre,
+              codigo: nuevaSede.codigo,
+              empresaId: nuevaSede.empresaId
+            }));
+          } catch (error) {
+            logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage:', error);
+          }
+        } else {
+          logger.warn({ prefix: 'AuthContext' }, 'Sede no encontrada y sin datos suficientes para crear. ID:', sedeId, 'Datos:', sedeData);
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sedes disponibles:', selectedCompany.sedes?.map(s => ({
+            id: s.id,
+            nombre: s.nombre,
+            codigo: s.codigo
+          })));
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Datos adicionales proporcionados:', sedeData);
+          // Solo limpiar si no hay datos suficientes
+          if (!sedeData || !sedeData.nombre) {
+            setSelectedSede(null);
+            // Limpiar localStorage solo si no hay datos suficientes
+            try {
+              localStorage.removeItem('selectedSedeId');
+              localStorage.removeItem('selectedSedeData');
+            } catch (error) {
+              // Ignorar errores de localStorage
+            }
+          }
         }
       }
     } else {

@@ -4,7 +4,8 @@ import Card, { CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import SimpleChart from '../../components/charts/SimpleChart';
 import DateRangePicker, { DateRangeOption } from '../../components/ui/DateRangePicker';
 import { useData } from '../../hooks/useData';
-import { exportToCSV } from '../../utils/exportUtils';
+import { exportVentasPorPeriodoExcel } from '../../utils/excelExport';
+import { useNotifications } from '../../hooks/useNotifications';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -18,8 +19,10 @@ const dateRangeOptions: DateRangeOption[] = [
 ];
 
 const VentasPorPeriodoReport: React.FC = () => {
-    const { facturas, notasCredito, getSalesDataByPeriod } = useData();
+    const { facturas, notasCredito, getSalesDataByPeriod, clientes, productos, vendedores, categorias } = useData();
+    const { addNotification } = useNotifications();
     const [activeRange, setActiveRange] = useState('7');
+    const [isExporting, setIsExporting] = useState(false);
 
     const { startDate, endDate } = useMemo(() => {
         const end = new Date();
@@ -79,13 +82,32 @@ const VentasPorPeriodoReport: React.FC = () => {
         return { totalSales, invoiceCount, averageSale };
     }, [facturas, notasCredito, startDate, endDate]);
 
-    const handleExport = () => {
-        const exportColumns: {header: string, accessor: 'date' | 'sales'}[] = [
-            { header: 'Fecha', accessor: 'date' },
-            { header: 'Ventas', accessor: 'sales' },
-        ];
-        const rangeLabel = dateRangeOptions.find(opt => opt.value === activeRange)?.label.replace(' ', '_').toLowerCase() || 'periodo';
-        exportToCSV(salesData, exportColumns, `reporte_ventas_por_${rangeLabel}`);
+    const handleExport = async () => {
+        if (isExporting) return;
+        
+        setIsExporting(true);
+        addNotification({ message: 'Generando informe Excel profesional...', type: 'info' });
+        
+        try {
+            const rangeLabel = dateRangeOptions.find(opt => opt.value === activeRange)?.label.replace(' ', '_').toLowerCase() || 'periodo';
+            await exportVentasPorPeriodoExcel(
+                facturas,
+                notasCredito,
+                clientes,
+                productos,
+                vendedores,
+                categorias,
+                startDate,
+                endDate,
+                `Informe_Ventas_Por_${rangeLabel}`
+            );
+            addNotification({ message: 'Informe Excel generado correctamente', type: 'success' });
+        } catch (error) {
+            console.error('Error al generar informe:', error);
+            addNotification({ message: 'Error al generar el informe. Intenta nuevamente.', type: 'warning' });
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -100,10 +122,20 @@ const VentasPorPeriodoReport: React.FC = () => {
                     />
                     <button 
                         onClick={handleExport}
-                        className="px-4 py-1.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow-sm hover:shadow-md text-sm flex items-center justify-center"
+                        disabled={isExporting}
+                        className="px-4 py-1.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow-sm hover:shadow-md text-sm flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        <i className="fas fa-file-csv mr-2"></i>
-                        <span>Exportar</span>
+                        {isExporting ? (
+                            <>
+                                <i className="fas fa-spinner fa-spin mr-2"></i>
+                                <span>Generando...</span>
+                            </>
+                        ) : (
+                            <>
+                                <i className="fas fa-file-excel mr-2"></i>
+                                <span>Exportar Excel</span>
+                            </>
+                        )}
                     </button>
                 </div>
             </div>

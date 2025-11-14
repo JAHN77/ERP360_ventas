@@ -13,6 +13,7 @@ interface TableToolbarProps {
   onCreateAction?: () => void;
   exportActionLabel?: string;
   onExportAction?: () => void;
+  exportActionDisabled?: boolean;
   onCustomizeColumns?: () => void; // New prop
   filterOptions?: FilterOption[];
   activeFilter?: string;
@@ -27,6 +28,7 @@ export const TableToolbar: React.FC<TableToolbarProps> = ({
   onCreateAction,
   exportActionLabel,
   onExportAction,
+  exportActionDisabled = false,
   onCustomizeColumns,
   filterOptions,
   activeFilter,
@@ -68,12 +70,23 @@ export const TableToolbar: React.FC<TableToolbarProps> = ({
         <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto flex-shrink-0 flex-wrap">
             {onExportAction && exportActionLabel && (
                 <button 
-                    onClick={onExportAction} 
-                    className="px-3 sm:px-4 py-2 sm:py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow-sm hover:shadow-md w-full sm:w-auto flex items-center justify-center text-xs sm:text-sm"
+                    onClick={onExportAction}
+                    disabled={exportActionDisabled}
+                    className="px-3 sm:px-4 py-2 sm:py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow-sm hover:shadow-md w-full sm:w-auto flex items-center justify-center text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    <i className="fas fa-file-csv mr-2"></i>
-                    <span className="hidden xs:inline">{exportActionLabel}</span>
-                    <span className="xs:hidden">Exportar</span>
+                    {exportActionDisabled ? (
+                        <>
+                            <i className="fas fa-spinner fa-spin mr-2"></i>
+                            <span className="hidden xs:inline">{exportActionLabel}</span>
+                            <span className="xs:hidden">Generando...</span>
+                        </>
+                    ) : (
+                        <>
+                            <i className="fas fa-file-excel mr-2"></i>
+                            <span className="hidden xs:inline">{exportActionLabel}</span>
+                            <span className="xs:hidden">Exportar</span>
+                        </>
+                    )}
                 </button>
             )}
             {onCreateAction && createActionLabel && (
