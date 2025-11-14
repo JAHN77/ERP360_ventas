@@ -8,17 +8,11 @@ import DocumentOptionsToolbar from '../comercial/DocumentOptionsToolbar';
 import SendEmailModal from '../comercial/SendEmailModal';
 import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
+import { descargarElementoComoPDF } from '../../utils/pdfClient';
 
 interface FacturaPreviewModalProps {
     factura: Factura | null;
     onClose: () => void;
-}
-
-declare global {
-  interface Window {
-    jspdf: any;
-    html2canvas: any;
-  }
 }
 
 const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onClose }) => {
@@ -126,65 +120,14 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
             return;
         }
 
-        // Verificar que las librerías estén disponibles
-        if (!window.html2canvas || typeof window.html2canvas !== 'function') {
-            addNotification({ 
-                message: 'La biblioteca html2canvas no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('html2canvas no disponible:', typeof window.html2canvas);
-            return;
-        }
-
-        if (!window.jspdf || typeof window.jspdf !== 'object') {
-            addNotification({ 
-                message: 'La biblioteca jsPDF no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('jsPDF no disponible:', typeof window.jspdf);
-            return;
-        }
-
-        addNotification({ message: `La descarga de la factura ${factura.numeroFactura} ha comenzado...`, type: 'info' });
+        addNotification({ message: `Generando PDF para ${factura.numeroFactura}...`, type: 'info' });
 
         try {
-            const { jsPDF } = window.jspdf;
-            
-            if (!jsPDF) {
-                throw new Error('jsPDF no está disponible en window.jspdf');
-            }
-            
-            const canvas = await window.html2canvas(componentRef.current, { scale: 2, useCORS: true });
-            const imgData = canvas.toDataURL('image/png');
-            
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-            
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            
-            const imgProps = pdf.getImageProperties(imgData);
-            const imgWidth = imgProps.width;
-            const imgHeight = imgProps.height;
-            
-            const ratio = imgWidth / imgHeight;
-            let finalWidth = pdfWidth;
-            let finalHeight = finalWidth / ratio;
-            
-            if (finalHeight > pdfHeight) {
-                finalHeight = pdfHeight;
-                finalWidth = finalHeight * ratio;
-            }
-
-            const x = (pdfWidth - finalWidth) / 2;
-            const y = (pdfHeight - finalHeight) / 2;
-            
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            
             const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
-            const fileName = `Factura-${factura.numeroFactura}-${safeClientName}-${factura.fechaFactura}.pdf`;
-            
-            pdf.save(fileName);
-            
+            await descargarElementoComoPDF(componentRef.current, {
+                fileName: `Factura-${factura.numeroFactura}-${safeClientName}-${factura.fechaFactura}.pdf`
+            });
+            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
         } catch (error) {
             console.error('Error al generar el PDF:', error);
             addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });
@@ -230,14 +173,6 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
         );
     }
     
-    const childWithProps = <FacturaPDF 
-        ref={componentRef}
-        factura={factura}
-        cliente={cliente}
-        empresa={datosEmpresa}
-        preferences={preferences}
-    />
-
     return (
         <>
             <Modal isOpen={!!factura} onClose={onClose} title="" size="4xl" noPadding>
@@ -281,7 +216,15 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
                 </div>
                 <div className="bg-slate-200 dark:bg-slate-900 p-4 sm:p-8">
                      <div className="bg-white shadow-lg rounded-md overflow-hidden max-w-4xl mx-auto">
-                         {childWithProps}
+                         {/* Envolver el componente en un div con el ref para capturar el contenido completo */}
+                         <div ref={componentRef}>
+                             <FacturaPDF 
+                                 factura={factura}
+                                 cliente={cliente}
+                                 empresa={datosEmpresa}
+                                 preferences={preferences}
+                             />
+                         </div>
                      </div>
                 </div>
             </Modal>

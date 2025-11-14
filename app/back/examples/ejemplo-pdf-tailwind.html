@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documento de Prueba con Tailwind</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @page {
+            margin: 0;
+            size: A4;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="max-w-4xl mx-auto bg-white shadow-lg">
+        <!-- Header -->
+        <header class="bg-gradient-to-r from-blue-600 to-blue-800 text-white p-6">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h1 class="text-3xl font-bold">ERP360 Comercial</h1>
+                    <p class="text-blue-100 mt-1">Sistema de Gestión de Ventas</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-sm text-blue-100">Documento de Prueba</p>
+                    <p class="text-sm text-blue-200">Fecha: <span id="fecha"></span></p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Contenido Principal -->
+        <main class="p-6">
+            <!-- Información de Cliente -->
+            <section class="mb-6">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4 border-b-2 border-blue-500 pb-2">
+                    Información del Cliente
+                </h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Nombre</p>
+                        <p class="text-lg font-semibold text-gray-800">Cliente de Prueba S.A.S</p>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">NIT</p>
+                        <p class="text-lg font-semibold text-gray-800">900.123.456-7</p>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Dirección</p>
+                        <p class="text-lg font-semibold text-gray-800">Calle 123 #45-67</p>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Teléfono</p>
+                        <p class="text-lg font-semibold text-gray-800">+57 300 123 4567</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tabla de Productos -->
+            <section class="mb-6">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4 border-b-2 border-blue-500 pb-2">
+                    Productos
+                </h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 border border-gray-300">
+                        <thead class="bg-gray-800 text-white">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">Código</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">Producto</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider">Cantidad</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider">Precio Unit.</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider">Descuento</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-3 text-sm text-gray-900">PROD-001</td>
+                                <td class="px-4 py-3 text-sm text-gray-900">Producto A - Descripción detallada</td>
+                                <td class="px-4 py-3 text-sm text-gray-900 text-right">10</td>
+                                <td class="px-4 py-3 text-sm text-gray-900 text-right">$50.000</td>
+                                <td class="px-4 py-3 text-sm text-gray-900 text-right">5%</td>
+                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">$475.000</td>
+                            </tr>
+                            <tr class="hover:bg-gray-50 bg-gray-50">
+                                <td class="px-4 py-3 text-sm text-gray-900">PROD-002</td>
+                                <td class="px-4 py-3 text-sm text-gray-900">Producto B - Otra descripción</td>
+                                <td class="px-4 py-3 text-sm text-gray-900 text-right">5</td>
+                                <td class="px-4 py-3 text-sm text-gray-900 text-right">$75.000</td>
+                                <td class="px-4 py-3 text-sm text-gray-900 text-right">0%</td>
+                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">$375.000</td>
+                            </tr>
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-3 text-sm text-gray-900">PROD-003</td>
+                                <td class="px-4 py-3 text-sm text-gray-900">Producto C - Tercer producto</td>
+                                <td class="px-4 py-3 text-sm text-gray-900 text-right">8</td>
+                                <td class="px-4 py-3 text-sm text-gray-900 text-right">$30.000</td>
+                                <td class="px-4 py-3 text-sm text-gray-900 text-right">10%</td>
+                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">$216.000</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Totales -->
+            <section class="mb-6">
+                <div class="flex justify-end">
+                    <div class="w-80">
+                        <div class="bg-gray-50 p-4 rounded-lg border border-gray-300">
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-700 font-medium">Subtotal:</span>
+                                <span class="text-gray-900 font-semibold">$1.066.000</span>
+                            </div>
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-700 font-medium">Descuento Total:</span>
+                                <span class="text-red-600 font-semibold">-$53.300</span>
+                            </div>
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-700 font-medium">IVA (19%):</span>
+                                <span class="text-gray-900 font-semibold">$192.433</span>
+                            </div>
+                            <div class="flex justify-between pt-2 border-t-2 border-gray-400 mt-2">
+                                <span class="text-lg font-bold text-gray-900">TOTAL:</span>
+                                <span class="text-lg font-bold text-blue-600">$1.205.133</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Badges y Estados -->
+            <section class="mb-6">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4 border-b-2 border-blue-500 pb-2">
+                    Estado del Documento
+                </h2>
+                <div class="flex gap-4 flex-wrap">
+                    <span class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                        ✓ Aprobado
+                    </span>
+                    <span class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                        📦 En Proceso
+                    </span>
+                    <span class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+                        ⏰ Pendiente
+                    </span>
+                </div>
+            </section>
+
+            <!-- Notas -->
+            <section class="mb-6">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4 border-b-2 border-blue-500 pb-2">
+                    Notas Adicionales
+                </h2>
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
+                    <p class="text-gray-700">
+                        Este es un documento de prueba generado con Tailwind CSS. 
+                        El PDF incluye estilos modernos, tablas formateadas y elementos visuales.
+                    </p>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="bg-gray-800 text-white p-4 text-center text-sm">
+            <p>ERP360 Comercial Ventas - Sistema de Gestión</p>
+            <p class="text-gray-400 mt-1">Documento generado automáticamente</p>
+        </footer>
+    </div>
+
+    <script>
+        // Establecer fecha actual
+        document.getElementById('fecha').textContent = new Date().toLocaleDateString('es-CO', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    </script>
+</body>
+</html>
+

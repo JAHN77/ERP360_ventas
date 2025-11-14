@@ -68,15 +68,6 @@ const CotizacionPreviewModal: React.FC<CotizacionPreviewModalProps> = ({ cotizac
         return null;
     }
     
-    const childWithProps = <CotizacionPDF 
-        ref={componentRef}
-        cotizacion={cotizacion}
-        cliente={cliente}
-        vendedor={vendedor}
-        empresa={datosEmpresa}
-        preferences={preferences}
-    />;
-
     return (
         <>
             <Modal isOpen={!!cotizacion} onClose={onClose} title="" size="4xl" noPadding>
@@ -121,7 +112,16 @@ const CotizacionPreviewModal: React.FC<CotizacionPreviewModalProps> = ({ cotizac
 
                 <div className="bg-slate-200 dark:bg-slate-900 p-4 sm:p-8">
                     <div className="bg-white shadow-lg rounded-md overflow-hidden max-w-4xl mx-auto">
-                        {childWithProps}
+                        {/* Envolver el componente en un div con el ref para capturar el contenido completo */}
+                        <div ref={componentRef}>
+                            <CotizacionPDF 
+                                cotizacion={cotizacion}
+                                cliente={cliente}
+                                vendedor={vendedor}
+                                empresa={datosEmpresa}
+                                preferences={preferences}
+                            />
+                        </div>
                     </div>
                 </div>
             </Modal>

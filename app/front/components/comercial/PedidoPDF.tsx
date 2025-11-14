@@ -77,18 +77,18 @@ export const PedidoPDF = React.forwardRef<HTMLDivElement, PedidoPDFProps>(
                 <table className="w-full text-left">
                     <thead className="rounded-lg">
                         <tr className="bg-blue-800 text-white text-sm font-semibold">
-                            <th className="p-3 text-left rounded-tl-lg whitespace-nowrap">Referencia</th>
-                            <th className="p-3 text-left w-2/5 whitespace-nowrap">Descripción</th>
-                            <th className="p-3 text-left whitespace-nowrap">Unidad</th>
-                            <th className="p-3 text-right whitespace-nowrap">Cant.</th>
+                            <th className="p-3 text-left rounded-l-lg whitespace-nowrap text-white">Referencia</th>
+                            <th className="p-3 text-left w-2/5 text-white">Descripción</th>
+                            <th className="p-3 text-left whitespace-nowrap text-white">Unidad</th>
+                            <th className="p-3 text-right whitespace-nowrap text-white">Cant.</th>
                             {preferences.showPrices && (
                                 <>
-                                    <th className="p-3 text-right whitespace-nowrap">P. Unitario</th>
-                                    <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
-                                    <th className="p-3 text-right rounded-tr-lg whitespace-nowrap">Valor IVA</th>
+                                    <th className="p-3 text-right whitespace-nowrap text-white">P. Unitario</th>
+                                    <th className="p-3 text-right whitespace-nowrap text-white">Subtotal</th>
+                                    <th className="p-3 text-right rounded-r-lg whitespace-nowrap text-white">Valor IVA</th>
                                 </>
                             )}
-                            {!preferences.showPrices && <th className="p-3 text-right rounded-tr-lg"></th>}
+                            {!preferences.showPrices && <th className="p-3 text-right rounded-r-lg text-white"></th>}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
@@ -144,8 +144,8 @@ export const PedidoPDF = React.forwardRef<HTMLDivElement, PedidoPDFProps>(
                                     <td className="pt-1 pb-2 text-right font-medium">{formatCurrency(pedido.ivaValor)}</td>
                                 </tr>
                                 <tr className="font-bold text-lg bg-blue-800 text-white shadow-lg">
-                                    <td className="p-2 text-right rounded-l-lg">TOTAL</td>
-                                    <td className="p-2 text-right rounded-r-lg">{formatCurrency(pedido.total)}</td>
+                                    <td className="p-2 text-right rounded-l-lg text-white">TOTAL</td>
+                                    <td className="p-2 text-right rounded-r-lg text-white">{formatCurrency(pedido.total)}</td>
                                 </tr>
                             </tbody>
                         </table>

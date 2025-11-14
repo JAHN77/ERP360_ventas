@@ -83,19 +83,19 @@ const CotizacionPDF = React.forwardRef<HTMLDivElement, CotizacionPDFProps>(
                 <table className="w-full text-left">
                     <thead className="rounded-lg">
                         <tr className="text-white text-sm font-semibold bg-blue-800">
-                            <th className="p-3 text-left rounded-l-lg whitespace-nowrap">Referencia</th>
-                            <th className="p-3 text-left w-2/5">Descripción</th>
-                            <th className="p-3 text-left whitespace-nowrap">Unidad</th>
-                            <th className="p-3 text-right whitespace-nowrap">Cant.</th>
+                            <th className="p-3 text-left rounded-l-lg whitespace-nowrap text-white">Referencia</th>
+                            <th className="p-3 text-left w-2/5 text-white">Descripción</th>
+                            <th className="p-3 text-left whitespace-nowrap text-white">Unidad</th>
+                            <th className="p-3 text-right whitespace-nowrap text-white">Cant.</th>
                             {preferences.showPrices && (
                                 <>
-                                    <th className="p-3 text-right whitespace-nowrap">P. Unitario</th>
-                                    <th className="p-3 text-right whitespace-nowrap">% Dcto</th>
-                                    <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
-                                    <th className="p-3 text-right rounded-r-lg whitespace-nowrap">Valor IVA</th>
+                                    <th className="p-3 text-right whitespace-nowrap text-white">P. Unitario</th>
+                                    <th className="p-3 text-right whitespace-nowrap text-white">% Dcto</th>
+                                    <th className="p-3 text-right whitespace-nowrap text-white">Subtotal</th>
+                                    <th className="p-3 text-right rounded-r-lg whitespace-nowrap text-white">Valor IVA</th>
                                 </>
                             )}
-                            {!preferences.showPrices && <th className="p-3 text-right rounded-r-lg"></th>}
+                            {!preferences.showPrices && <th className="p-3 text-right rounded-r-lg text-white"></th>}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
@@ -159,8 +159,8 @@ const CotizacionPDF = React.forwardRef<HTMLDivElement, CotizacionPDFProps>(
                                 </tr>
                                 )}
                                 <tr className="font-bold text-lg bg-blue-800 text-white shadow-lg">
-                                    <td className="p-2 text-right rounded-l-lg">TOTAL</td>
-                                    <td className="p-2 text-right rounded-r-lg">{formatCurrency(cotizacion.total)}</td>
+                                    <td className="p-2 text-right rounded-l-lg text-white">TOTAL</td>
+                                    <td className="p-2 text-right rounded-r-lg text-white">{formatCurrency(cotizacion.total)}</td>
                                 </tr>
                             </tbody>
                         </table>

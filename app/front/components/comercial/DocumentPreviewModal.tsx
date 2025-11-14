@@ -6,6 +6,7 @@ import DocumentOptionsToolbar from './DocumentOptionsToolbar';
 import { DocumentPreferences } from '../../types';
 import SendEmailModal from './SendEmailModal';
 import { useData } from '../../hooks/useData';
+import { descargarElementoComoPDF } from '../../utils/pdfClient';
 
 interface DocumentPreviewModalProps {
     isOpen: boolean;
@@ -22,13 +23,6 @@ interface DocumentPreviewModalProps {
     documentType: DocumentType;
     clientEmail?: string; // Nuevo prop
     clientName?: string; // Nuevo prop
-}
-
-declare global {
-  interface Window {
-    jspdf: any;
-    html2canvas: any;
-  }
 }
 
 const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
@@ -59,62 +53,14 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
             return;
         }
 
-        // Verificar que html2canvas esté disponible
-        if (!window.html2canvas || typeof window.html2canvas !== 'function') {
-            addNotification({ 
-                message: 'La biblioteca html2canvas no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('html2canvas no disponible:', typeof window.html2canvas);
-            return;
-        }
-
-        // Verificar que jsPDF esté disponible
-        if (!window.jspdf || typeof window.jspdf !== 'object') {
-            addNotification({ 
-                message: 'La biblioteca jsPDF no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('jsPDF no disponible:', typeof window.jspdf);
-            return;
-        }
-
-        addNotification({ message: 'Iniciando descarga de previsualización...', type: 'info' });
+        addNotification({ message: 'Generando PDF...', type: 'info' });
 
         try {
-            const { jsPDF } = window.jspdf;
-            
-            if (!jsPDF) {
-                throw new Error('jsPDF no está disponible en window.jspdf');
-            }
-            const canvas = await window.html2canvas(documentRef.current, { 
-                scale: 2, 
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-                windowWidth: documentRef.current.scrollWidth,
-                windowHeight: documentRef.current.scrollHeight
+            const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '_');
+            await descargarElementoComoPDF(documentRef.current, {
+                fileName: `Previsualizacion-${safeTitle}.pdf`
             });
-            const imgData = canvas.toDataURL('image/png');
-            
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            const imgProps = pdf.getImageProperties(imgData);
-            const ratio = imgProps.width / imgProps.height;
-            let finalWidth = pdfWidth;
-            let finalHeight = finalWidth / ratio;
-            
-            if (finalHeight > pdfHeight) {
-                finalHeight = pdfHeight;
-                finalWidth = finalHeight * ratio;
-            }
-
-            const x = (pdfWidth - finalWidth) / 2;
-            const y = (pdfHeight - finalHeight) / 2;
-            
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            pdf.save(`Previsualizacion-${title.replace(/ /g, '_')}.pdf`);
+            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
         } catch (error) {
             console.error('Error al generar el PDF:', error);
             addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });
@@ -129,9 +75,9 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         setIsEmailModalOpen(false);
     };
     
-    // Clone child to pass ref and preferences
+    // Clone child to pass preferences (sin ref, lo manejaremos con un wrapper)
     const childWithProps = React.isValidElement(children) 
-        ? React.cloneElement(children, { ref: documentRef, preferences } as React.RefAttributes<HTMLDivElement> & { preferences: DocumentPreferences }) 
+        ? React.cloneElement(children, { preferences } as { preferences: DocumentPreferences }) 
         : children;
 
     const documentNumber = title.split(': ')[1] || 'N/A';
@@ -237,7 +183,10 @@ El equipo de ${datosEmpresa.nombre}`;
 
                 <div className="bg-slate-200 dark:bg-slate-900 p-4 sm:p-8">
                     <div className="bg-white shadow-lg rounded-md overflow-hidden max-w-4xl mx-auto">
-                        {childWithProps}
+                        {/* Envolver el children en un div con el ref para capturar el contenido completo */}
+                        <div ref={documentRef}>
+                            {childWithProps}
+                        </div>
                     </div>
                 </div>
             </Modal>

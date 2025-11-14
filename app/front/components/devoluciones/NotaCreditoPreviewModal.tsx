@@ -6,6 +6,7 @@ import { useNotifications } from '../../hooks/useNotifications';
 import SendEmailModal from '../comercial/SendEmailModal';
 import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
+import { descargarElementoComoPDF } from '../../utils/pdfClient';
 
 interface NotaCreditoPreviewModalProps {
     notaCredito: NotaCredito | null;
@@ -18,6 +19,9 @@ declare global {
     html2canvas: any;
   }
 }
+
+// Mantener compatibilidad con jsPDF/html2canvas para impresión
+// pero usar descargarElementoComoPDF para descargas (mejor calidad)
 
 const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaCredito, onClose }) => {
     const { addNotification } = useNotifications();
@@ -45,6 +49,23 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
         addNotification({ message: `Preparando impresión para ${notaCredito.numero}...`, type: 'info' });
     
         try {
+            // Verificar que las librerías estén disponibles
+            if (!window.html2canvas || typeof window.html2canvas !== 'function') {
+                addNotification({ 
+                    message: 'La biblioteca html2canvas no está disponible. Por favor, recarga la página y espera unos segundos.', 
+                    type: 'error' 
+                });
+                return;
+            }
+
+            if (!window.jspdf || typeof window.jspdf !== 'object') {
+                addNotification({ 
+                    message: 'La biblioteca jsPDF no está disponible. Por favor, recarga la página y espera unos segundos.', 
+                    type: 'error' 
+                });
+                return;
+            }
+            
             const { jsPDF } = window.jspdf;
             const canvas = await window.html2canvas(componentRef.current, { scale: 2, useCORS: true });
             const imgData = canvas.toDataURL('image/png');
@@ -91,40 +112,21 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
     };
 
     const handleDownload = async () => {
-        if (!notaCredito || !relatedData?.cliente || !componentRef.current) return;
+        if (!notaCredito || !relatedData?.cliente || !componentRef.current) {
+            addNotification({ message: 'No hay contenido para descargar. Por favor, intenta nuevamente.', type: 'warning' });
+            return;
+        }
         
         const cliente = relatedData.cliente;
 
-        addNotification({ message: `La descarga de la Nota de Crédito ${notaCredito.numero} ha comenzado...`, type: 'info' });
+        addNotification({ message: `Generando PDF para ${notaCredito.numero}...`, type: 'info' });
 
         try {
-            const { jsPDF } = window.jspdf;
-            const canvas = await window.html2canvas(componentRef.current, { scale: 2, useCORS: true });
-            const imgData = canvas.toDataURL('image/png');
-            
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            const imgProps = pdf.getImageProperties(imgData);
-            const ratio = imgProps.width / imgProps.height;
-            let finalWidth = pdfWidth;
-            let finalHeight = finalWidth / ratio;
-            
-            if (finalHeight > pdfHeight) {
-                finalHeight = pdfHeight;
-                finalWidth = finalHeight * ratio;
-            }
-
-            const x = (pdfWidth - finalWidth) / 2;
-            const y = (pdfHeight - finalHeight) / 2;
-
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            
             const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
-            const fileName = `NotaCredito-${notaCredito.numero}-${safeClientName}-${notaCredito.fechaEmision}.pdf`;
-            
-            pdf.save(fileName);
-
+            await descargarElementoComoPDF(componentRef.current, {
+                fileName: `NotaCredito-${notaCredito.numero}-${safeClientName}-${notaCredito.fechaEmision}.pdf`
+            });
+            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
         } catch (error) {
             console.error('Error al generar el PDF:', error);
             addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });

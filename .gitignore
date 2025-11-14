@@ -12,6 +12,7 @@ app/back/node_modules/
 /build
 /dist
 app/front/dist/
+app/back/output/
 
 # Misc
 .DS_Store

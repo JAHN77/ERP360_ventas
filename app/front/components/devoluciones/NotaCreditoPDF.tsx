@@ -35,7 +35,7 @@ const NotaCreditoPDF = React.forwardRef<HTMLDivElement, NotaCreditoPDFProps>(
     }, 0);
 
     return (
-        <div ref={ref} className="p-10 text-slate-800 bg-white font-sans text-sm">
+        <div ref={ref} className="p-10 text-slate-800 bg-white font-sans text-sm print-content">
             <header className="flex justify-between items-start mb-8 pb-4 border-b border-slate-200">
                 <div className="flex items-start gap-4">
                     <LogoPlaceholder />
@@ -46,8 +46,11 @@ const NotaCreditoPDF = React.forwardRef<HTMLDivElement, NotaCreditoPDFProps>(
                     </div>
                 </div>
                 <div className="text-right">
-                    <h1 className="text-2xl font-bold text-red-600">NOTA DE CRÉDITO</h1>
-                    <p className="font-semibold text-xl">{notaCredito.numero}</p>
+                    <h1 className="text-2xl font-bold text-slate-900">NOTA DE CRÉDITO</h1>
+                    <p className="font-semibold text-xl text-red-600">{notaCredito.numero}</p>
+                    <div className="mt-4 text-sm text-slate-600">
+                        <p><span className="font-semibold text-slate-700">Fecha de Emisión:</span> {new Date(notaCredito.fechaEmision).toLocaleDateString('es-CO')}</p>
+                    </div>
                 </div>
             </header>
 
@@ -60,21 +63,20 @@ const NotaCreditoPDF = React.forwardRef<HTMLDivElement, NotaCreditoPDFProps>(
                 </div>
                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-md">
                      <h3 className="text-xs font-semibold text-slate-500 mb-1 tracking-wider uppercase">DOCUMENTO DE REFERENCIA</h3>
-                     <p className="text-sm"><span className="font-semibold text-slate-700 w-32 inline-block">Fecha de Emisión:</span> {new Date(notaCredito.fechaEmision).toLocaleDateString('es-CO')}</p>
                      <p className="text-sm"><span className="font-semibold text-slate-700 w-32 inline-block">Factura Afectada:</span> {factura.numeroFactura}</p>
                 </div>
             </section>
 
             <section className="mb-8">
                 <table className="w-full text-left">
-                    <thead className="rounded-lg">
-                        <tr className="bg-blue-800 text-white text-sm font-semibold">
-                            <th className="p-3 text-left rounded-tl-lg whitespace-nowrap">Referencia</th>
-                            <th className="p-3 text-left w-2/5 whitespace-nowrap">Descripción</th>
-                            <th className="p-3 text-right whitespace-nowrap">Cant.</th>
-                            <th className="p-3 text-right whitespace-nowrap">P. Unitario</th>
-                            <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
-                            <th className="p-3 text-right rounded-tr-lg whitespace-nowrap">Valor IVA</th>
+                    <thead>
+                        <tr className="bg-blue-800">
+                            <th className="p-3 text-left rounded-l-lg whitespace-nowrap text-white text-sm font-semibold">Referencia</th>
+                            <th className="p-3 text-left w-2/5 text-white text-sm font-semibold">Descripción</th>
+                            <th className="p-3 text-right whitespace-nowrap text-white text-sm font-semibold">Cant.</th>
+                            <th className="p-3 text-right whitespace-nowrap text-white text-sm font-semibold">P. Unitario</th>
+                            <th className="p-3 text-right whitespace-nowrap text-white text-sm font-semibold">Subtotal</th>
+                            <th className="p-3 text-right rounded-r-lg whitespace-nowrap text-white text-sm font-semibold">Valor IVA</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
@@ -82,12 +84,12 @@ const NotaCreditoPDF = React.forwardRef<HTMLDivElement, NotaCreditoPDFProps>(
                             const product = allProducts.find(p => p.id === item.productoId);
                             return (
                                 <tr key={item.productoId} className="text-sm">
-                                    <td className="p-3 text-slate-800 align-top">{product?.referencia || 'N/A'}</td>
+                                    <td className="p-3 text-slate-600 align-top">{product?.referencia || 'N/A'}</td>
                                     <td className="p-3 font-semibold text-slate-800 align-top">{item.descripcion}</td>
-                                    <td className="p-3 text-right text-slate-800 align-top">{item.cantidad.toFixed(2)}</td>
-                                    <td className="p-3 text-right text-slate-800 align-top">{formatCurrency(item.precioUnitario)}</td>
+                                    <td className="p-3 text-right text-slate-600 align-top">{item.cantidad.toFixed(2)}</td>
+                                    <td className="p-3 text-right text-slate-600 align-top">{formatCurrency(item.precioUnitario)}</td>
                                     <td className="p-3 text-right font-medium text-slate-800 align-top">{formatCurrency(item.total)}</td>
-                                    <td className="p-3 text-right text-slate-800 align-top">{formatCurrency(item.total * (item.ivaPorcentaje / 100))}</td>
+                                    <td className="p-3 text-right text-slate-600 align-top">{formatCurrency(item.total * (item.ivaPorcentaje / 100))}</td>
                                 </tr>
                             )
                         })}
@@ -121,27 +123,19 @@ const NotaCreditoPDF = React.forwardRef<HTMLDivElement, NotaCreditoPDFProps>(
                                 <td className="pt-1 pb-2 pr-4 text-right">IVA ({notaCredito.itemsDevueltos[0]?.ivaPorcentaje || 19}%)</td>
                                 <td className="pt-1 pb-2 text-right font-medium">{formatCurrency(notaCredito.iva)}</td>
                             </tr>
-                            <tr className="font-bold text-lg bg-blue-800 text-white shadow-lg">
-                                <td className="p-2 text-right rounded-l-lg">TOTAL</td>
-                                <td className="p-2 text-right rounded-r-lg">{formatCurrency(notaCredito.total)}</td>
+                            <tr className="bg-blue-800">
+                                <td className="p-2 text-right rounded-l-lg text-white font-bold text-lg">TOTAL</td>
+                                <td className="p-2 text-right rounded-r-lg text-white font-bold text-lg">{formatCurrency(notaCredito.total)}</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </section>
             
-            <footer className="mt-24 grid grid-cols-2 gap-16 pt-10">
-                 <div className="text-center">
-                    <div className="border-t-2 border-slate-400 pt-2">
-                        <p className="font-semibold text-slate-700">AUTORIZADO POR</p>
-                        <p className="text-xs text-slate-500">(Firma y Sello)</p>
-                    </div>
-                </div>
-                <div className="text-center">
-                    <div className="border-t-2 border-slate-400 pt-2">
-                        <p className="font-semibold text-slate-700">RECIBIDO</p>
-                         <p className="text-xs text-slate-500">(Firma y Sello)</p>
-                    </div>
+            <footer className="mt-24 pt-10 text-center">
+                <div className="inline-block border-t-2 border-slate-400 pt-2 px-16">
+                    <p className="font-semibold text-slate-700">APROBADO POR</p>
+                    <p className="text-xs text-slate-500">(Firma, Nombre y Sello)</p>
                 </div>
             </footer>
         </div>

@@ -6,10 +6,29 @@ const { QUERIES } = require('./services/dbConfig.cjs');
 const { getConnection } = require('./services/sqlServerClient.cjs');
 const sql = require('mssql');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const puppeteer = require('puppeteer');
 
 // Cargar variables de entorno
 dotenv.config();
+
+// Detectar si estamos en Vercel o entorno serverless
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV || process.env.AWS_LAMBDA_FUNCTION_NAME;
+
+// Importar Puppeteer según el entorno
+let puppeteer;
+let chromium;
+
+if (isVercel) {
+  // En Vercel: usar puppeteer-core + @sparticuz/chromium (serverless)
+  chromium = require('@sparticuz/chromium');
+  puppeteer = require('puppeteer-core');
+  // Configurar chromium para Vercel (serverless)
+  chromium.setHeadlessMode = true;
+  chromium.setGraphicsMode = false;
+} else {
+  // En local: usar puppeteer completo (incluye Chromium)
+  puppeteer = require('puppeteer');
+  console.log('🔧 [PDF] Modo desarrollo local: usando Puppeteer completo con Chromium incluido');
+}
 
 // Funciones de mapeo de estados
 const mapEstadoToDb = (estado) => {
@@ -76,42 +95,731 @@ app.use((req, res, next) => {
   next();
 });
 
+// Middleware para manejar errores de parsing JSON
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    console.error('[PDF] ❌ Error parseando JSON del body:', err.message);
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Error en el formato JSON del request',
+      error: err.message 
+    });
+  }
+  next();
+});
+
 app.post('/api/generar-pdf', async (req, res) => {
+  // ==================== LOGGING DETALLADO DEL REQUEST ====================
+  console.log('\n========== [PDF] NUEVO REQUEST RECIBIDO ==========');
+  console.log('[PDF] Timestamp:', new Date().toISOString());
+  console.log('[PDF] Método:', req.method);
+  console.log('[PDF] URL:', req.url);
+  console.log('[PDF] Headers:', {
+    'content-type': req.headers['content-type'],
+    'content-length': req.headers['content-length'],
+    'user-agent': req.headers['user-agent']?.substring(0, 50) + '...'
+  });
+  
+  // Log del body completo
+  console.log('[PDF] Body recibido:', {
+    tieneBody: !!req.body,
+    tipoBody: typeof req.body,
+    esArray: Array.isArray(req.body),
+    keys: req.body ? Object.keys(req.body) : [],
+    tieneHtml: !!(req.body && req.body.html),
+    tieneFileName: !!(req.body && req.body.fileName)
+  });
+  
+  // ==================== LOG EXACTO DEL BODY ====================
+  console.log('\n[PDF] ========== BODY EXACTO RECIBIDO ==========');
+  console.log('[PDF] req.body completo (tipo):', typeof req.body);
+  console.log('[PDF] req.body es null:', req.body === null);
+  console.log('[PDF] req.body es undefined:', req.body === undefined);
+  console.log('[PDF] req.body es objeto:', typeof req.body === 'object' && req.body !== null);
+  
+  if (req.body) {
+    console.log('[PDF] Keys en req.body:', Object.keys(req.body));
+    console.log('[PDF] Cantidad de propiedades:', Object.keys(req.body).length);
+    
+    // Mostrar cada propiedad del body
+    Object.keys(req.body).forEach(key => {
+      const value = req.body[key];
+      console.log(`[PDF]   - ${key}:`, {
+        tipo: typeof value,
+        esNull: value === null,
+        esUndefined: value === undefined,
+        esString: typeof value === 'string',
+        esArray: Array.isArray(value),
+        longitud: typeof value === 'string' ? value.length : (Array.isArray(value) ? value.length : 'N/A'),
+        valorPreview: typeof value === 'string' 
+          ? (value.length > 100 ? value.substring(0, 100) + '...' : value)
+          : (typeof value === 'object' ? JSON.stringify(value).substring(0, 100) + '...' : value)
+      });
+    });
+    
+    // Body completo en JSON (sin HTML para no saturar)
+    const bodyForLog = { ...req.body };
+    if (bodyForLog.html && typeof bodyForLog.html === 'string') {
+      bodyForLog.html = `[HTML de ${bodyForLog.html.length} caracteres - contenido completo abajo]`;
+    }
+    console.log('[PDF] Body completo (sin HTML):', JSON.stringify(bodyForLog, null, 2));
+  } else {
+    console.log('[PDF] ⚠️ req.body está vacío o es null/undefined');
+  }
+
+  // Extraer datos del body
   const { html, fileName } = req.body || {};
-  console.log('[PDF] Request recibido. html length:', html ? html.length : 0, 'fileName:', fileName);
-  if (html) {
-    console.log('[PDF] HTML preview:', html.substring(0, 500).replace(/\s+/g, ' ').trim(), '...');
+  
+  // Log del fileName completo
+  console.log('\n[PDF] ========== fileName EXACTO ==========');
+  console.log('[PDF] fileName valor completo:', JSON.stringify(fileName));
+  console.log('[PDF] fileName tipo:', typeof fileName);
+  console.log('[PDF] fileName longitud:', fileName ? String(fileName).length : 0);
+  console.log('[PDF] fileName después de trim:', fileName ? String(fileName).trim() : null);
+  
+  // Log detallado del HTML
+  console.log('\n[PDF] ========== ANÁLISIS DEL HTML ==========');
+  console.log('[PDF] HTML presente:', !!html);
+  console.log('[PDF] Tipo de HTML:', typeof html);
+  console.log('[PDF] HTML es string:', typeof html === 'string');
+  console.log('[PDF] Longitud del HTML:', html ? html.length : 0);
+  console.log('[PDF] HTML vacío:', html ? html.trim().length === 0 : true);
+  console.log('[PDF] Tamaño del HTML (KB):', html ? (html.length / 1024).toFixed(2) : 0);
+  console.log('[PDF] Tamaño del HTML (MB):', html ? (html.length / (1024 * 1024)).toFixed(2) : 0);
+  
+  // Log del fileName
+  console.log('\n[PDF] ========== ANÁLISIS DEL fileName ==========');
+  console.log('[PDF] fileName presente:', !!fileName);
+  console.log('[PDF] Tipo de fileName:', typeof fileName);
+  console.log('[PDF] Valor de fileName:', fileName);
+  console.log('[PDF] fileName válido:', fileName && typeof fileName === 'string' && fileName.trim().length > 0);
+  
+  // Preview del HTML
+  if (html && typeof html === 'string') {
+    console.log('\n[PDF] ========== CONTENIDO EXACTO DEL HTML ==========');
+    console.log('[PDF] Longitud total:', html.length, 'caracteres');
+    console.log('[PDF] Primeros 1000 caracteres:');
+    console.log('═'.repeat(100));
+    console.log(html.substring(0, 1000));
+    console.log('═'.repeat(100));
+    console.log('\n[PDF] Últimos 1000 caracteres:');
+    console.log('═'.repeat(100));
+    console.log(html.substring(Math.max(0, html.length - 1000)));
+    console.log('═'.repeat(100));
+    
+    // Buscar secciones importantes
+    const headMatch = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    
+    if (headMatch) {
+      console.log('\n[PDF] Contenido de <head> (primeros 500 chars):');
+      console.log(headMatch[1].substring(0, 500));
+    }
+    
+    if (bodyMatch) {
+      console.log('\n[PDF] Contenido de <body> (primeros 500 chars):');
+      console.log(bodyMatch[1].substring(0, 500));
+    }
+    
+    console.log('\n[PDF] ========== ANÁLISIS ESTRUCTURAL DEL HTML ==========');
+    console.log('[PDF] Contiene DOCTYPE:', html.includes('<!DOCTYPE') ? '✅ Sí' : '❌ No');
+    console.log('[PDF] Contiene <html>:', html.includes('<html') ? '✅ Sí' : '❌ No');
+    console.log('[PDF] Contiene <head>:', html.includes('<head') ? '✅ Sí' : '❌ No');
+    console.log('[PDF] Contiene <body>:', html.includes('<body') ? '✅ Sí' : '❌ No');
+    console.log('[PDF] Contiene Tailwind:', (html.includes('tailwindcss') || html.includes('cdn.tailwindcss.com')) ? '✅ Sí' : '❌ No');
+    console.log('[PDF] Número de scripts:', (html.match(/<script/g) || []).length);
+    console.log('[PDF] Número de styles:', (html.match(/<style/g) || []).length);
+    
+    // Buscar información específica
+    const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
+    console.log('[PDF] Título encontrado:', titleMatch ? titleMatch[1] : '❌ No encontrado');
+    
+    // Contar elementos
+    console.log('[PDF] Número de divs:', (html.match(/<div/g) || []).length);
+    console.log('[PDF] Número de tablas:', (html.match(/<table/g) || []).length);
+    console.log('[PDF] Número de párrafos:', (html.match(/<p/g) || []).length);
+    console.log('[PDF] Número de imágenes:', (html.match(/<img/g) || []).length);
+    console.log('[PDF] Número de enlaces:', (html.match(/<a/g) || []).length);
+    
+    // Buscar clases de Tailwind comunes
+    const tailwindClasses = ['bg-', 'text-', 'p-', 'm-', 'flex', 'grid'];
+    tailwindClasses.forEach(className => {
+      const count = (html.match(new RegExp(className, 'g')) || []).length;
+      if (count > 0) {
+        console.log(`[PDF] Clases Tailwind "${className}":`, count);
+      }
+    });
+    
+    // Verificar si hay contenido visible
+    const bodyContent = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyContent && bodyContent[1]) {
+      const bodyText = bodyContent[1].replace(/<[^>]*>/g, '').trim();
+      console.log('[PDF] Texto extraíble del body (primeros 100 chars):', bodyText.substring(0, 100));
+      console.log('[PDF] Longitud del texto extraíble:', bodyText.length, 'caracteres');
+    }
+  } else if (html) {
+    console.log('[PDF] ⚠️ HTML no es string, tipo:', typeof html);
+    console.log('[PDF] HTML value:', html);
+  } else {
+    console.log('[PDF] ❌ HTML no presente en el body');
   }
+  
+  // Log de otros campos del body (por si hay campos adicionales)
+  if (req.body && Object.keys(req.body).length > 2) {
+    console.log('\n[PDF] ========== CAMPOS ADICIONALES EN BODY ==========');
+    Object.keys(req.body).forEach(key => {
+      if (key !== 'html' && key !== 'fileName') {
+        console.log(`[PDF] ${key}:`, typeof req.body[key], Array.isArray(req.body[key]) ? `(array[${req.body[key].length}])` : '');
+      }
+    });
+  }
+  
+  // ==================== RESUMEN FINAL DEL BODY ====================
+  console.log('\n[PDF] ========== RESUMEN FINAL DEL BODY RECIBIDO ==========');
+  console.log('[PDF] ✅ Body recibido:', req.body ? 'Sí' : 'No');
+  if (req.body) {
+    console.log('[PDF] ✅ Tipo:', typeof req.body);
+    console.log('[PDF] ✅ Propiedades:', Object.keys(req.body).join(', '));
+    console.log('[PDF] ✅ HTML presente:', html ? 'Sí' : 'No');
+    if (html) {
+      console.log('[PDF] ✅ HTML longitud:', html.length, 'caracteres');
+      console.log('[PDF] ✅ HTML tamaño:', (html.length / 1024).toFixed(2), 'KB');
+    }
+    console.log('[PDF] ✅ fileName presente:', fileName ? 'Sí' : 'No');
+    if (fileName) {
+      console.log('[PDF] ✅ fileName valor:', fileName);
+    }
+  }
+  console.log('[PDF] ========== FIN DEL RESUMEN ==========\n');
 
+  // Validación
   if (!html || typeof html !== 'string' || !html.trim()) {
-    return res.status(400).json({ success: false, message: 'El contenido HTML es requerido.' });
+    console.log('[PDF] ❌ ERROR: HTML inválido o faltante');
+    console.log('[PDF] HTML recibido:', html);
+    console.log('[PDF] Tipo:', typeof html);
+    return res.status(400).json({ 
+      success: false, 
+      message: 'El contenido HTML es requerido.',
+      details: {
+        htmlPresent: !!html,
+        htmlType: typeof html,
+        htmlLength: html ? html.length : 0,
+        htmlEmpty: html ? html.trim().length === 0 : true
+      }
+    });
   }
 
+  console.log('\n[PDF] ========== INICIANDO GENERACIÓN DE PDF ==========');
+  const startTime = Date.now();
+  
   let browser;
+  let browserLaunchTime = 0;
+  let contentLoadTime = 0;
+  let pdfGenerationTime = 0;
+  
   try {
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    console.log('[PDF] 🔧 Configurando Puppeteer...');
+    let executablePath;
+    let launchOptions;
+
+    if (isVercel) {
+      // En Vercel, usar chromium de @sparticuz/chromium
+      // Optimizado para plan gratuito: máximo 10 segundos
+      console.log('[PDF] Configurando Puppeteer para Vercel (serverless - plan gratuito)');
+      executablePath = await chromium.executablePath();
+      launchOptions = {
+        args: [
+          ...chromium.args,
+          '--hide-scrollbars',
+          '--disable-web-security',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-extensions',
+          '--disable-plugins',
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-renderer-backgrounding',
+          '--disable-backgrounding-occluded-windows',
+        ],
+        defaultViewport: chromium.defaultViewport,
+        executablePath,
+        headless: chromium.headless,
+        ignoreHTTPSErrors: true,
+      };
+    } else {
+      // En desarrollo local: usar Puppeteer completo (incluye Chromium)
+      // Solo usar ejecutable personalizado si se especifica explícitamente
+      console.log('[PDF] Configurando Puppeteer para desarrollo local (usando Chromium incluido)');
+      
+      // Si el usuario especifica un ejecutable personalizado, usarlo
+      // De lo contrario, Puppeteer usará su Chromium incluido
+      const customExecutable = process.env.CHROME_EXECUTABLE_PATH || process.env.PUPPETEER_EXECUTABLE_PATH;
+      
+      launchOptions = {
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+        ],
+        headless: true,
+        ignoreHTTPSErrors: true,
+      };
+      
+      // Solo especificar executablePath si el usuario lo proporciona explícitamente
+      if (customExecutable) {
+        executablePath = customExecutable;
+        launchOptions.executablePath = executablePath;
+        console.log('[PDF] Usando ejecutable personalizado:', executablePath);
+      } else {
+        console.log('[PDF] Usando Chromium incluido con Puppeteer (no se requiere Chrome instalado)');
+      }
+    }
+
+    console.log('[PDF] Lanzando navegador con opciones:', {
+      executablePath: executablePath ? 'Definido (personalizado)' : (isVercel ? 'Definido (@sparticuz/chromium)' : 'Automático (Puppeteer Chromium)'),
+      headless: launchOptions.headless,
+      argsCount: launchOptions.args.length,
+      entorno: isVercel ? 'Vercel (serverless)' : 'Local (desarrollo)',
     });
 
+    console.log('[PDF] 🚀 Lanzando navegador...');
+    const browserLaunchStart = Date.now();
+    browser = await puppeteer.launch(launchOptions);
+    const browserLaunchTime = Date.now() - browserLaunchStart;
+    console.log('[PDF] ✅ Navegador lanzado en', browserLaunchTime, 'ms');
+
+    console.log('[PDF] 📄 Creando nueva página...');
     const page = await browser.newPage();
+    console.log('[PDF] ✅ Página creada');
+    
+    // Configurar timeout para la página (crítico para plan gratuito: 10s máximo)
+    // En Vercel gratuito: 10s total, dejar ~1s de margen = 9s máximo
+    const vercelTimeout = 8000; // 8 segundos para dejar margen
+    const localTimeout = 10000; // 10 segundos para desarrollo local (suficiente con recursos bloqueados)
+    
+    // Establecer timeouts más agresivos
+    page.setDefaultNavigationTimeout(isVercel ? vercelTimeout : localTimeout);
+    page.setDefaultTimeout(isVercel ? vercelTimeout : localTimeout);
+    
+    console.log('[PDF] ⏱️ Timeouts configurados:');
+    console.log('   - Navigation timeout:', isVercel ? vercelTimeout : localTimeout, 'ms');
+    console.log('   - Default timeout:', isVercel ? vercelTimeout : localTimeout, 'ms');
+    
+    // Bloquear recursos innecesarios para acelerar la carga y evitar timeouts
+    // Solo permitir recursos críticos: HTML, CSS, scripts necesarios (Tailwind CDN)
+    console.log('[PDF] 🚫 Configurando bloqueo de recursos innecesarios...');
+    
+    try {
+      await page.setRequestInterception(true);
+      
+      page.on('request', (request) => {
+        const url = request.url();
+        const resourceType = request.resourceType();
+        
+        // Permitir siempre: documentos HTML
+        if (resourceType === 'document') {
+          request.continue();
+          return;
+        }
+        
+        // Permitir estilos CSS (incluyendo Tailwind CDN)
+        if (resourceType === 'stylesheet') {
+          request.continue();
+          return;
+        }
+        
+        // Permitir scripts (incluyendo Tailwind CDN)
+        if (resourceType === 'script') {
+          // Permitir Tailwind CDN y scripts locales/inline
+          if (url.includes('cdn.tailwindcss.com') || url.startsWith('data:') || !url.startsWith('http')) {
+            request.continue();
+          } else {
+            // Bloquear otros scripts externos que no son necesarios
+            request.abort();
+          }
+          return;
+        }
+        
+        // Bloquear fonts externos (usar fuentes del sistema para PDFs más rápidos)
+        if (resourceType === 'font') {
+          request.abort();
+          return;
+        }
+        
+        // Bloquear imágenes externas (solo permitir data URLs o inline)
+        if (resourceType === 'image' && !url.startsWith('data:')) {
+          request.abort();
+          return;
+        }
+        
+        // Bloquear media y otros recursos innecesarios
+        if (resourceType === 'media' || 
+            resourceType === 'websocket' || 
+            resourceType === 'eventsource' ||
+            resourceType === 'manifest') {
+          request.abort();
+          return;
+        }
+        
+        // Para xhr/fetch: permitir solo si es de Tailwind CDN o necesario para el funcionamiento
+        // Tailwind CDN puede hacer requests para procesar clases, pero generalmente no lo hace
+        if (resourceType === 'xhr' || resourceType === 'fetch') {
+          // Bloquear por defecto, pero permitir si es de Tailwind CDN
+          if (url.includes('cdn.tailwindcss.com')) {
+            request.continue();
+          } else {
+            request.abort();
+          }
+          return;
+        }
+        
+        // Permitir otros recursos por defecto (pero deberían ser mínimos)
+        request.continue();
+      });
+      
+      console.log('[PDF] ✅ Bloqueo de recursos configurado');
+    } catch (error) {
+      console.warn('[PDF] ⚠️ Error configurando bloqueo de recursos:', error.message);
+      console.warn('[PDF] Continuando sin bloqueo de recursos...');
+    }
+    
+    // Event listeners para debugging (solo para requests críticos)
     page.on('requestfailed', req => {
-      console.warn('[PDF] request failed:', req.url(), req.failure()?.errorText);
+      const resourceType = req.resourceType();
+      // Solo loguear errores en recursos críticos
+      if (resourceType === 'stylesheet' || resourceType === 'script') {
+        console.warn('[PDF] ⚠️ Request failed (crítico):', req.url().substring(0, 100), '...', req.failure()?.errorText);
+      }
     });
-    page.on('requestfinished', req => {
-      console.log('[PDF] request finished:', req.url());
-    });
-    await page.setContent(html, { waitUntil: ['load', 'networkidle0'] });
+    
+    // Configurar contenido con timeout optimizado
+    // Usar 'domcontentloaded' en ambos entornos para ser más rápido
+    // Esto espera a que el DOM esté listo, no a que todos los recursos se carguen
+    console.log('[PDF] 📝 Cargando contenido HTML en la página...');
+    const contentLoadStart = Date.now();
+    
+    // Configurar timeout explícito para setContent
+    // Usar 'load' para esperar a que todos los recursos (incluyendo scripts) se carguen
+    // Esto es importante para Tailwind CDN que necesita ejecutarse
+    const setContentTimeout = isVercel ? 8000 : 12000; // Timeout más largo para permitir que los scripts se ejecuten
+    
+    try {
+      console.log('[PDF] Cargando HTML con waitUntil: load (espera a que scripts se ejecuten)');
+      
+      // Usar Promise.race para asegurar que no exceda el timeout
+      await Promise.race([
+        page.setContent(html, { 
+          waitUntil: 'load', // Usar 'load' para esperar a que scripts se ejecuten (incluyendo Tailwind)
+          timeout: setContentTimeout
+        }),
+        // Timeout de seguridad
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`Timeout: setContent excedió ${setContentTimeout}ms`)), setContentTimeout + 1000)
+        )
+      ]);
+      
+      const contentLoadTime = Date.now() - contentLoadStart;
+      console.log('[PDF] ✅ Contenido cargado en', contentLoadTime, 'ms');
+      console.log('[PDF] Scripts (incluyendo Tailwind) deberían estar ejecutados');
+    } catch (error) {
+      const contentLoadTime = Date.now() - contentLoadStart;
+      console.error('[PDF] ❌ Error cargando contenido después de', contentLoadTime, 'ms');
+      console.error('[PDF] Error:', error.message);
+      
+      // Si es un timeout, intentar continuar de todas formas (el contenido puede estar cargado)
+      if (error.message && error.message.includes('Timeout')) {
+        console.warn('[PDF] ⚠️ Timeout en setContent, pero continuando...');
+        console.warn('[PDF] El contenido puede estar parcialmente cargado');
+        console.warn('[PDF] Los scripts pueden no haberse ejecutado completamente');
+        // No lanzar error, continuar con la generación del PDF
+        // La verificación posterior determinará si el contenido está listo
+      } else {
+        throw error;
+      }
+    }
+    
+    // Esperar a que Tailwind CSS se cargue y procese las clases
+    // Verificar activamente que Tailwind esté listo y que los estilos se hayan aplicado
+    if (html.includes('cdn.tailwindcss.com') || html.includes('tailwindcss')) {
+      console.log('[PDF] ⏳ Esperando a que Tailwind CSS se cargue y procese las clases...');
+      const maxWaitTime = isVercel ? 4000 : 6000; // Tiempo máximo de espera aumentado
+      const checkInterval = 200; // Verificar cada 200ms
+      const startTime = Date.now();
+      
+      let tailwindReady = false;
+      let stylesApplied = false;
+      
+      while ((!tailwindReady || !stylesApplied) && (Date.now() - startTime) < maxWaitTime) {
+        try {
+          const result = await page.evaluate(() => {
+            const container = document.getElementById('pdf-container');
+            if (!container) {
+              return { tailwindReady: false, stylesApplied: false };
+            }
+            
+            // Verificar si Tailwind está disponible
+            const hasTailwind = typeof window !== 'undefined' && window.tailwind;
+            
+            // Verificar que los estilos se hayan aplicado correctamente
+            // Buscar elementos con clases de Tailwind y verificar que tengan estilos aplicados
+            const testElements = container.querySelectorAll('.bg-blue-800, .text-white, .p-10, .bg-slate-50');
+            let hasStyles = false;
+            
+            if (testElements.length > 0) {
+              for (let i = 0; i < Math.min(3, testElements.length); i++) {
+                const el = testElements[i];
+                const computedStyle = window.getComputedStyle(el);
+                
+                // Verificar que los estilos se hayan aplicado
+                if (el.classList.contains('bg-blue-800')) {
+                  const bgColor = computedStyle.backgroundColor;
+                  // Verificar que el color de fondo sea azul (aproximadamente)
+                  if (bgColor && (bgColor.includes('rgb(30, 64, 175)') || bgColor.includes('#1e40af'))) {
+                    hasStyles = true;
+                    break;
+                  }
+                } else if (el.classList.contains('p-10')) {
+                  const padding = computedStyle.padding;
+                  // Verificar que el padding se haya aplicado (debería ser ~40px o 2.5rem)
+                  if (padding && (padding.includes('40px') || padding.includes('2.5rem'))) {
+                    hasStyles = true;
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // Verificar que el contenedor tenga contenido y altura
+            const rect = container.getBoundingClientRect();
+            const computedStyle = window.getComputedStyle(container);
+            const hasHeight = rect.height > 0;
+            const isVisible = computedStyle.display !== 'none' && 
+                             computedStyle.visibility !== 'hidden' && 
+                             parseFloat(computedStyle.opacity) > 0;
+            
+            return {
+              tailwindReady: hasTailwind || hasHeight,
+              stylesApplied: hasStyles || (hasHeight && isVisible && container.children.length > 0)
+            };
+          });
+          
+          tailwindReady = result.tailwindReady;
+          stylesApplied = result.stylesApplied;
+          
+          if (!tailwindReady || !stylesApplied) {
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            console.log('[PDF] ⏳ Esperando Tailwind...', { 
+              tailwindReady, 
+              stylesApplied,
+              elapsed: Date.now() - startTime 
+            });
+          }
+        } catch (error) {
+          console.warn('[PDF] ⚠️ Error verificando Tailwind:', error.message);
+          // Continuar después de un tiempo mínimo
+          await new Promise(resolve => setTimeout(resolve, checkInterval));
+          break;
+        }
+      }
+      
+      if (tailwindReady && stylesApplied) {
+        console.log('[PDF] ✅ Tailwind CSS está listo y los estilos se han aplicado');
+      } else {
+        console.warn('[PDF] ⚠️ Tailwind CSS puede no estar completamente cargado');
+        console.warn('[PDF] Estado:', { tailwindReady, stylesApplied });
+        console.warn('[PDF] Continuando de todas formas...');
+      }
+      
+      // Espera adicional para que los estilos se apliquen completamente
+      const additionalWait = isVercel ? 800 : 1500;
+      await new Promise(resolve => setTimeout(resolve, additionalWait));
+      console.log('[PDF] ✅ Espera adicional completada');
+      
+      // Verificar y forzar que el contenido sea visible
+      try {
+        await page.evaluate(() => {
+          const container = document.getElementById('pdf-container');
+          if (container) {
+            // Asegurar que el contenedor sea visible
+            container.style.display = 'block';
+            container.style.visibility = 'visible';
+            container.style.opacity = '1';
+            
+            // Forzar un reflow para aplicar estilos
+            container.offsetHeight;
+          }
+        });
+      } catch (error) {
+        console.warn('[PDF] ⚠️ Error aplicando estilos de fallback:', error.message);
+      }
+    }
+    
+    // Verificar que el contenido sea visible y tenga altura antes de generar el PDF
+    // Esperar hasta que el contenido tenga altura (indicador de que se renderizó correctamente)
+    console.log('[PDF] 🔍 Verificando que el contenido sea visible y tenga altura...');
+    const maxContentWaitTime = isVercel ? 2000 : 3000; // Tiempo máximo para esperar contenido
+    const contentCheckInterval = 200; // Verificar cada 200ms
+    const contentWaitStart = Date.now();
+    
+    let contentReady = false;
+    let pageContent = null;
+    
+    while (!contentReady && (Date.now() - contentWaitStart) < maxContentWaitTime) {
+      try {
+        pageContent = await page.evaluate(() => {
+          const container = document.getElementById('pdf-container');
+          if (!container) {
+            return {
+              error: 'No se encontró #pdf-container',
+              bodyHTML: document.body.innerHTML.substring(0, 500),
+              allElements: document.body.querySelectorAll('*').length,
+              ready: false
+            };
+          }
+          
+          // Verificar que el contenedor tenga contenido
+          const textContent = container.textContent || container.innerText || '';
+          const innerHTML = container.innerHTML || '';
+          
+          // Verificar que haya elementos visibles
+          const childrenCount = container.children.length;
+          const allElementsCount = container.querySelectorAll('*').length;
+          
+          // Verificar que el contenedor tenga altura y sea visible
+          const rect = container.getBoundingClientRect();
+          const computedStyle = window.getComputedStyle(container);
+          
+          // Obtener el HTML completo del contenedor
+          const containerHTML = container.innerHTML;
+          
+          // El contenido está listo si:
+          // 1. Tiene HTML interno
+          // 2. Tiene altura (indicador de que se renderizó)
+          // 3. No está oculto
+          const hasContent = innerHTML.length > 0;
+          const hasHeight = rect.height > 0;
+          const isVisible = computedStyle.display !== 'none' && 
+                           computedStyle.visibility !== 'hidden' && 
+                           parseFloat(computedStyle.opacity) > 0;
+          
+          const ready = hasContent && hasHeight && isVisible;
+          
+          return {
+            containerFound: true,
+            ready,
+            hasText: textContent.trim().length > 0,
+            textLength: textContent.trim().length,
+            textPreview: textContent.trim().substring(0, 200),
+            htmlLength: innerHTML.length,
+            htmlPreview: innerHTML.substring(0, 500),
+            childrenCount,
+            allElementsCount,
+            hasHeight,
+            height: rect.height,
+            width: rect.width,
+            display: computedStyle.display,
+            visibility: computedStyle.visibility,
+            opacity: computedStyle.opacity,
+            containerHTML: containerHTML.substring(0, 1000) // Primeros 1000 caracteres
+          };
+        });
+        
+        if (pageContent.ready) {
+          contentReady = true;
+          console.log('[PDF] ✅ El contenido está listo para generar el PDF');
+          console.log('[PDF] Estado del contenido:');
+          console.log('   - Altura:', pageContent.height, 'px');
+          console.log('   - Ancho:', pageContent.width, 'px');
+          console.log('   - Texto:', pageContent.textLength, 'caracteres');
+          console.log('   - HTML:', pageContent.htmlLength, 'caracteres');
+          console.log('   - Elementos:', pageContent.allElementsCount);
+          if (pageContent.textPreview) {
+            console.log('   - Preview del texto:', pageContent.textPreview.substring(0, 150));
+          }
+        } else {
+          // Esperar un poco más y verificar nuevamente
+          await new Promise(resolve => setTimeout(resolve, contentCheckInterval));
+          console.log('[PDF] ⏳ Esperando a que el contenido se renderice...', {
+            hasHeight: pageContent.hasHeight,
+            height: pageContent.height,
+            htmlLength: pageContent.htmlLength,
+            display: pageContent.display
+          });
+        }
+      } catch (error) {
+        console.error('[PDF] ❌ Error verificando contenido:', error.message);
+        // Continuar después de un tiempo mínimo
+        await new Promise(resolve => setTimeout(resolve, contentCheckInterval));
+        break;
+      }
+    }
+    
+    // Verificación final del contenido
+    if (pageContent) {
+      if (!pageContent.containerFound) {
+        console.error('[PDF] ❌ No se encontró #pdf-container en la página renderizada');
+        console.error('[PDF] Body HTML (primeros 500 chars):', pageContent.bodyHTML);
+        throw new Error('No se encontró #pdf-container en la página renderizada');
+      } else if (!pageContent.hasHeight) {
+        console.error('[PDF] ❌ El contenedor no tiene altura. El contenido no se está renderizando correctamente.');
+        console.error('[PDF] Estado del contenedor:');
+        console.error('   - HTML length:', pageContent.htmlLength);
+        console.error('   - Height:', pageContent.height);
+        console.error('   - Display:', pageContent.display);
+        console.error('   - Visibility:', pageContent.visibility);
+        console.error('   - Opacity:', pageContent.opacity);
+        console.error('[PDF] HTML del contenedor:', pageContent.containerHTML);
+        throw new Error('El contenedor no tiene altura. El contenido no se está renderizando correctamente. Puede ser un problema con Tailwind CSS o con los estilos.');
+      } else if (pageContent.htmlLength === 0) {
+        console.error('[PDF] ❌ El contenedor #pdf-container está completamente vacío');
+        throw new Error('El contenedor #pdf-container está completamente vacío');
+      } else if (!pageContent.hasText && pageContent.htmlLength > 0) {
+        console.warn('[PDF] ⚠️ El contenedor tiene HTML pero no texto extraíble');
+        console.warn('[PDF] HTML del contenedor:', pageContent.htmlPreview);
+        console.warn('[PDF] Esto puede ser normal si el contenido solo tiene elementos estructurados');
+      }
+    } else {
+      console.warn('[PDF] ⚠️ No se pudo verificar el contenido, pero continuando...');
+    }
 
-    const pdfBuffer = await page.pdf({
+    // Generar PDF con timeout ajustado para plan gratuito
+    const pdfGenerationPromise = page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '10mm', right: '12mm', bottom: '12mm', left: '12mm' },
+      margin: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' },
     });
+    
+    // Timeout total: 8 segundos (dejar 2s de margen del límite de 10s)
+    const pdfTimeout = isVercel ? 5000 : 35000; // 5 segundos para generar PDF en Vercel
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Timeout generando PDF: el proceso excedió el tiempo límite del plan gratuito (10s)')), pdfTimeout)
+    );
+    
+    console.log('[PDF] ⏳ Generando PDF desde HTML...');
+    const startPdfGeneration = Date.now();
+    
+    const pdfBuffer = await Promise.race([pdfGenerationPromise, timeoutPromise]);
+    
+    const pdfGenerationTime = Date.now() - startPdfGeneration;
+    console.log('[PDF] ✅ PDF generado en', pdfGenerationTime, 'ms');
 
     const safeName = typeof fileName === 'string' && fileName.trim()
       ? fileName.trim().replace(/[^\w.-]/g, '_')
       : 'documento.pdf';
+
+    console.log('\n[PDF] ========== RESULTADO DE LA GENERACIÓN ==========');
+    console.log('[PDF] Nombre del archivo original:', fileName);
+    console.log('[PDF] Nombre del archivo seguro:', safeName);
+    console.log('[PDF] Tamaño del PDF (bytes):', pdfBuffer.length);
+    console.log('[PDF] Tamaño del PDF (KB):', (pdfBuffer.length / 1024).toFixed(2));
+    console.log('[PDF] Tamaño del PDF (MB):', (pdfBuffer.length / (1024 * 1024)).toFixed(2));
+    console.log('[PDF] Tiempo de generación:', pdfGenerationTime, 'ms');
+    console.log('[PDF] Headers de respuesta:', {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${safeName}"`,
+      'Content-Length': pdfBuffer.length
+    });
 
     res.set({
       'Content-Type': 'application/pdf',
@@ -119,19 +827,168 @@ app.post('/api/generar-pdf', async (req, res) => {
       'Content-Length': pdfBuffer.length,
     });
 
+    const totalTime = Date.now() - startTime;
+    
+    console.log('[PDF] 📤 Enviando respuesta al cliente...');
     res.send(pdfBuffer);
+    console.log('[PDF] ✅ Respuesta enviada exitosamente');
+    
+    console.log('\n[PDF] ========== RESUMEN DEL PROCESO ==========');
+    console.log('[PDF] ⏱️  Tiempo total:', totalTime, 'ms', `(${(totalTime / 1000).toFixed(2)}s)`);
+    console.log('[PDF] ⏱️  Tiempo de lanzamiento del navegador:', browserLaunchTime, 'ms');
+    console.log('[PDF] ⏱️  Tiempo de carga de contenido:', contentLoadTime, 'ms');
+    console.log('[PDF] ⏱️  Tiempo de generación del PDF:', pdfGenerationTime, 'ms');
+    console.log('[PDF] 📊 Tamaño del HTML recibido:', (html.length / 1024).toFixed(2), 'KB');
+    console.log('[PDF] 📊 Tamaño del PDF generado:', (pdfBuffer.length / 1024).toFixed(2), 'KB');
+    console.log('[PDF] 📊 Relación HTML/PDF:', ((html.length / pdfBuffer.length) * 100).toFixed(2), '%');
+    console.log('[PDF] ✅ Proceso completado exitosamente');
+    console.log('[PDF] ========== FIN DEL PROCESO ==========\n');
   } catch (error) {
-    console.error('Error generando PDF con Puppeteer:', error);
-    res.status(500).json({ success: false, message: 'No se pudo generar el PDF' });
+    const errorTime = Date.now() - startTime;
+    
+    console.error('\n[PDF] ========== ERROR EN LA GENERACIÓN ==========');
+    console.error('[PDF] ⏱️  Tiempo hasta el error:', errorTime, 'ms', `(${(errorTime / 1000).toFixed(2)}s)`);
+    console.error('[PDF] ❌ Error generando PDF:', error.message);
+    console.error('[PDF] 📋 Tipo de error:', error.name);
+    console.error('[PDF] 🔢 Código de error:', error.code);
+    console.error('[PDF] 🌍 Entorno:', isVercel ? 'Vercel (serverless)' : 'Local (desarrollo)');
+    console.error('[PDF] 📊 Estado del proceso:', {
+      navegadorLanzado: browserLaunchTime > 0,
+      tiempoLanzamiento: browserLaunchTime > 0 ? `${browserLaunchTime}ms` : 'N/A',
+      contenidoCargado: contentLoadTime > 0,
+      tiempoCarga: contentLoadTime > 0 ? `${contentLoadTime}ms` : 'N/A',
+      pdfGenerado: pdfGenerationTime > 0,
+      tiempoGeneracion: pdfGenerationTime > 0 ? `${pdfGenerationTime}ms` : 'N/A'
+    });
+    
+    if (error.stack) {
+      console.error('[PDF] 📚 Stack trace:');
+      console.error(error.stack);
+    }
+    
+    const errorMessage = error.message || 'Error desconocido al generar PDF';
+    const isTimeout = errorMessage.includes('Timeout') || errorMessage.includes('timeout');
+    const isLaunchError = errorMessage.includes('Executable') || errorMessage.includes('launch');
+    
+    console.error('[PDF] 🔍 Análisis del error:', {
+      esTimeout: isTimeout,
+      esErrorDeLanzamiento: isLaunchError,
+      mensaje: errorMessage
+    });
+    console.error('[PDF] ========== FIN DEL ERROR ==========\n');
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'No se pudo generar el PDF',
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? {
+        stack: error.stack,
+        isVercel,
+        isTimeout,
+        isLaunchError,
+        tiempoHastaError: errorTime,
+        estado: {
+          navegadorLanzado: browserLaunchTime > 0,
+          contenidoCargado: contentLoadTime > 0,
+          pdfGenerado: pdfGenerationTime > 0
+        }
+      } : undefined
+    });
   } finally {
     if (browser) {
       try {
+        console.log('[PDF] 🔒 Cerrando navegador...');
         await browser.close();
+        console.log('[PDF] ✅ Navegador cerrado correctamente');
       } catch (closeError) {
-        console.warn('Error cerrando instancia de Puppeteer:', closeError);
+        console.warn('[PDF] ⚠️ Error cerrando navegador:', closeError);
       }
     }
   }
+});
+
+// ==================== ENDPOINT DE PRUEBA: VER BODY EXACTO ====================
+app.post('/api/debug-pdf-body', (req, res) => {
+  console.log('\n========== [DEBUG PDF BODY] REQUEST RECIBIDO ==========');
+  console.log('[DEBUG] ✅ Endpoint /api/debug-pdf-body está funcionando');
+  console.log('[DEBUG] Timestamp:', new Date().toISOString());
+  console.log('[DEBUG] Headers:', req.headers);
+  console.log('[DEBUG] Content-Type:', req.headers['content-type']);
+  console.log('[DEBUG] Content-Length:', req.headers['content-length']);
+  
+  // Información completa del body
+  const bodyInfo = {
+    tieneBody: !!req.body,
+    tipoBody: typeof req.body,
+    esNull: req.body === null,
+    esUndefined: req.body === undefined,
+    esObjeto: typeof req.body === 'object' && req.body !== null,
+    esArray: Array.isArray(req.body),
+    keys: req.body ? Object.keys(req.body) : [],
+    cantidadPropiedades: req.body ? Object.keys(req.body).length : 0
+  };
+  
+  console.log('[DEBUG] Información del body:', bodyInfo);
+  
+  // Analizar cada propiedad
+  const propiedades = {};
+  if (req.body && typeof req.body === 'object') {
+    Object.keys(req.body).forEach(key => {
+      const value = req.body[key];
+      propiedades[key] = {
+        tipo: typeof value,
+        esNull: value === null,
+        esUndefined: value === undefined,
+        esString: typeof value === 'string',
+        esArray: Array.isArray(value),
+        esObjeto: typeof value === 'object' && value !== null && !Array.isArray(value),
+        longitud: typeof value === 'string' ? value.length : (Array.isArray(value) ? value.length : null),
+        preview: typeof value === 'string' 
+          ? (value.length > 200 ? value.substring(0, 200) + '... [truncado]' : value)
+          : (typeof value === 'object' && value !== null 
+              ? JSON.stringify(value).substring(0, 200) + (JSON.stringify(value).length > 200 ? '... [truncado]' : '')
+              : value)
+      };
+    });
+  }
+  
+  console.log('[DEBUG] Propiedades del body:', JSON.stringify(propiedades, null, 2));
+  
+  // Body completo (con HTML truncado si es muy largo)
+  const bodyCompleto = { ...req.body };
+  if (bodyCompleto.html && typeof bodyCompleto.html === 'string') {
+    const htmlLength = bodyCompleto.html.length;
+    bodyCompleto.html = {
+      longitud: htmlLength,
+      primeros500: bodyCompleto.html.substring(0, 500),
+      ultimos500: bodyCompleto.html.substring(Math.max(0, htmlLength - 500)),
+      contieneDoctype: bodyCompleto.html.includes('<!DOCTYPE'),
+      contieneHtml: bodyCompleto.html.includes('<html'),
+      contieneHead: bodyCompleto.html.includes('<head'),
+      contieneBody: bodyCompleto.html.includes('<body'),
+      contieneTailwind: bodyCompleto.html.includes('tailwindcss') || bodyCompleto.html.includes('cdn.tailwindcss.com'),
+      contenidoCompleto: htmlLength < 10000 ? bodyCompleto.html : '[HTML demasiado grande, ver primeros y últimos 500 caracteres arriba]'
+    };
+  }
+  
+  // Respuesta con toda la información
+  res.json({
+    success: true,
+    message: 'Body recibido y analizado',
+    timestamp: new Date().toISOString(),
+    informacionBody: bodyInfo,
+    propiedades: propiedades,
+    bodyCompleto: bodyCompleto,
+    bodyRaw: req.body, // Body original (puede ser muy grande)
+    headers: {
+      'content-type': req.headers['content-type'],
+      'content-length': req.headers['content-length'],
+      'user-agent': req.headers['user-agent']
+    }
+  });
+  
+  console.log('[DEBUG] Respuesta enviada');
+  console.log('========== [DEBUG PDF BODY] FIN ==========\n');
 });
 
 // Ruta de prueba de conexión
@@ -4547,16 +5404,24 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Iniciar servidor
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor API ejecutándose en puerto ${PORT}`);
-  console.log(`📡 URL: http://localhost:${PORT}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🔗 Test connection: http://localhost:${PORT}/api/test-connection`);
-  console.log(`\n📋 Endpoints de Facturas disponibles:`);
-  console.log(`   GET  /api/facturas - Listar facturas`);
-  console.log(`   POST /api/facturas - Crear factura`);
-  console.log(`   PUT  /api/facturas/:id - Actualizar factura`);
-});
+// Iniciar servidor solo en ejecución local
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor API ejecutándose en puerto ${PORT}`);
+    console.log(`📡 URL: http://localhost:${PORT}`);
+    console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`🔗 Test connection: http://localhost:${PORT}/api/test-connection`);
+    console.log(`\n📋 Endpoints de PDF disponibles:`);
+    console.log(`   POST /api/generar-pdf - Generar PDF desde HTML`);
+    console.log(`   POST /api/debug-pdf-body - Debug: Ver body recibido`);
+    console.log(`\n📋 Endpoints de Facturas disponibles:`);
+    console.log(`   GET  /api/facturas - Listar facturas`);
+    console.log(`   POST /api/facturas - Crear factura`);
+    console.log(`   PUT  /api/facturas/:id - Actualizar factura`);
+  });
+}
+
+// Log de confirmación cuando el módulo se carga
+console.log('✅ Endpoint /api/debug-pdf-body registrado correctamente');
 
 module.exports = app;
