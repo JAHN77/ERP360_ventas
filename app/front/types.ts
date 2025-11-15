@@ -178,6 +178,7 @@ export interface Categoria {
 export interface DocumentoDetalle {
   id?: string; // uuid
   productoId: number;
+  codProducto?: string; // Código de producto (CHAR(8))
   cantidad: number;
   precioUnitario: number;
   descuentoPorcentaje: number;
@@ -186,6 +187,12 @@ export interface DocumentoDetalle {
   subtotal: number;
   valorIva: number;
   total: number;
+  // Campos adicionales de ven_detacotizacion
+  cantFacturada?: number; // Cantidad facturada
+  numFactura?: string; // Número de factura relacionada
+  codigoMedida?: string; // Código de medida
+  estado?: string; // Estado del item
+  qtycot?: number; // Cantidad cotizada
 }
 export type DocumentItem = DocumentoDetalle;
 
@@ -196,7 +203,9 @@ export interface Cotizacion {
   fechaCotizacion: string; // date
   fechaVencimiento: string; // date
   clienteId: string;
-  vendedorId?: string;
+  codter?: string; // Código de tercero/cliente
+  vendedorId?: string; // ID numérico del vendedor (ideven) o código (codven) como fallback
+  codVendedor?: string; // Código del vendedor (codven)
   subtotal: number;
   descuentoValor: number;
   ivaValor: number;
@@ -204,6 +213,7 @@ export interface Cotizacion {
   observaciones?: string;
   estado: 'ENVIADA' | 'APROBADA' | 'RECHAZADA' | 'VENCIDA';
   empresaId: number;
+  codalm?: string; // Código de almacén
   items: DocumentoDetalle[];
   approvedItems?: number[];
   observacionesInternas?: string;
@@ -211,6 +221,15 @@ export interface Cotizacion {
   descuentoPorcentaje?: number;
   ivaPorcentaje?: number;
   domicilios?: number;
+  // Campos adicionales de ven_cotizacion
+  formaPago?: string; // Forma de pago (nchar(2))
+  valorAnticipo?: number; // Valor de anticipo
+  numOrdenCompra?: number; // Número de orden de compra del cliente
+  fechaAprobacion?: string; // Fecha de aprobación (date)
+  codUsuario?: string; // Código de usuario que creó
+  idUsuario?: number; // ID de usuario
+  codTarifa?: string; // Código de tarifa (char(2))
+  fechaCreacion?: string; // Fecha de creación del sistema (datetime)
 }
 
 export interface Pedido {

@@ -49,13 +49,19 @@ class ApiClient {
         }
         
         // Si el error viene del backend con estructura {success: false, ...}, retornarlo directamente
+        // Esto permite que el frontend maneje el error sin lanzar excepción
         if (errorResponse && errorResponse.success === false) {
           return errorResponse;
         }
         
-        const error = new Error(errorMessage);
-        (error as any).details = errorDetails;
-        throw error;
+        // Para otros errores HTTP, retornar estructura consistente en lugar de lanzar excepción
+        return {
+          success: false,
+          error: errorMessage,
+          message: errorMessage,
+          details: errorDetails,
+          status: response.status
+        };
       }
 
       const data = await response.json();
@@ -92,9 +98,20 @@ class ApiClient {
       return data;
     } catch (error) {
       console.error(`Error en API request ${endpoint}:`, error);
+      // Retornar respuesta con estructura consistente para que el frontend pueda manejarla
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      // Si es un error de red (fetch falló), indicarlo claramente
+      if (errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch')) {
+        return {
+          success: false,
+          error: 'Error de conexión con el servidor. Verifique que el backend esté ejecutándose.',
+          message: 'No se pudo conectar con el servidor'
+        };
+      }
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: errorMessage,
+        message: errorMessage
       };
     }
   }
@@ -104,8 +121,13 @@ class ApiClient {
     return this.request('/clientes');
   }
 
-  async getProductos(codalm?: string) {
-    const params = codalm ? `?codalm=${encodeURIComponent(codalm)}` : '';
+  async getProductos(codalm?: string, page?: number, pageSize?: number, search?: string) {
+    const queryParams = new URLSearchParams();
+    if (codalm) queryParams.append('codalm', codalm);
+    if (page) queryParams.append('page', String(page));
+    if (pageSize) queryParams.append('pageSize', String(pageSize));
+    if (search) queryParams.append('search', search);
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.request(`/productos${params}`);
   }
 

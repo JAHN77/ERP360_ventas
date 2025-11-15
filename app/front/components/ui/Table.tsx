@@ -17,14 +17,14 @@ interface TableProps<T> {
   columns: Column<T>[];
   data: T[];
   onSort: (key: keyof T) => void;
-  sortConfig: SortConfig<T>;
+  sortConfig: SortConfig<T> | null;
   highlightRowId?: string | number;
   highlightClassName?: string;
 }
 
 const Table = <T extends { id: string | number }>({ columns, data, onSort, sortConfig, highlightRowId, highlightClassName }: TableProps<T>) => {
   const getSortIcon = (key: keyof T) => {
-    if (sortConfig.key !== key) {
+    if (!sortConfig || sortConfig.key !== key) {
       return <i className="fas fa-sort text-slate-400 dark:text-slate-500 ml-2 opacity-50"></i>;
     }
     if (sortConfig.direction === 'asc') {

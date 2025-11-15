@@ -2,7 +2,7 @@
 const DB_CONFIG = {
   server: '179.33.214.87',
   port: 1434,
-  database: 'ERP360',
+  database: 'Prueba_ERP360',
   user: 'sa',
   password: 'Axul3j0',
   options: {
@@ -77,6 +77,7 @@ const QUERIES = {
   `,
 
   // Obtener todos los productos con stock desde inv_invent (filtrado por bodega si se proporciona)
+  // Usando caninv (cantidad de inventario) en lugar de ucoins
   GET_PRODUCTOS: `
     SELECT 
       ins.id,
@@ -91,7 +92,7 @@ const QUERIES = {
       ins.costo_promedio         AS costoPromedio,
       ins.referencia,
       ins.karins                 AS controlaExistencia,
-      COALESCE(SUM(inv.ucoins), 0) AS stock,
+      COALESCE(SUM(inv.caninv), 0) AS stock,
       ins.activo,
       ins.MARGEN_VENTA           AS margenVenta,
       ins.precio_publico         AS precioPublico,
@@ -111,13 +112,14 @@ const QUERIES = {
   `,
 
   // Productos mínimos para UI: nombre, referencia, ultimoCosto, stock, precioInventario (filtrado por bodega si se proporciona)
+  // Usando caninv (cantidad de inventario) en lugar de ucoins
   GET_PRODUCTOS_MIN: `
     SELECT 
       ins.id,
       ins.nomins                                   AS nombre,
       LTRIM(RTRIM(COALESCE(ins.referencia, '')))   AS referencia,
       ins.ultimo_costo                             AS ultimoCosto,
-      COALESCE(SUM(inv.ucoins), 0)                 AS stock,
+      COALESCE(SUM(inv.caninv), 0)                 AS stock,
       COALESCE(SUM(inv.valinv), 0)                 AS precioInventario,
       ins.undins                                   AS unidadMedidaCodigo,
       m.nommed                                     AS unidadMedidaNombre,
@@ -180,49 +182,72 @@ const QUERIES = {
     FROM ${TABLE_NAMES.facturas_detalle} fd
   `,
 
-  // Obtener cotizaciones
+  // Obtener cotizaciones - Conectado con ven_cotizacion y ven_detacotizacion
   GET_COTIZACIONES: `
     SELECT 
       c.id,
       c.numcot               AS numeroCotizacion,
       c.fecha                AS fechaCotizacion,
       c.fecha_vence          AS fechaVencimiento,
-      COALESCE(cli.id, NULL)  AS clienteId,
-      c.cod_vendedor         AS vendedorId,
-      COALESCE(c.subtotal, 0)                      AS subtotal,
-      COALESCE(c.val_descuento, 0)                 AS descuentoValor,
-      COALESCE(c.val_iva, 0)                       AS ivaValor,
+      c.codter               AS codter,
+      COALESCE(cli.id, NULL) AS clienteId,
+      -- Obtener el ID numérico del vendedor (ideven) si existe, sino usar el código como fallback
+      CAST(COALESCE(v.ideven, NULL) AS VARCHAR(20)) AS vendedorId,
+      LTRIM(RTRIM(c.cod_vendedor)) AS codVendedor,
+      c.codalm               AS codalm,
+      c.codalm               AS empresaId,
+      COALESCE(c.subtotal, 0) AS subtotal,
+      COALESCE(c.val_descuento, 0) AS descuentoValor,
+      COALESCE(c.val_iva, 0) AS ivaValor,
       COALESCE(c.subtotal,0) - COALESCE(c.val_descuento,0) + COALESCE(c.val_iva,0) AS total,
-      c.observa             AS observaciones,
+      c.observa              AS observaciones,
       c.estado,
-      c.codalm              AS empresaId,
-      NULL                  AS observacionesInternas,
-      NULL                  AS listaPrecioId,
-      NULL                  AS descuentoPorcentaje,
-      NULL                  AS ivaPorcentaje,
-      NULL                  AS domicilios,
-      NULL                  AS approvedItems
+      c.formapago            AS formaPago,
+      COALESCE(c.valor_anticipo, 0) AS valorAnticipo,
+      c.num_orden_compra     AS numOrdenCompra,
+      c.fecha_aprobacion     AS fechaAprobacion,
+      c.cod_usuario          AS codUsuario,
+      c.id_usuario           AS idUsuario,
+      c.COD_TARIFA           AS codTarifa,
+      c.fecsys               AS fechaCreacion,
+      -- Campos calculados o no disponibles en BD
+      NULL                   AS observacionesInternas,
+      NULL                   AS listaPrecioId,
+      NULL                   AS descuentoPorcentaje,
+      NULL                   AS ivaPorcentaje,
+      NULL                   AS domicilios,
+      NULL                   AS approvedItems
     FROM ${TABLE_NAMES.cotizaciones} c
     LEFT JOIN ${TABLE_NAMES.clientes} cli ON LTRIM(RTRIM(cli.codter)) = LTRIM(RTRIM(c.codter)) AND cli.activo = 1
+    LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, ''))) AND v.Activo = 1
     ORDER BY c.fecha DESC
   `,
 
-  // Obtener detalles de cotizaciones
+  // Obtener detalles de cotizaciones - Conectado con ven_detacotizacion
+  // cod_producto es CHAR(8) en ven_detacotizacion, necesitamos obtener el id del producto
   GET_COTIZACIONES_DETALLE: `
     SELECT 
       d.id,
       d.id_cotizacion           AS cotizacionId,
-      d.cod_producto            AS productoId,
+      COALESCE(p.id, NULL)      AS productoId,
+      LTRIM(RTRIM(d.cod_producto)) AS codProducto,
       d.cantidad,
+      COALESCE(d.cant_facturada, 0) AS cantFacturada,
+      COALESCE(d.qtycot, 0)     AS qtycot,
       COALESCE(d.preciound, 0)  AS precioUnitario,
       COALESCE(d.tasa_descuento, 0) AS descuentoPorcentaje,
       COALESCE(d.tasa_iva, 0)   AS ivaPorcentaje,
-      CAST('' AS varchar(200))  AS descripcion,
-      -- cálculo simple basado en valor y tasa_iva
+      d.codigo_medida           AS codigoMedida,
+      d.estado                  AS estado,
+      d.num_factura             AS numFactura,
+      -- Cálculo de subtotal, IVA y total
       CASE WHEN d.valor IS NOT NULL AND d.tasa_iva IS NOT NULL THEN d.valor - (d.valor * (d.tasa_iva/100.0)) ELSE COALESCE(d.valor,0) END AS subtotal,
       CASE WHEN d.valor IS NOT NULL AND d.tasa_iva IS NOT NULL THEN (d.valor * (d.tasa_iva/100.0)) ELSE 0 END AS valorIva,
-      COALESCE(d.valor, 0)      AS total
+      COALESCE(d.valor, 0)      AS total,
+      -- Campo no disponible en BD, usar descripción del producto si existe
+      COALESCE(p.nomins, '')    AS descripcion
     FROM ${TABLE_NAMES.cotizaciones_detalle} d
+    LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(d.cod_producto))
   `,
 
   // Obtener pedidos

@@ -1,0 +1,11 @@
+# Archivos a ignorar en el despliegue de Vercel
+node_modules/
+app/front/node_modules/
+app/back/node_modules/
+*.log
+.env
+.env.local
+.DS_Store
+.vscode/
+.idea/
+

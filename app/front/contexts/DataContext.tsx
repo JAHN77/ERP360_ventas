@@ -248,13 +248,23 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
                 
                 // Cargar almacenes (bodegas) desde la BD
-                const bodegasResp = await fetchBodegas();
-                if (bodegasResp.success) {
+                let bodegasResp;
+                try {
+                    bodegasResp = await fetchBodegas();
+                } catch (fetchError) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error de red al cargar almacenes (backend puede no estar disponible):', fetchError);
+                    bodegasResp = { success: false, data: [] };
+                }
+                
+                if (bodegasResp && bodegasResp.success && bodegasResp.data && Array.isArray(bodegasResp.data) && bodegasResp.data.length > 0) {
                     const bodegasData = extractArrayData(bodegasResp);
+                    // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
                     const processedAlmacenes = (bodegasData as any[]).map((b: any) => ({
-                        id: b.id || b.codalm || String(b.id),
+                        id: b.id || b.codigo || b.codalm || String(b.id),
                         nombre: b.nombre || b.nomalm || 'Sin nombre',
-                        codigo: b.codigo || b.codalm || String(b.id).padStart(3, '0')
+                        codigo: b.codigo || b.codalm || String(b.id).padStart(3, '0'),
+                        direccion: b.direccion || b.diralm || '',
+                        ciudad: b.ciudad || b.ciualm || ''
                     }));
                     // Ordenar almacenes por código (001, 002, 003, etc.)
                     const almacenesOrdenados = processedAlmacenes.sort((a, b) => {
@@ -262,8 +272,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         const codigoB = String(b.codigo || '').padStart(3, '0');
                         return codigoA.localeCompare(codigoB);
                     });
+                    logger.log({ prefix: 'DataContext' }, `✅ Almacenes cargados desde BD: ${almacenesOrdenados.length}`, almacenesOrdenados.map(a => `${a.codigo} - ${a.nombre}`));
                     setAlmacenes(almacenesOrdenados);
                 } else {
+                    const reason = !bodegasResp ? 'Sin respuesta' : !bodegasResp.success ? 'Respuesta no exitosa' : !bodegasResp.data ? 'Sin datos' : 'Array vacío';
+                    logger.warn({ prefix: 'DataContext' }, `⚠️ No se pudieron cargar almacenes desde la BD (${reason}). Continuando sin almacenes.`);
                     setAlmacenes([]);
                 }
                 
