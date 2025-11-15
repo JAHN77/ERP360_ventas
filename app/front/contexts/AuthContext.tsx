@@ -38,6 +38,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   // Cargar bodegas desde la base de datos
   useEffect(() => {
+    let isMounted = true;
     const loadBodegas = async () => {
       try {
         setIsLoadingBodegas(true);
@@ -45,11 +46,18 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         
         let response;
         try {
+          // Llamar directamente a fetchBodegas - el apiClient ya maneja timeouts
           response = await fetchBodegas();
         } catch (fetchError) {
           logger.warn({ prefix: 'AuthContext' }, 'Error de red al cargar bodegas (backend puede no estar disponible):', fetchError);
           // Si hay error de red, usar datos mock
           response = { success: false, data: [] };
+        }
+        
+        // Verificar que el componente aún esté montado antes de actualizar el estado
+        if (!isMounted) {
+          logger.log({ prefix: 'AuthContext' }, 'Componente desmontado, cancelando actualización de bodegas');
+          return;
         }
         
         logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Respuesta bodegas:', response);
@@ -141,10 +149,28 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         
         logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas mock cargadas (error). Usuario debe seleccionar una bodega manualmente.');
       } finally {
-        setIsLoadingBodegas(false);
+        // Asegurar que siempre se ejecute, incluso si hay errores
+        if (isMounted) {
+          setIsLoadingBodegas(false);
+        }
       }
     };
-    loadBodegas();
+    
+    loadBodegas().catch((error) => {
+      // Capturar cualquier error no manejado
+      logger.error({ prefix: 'AuthContext' }, 'Error no manejado en loadBodegas:', error);
+      if (isMounted) {
+        setIsLoadingBodegas(false);
+        // Usar datos mock como último recurso
+        setBodegas(allSedes);
+        setSelectedSede(null);
+      }
+    });
+    
+    // Cleanup: marcar como desmontado cuando el componente se desmonte
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const login = (email: string, role: Role) => {

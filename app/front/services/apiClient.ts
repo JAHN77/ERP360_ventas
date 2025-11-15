@@ -23,83 +23,133 @@ class ApiClient {
         // eslint-disable-next-line no-console
         console.debug('[api] request:', url, options.method || 'GET');
       }
-      const response = await fetch(url, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-        ...options,
-      });
-
-      if (!response.ok) {
-        // Intentar obtener el mensaje de error del backend
-        let errorMessage = `HTTP error! status: ${response.status}`;
-        let errorDetails = null;
-        let errorResponse = null;
-        try {
-          errorResponse = await response.json();
-          errorMessage = errorResponse.message || errorResponse.error || errorMessage;
-          errorDetails = errorResponse.details || null;
-          // Si hay detalles adicionales, agregarlos al mensaje
-          if (errorDetails && errorDetails.message) {
-            errorMessage = errorDetails.message;
+      
+      // Crear un AbortController solo si no hay uno existente en options
+      let controller: AbortController | null = null;
+      let timeoutId: NodeJS.Timeout | null = null;
+      const existingSignal = options.signal;
+      
+      // Solo crear un timeout si no hay un signal existente
+      // Para endpoints de test-connection, usar timeout más corto (5 segundos)
+      // Para otros endpoints, usar timeout más largo (30 segundos)
+      if (!existingSignal) {
+        controller = new AbortController();
+        const timeoutDuration = endpoint.includes('test-connection') ? 5000 : 30000;
+        timeoutId = setTimeout(() => {
+          if (controller) {
+            controller.abort();
           }
-        } catch (e) {
-          // Si no hay JSON en la respuesta, usar el mensaje por defecto
-        }
-        
-        // Si el error viene del backend con estructura {success: false, ...}, retornarlo directamente
-        // Esto permite que el frontend maneje el error sin lanzar excepción
-        if (errorResponse && errorResponse.success === false) {
-          return errorResponse;
-        }
-        
-        // Para otros errores HTTP, retornar estructura consistente en lugar de lanzar excepción
-        return {
-          success: false,
-          error: errorMessage,
-          message: errorMessage,
-          details: errorDetails,
-          status: response.status
-        };
+        }, timeoutDuration);
       }
+      
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...options.headers,
+          },
+          ...options,
+          signal: controller?.signal || existingSignal, // Usar el signal del controller o el existente
+        });
+        
+        // Limpiar timeout solo si lo creamos nosotros
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
 
-      const data = await response.json();
-      if (typeof window !== 'undefined') {
-        // eslint-disable-next-line no-console
-        console.log('🔵 [API Response] URL:', url);
-        // eslint-disable-next-line no-console
-        console.log('🔵 [API Response] Status:', response.status);
-        // eslint-disable-next-line no-console
-        console.log('🔵 [API Response] Data recibida:', data);
-        // eslint-disable-next-line no-console
-        console.log('🔵 [API Response] Tipo de data:', typeof data);
-        // eslint-disable-next-line no-console
-        console.log('🔵 [API Response] Es Array?:', Array.isArray(data));
-        if (data && typeof data === 'object' && !Array.isArray(data)) {
+        if (!response.ok) {
+          // Intentar obtener el mensaje de error del backend
+          let errorMessage = `HTTP error! status: ${response.status}`;
+          let errorDetails = null;
+          let errorResponse = null;
+          try {
+            errorResponse = await response.json();
+            errorMessage = errorResponse.message || errorResponse.error || errorMessage;
+            errorDetails = errorResponse.details || null;
+            // Si hay detalles adicionales, agregarlos al mensaje
+            if (errorDetails && errorDetails.message) {
+              errorMessage = errorDetails.message;
+            }
+          } catch (e) {
+            // Si no hay JSON en la respuesta, usar el mensaje por defecto
+          }
+          
+          // Si el error viene del backend con estructura {success: false, ...}, retornarlo directamente
+          // Esto permite que el frontend maneje el error sin lanzar excepción
+          if (errorResponse && errorResponse.success === false) {
+            return errorResponse;
+          }
+          
+          // Para otros errores HTTP, retornar estructura consistente en lugar de lanzar excepción
+          return {
+            success: false,
+            error: errorMessage,
+            message: errorMessage,
+            details: errorDetails,
+            status: response.status
+          };
+        }
+
+        const data = await response.json();
+        if (typeof window !== 'undefined') {
           // eslint-disable-next-line no-console
-          console.log('🔵 [API Response] Keys del objeto:', Object.keys(data));
-          if (data.data) {
+          console.log('🔵 [API Response] URL:', url);
+          // eslint-disable-next-line no-console
+          console.log('🔵 [API Response] Status:', response.status);
+          // eslint-disable-next-line no-console
+          console.log('🔵 [API Response] Data recibida:', data);
+          // eslint-disable-next-line no-console
+          console.log('🔵 [API Response] Tipo de data:', typeof data);
+          // eslint-disable-next-line no-console
+          console.log('🔵 [API Response] Es Array?:', Array.isArray(data));
+          if (data && typeof data === 'object' && !Array.isArray(data)) {
             // eslint-disable-next-line no-console
-            console.log('🔵 [API Response] data.data tipo:', typeof data.data);
-            // eslint-disable-next-line no-console
-            console.log('🔵 [API Response] data.data es Array?:', Array.isArray(data.data));
-            if (Array.isArray(data.data) && data.data.length > 0) {
+            console.log('🔵 [API Response] Keys del objeto:', Object.keys(data));
+            if (data.data) {
               // eslint-disable-next-line no-console
-              console.log('🔵 [API Response] Primer elemento:', data.data[0]);
+              console.log('🔵 [API Response] data.data tipo:', typeof data.data);
               // eslint-disable-next-line no-console
-              console.log('🔵 [API Response] Keys del primer elemento:', Object.keys(data.data[0]));
-              // eslint-disable-next-line no-console
-              console.log('🔵 [API Response] Total de elementos:', data.data.length);
+              console.log('🔵 [API Response] data.data es Array?:', Array.isArray(data.data));
+              if (Array.isArray(data.data) && data.data.length > 0) {
+                // eslint-disable-next-line no-console
+                console.log('🔵 [API Response] Primer elemento:', data.data[0]);
+                // eslint-disable-next-line no-console
+                console.log('🔵 [API Response] Keys del primer elemento:', Object.keys(data.data[0]));
+                // eslint-disable-next-line no-console
+                console.log('🔵 [API Response] Total de elementos:', data.data.length);
+              }
             }
           }
         }
+        return data;
+      } finally {
+        // Limpiar timeout solo si lo creamos nosotros
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
       }
-      return data;
     } catch (error) {
+      // Detectar AbortError de múltiples formas
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorName = error instanceof Error ? error.name : '';
+      const isAbortError = errorName === 'AbortError' || 
+                          errorMessage.includes('aborted') || 
+                          errorMessage.includes('signal is aborted');
+      
+      if (isAbortError) {
+        // Si es un AbortError, retornar respuesta de error de conexión sin loguear como error crítico
+        if (typeof window !== 'undefined') {
+          console.warn(`[api] Solicitud cancelada por timeout o abort: ${endpoint}`);
+        }
+        return {
+          success: false,
+          error: 'Error de conexión con el servidor. La solicitud tardó demasiado tiempo o fue cancelada.',
+          message: 'No se pudo conectar con el servidor (timeout)'
+        };
+      }
+      
       console.error(`Error en API request ${endpoint}:`, error);
       // Retornar respuesta con estructura consistente para que el frontend pueda manejarla
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       // Si es un error de red (fetch falló), indicarlo claramente
       if (errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch')) {
         return {
@@ -147,16 +197,31 @@ class ApiClient {
     return this.request('/cotizaciones-detalle');
   }
 
-  async getPedidos() {
-    return this.request('/pedidos');
+  async getPedidos(page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) {
+    const queryParams = new URLSearchParams();
+    if (page) queryParams.append('page', String(page));
+    if (pageSize) queryParams.append('pageSize', String(pageSize));
+    if (search) queryParams.append('search', search);
+    if (estado) queryParams.append('estado', estado);
+    if (codter) queryParams.append('codter', codter);
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/pedidos${params}`);
   }
 
   async getPedidosDetalle() {
     return this.request('/pedidos-detalle');
   }
 
-  async getRemisiones() {
-    return this.request('/remisiones');
+  async getRemisiones(page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) {
+    const queryParams = new URLSearchParams();
+    if (page) queryParams.append('page', String(page));
+    if (pageSize) queryParams.append('pageSize', String(pageSize));
+    if (search) queryParams.append('search', search);
+    if (codter) queryParams.append('codter', codter);
+    if (codalm) queryParams.append('codalm', codalm);
+    if (estrec) queryParams.append('estrec', estrec);
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/remisiones${params}`);
   }
 
   async getRemisionesDetalle() {
@@ -342,9 +407,11 @@ export const fetchFacturas = () => apiClient.getFacturas();
 export const fetchFacturasDetalle = () => apiClient.getFacturasDetalle();
 export const fetchCotizaciones = () => apiClient.getCotizaciones();
 export const fetchCotizacionesDetalle = () => apiClient.getCotizacionesDetalle();
-export const fetchPedidos = () => apiClient.getPedidos();
+export const fetchPedidos = (page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) => 
+  apiClient.getPedidos(page, pageSize, search, estado, codter);
 export const fetchPedidosDetalle = () => apiClient.getPedidosDetalle();
-export const fetchRemisiones = () => apiClient.getRemisiones();
+export const fetchRemisiones = (page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) => 
+  apiClient.getRemisiones(page, pageSize, search, codter, codalm, estrec);
 export const fetchRemisionesDetalle = () => apiClient.getRemisionesDetalle();
 export const fetchNotasCredito = () => apiClient.getNotasCredito();
 export const fetchMedidas = () => apiClient.getMedidas();

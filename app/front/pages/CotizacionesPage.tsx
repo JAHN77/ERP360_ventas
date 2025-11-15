@@ -16,6 +16,7 @@ import CotizacionPDF from '../components/comercial/CotizacionPDF';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
+import { findClienteByIdentifier } from '../utils/clientes';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -85,6 +86,9 @@ const CotizacionesPage: React.FC = () => {
   // Selección múltiple (temporalmente deshabilitada si ENABLE_BATCH_APPROVAL es false)
   const [selectedCotizaciones, setSelectedCotizaciones] = useState<Set<string>>(new Set());
   const [isProcessingBatch, setIsProcessingBatch] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [approvingCotizacionId, setApprovingCotizacionId] = useState<string | null>(null);
+  const [approvedCotizacionResult, setApprovedCotizacionResult] = useState<{ cotizacion: Cotizacion, pedido?: Pedido } | null>(null);
 
   const filteredData = useMemo(() => {
     const sortedQuotes = [...cotizaciones].sort((a, b) => new Date(b.fechaCotizacion).getTime() - new Date(a.fechaCotizacion).getTime());
@@ -172,6 +176,11 @@ const CotizacionesPage: React.FC = () => {
   }, [params.focusId, handleOpenModal, getCotizacionById, isModalOpen]);
 
   const executeApproval = async (cotizacion: Cotizacion, itemIds: number[]) => {
+      if (isApproving) return;
+      setIsApproving(true);
+      setApprovingCotizacionId(cotizacion.id);
+      addNotification({ message: `Aprobando cotización ${cotizacion.numeroCotizacion}...`, type: 'info' });
+      
       try {
           const result = await aprobarCotizacion(cotizacion, itemIds);
           
@@ -184,29 +193,27 @@ const CotizacionesPage: React.FC = () => {
           }
           
           // Verificar si el resultado incluye un pedido
+          const finalApprovedQuote = (result && 'cotizacion' in result && result.cotizacion) || getCotizacionById(cotizacion.id);
+          
           if ('pedido' in result && result.pedido) {
               const pedidoCreado = result.pedido;
-              const finalApprovedQuote = result.cotizacion || getCotizacionById(cotizacion.id);
-              const clientName = clientes.find(c => {
-                  if (!pedidoCreado.clienteId) return false;
-                  if (c.id === pedidoCreado.clienteId || String(c.id) === String(pedidoCreado.clienteId)) return true;
-                  if (String(c.numeroDocumento || c.codter || '') === String(pedidoCreado.clienteId)) return true;
-                  return false;
-              })?.nombreCompleto || clientes.find(c => c.id === pedidoCreado.clienteId)?.razonSocial || 'N/A';
+              
+              if (finalApprovedQuote) {
+                  setApprovedCotizacionResult({ cotizacion: finalApprovedQuote, pedido: pedidoCreado });
+              }
               
               addNotification({
-                  message: `Pedido ${pedidoCreado.numeroPedido} creado para ${clientName}. Total: ${formatCurrency(pedidoCreado.total)}`,
-                  type: 'success',
-                  link: { page: 'pedidos' }
+                  message: `Cotización ${finalApprovedQuote?.numeroCotizacion || cotizacion.numeroCotizacion} aprobada exitosamente`,
+                  type: 'success'
               });
-
-              if (finalApprovedQuote) {
-                  setApprovalResult({ cotizacion: finalApprovedQuote, pedido: pedidoCreado });
-              }
           } else {
               // Solo se aprobó la cotización sin crear pedido
+              if (finalApprovedQuote) {
+                  setApprovedCotizacionResult({ cotizacion: finalApprovedQuote });
+              }
+              
               addNotification({
-                  message: `Cotización ${cotizacion.numeroCotizacion} aprobada`,
+                  message: `Cotización ${finalApprovedQuote?.numeroCotizacion || cotizacion.numeroCotizacion} aprobada exitosamente`,
                   type: 'success'
               });
           }
@@ -220,6 +227,9 @@ const CotizacionesPage: React.FC = () => {
               message: `Error al aprobar la cotización: ${(error as Error).message}`,
               type: 'error'
           });
+      } finally {
+          setIsApproving(false);
+          setApprovingCotizacionId(null);
       }
   };
 
@@ -488,7 +498,20 @@ const CotizacionesPage: React.FC = () => {
         <button onClick={() => handleOpenModal(item)} className="text-sky-500 hover:underline text-sm font-medium">Ver</button>
         <ProtectedComponent permission="cotizaciones:approve">
           {item.estado === 'ENVIADA' && (
-              <button onClick={() => handleAprobar(item)} className="text-green-500 hover:underline text-sm font-medium">Aprobar</button>
+              <button 
+                onClick={() => handleAprobar(item)} 
+                disabled={isApproving || isProcessingBatch}
+                className="text-green-500 hover:underline text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                {isApproving && approvingCotizacionId === item.id ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i>
+                    Aprobando...
+                  </>
+                ) : (
+                  'Aprobar'
+                )}
+              </button>
           )}
         </ProtectedComponent>
       </div>
@@ -876,18 +899,24 @@ const CotizacionesPage: React.FC = () => {
                 <div className="flex gap-3 flex-wrap">
                     <button onClick={handleCloseModal} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">Cerrar</button>
                     
-                    <ProtectedComponent permission="cotizaciones:supervise">
-                      {selectedCotizacion.estado === 'ENVIADA' && (
-                          <button onClick={handleConfirmarAprobacion} className="px-4 py-2 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 transition-colors disabled:bg-slate-400" disabled={approvedItems.size === 0}>
-                              <i className="fas fa-check-double mr-2"></i>Aprobar y Crear Pedido ({approvedItems.size})
-                          </button>
-                      )}
-                    </ProtectedComponent>
-
                     <ProtectedComponent permission="cotizaciones:approve">
                       {selectedCotizacion.estado === 'ENVIADA' && (
-                          <button onClick={handleConfirmarAprobacion} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:bg-slate-400" disabled={approvedItems.size === 0}>
-                              <i className="fas fa-check mr-2"></i>Aprobar y Crear Pedido ({approvedItems.size})
+                          <button 
+                            onClick={handleConfirmarAprobacion} 
+                            disabled={approvedItems.size === 0 || isApproving || isProcessingBatch} 
+                            className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center"
+                          >
+                            {isApproving ? (
+                              <>
+                                <i className="fas fa-spinner fa-spin mr-2"></i>
+                                Aprobando...
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-check mr-2"></i>
+                                Aprobar y Crear Pedido ({approvedItems.size})
+                              </>
+                            )}
                           </button>
                       )}
                     </ProtectedComponent>
@@ -1006,6 +1035,87 @@ const CotizacionesPage: React.FC = () => {
                     label: 'Ir a Pedidos',
                     onClick: () => { setApprovalResult(null); setPage('pedidos'); },
                 }}
+            />
+        );
+      })()}
+
+      {approvedCotizacionResult && (() => {
+        const { cotizacion, pedido } = approvedCotizacionResult;
+        const cliente = findClienteByIdentifier(clientes, cotizacion.clienteId);
+        const vendedor = vendedores.find(v => v.id === cotizacion.vendedorId);
+        
+        if (!cliente) return null;
+
+        const subtotalBruto = cotizacion.items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
+        const descuentoTotal = cotizacion.descuentoValor || cotizacion.items.reduce((acc, item) => {
+            const itemTotalBruto = item.precioUnitario * item.cantidad;
+            return acc + (itemTotalBruto * (item.descuentoPorcentaje / 100));
+        }, 0);
+
+        const summaryDetails = [
+            { label: 'Número', value: cotizacion.numeroCotizacion },
+            { label: 'Fecha', value: new Date(cotizacion.fechaCotizacion).toLocaleDateString('es-CO') },
+            { label: 'Válida hasta', value: new Date(cotizacion.fechaVencimiento).toLocaleDateString('es-CO') },
+            { label: 'Cliente', value: cliente.nombreCompleto || cliente.razonSocial || 'N/A' },
+            { label: 'Vendedor', value: vendedor ? `${vendedor.primerNombre} ${vendedor.primerApellido}`.trim() : 'N/A' },
+            { label: 'Estado', value: 'Aprobada' },
+            { label: 'Items', value: cotizacion.items.length },
+            { label: 'sep1', value: '', isSeparator: true },
+            { label: 'Subtotal Bruto', value: formatCurrency(subtotalBruto) },
+            { label: 'Descuento Total', value: `-${formatCurrency(descuentoTotal)}`, isDiscount: true },
+            { label: 'Subtotal Neto', value: formatCurrency(cotizacion.subtotal) },
+            { label: 'IVA (19%)', value: formatCurrency(cotizacion.ivaValor) },
+            { label: 'Total Cotización', value: formatCurrency(cotizacion.total), isTotal: true },
+        ];
+
+        if (pedido) {
+            summaryDetails.push(
+                { label: 'sep2', value: '', isSeparator: true },
+                { label: 'Pedido Creado', value: pedido.numeroPedido, isTotal: false }
+            );
+        }
+
+        return (
+            <ApprovalSuccessModal
+                isOpen={!!approvedCotizacionResult}
+                onClose={() => { 
+                    setApprovedCotizacionResult(null); 
+                }}
+                title="¡Cotización Aprobada!"
+                message={
+                    <>
+                        La cotización <strong>{cotizacion.numeroCotizacion}</strong> ha sido aprobada exitosamente.
+                        {pedido && <> Se ha generado el Pedido <strong>{pedido.numeroPedido}</strong>.</>}
+                    </>
+                }
+                summaryTitle="Resumen de la Cotización Aprobada"
+                summaryDetails={summaryDetails}
+                primaryAction={{
+                    label: 'Ir a Cotizaciones',
+                    onClick: () => { 
+                        setApprovedCotizacionResult(null); 
+                        setPage('cotizaciones', { focusId: cotizacion.id });
+                    },
+                    icon: 'fa-list'
+                }}
+                secondaryActions={[
+                    ...(pedido ? [{
+                        label: 'Ver Pedido',
+                        onClick: () => {
+                            setApprovedCotizacionResult(null);
+                            setPage('pedidos');
+                        },
+                        icon: 'fa-shopping-cart'
+                    }] : []),
+                    {
+                        label: 'Ver Detalles',
+                        onClick: () => {
+                            setApprovedCotizacionResult(null);
+                            setPage('cotizaciones', { focusId: cotizacion.id });
+                        },
+                        icon: 'fa-eye'
+                    }
+                ]}
             />
         );
       })()}

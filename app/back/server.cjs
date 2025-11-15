@@ -3,7 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const os = require('os');
 const { executeQuery, executeQueryWithParams, testConnection } = require('./services/sqlServerClient.cjs');
-const { QUERIES } = require('./services/dbConfig.cjs');
+const { QUERIES, TABLE_NAMES } = require('./services/dbConfig.cjs');
 const { getConnection } = require('./services/sqlServerClient.cjs');
 const sql = require('mssql');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -85,7 +85,7 @@ const getGeminiModel = () => {
 // CORS configurado para permitir solicitudes desde el frontend y otros dispositivos en la red
 if (process.env.VERCEL) {
   // En Vercel, frontend y backend están en el mismo dominio, permitir todas las solicitudes
-  app.use(cors());
+app.use(cors());
 } else {
   // En desarrollo, permitir solicitudes desde cualquier origen (útil para acceso desde otros dispositivos)
   app.use(cors({
@@ -515,7 +515,7 @@ app.get('/api/productos', async (req, res) => {
       } else if (typeof search === 'object') {
         // Si es un objeto, intentar extraer el valor
         searchTerm = String(Object.values(search)[0] || '').trim();
-      } else {
+    } else {
         searchTerm = String(search).trim();
       }
       // Si después de convertir es "[object Object]", ignorarlo
@@ -550,7 +550,6 @@ app.get('/api/productos', async (req, res) => {
     }
     
     // Query para contar total (sin paginación)
-    const { TABLE_NAMES } = require('./services/dbConfig.cjs');
     let countQuery = `
       SELECT COUNT(DISTINCT ins.id) as total
       FROM ${TABLE_NAMES.productos} ins
@@ -895,11 +894,87 @@ app.get('/api/cotizaciones-detalle', async (req, res) => {
 app.get('/api/pedidos', async (req, res) => {
   try {
     console.log('📦 [Backend] Obteniendo pedidos...');
+    const { page, pageSize, search, estado, codter } = req.query;
     const pool = await getConnection();
     
+    // Construir WHERE dinámicamente
+    let whereClauses = [];
+    if (estado) {
+      const estadoMap = {
+        'BORRADOR': 'B',
+        'CONFIRMADO': 'C',
+        'EN_PROCESO': 'P',
+        'PARCIALMENTE_REMITIDO': 'P',
+        'REMITIDO': 'R',
+        'CANCELADO': 'X'
+      };
+      const estadoDb = estadoMap[estado] || estado;
+      whereClauses.push(`p.estado = '${estadoDb}'`);
+    }
+    if (codter) {
+      // Usar codter (estructura real)
+      whereClauses.push(`LTRIM(RTRIM(p.codter)) = LTRIM(RTRIM('${codter}'))`);
+    }
+    if (search && search.trim() !== '' && search !== '[object Object]') {
+      const searchTerm = search.trim().replace(/'/g, "''");
+      whereClauses.push(`(
+        p.numped LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(p.codter)) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(COALESCE(p.observa, ''))) LIKE '%${searchTerm}%'
+      )`);
+    }
+    let where = whereClauses.length > 0 ? "WHERE " + whereClauses.join(' AND ') : "";
+    
+    // Paginación
+    const pageNum = parseInt(page) || 1;
+    const size = parseInt(pageSize) || 50;
+    const offset = (pageNum - 1) * size;
+    
+    // Query para contar total de registros
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM ${TABLE_NAMES.pedidos} p
+      ${where}
+    `;
+    const countResult = await executeQuery(countQuery);
+    const total = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(total / size);
+    
+    // Query principal con paginación - Usando estructura real de ven_pedidos
+    // Columnas: id, numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, empresa_id, codtar, codusu, cotizacion_id, subtotal, descuento_valor, descuento_porcentaje, iva_valor, iva_porcentaje, impoconsumo_valor, total, observaciones, instrucciones_entrega, estado, fec_creacion, fec_modificacion
+    const pedidosQuery = `
+      SELECT 
+        p.id,
+        p.numero_pedido as numeroPedido,
+        p.fecha_pedido as fechaPedido,
+        LTRIM(RTRIM(COALESCE(p.codter, ''))) as clienteId,
+        LTRIM(RTRIM(COALESCE(p.codven, ''))) as vendedorId,
+        CAST(COALESCE(p.cotizacion_id, NULL) AS VARCHAR(50)) as cotizacionId,
+        LTRIM(RTRIM(COALESCE(c.numcot, ''))) as numeroCotizacionOrigen,
+        COALESCE(p.subtotal, 0) as subtotal,
+        COALESCE(p.descuento_valor, 0) as descuentoValor,
+        COALESCE(p.iva_valor, 0) as ivaValor,
+        COALESCE(p.total, 0) as total,
+        LTRIM(RTRIM(COALESCE(p.observaciones, ''))) as observaciones,
+        p.estado,
+        COALESCE(p.empresa_id, 1) as empresaId,
+        p.fecha_entrega_estimada as fechaEntregaEstimada,
+        NULL as listaPrecioId,
+        COALESCE(p.descuento_porcentaje, 0) as descuentoPorcentaje,
+        COALESCE(p.iva_porcentaje, 0) as ivaPorcentaje,
+        COALESCE(p.impoconsumo_valor, 0) as impoconsumoValor,
+        LTRIM(RTRIM(COALESCE(p.instrucciones_entrega, ''))) as instruccionesEntrega
+      FROM ${TABLE_NAMES.pedidos} p
+      LEFT JOIN ven_cotizacion c ON c.id = p.cotizacion_id
+      ${where}
+      ORDER BY p.fecha_pedido DESC
+      OFFSET ${offset} ROWS
+      FETCH NEXT ${size} ROWS ONLY
+    `;
+    
     // Obtener pedidos
-    const pedidos = await executeQuery(QUERIES.GET_PEDIDOS);
-    console.log(`✅ [Backend] Pedidos encontrados: ${pedidos.length}`);
+    const pedidos = await executeQuery(pedidosQuery);
+    console.log(`✅ [Backend] Pedidos encontrados: ${pedidos.length} de ${total} total (página ${pageNum}/${totalPages})`);
     
     // Sincronizar estados de pedidos basándose en remisiones existentes
     // Esto corrige pedidos que tienen remisiones pero siguen en estado CONFIRMADO
@@ -922,44 +997,116 @@ app.get('/api/pedidos', async (req, res) => {
           const estadoActual = mapEstadoFromDb(pedido.estado);
           
           // Verificar si tiene remisiones
+          // ven_recibos usa numped para relacionarse con pedidos, no pedido_id
           const reqRemisiones = new sql.Request(pool);
           reqRemisiones.input('pedidoId', sql.Int, pedidoId);
-          const remisionesResult = await reqRemisiones.query(`
-            SELECT COUNT(*) as total
-            FROM ven_recibos
-            WHERE pedido_id = @pedidoId
+          // Primero obtener el numero_pedido para generar numped
+          const reqPedidoNum = new sql.Request(pool);
+          reqPedidoNum.input('pedidoId', sql.Int, pedidoId);
+          const pedidoNumResult = await reqPedidoNum.query(`
+            SELECT numero_pedido
+            FROM ven_pedidos
+            WHERE id = @pedidoId
           `);
+          const numeroPedido = pedidoNumResult.recordset[0]?.numero_pedido;
+          
+          // Generar numped desde numero_pedido
+          let numpedForRemisiones = null;
+          if (numeroPedido) {
+            const match = String(numeroPedido).match(/(\d+)/);
+            if (match) {
+              numpedForRemisiones = 'PED' + match[1].padStart(5, '0');
+            } else {
+              numpedForRemisiones = String(numeroPedido).replace(/-/g, '').substring(0, 8).padStart(8, '0');
+            }
+            numpedForRemisiones = numpedForRemisiones.substring(0, 8).padStart(8, '0');
+          }
+          
+          let remisionesResult;
+          if (numpedForRemisiones) {
+            reqRemisiones.input('numped', sql.Char(8), numpedForRemisiones);
+            remisionesResult = await reqRemisiones.query(`
+              SELECT COUNT(*) as total
+              FROM ven_recibos
+              WHERE numped = @numped
+            `);
+          } else {
+            // Fallback: intentar con pedido_id si existe
+            remisionesResult = await reqRemisiones.query(`
+              SELECT COUNT(*) as total
+              FROM ven_recibos
+              WHERE pedido_id = @pedidoId
+            `);
+          }
           
           const tieneRemisiones = remisionesResult.recordset[0].total > 0;
           
           if (tieneRemisiones) {
-            console.log(`🔍 [Backend] Verificando pedido ${pedido.numero_pedido} (ID: ${pedidoId}, Estado actual: ${estadoActual})`);
+            let numeroPedidoStr = pedido.numeroPedido || pedido.numero_pedido || 'N/A';
+            console.log(`🔍 [Backend] Verificando pedido ${numeroPedidoStr} (ID: ${pedidoId}, Estado actual: ${estadoActual})`);
             
             // Obtener items del pedido y remisiones
+            // La BD real usa numped (CHAR(8)) en ven_detapedidos, necesitamos generar numped desde numero_pedido
             const reqItemsPedido = new sql.Request(pool);
             reqItemsPedido.input('pedidoId', sql.Int, pedidoId);
-            const itemsPedidoResult = await reqItemsPedido.query(`
-              SELECT producto_id, cantidad
-              FROM ven_detapedidos
-              WHERE pedido_id = @pedidoId
+            // Obtener numero_pedido del pedido
+            const pedidoNumResult = await reqItemsPedido.query(`
+              SELECT numero_pedido
+              FROM ven_pedidos
+              WHERE id = @pedidoId
             `);
+            const numeroPedido = pedidoNumResult.recordset[0]?.numero_pedido;
+            
+            // Generar numped desde numero_pedido (formato: PED-001 -> PED0001)
+            let numpedPedido = null;
+            if (numeroPedido) {
+              const match = String(numeroPedido).match(/(\d+)/);
+              if (match) {
+                numpedPedido = 'PED' + match[1].padStart(5, '0');
+              } else {
+                numpedPedido = String(numeroPedido).replace(/-/g, '').substring(0, 8).padStart(8, '0');
+              }
+              numpedPedido = numpedPedido.substring(0, 8).padStart(8, '0');
+            }
+            
+            // Obtener items usando numped (estructura real) o pedido_id (estructura alternativa)
+            const reqItemsPedido2 = new sql.Request(pool);
+            let itemsPedidoResult;
+            if (numpedPedido) {
+              reqItemsPedido2.input('numped', sql.Char(8), numpedPedido);
+              const itemsQuery = `
+                SELECT 
+                  pd.codins,
+                  (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as producto_id,
+                  pd.canped as cantidad
+                FROM ven_detapedidos pd
+                WHERE pd.numped = @numped
+              `;
+              itemsPedidoResult = await reqItemsPedido2.query(itemsQuery);
+            } else {
+              // Fallback: intentar con pedido_id si existe
+              reqItemsPedido2.input('pedidoId', sql.Int, pedidoId);
+              itemsPedidoResult = await reqItemsPedido2.query(`
+              SELECT 
+                pd.codins,
+                (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as producto_id,
+                pd.canped as cantidad
+              FROM ven_detapedidos pd
+              WHERE pd.pedido_id = @pedidoId
+            `);
+            }
             
             if (itemsPedidoResult.recordset.length === 0) {
-              console.log(`⚠️ [Backend] Pedido ${pedido.numero_pedido} no tiene items, saltando sincronización`);
+              console.log(`⚠️ [Backend] Pedido ${numeroPedidoStr} no tiene items, saltando sincronización`);
               continue;
             }
             
             const reqItemsRemitidos = new sql.Request(pool);
-            reqItemsRemitidos.input('pedidoId', sql.Int, pedidoId);
-            const itemsRemitidosResult = await reqItemsRemitidos.query(`
-              SELECT 
-                dr.producto_id,
-                SUM(dr.cantidad) as cantidad_remitida
-              FROM ven_detarecibo dr
-              INNER JOIN ven_recibos r ON dr.remision_id = r.id
-              WHERE r.pedido_id = @pedidoId
-              GROUP BY dr.producto_id
-            `);
+            let itemsRemitidosResult;
+            // ven_recibos usa numped, no pedido_id. ven_detarecibo no tiene items de productos, solo pagos
+            // Por ahora, asumir que no hay items remitidos ya que ven_detarecibo es para pagos
+            // Si necesitas verificar items remitidos, necesitarías otra tabla o estructura
+            itemsRemitidosResult = { recordset: [] };
             
             // Verificar si todos los items están completamente remitidos
             let todosRemitidos = true;
@@ -986,13 +1133,13 @@ app.get('/api/pedidos', async (req, res) => {
             
             if (todosRemitidos && algunoRemitido) {
               nuevoEstado = 'REMITIDO';
-              console.log(`📊 [Backend] Pedido ${pedido.numero_pedido}: Todos los items remitidos (${itemsPedidoResult.recordset.length} items)`);
+              console.log(`📊 [Backend] Pedido ${numeroPedidoStr}: Todos los items remitidos (${itemsPedidoResult.recordset.length} items)`);
             } else if (algunoRemitido && !todosRemitidos) {
               nuevoEstado = 'PARCIALMENTE_REMITIDO';
-              console.log(`📊 [Backend] Pedido ${pedido.numero_pedido}: Remisión parcial`);
+              console.log(`📊 [Backend] Pedido ${numeroPedidoStr}: Remisión parcial`);
             } else if (estadoActual === 'CONFIRMADO' && algunoRemitido) {
               nuevoEstado = 'EN_PROCESO';
-              console.log(`📊 [Backend] Pedido ${pedido.numero_pedido}: Primera remisión`);
+              console.log(`📊 [Backend] Pedido ${numeroPedidoStr}: Primera remisión`);
             }
             
             // Actualizar estado si cambió
@@ -1008,14 +1155,15 @@ app.get('/api/pedidos', async (req, res) => {
               `);
               
               pedido.estado = mapEstadoToDb(nuevoEstado);
-              console.log(`✅ [Backend] Estado del pedido ${pedido.numero_pedido} sincronizado: ${estadoActual} -> ${nuevoEstado}`);
+              console.log(`✅ [Backend] Estado del pedido ${numeroPedidoStr} sincronizado: ${estadoActual} -> ${nuevoEstado}`);
             } else {
-              console.log(`ℹ️ [Backend] Pedido ${pedido.numero_pedido}: Estado correcto (${estadoActual})`);
+              console.log(`ℹ️ [Backend] Pedido ${numeroPedidoStr}: Estado correcto (${estadoActual})`);
             }
           } else {
             // Si no tiene remisiones pero está en un estado de remisión, podría ser un error
+            let numeroPedidoStr = pedido.numeroPedido || pedido.numero_pedido || 'N/A';
             if (estadoActual === 'REMITIDO' || estadoActual === 'PARCIALMENTE_REMITIDO' || estadoActual === 'EN_PROCESO') {
-              console.log(`⚠️ [Backend] Pedido ${pedido.numero_pedido} está en estado ${estadoActual} pero no tiene remisiones`);
+              console.log(`⚠️ [Backend] Pedido ${numeroPedidoStr} está en estado ${estadoActual} pero no tiene remisiones`);
             }
           }
         } catch (syncError) {
@@ -1032,7 +1180,16 @@ app.get('/api/pedidos', async (req, res) => {
       estado: mapEstadoFromDb(p.estado)
     }));
     console.log(`✅ [Backend] Pedidos mapeados: ${pedidosMapeados.length}`);
-    res.json({ success: true, data: pedidosMapeados });
+    res.json({ 
+      success: true, 
+      data: pedidosMapeados,
+      pagination: {
+        page: pageNum,
+        pageSize: size,
+        total: total,
+        totalPages: totalPages
+      }
+    });
   } catch (error) {
     console.error('❌ [Backend] Error fetching pedidos:', error);
     res.status(500).json({ 
@@ -1061,34 +1218,125 @@ app.get('/api/pedidos-detalle', async (req, res) => {
 // Ruta para obtener remisiones
 app.get('/api/remisiones', async (req, res) => {
   try {
-    const { codter, codalm, numped, estrec } = req.query;
+    console.log('📦 [Backend] Obteniendo remisiones desde ven_recibos...');
+    const { codter, codalm, numped, estrec, page, pageSize, search } = req.query;
+    
+    // Construir WHERE dinámicamente
     let whereClauses = [];
-    if (codter) whereClauses.push(`codter = '${codter}'`);
-    if (codalm) whereClauses.push(`codalm = '${codalm}'`);
-    if (numped) whereClauses.push(`numped = ${numped}`);
-    if (estrec) whereClauses.push(`estrec = '${estrec}'`);
+    if (codter) whereClauses.push(`LTRIM(RTRIM(r.codter)) = LTRIM(RTRIM('${codter}'))`);
+    if (codalm) whereClauses.push(`r.codalm = '${codalm}'`);
+    if (numped) whereClauses.push(`r.numped = ${numped}`);
+    if (estrec) {
+      // Mapear estado del frontend al estado de BD
+      const estadoMap = {
+        'BORRADOR': 'B',
+        'ENTREGADO': 'E',
+        'EN_TRANSITO': 'T',
+        'CANCELADO': 'C'
+      };
+      const estadoDb = estadoMap[estrec] || estrec;
+      whereClauses.push(`r.estrec = '${estadoDb}'`);
+    }
+    
+    // Búsqueda por número de remisión, cliente o observaciones
+    if (search && search.trim() !== '' && search !== '[object Object]') {
+      const searchTerm = search.trim().replace(/'/g, "''"); // Escapar comillas simples
+      whereClauses.push(`(
+        CAST(r.numrec AS VARCHAR) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(r.codter)) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(r.observa)) LIKE '%${searchTerm}%'
+      )`);
+    }
+    
     let where = whereClauses.length > 0 ? "WHERE " + whereClauses.join(' AND ') : "";
-    const sql = `
-      SELECT
-        id,
-        codalm,
-        numrec,
-        tipdoc,
-        codter,
-        fecrec,
-        numped,
-        CODVEN,
-        observa,
-        estrec,
-        valrec,
-        netrec
-      FROM ven_recibos
+    
+    // Paginación
+    const pageNum = parseInt(page) || 1;
+    const size = parseInt(pageSize) || 50;
+    const offset = (pageNum - 1) * size;
+    
+    // Query para contar total de registros
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM ven_recibos r
       ${where}
-      ORDER BY fecrec DESC
     `;
-    const remisiones = await executeQuery(sql);
-    res.json({ success: true, data: remisiones });
+    const countResult = await executeQuery(countQuery);
+    const total = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(total / size);
+    
+    // Query principal con paginación
+    const sqlQuery = `
+      SELECT 
+        r.id,
+        -- Mapear numrec a numeroRemision (formato: REM-0001)
+        'REM-' + RIGHT('0000' + CAST(r.numrec AS VARCHAR), 4) as numeroRemision,
+        r.numrec,
+        r.codalm,
+        r.tipdoc,
+        -- Mapear fecrec a fechaRemision
+        CAST(r.fecrec AS DATE) as fechaRemision,
+        r.fecrec,
+        -- Mapear numped a pedidoId (puede ser NULL)
+        CAST(r.numped AS VARCHAR(20)) as pedidoId,
+        r.numped,
+        -- Mapear codter a clienteId
+        LTRIM(RTRIM(r.codter)) as clienteId,
+        r.codter,
+        -- Mapear CODVEN a vendedorId
+        LTRIM(RTRIM(r.CODVEN)) as vendedorId,
+        r.CODVEN as codVendedor,
+        -- Mapear valores: valrec = total, netrec = neto, desrec = descuento
+        COALESCE(r.netrec, 0) as subtotal,
+        COALESCE(r.desrec, 0) as descuentoValor,
+        -- Calcular IVA si es necesario (valrec - netrec - desrec)
+        COALESCE(r.valrec, 0) - COALESCE(r.netrec, 0) - COALESCE(r.desrec, 0) as ivaValor,
+        COALESCE(r.valrec, 0) as total,
+        -- Mapear observa a observaciones
+        LTRIM(RTRIM(COALESCE(r.observa, ''))) as observaciones,
+        -- Mapear estrec a estado (B=BORRADOR, otros estados según corresponda)
+        CASE 
+          WHEN r.estrec = 'B' THEN 'BORRADOR'
+          WHEN r.estrec = 'E' THEN 'ENTREGADO'
+          WHEN r.estrec = 'T' THEN 'EN_TRANSITO'
+          WHEN r.estrec = 'C' THEN 'CANCELADO'
+          ELSE 'BORRADOR'
+        END as estado,
+        r.estrec as estadoOriginal,
+        -- Mapear codalm a empresaId
+        r.codalm as empresaId,
+        -- Campos adicionales de la BD real
+        r.fecsys as fechaCreacion,
+        r.codusu as codUsuario,
+        -- Campos que no existen en la BD pero se dejan como NULL para compatibilidad
+        NULL as facturaId,
+        NULL as estadoEnvio,
+        NULL as metodoEnvio,
+        NULL as transportadoraId,
+        NULL as transportadora,
+        NULL as numeroGuia,
+        NULL as fechaDespacho
+      FROM ven_recibos r
+      ${where}
+      ORDER BY r.fecrec DESC
+      OFFSET ${offset} ROWS
+      FETCH NEXT ${size} ROWS ONLY
+    `;
+    
+    const remisiones = await executeQuery(sqlQuery);
+    console.log(`✅ [Backend] Remisiones encontradas: ${remisiones.length} de ${total} total (página ${pageNum}/${totalPages})`);
+    res.json({ 
+      success: true, 
+      data: remisiones,
+      pagination: {
+        page: pageNum,
+        pageSize: size,
+        total: total,
+        totalPages: totalPages
+      }
+    });
   } catch (error) {
+    console.error('❌ Error obteniendo remisiones:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1121,6 +1369,145 @@ app.get('/api/remisiones/:numrec/detalle', async (req, res) => {
     const data = await executeQuery(sql);
     res.json({ success: true, data });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Endpoint para obtener items de productos de una remisión (desde el pedido relacionado)
+app.get('/api/remisiones-detalle', async (req, res) => {
+  try {
+    console.log('📦 [Backend] Obteniendo detalles de remisiones (items de productos)...');
+    
+    // Obtener todas las remisiones con sus pedidos relacionados
+    // Compatible con ambas estructuras: numped (real) y pedido_id (alternativa)
+    const remisionesQuery = `
+      SELECT DISTINCT
+        r.id as remisionId,
+        r.numrec,
+        COALESCE(r.numped, CAST(r.pedido_id AS VARCHAR)) as numped,
+        r.pedido_id,
+        r.codalm,
+        r.tipdoc
+      FROM ven_recibos r
+      WHERE (r.numped IS NOT NULL AND r.numped > 0) OR (r.pedido_id IS NOT NULL AND r.pedido_id > 0)
+    `;
+    const remisiones = await executeQuery(remisionesQuery);
+    
+    if (remisiones.length === 0) {
+      console.log('⚠️ [Backend] No se encontraron remisiones con pedidos relacionados');
+      return res.json({ success: true, data: [] });
+    }
+    
+    // Obtener numpeds únicos y también pedido_ids para mapear
+    const numpeds = remisiones.map(r => r.numped).filter(v => v && v !== '0' && v !== '');
+    const pedidoIds = remisiones.map(r => r.pedido_id).filter(v => v && v > 0);
+    
+    if (numpeds.length === 0 && pedidoIds.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+    
+    // Construir query para obtener items, compatible con ambas estructuras
+    let itemsQuery;
+    if (numpeds.length > 0) {
+      // Usar numped (estructura real)
+      const numpedsStr = numpeds.map(n => `'${String(n).substring(0, 8).padStart(8, '0')}'`).join(',');
+      itemsQuery = `
+        SELECT 
+          pd.numped,
+          pd.codins as codProducto,
+          pd.codins,
+          -- Buscar el ID del producto desde inv_insumos
+          (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as productoId,
+          pd.canped as cantidad,
+          pd.valins as precioUnitario,
+          COALESCE(pd.dctped, 0) as descuentoPorcentaje,
+          COALESCE(pd.ivaped, 0) as ivaPorcentaje,
+          -- Obtener descripción del producto
+          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(desins, ''))) FROM inv_insumos WHERE codins = pd.codins) as descripcion,
+          -- Calcular subtotal, IVA y total
+          pd.canped * pd.valins * (1 - COALESCE(pd.dctped, 0) / 100) as subtotal,
+          pd.canped * pd.valins * (1 - COALESCE(pd.dctped, 0) / 100) * (COALESCE(pd.ivaped, 0) / 100) as valorIva,
+          pd.canped * pd.valins * (1 - COALESCE(pd.dctped, 0) / 100) * (1 + COALESCE(pd.ivaped, 0) / 100) as total,
+          -- Campos adicionales
+          COALESCE(pd.canent, 0) as cantEntregada,
+          COALESCE(pd.canfac, 0) as cantFacturada,
+          pd.estped as estadoItem,
+          pd.codalm,
+          pd.serial,
+          pd.numfac
+        FROM ven_detapedidos pd
+        WHERE pd.numped IN (${numpedsStr})
+      `;
+    } else {
+      // Usar pedido_id (estructura alternativa)
+      const pedidoIdsStr = pedidoIds.join(',');
+      itemsQuery = `
+        SELECT 
+          CAST(pd.pedido_id AS VARCHAR) as numped,
+          pd.codins as codProducto,
+          pd.codins,
+          pd.producto_id as productoId,
+          pd.cantidad,
+          pd.precio_unitario as precioUnitario,
+          COALESCE(pd.descuento_porcentaje, 0) as descuentoPorcentaje,
+          COALESCE(pd.iva_porcentaje, 0) as ivaPorcentaje,
+          pd.descripcion,
+          COALESCE(pd.subtotal, 0) as subtotal,
+          COALESCE(pd.valor_iva, 0) as valorIva,
+          COALESCE(pd.total, 0) as total,
+          0 as cantEntregada,
+          0 as cantFacturada,
+          'P' as estadoItem,
+          pd.codalm,
+          NULL as serial,
+          NULL as numfac
+        FROM ven_detapedidos pd
+        WHERE pd.pedido_id IN (${pedidoIdsStr})
+      `;
+    }
+    
+    const items = await executeQuery(itemsQuery);
+    
+    // Mapear items a remisiones usando numped o pedido_id
+    const itemsMapeados = [];
+    items.forEach(item => {
+      // Encontrar todas las remisiones que corresponden a este pedido
+      const remisionesDelPedido = remisiones.filter(r => {
+        const remisionNumped = String(r.numped || '').trim();
+        const itemNumped = String(item.numped || '').trim();
+        return remisionNumped === itemNumped || 
+               (r.pedido_id && String(r.pedido_id) === itemNumped);
+      });
+      
+      remisionesDelPedido.forEach(remision => {
+        itemsMapeados.push({
+          id: `rem-${remision.remisionId}-prod-${item.codProducto}`,
+          remisionId: String(remision.remisionId),
+          numrec: remision.numrec, // Agregar numrec para facilitar el match
+          productoId: item.productoId ? Number(item.productoId) : null,
+          codProducto: item.codProducto,
+          cantidad: Number(item.cantidad) || 0,
+          precioUnitario: Number(item.precioUnitario) || 0,
+          descuentoPorcentaje: Number(item.descuentoPorcentaje) || 0,
+          ivaPorcentaje: Number(item.ivaPorcentaje) || 0,
+          descripcion: item.descripcion || '',
+          subtotal: Number(item.subtotal) || 0,
+          valorIva: Number(item.valorIva) || 0,
+          total: Number(item.total) || 0,
+          cantEntregada: Number(item.cantEntregada) || 0,
+          cantFacturada: Number(item.cantFacturada) || 0,
+          estadoItem: item.estadoItem,
+          codalm: item.codalm,
+          serial: item.serial,
+          numFactura: item.numfac
+        });
+      });
+    });
+    
+    console.log(`✅ [Backend] Items de remisiones encontrados: ${itemsMapeados.length}`);
+    res.json({ success: true, data: itemsMapeados });
+  } catch (error) {
+    console.error('❌ Error obteniendo detalles de remisiones:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -2193,12 +2580,12 @@ app.post('/api/cotizaciones', async (req, res) => {
         let ejemplosClientes = [];
         try {
           const reqDebug = new sql.Request(pool);
-          const debugResult = await reqDebug.query(`
-            SELECT TOP 5 codter, nomter, activo 
-            FROM con_terceros 
-            WHERE activo = 1
-            ORDER BY nomter
-          `);
+        const debugResult = await reqDebug.query(`
+          SELECT TOP 5 codter, nomter, activo 
+          FROM con_terceros 
+          WHERE activo = 1
+          ORDER BY nomter
+        `);
           ejemplosClientes = debugResult.recordset;
           console.log(`   📋 Ejemplos de clientes activos en BD:`, ejemplosClientes);
         } catch (debugError) {
@@ -2239,7 +2626,7 @@ app.post('/api/cotizaciones', async (req, res) => {
         reqVendedor.input('ideven', sql.Int, idevenNum);
         var vendedorQuery = `
           SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, LTRIM(RTRIM(nomven)) as nomb_emple, CAST(Activo AS INT) as activo, codven
-          FROM ven_vendedor 
+        FROM ven_vendedor 
           WHERE ideven = @ideven AND Activo = 1
         `;
       } else {
@@ -2260,9 +2647,9 @@ app.post('/api/cotizaciones', async (req, res) => {
         let ejemplosVendedores = [];
         try {
           const reqDebugVendedor = new sql.Request(pool);
-          const debugVendedorResult = await reqDebugVendedor.query(`
+        const debugVendedorResult = await reqDebugVendedor.query(`
             SELECT TOP 5 CAST(ideven AS VARCHAR(20)) as codi_emple, LTRIM(RTRIM(nomven)) as nomb_emple, CAST(Activo AS INT) as activo 
-            FROM ven_vendedor 
+          FROM ven_vendedor 
             WHERE Activo = 1
             ORDER BY nomven
           `);
@@ -2312,12 +2699,12 @@ app.post('/api/cotizaciones', async (req, res) => {
         let ejemplosAlmacenes = [];
         try {
           const reqDebugAlmacen = new sql.Request(pool);
-          const debugAlmacenResult = await reqDebugAlmacen.query(`
-            SELECT TOP 5 codalm, nomalm, activo 
-            FROM inv_almacen 
-            WHERE activo = 1
-            ORDER BY codalm
-          `);
+        const debugAlmacenResult = await reqDebugAlmacen.query(`
+          SELECT TOP 5 codalm, nomalm, activo 
+          FROM inv_almacen 
+          WHERE activo = 1
+          ORDER BY codalm
+        `);
           ejemplosAlmacenes = debugAlmacenResult.recordset;
           console.log(`   📋 Ejemplos de almacenes activos en BD:`, ejemplosAlmacenes);
         } catch (debugError) {
@@ -2520,7 +2907,7 @@ app.post('/api/cotizaciones', async (req, res) => {
       req1.input('formapago', sql.NChar(2), formaPagoFormatted);
       req1.input('valor_anticipo', sql.Decimal(18, 2), Number(valorAnticipo) || 0);
       req1.input('num_orden_compra', sql.Int, numOrdenCompra ? parseInt(numOrdenCompra, 10) : null);
-      
+
       const insertHeader = await req1.query(`
         INSERT INTO ven_cotizacion (
           numcot, fecha, fecha_vence,
@@ -2612,7 +2999,7 @@ app.post('/api/cotizaciones', async (req, res) => {
       });
       // Intentar rollback solo si la transacción está activa
       try {
-        await tx.rollback();
+      await tx.rollback();
       } catch (rollbackError) {
         // Si el rollback falla, puede ser porque la transacción ya fue cerrada
         console.error('   ⚠️ Error en rollback (puede ser normal si la transacción ya estaba cerrada):', rollbackError.message);
@@ -2971,14 +3358,20 @@ app.post('/api/pedidos', async (req, res) => {
         if (isNumeric) {
           reqCheckVendedor.input('ideven', sql.Int, idevenNum);
           vendedorQuery = `
-            SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, LTRIM(RTRIM(nomven)) as nomb_emple, CAST(Activo AS INT) as activo 
+            SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, 
+                   LTRIM(RTRIM(COALESCE(codven, CAST(ideven AS VARCHAR(20))))) as codven,
+                   LTRIM(RTRIM(nomven)) as nomb_emple, 
+                   CAST(Activo AS INT) as activo 
             FROM ven_vendedor 
             WHERE ideven = @ideven AND Activo = 1
           `;
         } else {
           reqCheckVendedor.input('codven', sql.VarChar(20), vendedorIdStr);
           vendedorQuery = `
-            SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, LTRIM(RTRIM(nomven)) as nomb_emple, CAST(Activo AS INT) as activo 
+            SELECT CAST(ideven AS VARCHAR(20)) as codi_emple,
+                   LTRIM(RTRIM(COALESCE(codven, CAST(ideven AS VARCHAR(20))))) as codven,
+                   LTRIM(RTRIM(nomven)) as nomb_emple, 
+                   CAST(Activo AS INT) as activo 
             FROM ven_vendedor 
             WHERE codven = @codven AND Activo = 1
           `;
@@ -2996,8 +3389,10 @@ app.post('/api/pedidos', async (req, res) => {
           });
         }
         
-        vendedorIdFinal = vendedorResult.recordset[0].codi_emple;
-        console.log(`✅ Vendedor encontrado: "${vendedorIdFinal}" (${vendedorResult.recordset[0].nomb_emple})`);
+        // Para la estructura real, usar codven (código del vendedor), no codi_emple
+        // codven es CHAR(10) en ven_pedidos.cod_vendedor
+        vendedorIdFinal = vendedorResult.recordset[0].codven || vendedorResult.recordset[0].codi_emple;
+        console.log(`✅ Vendedor encontrado: codven="${vendedorIdFinal}" (${vendedorResult.recordset[0].nomb_emple})`);
       }
       
       // Validar y generar número de pedido
@@ -3084,41 +3479,144 @@ app.post('/api/pedidos', async (req, res) => {
       
       const req1 = new sql.Request(tx);
       const estadoMapeado = mapEstadoToDb(estado);
-      
-      req1.input('numero_pedido', numeroPedidoFinal);
-      req1.input('fecha_pedido', fechaPedidoFinal);
-      req1.input('fecha_entrega_estimada', fechaEntregaEstimada || null);
-      req1.input('cliente_id', sql.VarChar(20), clienteIdStr);
-      if (vendedorIdFinal) {
-        req1.input('vendedor_id', sql.VarChar(20), vendedorIdFinal);
-      } else {
-        req1.input('vendedor_id', sql.VarChar(20), null);
-      }
-      req1.input('cotizacion_id', cotizacionIdFinal);
-      req1.input('empresa_id', empresaId || 1);
-      req1.input('subtotal', subtotal);
-      req1.input('descuento_valor', descuentoValor);
-      req1.input('iva_valor', ivaValor);
-      req1.input('total', total);
-      req1.input('impoconsumo_valor', impoconsumoValor);
-      req1.input('observaciones', observaciones);
-      req1.input('instrucciones_entrega', instruccionesEntrega);
-      req1.input('estado', estadoMapeado);
 
+      // Insertar con estructura real de la tabla ven_pedidos
+      // Columnas reales: id, numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, 
+      // empresa_id, codtar, codusu, cotizacion_id, subtotal, descuento_valor, descuento_porcentaje,
+      // iva_valor, iva_porcentaje, impoconsumo_valor, total, observaciones, instrucciones_entrega,
+      // estado, fec_creacion, fec_modificacion
+      const codVendedorFinal = vendedorIdFinal ? String(vendedorIdFinal).trim() : null;
+      
+      // Normalizar y validar valores numéricos
+      const subtotalNum = Number(subtotal) || 0;
+      const descuentoValorNum = Number(descuentoValor) || 0;
+      const ivaValorNum = Number(ivaValor) || 0;
+      const totalNum = Number(total) || 0;
+      const impoconsumoValorNum = Number(impoconsumoValor) || 0;
+      
+      // Validar que sean números finitos
+      const subtotalFinal = isFinite(subtotalNum) ? Math.max(0, subtotalNum) : 0;
+      const descuentoValorFinal = isFinite(descuentoValorNum) ? Math.max(0, descuentoValorNum) : 0;
+      const ivaValorFinal = isFinite(ivaValorNum) ? Math.max(0, ivaValorNum) : 0;
+      const totalFinal = isFinite(totalNum) ? Math.max(0, totalNum) : 0;
+      const impoconsumoValorFinal = isFinite(impoconsumoValorNum) ? Math.max(0, impoconsumoValorNum) : 0;
+      
+      // Calcular porcentajes si es necesario - Limitar a rango válido para DECIMAL(5,2) (máx 999.99)
+      let descuentoPorcentaje = 0;
+      if (subtotalFinal > 0 && descuentoValorFinal > 0) {
+        descuentoPorcentaje = (descuentoValorFinal / subtotalFinal) * 100;
+        // Limitar a 999.99 (máximo para DECIMAL(5,2))
+        descuentoPorcentaje = Math.min(Math.max(descuentoPorcentaje, 0), 999.99);
+        // Redondear a 2 decimales
+        descuentoPorcentaje = Math.round(descuentoPorcentaje * 100) / 100;
+      }
+      
+      let ivaPorcentaje = 0;
+      const baseParaIva = subtotalFinal - descuentoValorFinal;
+      if (baseParaIva > 0 && ivaValorFinal > 0) {
+        ivaPorcentaje = (ivaValorFinal / baseParaIva) * 100;
+        // Limitar a 999.99 (máximo para DECIMAL(5,2))
+        ivaPorcentaje = Math.min(Math.max(ivaPorcentaje, 0), 999.99);
+        // Redondear a 2 decimales
+        ivaPorcentaje = Math.round(ivaPorcentaje * 100) / 100;
+      }
+      
+      // Validar que no sean NaN o Infinity
+      if (!isFinite(descuentoPorcentaje)) descuentoPorcentaje = 0;
+      if (!isFinite(ivaPorcentaje)) ivaPorcentaje = 0;
+      
+      // Asegurar que los porcentajes estén dentro del rango válido y redondeados
+      descuentoPorcentaje = Math.max(0, Math.min(999.99, Math.round(descuentoPorcentaje * 100) / 100));
+      ivaPorcentaje = Math.max(0, Math.min(999.99, Math.round(ivaPorcentaje * 100) / 100));
+      
+      // Limitar valores DECIMAL(18,2) al máximo permitido y asegurar exactamente 2 decimales
+      const maxDecimal18_2 = 9999999999999999.99;
+      const subtotalFinalLimited = parseFloat(Math.min(subtotalFinal, maxDecimal18_2).toFixed(2));
+      const descuentoValorFinalLimited = parseFloat(Math.min(descuentoValorFinal, maxDecimal18_2).toFixed(2));
+      const ivaValorFinalLimited = parseFloat(Math.min(ivaValorFinal, maxDecimal18_2).toFixed(2));
+      const impoconsumoValorFinalLimited = parseFloat(Math.min(impoconsumoValorFinal, maxDecimal18_2).toFixed(2));
+      const totalFinalLimited = parseFloat(Math.min(totalFinal, maxDecimal18_2).toFixed(2));
+      
+      // Asegurar que los porcentajes tengan exactamente 2 decimales
+      const descuentoPorcentajeFinal = parseFloat(descuentoPorcentaje.toFixed(2));
+      const ivaPorcentajeFinal = parseFloat(ivaPorcentaje.toFixed(2));
+      
+      // Log de depuración
+      console.log('📊 Valores validados para inserción:', {
+        subtotal: subtotalFinalLimited,
+        descuentoValor: descuentoValorFinalLimited,
+        descuentoPorcentaje: descuentoPorcentajeFinal,
+        ivaValor: ivaValorFinalLimited,
+        ivaPorcentaje: ivaPorcentajeFinal,
+        impoconsumoValor: impoconsumoValorFinalLimited,
+        total: totalFinalLimited
+      });
+      
+      req1.input('numero_pedido', sql.VarChar(50), numeroPedidoFinal);
+      req1.input('fecha_pedido', sql.Date, fechaPedidoFinal);
+      req1.input('fecha_entrega_estimada', sql.Date, fechaEntregaEstimada || null);
+      req1.input('codter', sql.VarChar(20), clienteIdStr);
+      if (codVendedorFinal) {
+        req1.input('codven', sql.VarChar(20), codVendedorFinal);
+      } else {
+        req1.input('codven', sql.VarChar(20), null);
+      }
+      // Validar empresa_id (INT: -2,147,483,648 a 2,147,483,647)
+      const empresaIdNum = Number(empresaId) || 1;
+      const empresaIdValid = isFinite(empresaIdNum) && empresaIdNum >= -2147483648 && empresaIdNum <= 2147483647 
+        ? Math.floor(empresaIdNum) 
+        : 1;
+      
+      // Validar cotizacion_id (INT o NULL)
+      let cotizacionIdValid = null;
+      if (cotizacionIdFinal !== null && cotizacionIdFinal !== undefined) {
+        const cotizacionIdNum = Number(cotizacionIdFinal);
+        if (isFinite(cotizacionIdNum) && cotizacionIdNum >= -2147483648 && cotizacionIdNum <= 2147483647) {
+          cotizacionIdValid = Math.floor(cotizacionIdNum);
+        }
+      }
+      
+      req1.input('empresa_id', sql.Int, empresaIdValid);
+      req1.input('codtar', sql.VarChar(20), null); // No se proporciona en el request
+      req1.input('codusu', sql.VarChar(20), null); // No se proporciona en el request
+      req1.input('cotizacion_id', sql.Int, cotizacionIdValid);
+      req1.input('subtotal', sql.Decimal(18, 2), subtotalFinalLimited);
+      req1.input('descuento_valor', sql.Decimal(18, 2), descuentoValorFinalLimited);
+      req1.input('descuento_porcentaje', sql.Decimal(5, 2), descuentoPorcentajeFinal);
+      req1.input('iva_valor', sql.Decimal(18, 2), ivaValorFinalLimited);
+      req1.input('iva_porcentaje', sql.Decimal(5, 2), ivaPorcentajeFinal);
+      req1.input('impoconsumo_valor', sql.Decimal(18, 2), impoconsumoValorFinalLimited);
+      req1.input('total', sql.Decimal(18, 2), totalFinalLimited);
+      req1.input('observaciones', sql.VarChar(500), observaciones || '');
+      req1.input('instrucciones_entrega', sql.VarChar(500), instruccionesEntrega || '');
+      req1.input('estado', sql.VarChar(20), estadoMapeado);
+      req1.input('fec_creacion', sql.DateTime, new Date());
+      req1.input('fec_modificacion', sql.DateTime, new Date());
+      
       const insertHeader = await req1.query(`
         INSERT INTO ven_pedidos (
           numero_pedido, fecha_pedido, fecha_entrega_estimada,
-          cliente_id, vendedor_id, cotizacion_id, empresa_id,
-          subtotal, descuento_valor, iva_valor, total, impoconsumo_valor,
-          observaciones, instrucciones_entrega, estado
+          codter, codven, empresa_id, codtar, codusu, cotizacion_id,
+          subtotal, descuento_valor, descuento_porcentaje, iva_valor, iva_porcentaje, 
+          impoconsumo_valor, total,
+          observaciones, instrucciones_entrega, estado, fec_creacion, fec_modificacion
         ) VALUES (
           @numero_pedido, @fecha_pedido, @fecha_entrega_estimada,
-          @cliente_id, @vendedor_id, @cotizacion_id, @empresa_id,
-          @subtotal, @descuento_valor, @iva_valor, @total, @impoconsumo_valor,
-          @observaciones, @instrucciones_entrega, @estado
+          @codter, @codven, @empresa_id, @codtar, @codusu, @cotizacion_id,
+          @subtotal, @descuento_valor, @descuento_porcentaje, @iva_valor, @iva_porcentaje,
+          @impoconsumo_valor, @total,
+          @observaciones, @instrucciones_entrega, @estado, @fec_creacion, @fec_modificacion
         );
         SELECT SCOPE_IDENTITY() AS id;`);
-      const newId = insertHeader.recordset[0].id;
+      const newIdRaw = insertHeader.recordset[0].id;
+      
+      // Validar que newId sea un número entero válido
+      const newIdNum = Number(newIdRaw);
+      if (!isFinite(newIdNum) || newIdNum < 1 || newIdNum > 2147483647) {
+        throw new Error(`ID de pedido inválido generado: ${newIdRaw}`);
+      }
+      const newId = Math.floor(newIdNum);
+      console.log(`✅ Pedido creado con ID: ${newId}`);
 
       console.log(`📦 Guardando ${items.length} items de pedido...`);
       for (let idx = 0; idx < items.length; idx++) {
@@ -3138,26 +3636,92 @@ app.post('/api/pedidos', async (req, res) => {
           throw new Error(`Item ${idx + 1}: productoId inválido: ${it.productoId}`);
         }
         
-        reqDet.input('pedido_id', newId);
-        reqDet.input('producto_id', sql.Int, productoIdNum);
-        reqDet.input('cantidad', sql.Decimal(18, 2), it.cantidad);
-        reqDet.input('precio_unitario', sql.Decimal(18, 2), it.precioUnitario);
-        reqDet.input('descuento_porcentaje', sql.Decimal(5, 2), it.descuentoPorcentaje || 0);
-        reqDet.input('iva_porcentaje', sql.Decimal(5, 2), it.ivaPorcentaje || 0);
-        reqDet.input('descripcion', sql.VarChar(500), it.descripcion || '');
-        reqDet.input('subtotal', sql.Decimal(18, 2), it.subtotal || 0);
-        reqDet.input('valor_iva', sql.Decimal(18, 2), it.valorIva || 0);
-        reqDet.input('total', sql.Decimal(18, 2), it.total);
+        // Obtener el código del producto (codins) desde inv_insumos
+        const reqGetCodins = new sql.Request(tx);
+        reqGetCodins.input('productoId', sql.Int, productoIdNum);
+        const codinsResult = await reqGetCodins.query(`
+          SELECT TOP 1 codins
+          FROM inv_insumos
+          WHERE id = @productoId
+        `);
+        
+        if (codinsResult.recordset.length === 0) {
+          throw new Error(`Item ${idx + 1}: Producto con ID ${productoIdNum} no encontrado en inv_insumos`);
+        }
+        
+        const codins = codinsResult.recordset[0].codins.trim();
+        
+        // La BD real usa numped (CHAR(8)) en ven_detapedidos
+        // Generar numped desde numero_pedido (formato: PED-001 -> PED0001)
+        // Extraer número de "PED-001" o "PED001" y formatear a 8 caracteres
+        const match = String(numeroPedidoFinal).match(/(\d+)/);
+        let numped;
+        if (match) {
+          numped = 'PED' + match[1].padStart(5, '0');
+        } else {
+          numped = String(numeroPedidoFinal).replace(/-/g, '').substring(0, 8).padStart(8, '0');
+        }
+        
+        // Asegurar que numped tenga exactamente 8 caracteres
+        numped = String(numped).substring(0, 8).padStart(8, '0');
+        
+        // Normalizar y validar valores numéricos del item
+        const cantidadNum = Number(it.cantidad) || 0;
+        const precioUnitarioNum = Number(it.precioUnitario) || 0;
+        const descuentoValorNum = Number(it.descuentoValor) || 0;
+        const valorIvaNum = Number(it.valorIva) || 0;
+        
+        // Validar que sean números finitos y limitar a rango válido para DECIMAL(18,2)
+        // DECIMAL(18,2) puede almacenar valores hasta 9999999999999999.99
+        const maxDecimal = 9999999999999999.99;
+        const cantidad = isFinite(cantidadNum) ? Math.max(0, Math.min(cantidadNum, maxDecimal)) : 0;
+        const valins = isFinite(precioUnitarioNum) ? Math.max(0, Math.min(precioUnitarioNum, maxDecimal)) : 0;
+        const dctped = isFinite(descuentoValorNum) ? Math.max(0, Math.min(descuentoValorNum, maxDecimal)) : 0;
+        const ivaped = isFinite(valorIvaNum) ? Math.max(0, Math.min(valorIvaNum, maxDecimal)) : 0;
+        
+        // Redondear a 2 decimales y limitar al máximo permitido, asegurando exactamente 2 decimales
+        const maxDecimal18_2 = 9999999999999999.99;
+        const cantidadFinal = parseFloat(Math.min(Math.max(0, cantidad), maxDecimal18_2).toFixed(2));
+        const valinsFinal = parseFloat(Math.min(Math.max(0, valins), maxDecimal18_2).toFixed(2));
+        const dctpedFinal = parseFloat(Math.min(Math.max(0, dctped), maxDecimal18_2).toFixed(2));
+        const ivapedFinal = parseFloat(Math.min(Math.max(0, ivaped), maxDecimal18_2).toFixed(2));
+        
+        // Validar que sean números finitos
+        const cantidadFinalValid = isFinite(cantidadFinal) ? cantidadFinal : 0;
+        const valinsFinalValid = isFinite(valinsFinal) ? valinsFinal : 0;
+        const dctpedFinalValid = isFinite(dctpedFinal) ? dctpedFinal : 0;
+        const ivapedFinalValid = isFinite(ivapedFinal) ? ivapedFinal : 0;
+        
+        // Log de depuración para items
+        console.log(`📦 Item ${idx + 1} valores validados:`, {
+          cantidad: cantidadFinalValid,
+          valins: valinsFinalValid,
+          dctped: dctpedFinalValid,
+          ivaped: ivapedFinalValid
+        });
+        
+        // Formatear codalm correctamente (CHAR(3))
+        const codalmFormatted = (empresaId || '001').toString().substring(0, 3).padStart(3, '0');
+        
+        reqDet.input('numped', sql.Char(8), numped.substring(0, 8).padStart(8, '0'));
+        reqDet.input('codins', sql.Char(8), codins.substring(0, 8).padStart(8, '0'));
+        reqDet.input('valins', sql.Decimal(18, 2), valinsFinalValid);
+        reqDet.input('canped', sql.Decimal(18, 2), cantidadFinalValid);
+        reqDet.input('ivaped', sql.Decimal(18, 2), ivapedFinalValid);
+        reqDet.input('dctped', sql.Decimal(18, 2), dctpedFinalValid);
+        reqDet.input('estped', sql.Char(1), 'B'); // B=BORRADOR
+        reqDet.input('codalm', sql.Char(3), codalmFormatted);
+        reqDet.input('pedido_id', sql.Int, newId); // Relación con ven_pedidos.id (ya validado arriba)
+        reqDet.input('feccargo', sql.Date, fechaPedidoFinal); // Fecha de cargo
+        reqDet.input('codtec', sql.VarChar(20), ''); // Código técnico (requerido, usar string vacío si no se proporciona)
         
         await reqDet.query(`
           INSERT INTO ven_detapedidos (
-            pedido_id, producto_id, cantidad, precio_unitario,
-            descuento_porcentaje, iva_porcentaje, descripcion,
-            subtotal, valor_iva, total
+            numped, codins, valins, canped, ivaped, dctped,
+            estped, codalm, pedido_id, feccargo, codtec, Fecsys
           ) VALUES (
-            @pedido_id, @producto_id, @cantidad, @precio_unitario,
-            @descuento_porcentaje, @iva_porcentaje, @descripcion,
-            @subtotal, @valor_iva, @total
+            @numped, @codins, @valins, @canped, @ivaped, @dctped,
+            @estped, @codalm, @pedido_id, @feccargo, @codtec, GETDATE()
           );`);
         console.log(`✅ Item ${idx + 1} guardado correctamente`);
       }
@@ -3530,7 +4094,7 @@ app.post('/api/remisiones', async (req, res) => {
           reqCheckVendedor.input('ideven', sql.Int, idevenNum);
           vendedorQuery = `
             SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, LTRIM(RTRIM(nomven)) as nomb_emple, CAST(Activo AS INT) as activo 
-            FROM ven_vendedor 
+          FROM ven_vendedor 
             WHERE ideven = @ideven AND Activo = 1
           `;
         } else {
@@ -4217,12 +4781,12 @@ app.post('/api/facturas', async (req, res) => {
         if (isNumeric) {
           reqVendedor.input('ideven', sql.Int, idevenNum);
           vendedorQuery = `
-            SELECT 
+          SELECT 
               CAST(ideven AS VARCHAR(20)) as codi_emple, 
               LTRIM(RTRIM(nomven)) as nomb_emple, 
               CAST(Activo AS INT) as activo,
               Activo as activoBit
-            FROM ven_vendedor 
+          FROM ven_vendedor 
             WHERE ideven = @ideven
           `;
         } else {
@@ -4871,33 +5435,88 @@ app.use((error, req, res, next) => {
   });
 });
 
+// Manejo de errores no capturados para evitar que el proceso termine
+process.on('uncaughtException', (error) => {
+  console.error('❌ Error no capturado (uncaughtException):', error);
+  console.error('Stack:', error.stack);
+  // NO hacer process.exit() - permitir que el servidor continúe
+  // Solo loguear el error para debugging
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Promesa rechazada no manejada (unhandledRejection):', reason);
+  console.error('Promise:', promise);
+  // NO hacer process.exit() - permitir que el servidor continúe
+  // Solo loguear el error para debugging
+});
+
+// Manejo de señales de terminación para cerrar conexiones correctamente
+process.on('SIGTERM', async () => {
+  console.log('📡 Señal SIGTERM recibida, cerrando servidor...');
+  try {
+    const { closeConnection } = require('./services/sqlServerClient.cjs');
+    await closeConnection();
+  } catch (error) {
+    console.error('Error cerrando conexión:', error);
+  }
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('\n📡 Señal SIGINT recibida (Ctrl+C), cerrando servidor...');
+  try {
+    const { closeConnection } = require('./services/sqlServerClient.cjs');
+    await closeConnection();
+  } catch (error) {
+    console.error('Error cerrando conexión:', error);
+  }
+  process.exit(0);
+});
+
 // Iniciar servidor solo si no estamos en Vercel (serverless)
 // En Vercel, el servidor se ejecuta como función serverless
 if (!process.env.VERCEL) {
   const HOST = '0.0.0.0'; // Escuchar en todas las interfaces de red
   const localIP = getLocalIP();
   
-  app.listen(PORT, HOST, () => {
-    console.log('\n' + '='.repeat(60));
-    console.log(`🚀 Servidor API ejecutándose en puerto ${PORT}`);
-    console.log('='.repeat(60));
-    console.log('\n📱 Acceso desde otros dispositivos en la red:');
-    console.log(`   🌐 URL de red: http://${localIP}:${PORT}`);
-    console.log(`   🔗 Health check: http://${localIP}:${PORT}/api/health`);
-    console.log(`   🔗 Test connection: http://${localIP}:${PORT}/api/test-connection`);
-    console.log('\n💻 Acceso local:');
-    console.log(`   🏠 URL local: http://localhost:${PORT}`);
-    console.log(`   🔗 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`   🔗 Test connection: http://localhost:${PORT}/api/test-connection`);
-    console.log('\n📋 Endpoints principales:');
-    console.log(`   GET  /api/facturas - Listar facturas`);
-    console.log(`   POST /api/facturas - Crear factura`);
-    console.log(`   PUT  /api/facturas/:id - Actualizar factura`);
-    console.log('\n' + '='.repeat(60));
-    console.log(`✅ Servidor listo! Otros dispositivos pueden conectarse usando:`);
-    console.log(`   http://${localIP}:${PORT}`);
-    console.log('='.repeat(60) + '\n');
-  });
+  // Intentar iniciar el servidor con manejo de errores
+  try {
+    const server = app.listen(PORT, HOST, () => {
+      console.log('\n' + '='.repeat(60));
+      console.log(`🚀 Servidor API ejecutándose en puerto ${PORT}`);
+      console.log('='.repeat(60));
+      console.log('\n📱 Acceso desde otros dispositivos en la red:');
+      console.log(`   🌐 URL de red: http://${localIP}:${PORT}`);
+      console.log(`   🔗 Health check: http://${localIP}:${PORT}/api/health`);
+      console.log(`   🔗 Test connection: http://${localIP}:${PORT}/api/test-connection`);
+      console.log('\n💻 Acceso local:');
+      console.log(`   🏠 URL local: http://localhost:${PORT}`);
+      console.log(`   🔗 Health check: http://localhost:${PORT}/api/health`);
+      console.log(`   🔗 Test connection: http://localhost:${PORT}/api/test-connection`);
+      console.log('\n📋 Endpoints principales:');
+      console.log(`   GET  /api/facturas - Listar facturas`);
+      console.log(`   POST /api/facturas - Crear factura`);
+      console.log(`   PUT  /api/facturas/:id - Actualizar factura`);
+      console.log('\n' + '='.repeat(60));
+      console.log(`✅ Servidor listo! Otros dispositivos pueden conectarse usando:`);
+      console.log(`   http://${localIP}:${PORT}`);
+      console.log('='.repeat(60) + '\n');
+    });
+    
+    // Manejar errores del servidor
+    server.on('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Error: El puerto ${PORT} ya está en uso.`);
+        console.error('💡 Intenta usar otro puerto o detén el proceso que está usando este puerto.');
+      } else {
+        console.error('❌ Error del servidor:', error);
+      }
+      // NO hacer process.exit() - solo loguear el error
+    });
+  } catch (error) {
+    console.error('❌ Error al iniciar el servidor:', error);
+    // NO hacer process.exit() - solo loguear el error
+  }
 } else {
   console.log('🌐 Ejecutándose en Vercel (Serverless Functions)');
 }

@@ -1,21 +1,24 @@
-// Configuración de la base de datos SQL Server
+// Cargar variables de entorno
+require('dotenv').config();
+
+// Configuración de la base de datos SQL Server desde variables de entorno
 const DB_CONFIG = {
-  server: '179.33.214.87',
-  port: 1434,
-  database: 'Prueba_ERP360',
-  user: 'sa',
-  password: 'Axul3j0',
+  server: process.env.DB_SERVER,
+  port: parseInt(process.env.DB_PORT || '1433', 10),
+  database: process.env.DB_DATABASE,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
   options: {
-    encrypt: false,
-    trustServerCertificate: true,
+    encrypt: process.env.DB_ENCRYPT === 'true',
+    trustServerCertificate: process.env.NODE_ENV !== 'production',
     enableArithAbort: true,
-    requestTimeout: 30000,
-    connectionTimeout: 30000,
+    requestTimeout: parseInt(process.env.DB_REQUEST_TIMEOUT || '30000', 10),
+    connectionTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || '30000', 10),
   },
   pool: {
-    max: 10,
-    min: 0,
-    idleTimeoutMillis: 30000,
+    max: parseInt(process.env.DB_POOL_MAX || '10', 10),
+    min: parseInt(process.env.DB_POOL_MIN || '0', 10),
+    idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000', 10),
   },
 };
 
@@ -250,90 +253,172 @@ const QUERIES = {
     LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(d.cod_producto))
   `,
 
-  // Obtener pedidos
+  // Obtener pedidos - Usando estructura REAL de ven_pedidos
+  // Columnas: id, numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, empresa_id, codtar, codusu, cotizacion_id, subtotal, descuento_valor, descuento_porcentaje, iva_valor, iva_porcentaje, impoconsumo_valor, total, observaciones, instrucciones_entrega, estado, fec_creacion, fec_modificacion
   GET_PEDIDOS: `
     SELECT 
       p.id,
       p.numero_pedido as numeroPedido,
       p.fecha_pedido as fechaPedido,
-      p.cliente_id as clienteId,
-      p.vendedor_id as vendedorId,
+      LTRIM(RTRIM(COALESCE(p.codter, ''))) as clienteId,
+      LTRIM(RTRIM(COALESCE(p.codven, ''))) as vendedorId,
       p.cotizacion_id as cotizacionId,
-      p.subtotal,
-      p.descuento_valor as descuentoValor,
-      p.iva_valor as ivaValor,
-      p.total,
-      p.observaciones,
+      COALESCE(p.subtotal, 0) as subtotal,
+      COALESCE(p.descuento_valor, 0) as descuentoValor,
+      COALESCE(p.iva_valor, 0) as ivaValor,
+      COALESCE(p.total, 0) as total,
+      LTRIM(RTRIM(COALESCE(p.observaciones, ''))) as observaciones,
       p.estado,
-      p.empresa_id as empresaId,
+      COALESCE(p.empresa_id, 1) as empresaId,
       p.fecha_entrega_estimada as fechaEntregaEstimada,
-      p.lista_precio_id as listaPrecioId,
-      p.descuento_porcentaje as descuentoPorcentaje,
-      p.iva_porcentaje as ivaPorcentaje,
-      p.impoconsumo_valor as impoconsumoValor,
-      p.instrucciones_entrega as instruccionesEntrega
+      NULL as listaPrecioId,
+      COALESCE(p.descuento_porcentaje, 0) as descuentoPorcentaje,
+      COALESCE(p.iva_porcentaje, 0) as ivaPorcentaje,
+      COALESCE(p.impoconsumo_valor, 0) as impoconsumoValor,
+      LTRIM(RTRIM(COALESCE(p.instrucciones_entrega, ''))) as instruccionesEntrega
     FROM ${TABLE_NAMES.pedidos} p
     ORDER BY p.fecha_pedido DESC
   `,
 
-  // Obtener detalles de pedidos
+  // Obtener detalles de pedidos - Usando estructura REAL de ven_detapedidos
+  // ven_detapedidos tiene pedido_id (FK a ven_pedidos.id) como relación principal
+  // También tiene numped (CHAR(8)) para compatibilidad con sistema antiguo
   GET_PEDIDOS_DETALLE: `
     SELECT 
-      pd.id,
-      pd.pedido_id as pedidoId,
-      pd.producto_id as productoId,
-      pd.cantidad,
-      pd.precio_unitario as precioUnitario,
-      pd.descuento_porcentaje as descuentoPorcentaje,
-      pd.iva_porcentaje as ivaPorcentaje,
-      pd.descripcion,
-      pd.subtotal,
-      pd.valor_iva as valorIva,
-      pd.total
+      -- Usar pedido_id directamente si existe, sino usar el id del JOIN
+      CAST(COALESCE(pd.pedido_id, p.id) AS INT) as pedidoId,
+      pd.numped,
+      -- Obtener el ID del producto desde inv_insumos usando codins
+      COALESCE(
+        (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+        NULL
+      ) as productoId,
+      LTRIM(RTRIM(COALESCE(pd.codins, ''))) as codProducto,
+      -- Usar canped (cantidad pedida)
+      COALESCE(pd.canped, 0) as cantidad,
+      -- Usar valins (valor unitario)
+      COALESCE(pd.valins, 0) as precioUnitario,
+      -- Calcular descuentoPorcentaje desde dctped
+      CASE 
+        WHEN COALESCE(pd.canped, 0) > 0 AND COALESCE(pd.valins, 0) > 0 
+        THEN (COALESCE(pd.dctped, 0) / (pd.canped * pd.valins)) * 100
+        ELSE 0
+      END as descuentoPorcentaje,
+      -- Calcular ivaPorcentaje desde ivaped
+      CASE 
+        WHEN COALESCE(pd.canped, 0) > 0 AND COALESCE(pd.valins, 0) > 0 
+          AND (pd.canped * pd.valins - COALESCE(pd.dctped, 0)) > 0
+        THEN (COALESCE(pd.ivaped, 0) / (pd.canped * pd.valins - COALESCE(pd.dctped, 0))) * 100
+        ELSE 0
+      END as ivaPorcentaje,
+      -- Obtener descripción del producto
+      COALESCE(
+        (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+        LTRIM(RTRIM(COALESCE(pd.codins, '')))
+      ) as descripcion,
+      -- Calcular subtotal
+      ((COALESCE(pd.canped, 0) * COALESCE(pd.valins, 0)) - COALESCE(pd.dctped, 0)) as subtotal,
+      -- Usar ivaped como valorIva
+      COALESCE(pd.ivaped, 0) as valorIva,
+      -- Calcular total
+      ((COALESCE(pd.canped, 0) * COALESCE(pd.valins, 0)) - COALESCE(pd.dctped, 0) + COALESCE(pd.ivaped, 0)) as total,
+      -- Campos adicionales de la BD real
+      pd.estped as estadoItem,
+      pd.codalm,
+      pd.serial,
+      pd.numfac as numFactura,
+      pd.DiasGar as diasGarantia,
+      pd.Numord as numOrden,
+      COALESCE(pd.Fecsys, GETDATE()) as fechaCreacion
     FROM ${TABLE_NAMES.pedidos_detalle} pd
+    LEFT JOIN ${TABLE_NAMES.pedidos} p ON p.id = pd.pedido_id
+    WHERE pd.pedido_id IS NOT NULL OR (pd.numped IS NOT NULL AND LTRIM(RTRIM(pd.numped)) <> '')
   `,
 
-  // Obtener remisiones
+  // Obtener remisiones - Usando estructura REAL de ven_recibos
   GET_REMISIONES: `
     SELECT 
       r.id,
-      r.numero_remision as numeroRemision,
-      r.fecha_remision as fechaRemision,
-      r.pedido_id as pedidoId,
-      r.factura_id as facturaId,
-      r.cliente_id as clienteId,
-      r.vendedor_id as vendedorId,
-      r.subtotal,
-      r.descuento_valor as descuentoValor,
-      r.iva_valor as ivaValor,
-      r.total,
-      r.observaciones,
-      r.estado,
-      r.empresa_id as empresaId,
-      r.estado_envio as estadoEnvio,
-      r.metodo_envio as metodoEnvio,
-      r.transportadora_id as transportadoraId,
-      r.transportadora,
-      r.numero_guia as numeroGuia,
-      r.fecha_despacho as fechaDespacho
+      -- Mapear numrec a numeroRemision (formato: REM-0001)
+      'REM-' + RIGHT('0000' + CAST(r.numrec AS VARCHAR), 4) as numeroRemision,
+      r.numrec,
+      r.codalm,
+      r.tipdoc,
+      -- Mapear fecrec a fechaRemision
+      CAST(r.fecrec AS DATE) as fechaRemision,
+      r.fecrec,
+      -- Mapear numped a pedidoId (puede ser NULL)
+      CAST(r.numped AS VARCHAR(20)) as pedidoId,
+      r.numped,
+      -- Mapear codter a clienteId
+      LTRIM(RTRIM(r.codter)) as clienteId,
+      r.codter,
+      -- Mapear CODVEN a vendedorId
+      LTRIM(RTRIM(r.CODVEN)) as vendedorId,
+      r.CODVEN as codVendedor,
+      -- Mapear valores: valrec = total, netrec = neto, desrec = descuento
+      COALESCE(r.netrec, 0) as subtotal,
+      COALESCE(r.desrec, 0) as descuentoValor,
+      -- Calcular IVA si es necesario (valrec - netrec - desrec)
+      COALESCE(r.valrec, 0) - COALESCE(r.netrec, 0) - COALESCE(r.desrec, 0) as ivaValor,
+      COALESCE(r.valrec, 0) as total,
+      -- Mapear observa a observaciones
+      LTRIM(RTRIM(COALESCE(r.observa, ''))) as observaciones,
+      -- Mapear estrec a estado (B=BORRADOR, otros estados según corresponda)
+      CASE 
+        WHEN r.estrec = 'B' THEN 'BORRADOR'
+        WHEN r.estrec = 'E' THEN 'ENTREGADO'
+        WHEN r.estrec = 'T' THEN 'EN_TRANSITO'
+        WHEN r.estrec = 'C' THEN 'CANCELADO'
+        ELSE 'BORRADOR'
+      END as estado,
+      r.estrec as estadoOriginal,
+      -- Mapear codalm a empresaId
+      r.codalm as empresaId,
+      -- Campos adicionales de la BD real
+      r.fecsys as fechaCreacion,
+      r.codusu as codUsuario,
+      -- Campos que no existen en la BD pero se dejan como NULL para compatibilidad
+      NULL as facturaId,
+      NULL as estadoEnvio,
+      NULL as metodoEnvio,
+      NULL as transportadoraId,
+      NULL as transportadora,
+      NULL as numeroGuia,
+      NULL as fechaDespacho
     FROM ${TABLE_NAMES.remisiones} r
-    ORDER BY r.fecha_remision DESC
+    ORDER BY r.fecrec DESC
   `,
 
-  // Obtener detalles de remisiones
+  // Obtener detalles de remisiones - ven_detarecibo contiene PAGOS/COBROS, no productos
+  // NOTA: Esta tabla NO contiene items de productos, solo información de pagos/cuotas
   GET_REMISIONES_DETALLE: `
     SELECT 
       rd.id,
-      rd.remision_id as remisionId,
-      rd.producto_id as productoId,
-      rd.cantidad,
-      rd.precio_unitario as precioUnitario,
-      rd.descuento_porcentaje as descuentoPorcentaje,
-      rd.iva_porcentaje as ivaPorcentaje,
-      rd.descripcion,
-      rd.subtotal,
-      rd.valor_iva as valorIva,
-      rd.total
+      -- Usar numrec como remisionId (junto con codalm y tipdoc forman la clave)
+      CAST(rd.numrec AS VARCHAR(20)) as remisionId,
+      rd.numrec,
+      rd.codalm,
+      rd.tipdoc,
+      -- Información de pago/cuota
+      COALESCE(rd.valcuo, 0) as valcuo,
+      LTRIM(RTRIM(COALESCE(rd.forpag, ''))) as forpag,
+      LTRIM(RTRIM(COALESCE(rd.numdoc, ''))) as numdoc,
+      LTRIM(RTRIM(COALESCE(rd.codban, ''))) as codban,
+      rd.feccheq as feccheq,
+      COALESCE(rd.abocuo, 0) as abocuo,
+      COALESCE(rd.salcuo, 0) as salcuo,
+      rd.estrec as estrec,
+      -- Campos que no existen pero se dejan como NULL para compatibilidad
+      NULL as productoId,
+      NULL as cantidad,
+      NULL as precioUnitario,
+      NULL as descuentoPorcentaje,
+      NULL as ivaPorcentaje,
+      NULL as descripcion,
+      NULL as subtotal,
+      NULL as valorIva,
+      NULL as total
     FROM ${TABLE_NAMES.remisiones_detalle} rd
   `,
 

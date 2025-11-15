@@ -22,6 +22,8 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
     const componentRef = useRef<HTMLDivElement>(null);
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('remision');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [isPrinting, setIsPrinting] = useState(false);
     
     const relatedData = useMemo(() => {
         if (!remision) return null;
@@ -37,8 +39,9 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
     }, [remision, pedidos, clientes]);
 
     const handlePrint = async () => {
-        if (!remision || !relatedData?.cliente || !componentRef.current) return;
+        if (!remision || !relatedData?.cliente || !componentRef.current || isPrinting) return;
     
+        setIsPrinting(true);
         addNotification({ message: `Preparando impresión para ${remision.numeroRemision}...`, type: 'info' });
     
         try {
@@ -55,14 +58,17 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
         } catch (error) {
             console.error('Error al generar el PDF para impresión:', error);
             addNotification({ message: 'No se pudo generar el documento para imprimir.', type: 'warning' });
+        } finally {
+            setIsPrinting(false);
         }
     };
 
     const handleDownload = async () => {
-        if (!remision || !relatedData?.cliente || !componentRef.current) return;
+        if (!remision || !relatedData?.cliente || !componentRef.current || isDownloading) return;
         
         const cliente = relatedData.cliente;
 
+        setIsDownloading(true);
         addNotification({ message: `Generando PDF para ${remision.numeroRemision}...`, type: 'info' });
 
         try {
@@ -74,12 +80,18 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
         } catch (error) {
             console.error('Error al generar el PDF:', error);
             addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });
+        } finally {
+            setIsDownloading(false);
         }
     };
 
     const handleSendEmail = async () => {
+        if (isDownloading || isPrinting) return;
         await handleDownload();
-        setIsEmailModalOpen(true);
+        // Esperar a que termine la descarga antes de abrir el modal
+        setTimeout(() => {
+            setIsEmailModalOpen(true);
+        }, 100);
     };
 
     const handleConfirmSendEmail = (emailData: { to: string }) => {
@@ -116,18 +128,20 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
                         <div className="flex items-center space-x-1 bg-slate-200/50 dark:bg-slate-800/50 p-1 rounded-lg">
                             <button 
                                 onClick={handleDownload}
-                                title="Descargar Borrador PDF"
-                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors"
+                                disabled={isDownloading || isPrinting}
+                                title={isDownloading ? "Generando PDF..." : "Descargar Borrador PDF"}
+                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <i className="fas fa-download"></i>
+                                <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
                             </button>
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
                             <button
                                 onClick={handleSendEmail}
-                                title="Enviar por Correo"
-                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors"
+                                disabled={isDownloading || isPrinting}
+                                title={isDownloading ? "Generando PDF..." : "Enviar por Correo"}
+                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <i className="fas fa-paper-plane"></i>
+                                <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
                             </button>
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
                             <button 

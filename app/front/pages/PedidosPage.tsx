@@ -19,6 +19,7 @@ import { useAuth } from '../hooks/useAuth';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { logger } from '../utils/logger';
+import { apiClient } from '../services/apiClient';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -48,9 +49,18 @@ const PedidosPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const { user } = useAuth();
   const { addNotification } = useNotifications();
-  const { pedidos, clientes, cotizaciones, datosEmpresa, productos, aprobarPedido, actualizarPedido, marcarPedidoListoParaDespacho } = useData();
+  const { clientes, cotizaciones, datosEmpresa, productos, aprobarPedido, actualizarPedido, marcarPedidoListoParaDespacho } = useData();
 
+  // Estados para paginación del servidor
+  const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isLoadingPedidos, setIsLoadingPedidos] = useState(false);
   const [statusFilter, setStatusFilter] = useState('Todos');
+  
   const [isDetailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedPedido, setSelectedPedido] = useState<Pedido | null>(null);
   const [pedidoToEdit, setPedidoToEdit] = useState<Pedido | null>(null);
@@ -59,44 +69,84 @@ const PedidosPage: React.FC = () => {
   const [isConfirming, setIsConfirming] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
 
-  const filteredData = useMemo(() => {
-    const sortedPedidos = [...pedidos].sort((a, b) => new Date(b.fechaPedido).getTime() - new Date(a.fechaPedido).getTime());
-    if (statusFilter === 'Todos') {
-      return sortedPedidos;
-    }
-    return sortedPedidos.filter(p => p.estado === statusFilter);
-  }, [pedidos, statusFilter]);
+  // Cargar pedidos con paginación (con debounce para búsqueda)
+  useEffect(() => {
+    const loadPedidos = async () => {
+      setIsLoadingPedidos(true);
+      try {
+        const estado = statusFilter !== 'Todos' ? statusFilter : undefined;
+        const pedidosRes = await apiClient.getPedidos(
+          currentPage, 
+          pageSize, 
+          searchTerm || undefined,
+          estado
+        );
+        if (pedidosRes.success) {
+          // Obtener detalles de pedidos para los items
+          const pedidosDetalleRes = await apiClient.getPedidosDetalle();
+          const detallesData = pedidosDetalleRes.success && Array.isArray(pedidosDetalleRes.data) 
+            ? pedidosDetalleRes.data 
+            : [];
+          
+          // Mapear pedidos con sus items
+          const pedidosData = (pedidosRes.data as any[]) || [];
+          const pedidosConDetalles = pedidosData.map(p => {
+            const pedidoIdStr = String(p.id || '');
+            const items = detallesData.filter((d: any) => {
+              const detallePedidoId = String(d.pedidoId || '');
+              return detallePedidoId === pedidoIdStr;
+            });
+            
+            return {
+              ...p,
+              items: items.length > 0 ? items : []
+            } as Pedido;
+          });
+          
+          setPedidos(pedidosConDetalles);
+          
+          // Usar información de paginación del servidor
+          if ((pedidosRes as any).pagination) {
+            setTotalItems((pedidosRes as any).pagination.total);
+            setTotalPages((pedidosRes as any).pagination.totalPages);
+          }
+        }
+      } catch (error) {
+        console.error('Error cargando pedidos:', error);
+        addNotification({ message: 'Error al cargar pedidos', type: 'error' });
+      } finally {
+        setIsLoadingPedidos(false);
+      }
+    };
+    
+    // Debounce para búsqueda: esperar 500ms después de que el usuario deje de escribir
+    const timeoutId = setTimeout(() => {
+      loadPedidos();
+    }, searchTerm ? 500 : 0);
+    
+    return () => clearTimeout(timeoutId);
+  }, [currentPage, pageSize, searchTerm, statusFilter, addNotification]);
+  
+  // Handlers para paginación
+  const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setSearchTerm(value);
+    setCurrentPage(1); // Reset a primera página al buscar
+  };
 
-  const {
-    paginatedData,
-    requestSort,
-    sortConfig,
-    searchTerm,
-    handleSearch,
-    currentPage,
-    totalPages,
-    nextPage,
-    prevPage,
-    goToPage,
-    totalItems,
-    rowsPerPage,
-    setRowsPerPage,
-  } = useTable<Pedido>({
-    data: filteredData,
-    searchKeys: [
-        'numeroPedido',
-        'estado',
-        (item) => {
-            const cliente = clientes.find(c => 
-                String(c.id) === String(item.clienteId) ||
-                c.numeroDocumento === item.clienteId ||
-                c.codter === item.clienteId
-            );
-            return cliente?.nombreCompleto || cliente?.razonSocial || '';
-        },
-        (item) => item.cotizacionId ? cotizaciones.find(c => c.id === item.cotizacionId)?.numeroCotizacion || '' : '',
-    ],
-  });
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPageSize(newPageSize);
+    setCurrentPage(1); // Reset a primera página al cambiar tamaño
+  };
+  
+  const handleStatusFilterChange = (newStatus: string) => {
+    setStatusFilter(newStatus);
+    setCurrentPage(1); // Reset a primera página al cambiar filtro
+  };
 
   const selectedPedidoTotals = useMemo(() => {
     if (!selectedPedido) {
@@ -244,7 +294,18 @@ const PedidosPage: React.FC = () => {
 
   const columns: Column<Pedido>[] = [
     { header: 'Número', accessor: 'numeroPedido' },
-    { header: 'Cotización Origen', accessor: 'cotizacionId', cell: (item) => item.cotizacionId ? cotizaciones.find(c => c.id === item.cotizacionId)?.numeroCotizacion : 'N/A' },
+    { header: 'Cotización Origen', accessor: 'cotizacionId', cell: (item) => {
+      // Usar numeroCotizacionOrigen si está disponible (viene del JOIN en el backend)
+      if (item.numeroCotizacionOrigen) {
+        return item.numeroCotizacionOrigen;
+      }
+      // Fallback: buscar en el array de cotizaciones
+      if (item.cotizacionId) {
+        const cotizacion = cotizaciones.find(c => String(c.id) === String(item.cotizacionId));
+        return cotizacion?.numeroCotizacion || 'N/A';
+      }
+      return 'N/A';
+    }},
     { 
         header: 'Cliente', 
         accessor: 'clienteId', 
@@ -280,7 +341,7 @@ const PedidosPage: React.FC = () => {
             <select
               id="statusFilter"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => handleStatusFilterChange(e.target.value)}
               className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
                 {filterOptions.map(option => (
@@ -305,25 +366,32 @@ const PedidosPage: React.FC = () => {
             additionalFilters={additionalFilters}
         />
         <CardContent className="p-0">
-            <Table 
-              columns={columns} 
-              data={paginatedData} 
-              onSort={requestSort} 
-              sortConfig={sortConfig}
-              highlightRowId={params?.highlightId ?? params?.focusId}
-            />
+            {isLoadingPedidos ? (
+                <div className="p-8 text-center text-slate-500 dark:text-slate-400">
+                    <i className="fas fa-spinner fa-spin mr-2"></i>
+                    Cargando pedidos...
+                </div>
+            ) : (
+                <Table 
+                  columns={columns} 
+                  data={pedidos} 
+                  onSort={() => {}} 
+                  sortConfig={null}
+                  highlightRowId={params?.highlightId ?? params?.focusId}
+                />
+            )}
         </CardContent>
         <TablePagination
           currentPage={currentPage}
           totalPages={totalPages}
-          onPageChange={goToPage}
+          onPageChange={handlePageChange}
           canPreviousPage={currentPage > 1}
           canNextPage={currentPage < totalPages}
-          onPreviousPage={prevPage}
-          onNextPage={nextPage}
+          onPreviousPage={() => handlePageChange(currentPage - 1)}
+          onNextPage={() => handlePageChange(currentPage + 1)}
           totalItems={totalItems}
-          rowsPerPage={rowsPerPage}
-          setRowsPerPage={setRowsPerPage}
+          rowsPerPage={pageSize}
+          setRowsPerPage={handlePageSizeChange}
         />
       </Card>
 
@@ -363,7 +431,11 @@ const PedidosPage: React.FC = () => {
                     </div>
                     <div>
                         <p className="font-semibold text-slate-600 dark:text-slate-400">Cotización Origen</p>
-                        <p className="text-slate-800 dark:text-slate-200">{selectedPedido.cotizacionId ? cotizaciones.find(c => c.id === selectedPedido.cotizacionId)?.numeroCotizacion : 'N/A'}</p>
+                        <p className="text-slate-800 dark:text-slate-200">
+                            {selectedPedido.numeroCotizacionOrigen || 
+                             (selectedPedido.cotizacionId ? cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId))?.numeroCotizacion : 'N/A') || 
+                             'N/A'}
+                        </p>
                     </div>
                     <div>
                         <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Emisión</p>

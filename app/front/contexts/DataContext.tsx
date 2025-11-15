@@ -174,10 +174,16 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     useEffect(() => {
         const fetchEssentialCatalogs = async () => {
             try {
-                // Test API connection first
-                const connectionTest = await testApiConnection();
-                if (!connectionTest.success) {
-                    throw new Error('No se puede conectar con el servidor API');
+                // Test API connection first (pero no fallar si no hay conexión, solo continuar)
+                try {
+                    const connectionTest = await testApiConnection();
+                    if (!connectionTest.success) {
+                        logger.warn({ prefix: 'DataContext' }, 'No se puede conectar con el servidor API, continuando con datos mock');
+                        // No lanzar error, solo continuar sin cargar datos del servidor
+                    }
+                } catch (connectionError) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error al probar conexión API, continuando con datos mock:', connectionError);
+                    // Continuar sin lanzar error
                 }
                 
                 // Helper para extraer datos de estructura anidada
@@ -191,22 +197,30 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     return [];
                 };
 
-                // Load medidas
-                const medidasResponse = await fetchMedidas();
-                if (medidasResponse.success) {
-                    const medidasData = extractArrayData(medidasResponse);
-                    if (medidasData.length > 0) {
-                        setMedidas(medidasData);
+                // Load medidas (con manejo de errores individual)
+                try {
+                    const medidasResponse = await fetchMedidas();
+                    if (medidasResponse && medidasResponse.success) {
+                        const medidasData = extractArrayData(medidasResponse);
+                        if (medidasData.length > 0) {
+                            setMedidas(medidasData);
+                        }
                     }
+                } catch (error) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando medidas:', error);
                 }
                 
-                // Load categorias
-                const categoriasResponse = await fetchCategorias();
-                if (categoriasResponse.success) {
-                    const categoriasData = extractArrayData(categoriasResponse);
-                    if (categoriasData.length > 0) {
-                        setCategorias(categoriasData);
+                // Load categorias (con manejo de errores individual)
+                try {
+                    const categoriasResponse = await fetchCategorias();
+                    if (categoriasResponse && categoriasResponse.success) {
+                        const categoriasData = extractArrayData(categoriasResponse);
+                        if (categoriasData.length > 0) {
+                            setCategorias(categoriasData);
+                        }
                     }
+                } catch (error) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando categorías:', error);
                 }
                 
                 // Load mock data for other catalogs (temporary)
@@ -216,8 +230,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 setTiposPersona([]);
                 setRegimenesFiscal([]);
 
-                // Vendedores desde la BD
-                const vendedoresResp = await fetchVendedores();
+                // Vendedores desde la BD (con manejo de errores individual)
+                let vendedoresResp;
+                try {
+                    vendedoresResp = await fetchVendedores();
+                } catch (error) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando vendedores:', error);
+                    vendedoresResp = { success: false, data: [] };
+                }
                 if (vendedoresResp.success) {
                     const vendedoresData = extractArrayData(vendedoresResp);
                     // Normalizar el campo activo de vendedores: convertir boolean a number (true -> 1, false -> 0)
@@ -398,10 +418,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     fetchFacturasDetalle(),
                     fetchCotizaciones(),
                     fetchCotizacionesDetalle(),
-                    fetchPedidos(),
+                    // Cargar pedidos inicialmente (con pageSize alto para obtener todos los pedidos disponibles)
+                    fetchPedidos(1, 10000), // Solicitar página 1 con 10000 items para obtener todos
                     fetchPedidosDetalle(),
-                    fetchRemisiones(),
-                    fetchRemisionesDetalle(),
+                    // Remisiones ahora se cargan con paginación desde RemisionesPage
+                    // fetchRemisiones(),
+                    // fetchRemisionesDetalle(),
+                    Promise.resolve({ success: true, data: [] }),
+                    Promise.resolve({ success: true, data: [] }),
                     fetchNotasCredito()
                 ]);
                 
@@ -517,16 +541,49 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 logger.log({ prefix: 'DataContext', level: 'debug' }, 'Remisiones recibidas del backend:', remisionesData?.length || 0);
                 logger.log({ prefix: 'DataContext', level: 'debug' }, 'Detalles de remisiones recibidos:', remisionesDetalleData?.length || 0);
                 
+                // Mapear remisiones con sus items de productos
                 const remisionesConDetalles = (remisionesData as any[]).map(r => {
+                    // Buscar items que pertenezcan a esta remisión
+                    // Usar id, numrec o remisionId para hacer el match
+                    const remisionIdStr = String(r.id || r.numrec || '');
+                    const remisionNumrec = r.numrec;
                     const items = (remisionesDetalleData as any[]).filter(d => {
-                        // Comparar IDs asegurándonos de que sean del mismo tipo
-                        const remisionId = String(r.id);
-                        const detalleRemisionId = String(d.remisionId);
-                        return remisionId === detalleRemisionId;
+                        const detalleRemisionId = String(d.remisionId || d.numrec || '');
+                        const detalleNumrec = d.numrec;
+                        // Match por ID o por numrec
+                        return detalleRemisionId === remisionIdStr || 
+                               (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
                     });
+                    
+                    // Mapear campos de la remisión a la estructura esperada por el frontend
                     return {
-                        ...r,
-                        items: items
+                        id: String(r.id || r.numrec || ''),
+                        numeroRemision: r.numeroRemision || `REM-${String(r.numrec || '').padStart(4, '0')}`,
+                        fechaRemision: r.fechaRemision || (r.fecrec ? new Date(r.fecrec).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
+                        pedidoId: r.pedidoId ? String(r.pedidoId) : undefined,
+                        facturaId: r.facturaId || undefined,
+                        clienteId: r.clienteId || r.codter || '',
+                        codter: r.codter || r.clienteId || '',
+                        vendedorId: r.vendedorId || r.codVendedor || undefined,
+                        codVendedor: r.codVendedor || r.CODVEN || r.vendedorId || undefined,
+                        subtotal: Number(r.subtotal) || 0,
+                        descuentoValor: Number(r.descuentoValor) || 0,
+                        ivaValor: Number(r.ivaValor) || 0,
+                        total: Number(r.total) || 0,
+                        observaciones: r.observaciones || r.observa || '',
+                        estado: r.estado || 'BORRADOR',
+                        empresaId: r.empresaId || r.codalm || '001',
+                        codalm: r.codalm || r.empresaId || '001',
+                        items: items.length > 0 ? items : [],
+                        // Campos opcionales
+                        estadoEnvio: r.estadoEnvio || undefined,
+                        metodoEnvio: r.metodoEnvio || undefined,
+                        transportadoraId: r.transportadoraId || undefined,
+                        transportadora: r.transportadora || undefined,
+                        numeroGuia: r.numeroGuia || undefined,
+                        fechaDespacho: r.fechaDespacho || undefined,
+                        fechaCreacion: r.fechaCreacion || r.fecsys || undefined,
+                        codUsuario: r.codUsuario || r.codusu || undefined
                     };
                 });
                 

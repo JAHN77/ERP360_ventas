@@ -14,6 +14,7 @@ import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
+import { apiClient } from '../services/apiClient';
 // Supabase eliminado: descarga de adjuntos se implementará vía backend
 
 const formatCurrency = (value: number) => {
@@ -51,7 +52,6 @@ const RemisionesPage: React.FC = () => {
   const { addNotification } = useNotifications();
   
   const { 
-    remisiones, 
     pedidos,
     clientes, 
     productos: allProducts,
@@ -61,11 +61,124 @@ const RemisionesPage: React.FC = () => {
     archivosAdjuntos,
   } = useData();
 
+  // Estados para paginación del servidor
+  const [remisiones, setRemisiones] = useState<Remision[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isLoadingRemisiones, setIsLoadingRemisiones] = useState(false);
+
   // La sincronización automática de estados se hace en el backend cuando se obtienen los pedidos
   // No es necesario forzar un refresh aquí, ya que causaría un ciclo infinito
 
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [clientFilter, setClientFilter] = useState('Todos');
+  
+  // Cargar remisiones con paginación (con debounce para búsqueda)
+  useEffect(() => {
+    const loadRemisiones = async () => {
+      setIsLoadingRemisiones(true);
+      try {
+        const estrec = statusFilter !== 'Todos' ? statusFilter : undefined;
+        const codter = clientFilter !== 'Todos' ? clientFilter : undefined;
+        const remisionesRes = await apiClient.getRemisiones(
+          currentPage, 
+          pageSize, 
+          searchTerm || undefined,
+          codter,
+          undefined, // codalm
+          estrec
+        );
+        if (remisionesRes.success) {
+          // Obtener detalles de remisiones para los items
+          const remisionesDetalleRes = await apiClient.getRemisionesDetalle();
+          const detallesData = remisionesDetalleRes.success && Array.isArray(remisionesDetalleRes.data) 
+            ? remisionesDetalleRes.data 
+            : [];
+          
+          // Mapear remisiones con sus items
+          const remisionesData = (remisionesRes.data as any[]) || [];
+          const remisionesConDetalles = remisionesData.map(r => {
+            const remisionIdStr = String(r.id || r.numrec || '');
+            const remisionNumrec = r.numrec;
+            const items = detallesData.filter((d: any) => {
+              const detalleRemisionId = String(d.remisionId || d.numrec || '');
+              const detalleNumrec = d.numrec;
+              return detalleRemisionId === remisionIdStr || 
+                     (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
+            });
+            
+            return {
+              id: String(r.id || r.numrec || ''),
+              numeroRemision: r.numeroRemision || `REM-${String(r.numrec || '').padStart(4, '0')}`,
+              fechaRemision: r.fechaRemision || (r.fecrec ? new Date(r.fecrec).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
+              pedidoId: r.pedidoId ? String(r.pedidoId) : undefined,
+              facturaId: r.facturaId || undefined,
+              clienteId: r.clienteId || r.codter || '',
+              codter: r.codter || r.clienteId || '',
+              vendedorId: r.vendedorId || r.codVendedor || undefined,
+              codVendedor: r.codVendedor || r.CODVEN || r.vendedorId || undefined,
+              subtotal: Number(r.subtotal) || 0,
+              descuentoValor: Number(r.descuentoValor) || 0,
+              ivaValor: Number(r.ivaValor) || 0,
+              total: Number(r.total) || 0,
+              observaciones: r.observaciones || r.observa || '',
+              estado: r.estado || 'BORRADOR',
+              empresaId: r.empresaId || r.codalm || '001',
+              codalm: r.codalm || r.empresaId || '001',
+              items: items.length > 0 ? items : [],
+              estadoEnvio: r.estadoEnvio || undefined,
+              metodoEnvio: r.metodoEnvio || undefined,
+              transportadoraId: r.transportadoraId || undefined,
+              transportadora: r.transportadora || undefined,
+              numeroGuia: r.numeroGuia || undefined,
+              fechaDespacho: r.fechaDespacho || undefined,
+              fechaCreacion: r.fechaCreacion || r.fecsys || undefined,
+              codUsuario: r.codUsuario || r.codusu || undefined
+            } as Remision;
+          });
+          
+          setRemisiones(remisionesConDetalles);
+          
+          // Usar información de paginación del servidor
+          if ((remisionesRes as any).pagination) {
+            setTotalItems((remisionesRes as any).pagination.total);
+            setTotalPages((remisionesRes as any).pagination.totalPages);
+          }
+        }
+      } catch (error) {
+        console.error('Error cargando remisiones:', error);
+        addNotification({ message: 'Error al cargar remisiones', type: 'error' });
+      } finally {
+        setIsLoadingRemisiones(false);
+      }
+    };
+    
+    // Debounce para búsqueda: esperar 500ms después de que el usuario deje de escribir
+    const timeoutId = setTimeout(() => {
+      loadRemisiones();
+    }, searchTerm ? 500 : 0);
+    
+    return () => clearTimeout(timeoutId);
+  }, [currentPage, pageSize, searchTerm, statusFilter, clientFilter, addNotification]);
+  
+  // Handlers para paginación
+  const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setSearchTerm(value);
+    setCurrentPage(1); // Reset a primera página al buscar
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPageSize(newPageSize);
+    setCurrentPage(1); // Reset a primera página al cambiar tamaño
+  };
 
   const [isDetailModalOpen, setDetailModalOpen] = useState(false);
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
@@ -263,24 +376,7 @@ const RemisionesPage: React.FC = () => {
     return sortedGroups;
   }, [remisiones, pedidos, clientes]);
   
-  const filteredRemisionGroups = useMemo(() => {
-    let groups = [...remisionGroups];
-    console.log('🔍 [RemisionesPage] Filtrando grupos. Total antes de filtros:', groups.length);
-    
-    if (statusFilter !== 'Todos') {
-      const beforeStatus = groups.length;
-      groups = groups.filter(group => group.pedido.estado === statusFilter);
-      console.log(`🔍 [RemisionesPage] Filtro por estado "${statusFilter}": ${beforeStatus} -> ${groups.length}`);
-    }
-    if (clientFilter !== 'Todos') {
-        const beforeClient = groups.length;
-        groups = groups.filter(group => group.cliente?.id === clientFilter);
-        console.log(`🔍 [RemisionesPage] Filtro por cliente "${clientFilter}": ${beforeClient} -> ${groups.length}`);
-    }
-    
-    console.log('✅ [RemisionesPage] Grupos después de filtros:', groups.length);
-    return groups;
-  }, [remisionGroups, statusFilter, clientFilter]);
+  // El filtrado ahora se hace en el servidor, solo convertimos a array
 
   useEffect(() => {
     const focusId = params?.focusId;
@@ -357,14 +453,10 @@ const RemisionesPage: React.FC = () => {
   }, [pedidoToRemisionar, remisiones, allProducts]);
 
 
-  const remisionesTable = useTable<RemisionGroup>({
-    data: filteredRemisionGroups,
-    searchKeys: [
-        (group) => group.pedido.numeroPedido, 
-        (group) => group.cliente?.nombreCompleto || '',
-        (group) => group.pedido.estado
-    ]
-  });
+  // Convertir remisionGroups a array para la tabla (ya viene paginado del servidor)
+  const remisionGroupsArray = useMemo(() => {
+    return Object.values(remisionGroups);
+  }, [remisionGroups]);
 
   const pedidosTable = useTable<Pedido>({
     data: pedidosPorRemisionar,
@@ -741,24 +833,37 @@ const RemisionesPage: React.FC = () => {
             <CardTitle>Historial de Entregas por Pedido</CardTitle>
         </CardHeader>
         <TableToolbar 
-            searchTerm={remisionesTable.searchTerm} 
-            onSearchChange={remisionesTable.handleSearch}
+            searchTerm={searchTerm} 
+            onSearchChange={handleSearch}
             additionalFilters={additionalFilters}
         />
         <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
-            <Table columns={remisionesGroupColumns} data={remisionesTable.paginatedData} onSort={remisionesTable.requestSort} sortConfig={remisionesTable.sortConfig} highlightRowId={focusedGroupId ?? params?.highlightId ?? params?.focusId} />
+            {isLoadingRemisiones ? (
+                <div className="p-8 text-center text-slate-500 dark:text-slate-400">
+                    <i className="fas fa-spinner fa-spin mr-2"></i>
+                    Cargando remisiones...
+                </div>
+            ) : (
+                <Table 
+                    columns={remisionesGroupColumns} 
+                    data={remisionGroupsArray} 
+                    onSort={() => {}} 
+                    sortConfig={null} 
+                    highlightRowId={focusedGroupId ?? params?.highlightId ?? params?.focusId} 
+                />
+            )}
         </CardContent>
         <TablePagination 
-            currentPage={remisionesTable.currentPage}
-            totalPages={remisionesTable.totalPages}
-            onPageChange={remisionesTable.goToPage}
-            canPreviousPage={remisionesTable.currentPage > 1}
-            canNextPage={remisionesTable.currentPage < remisionesTable.totalPages}
-            onPreviousPage={remisionesTable.prevPage}
-            onNextPage={remisionesTable.nextPage}
-            totalItems={remisionesTable.totalItems}
-            rowsPerPage={remisionesTable.rowsPerPage}
-            setRowsPerPage={remisionesTable.setRowsPerPage}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            canPreviousPage={currentPage > 1}
+            canNextPage={currentPage < totalPages}
+            onPreviousPage={() => handlePageChange(currentPage - 1)}
+            onNextPage={() => handlePageChange(currentPage + 1)}
+            totalItems={totalItems}
+            rowsPerPage={pageSize}
+            setRowsPerPage={handlePageSizeChange}
         />
       </Card>
 
