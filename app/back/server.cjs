@@ -7,6 +7,7 @@ const { QUERIES } = require('./services/dbConfig.cjs');
 const { getConnection } = require('./services/sqlServerClient.cjs');
 const sql = require('mssql');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const DIANService = require('./services/dian-service.cjs');
 // puppeteer ahora se usa a través de PuppeteerService
 
 // Cargar variables de entorno
@@ -4662,34 +4663,89 @@ app.put('/api/facturas/:id', async (req, res) => {
       const reqUpdate = new sql.Request(tx);
       reqUpdate.input('id', sql.Int, idNum);
       
-      // Si se está timbrando (cambiando estado a ENVIADA), simular el proceso de timbrado
+      // Si se está timbrando (cambiando estado a ENVIADA), enviar a DIAN
       let cufeGenerado = null;
       let fechaTimbradoGenerada = null;
       let estadoFinal = estadoDb;
       
       if (body.estado === 'ENVIADA' && facturaExistente.estado !== 'E') {
-        // Simular proceso de timbrado
-        console.log(`🔄 Simulando proceso de timbrado para factura ${facturaExistente.numero_factura}...`);
+        // Proceso de timbrado real con DIAN
+        console.log(`🔄 Iniciando proceso de timbrado con DIAN para factura ${facturaExistente.numero_factura}...`);
         
-        // Simular aceptación o rechazo (80% probabilidad de aceptación)
-        const probabilidadAceptacion = Math.random();
-        const aceptada = probabilidadAceptacion < 0.8;
-        
-        if (aceptada) {
-          // Factura aceptada - generar CUFE simulado
-          // Formato CUFE simulado: prefijo + timestamp + número de factura + hash simulado
-          const timestamp = Date.now();
-          const numeroFacturaLimpio = facturaExistente.numero_factura.replace(/[^0-9]/g, '');
-          const hashSimulado = Math.random().toString(36).substring(2, 15).toUpperCase();
-          cufeGenerado = `CUFE-${timestamp}-${numeroFacturaLimpio}-${hashSimulado}`;
-          fechaTimbradoGenerada = new Date();
-          estadoFinal = 'E'; // ENVIADA
+        try {
+          // 1. Obtener resolución DIAN activa
+          const resolution = await DIANService.getDIANResolution();
           
-          console.log(`✅ Factura aceptada y timbrada. CUFE generado: ${cufeGenerado}`);
-        } else {
-          // Factura rechazada
+          // 2. Obtener parámetros DIAN
+          const dianParams = await DIANService.getDIANParameters();
+          
+          // 3. Obtener factura completa con detalles y cliente
+          const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
+          
+          // 4. Transformar factura al formato JSON requerido por DIAN
+          const invoiceJson = await DIANService.transformVenFacturaForDIAN(
+            facturaCompleta,
+            resolution,
+            dianParams,
+            body.invoiceData || {}
+          );
+          
+          // 5. Enviar factura a DIAN
+          const dianResponse = await DIANService.sendInvoiceToDIAN(
+            invoiceJson,
+            dianParams.testSetID,
+            dianParams.url_base
+          );
+          
+          // 6. Procesar respuesta de DIAN
+          console.log('\n' + '='.repeat(80));
+          console.log('🔄 PROCESANDO RESPUESTA DE DIAN:');
+          console.log('='.repeat(80));
+          console.log('📋 success:', dianResponse.success);
+          console.log('📋 status:', dianResponse.status);
+          console.log('📋 statusCode:', dianResponse.statusCode);
+          console.log('📋 cufe:', dianResponse.cufe || 'null');
+          console.log('📋 uuid:', dianResponse.uuid || 'null');
+          console.log('📋 isValid:', dianResponse.isValid);
+          console.log('📋 message:', dianResponse.message || 'null');
+          
+          if (dianResponse.success && dianResponse.cufe) {
+            // Factura aceptada y timbrada
+            cufeGenerado = dianResponse.cufe;
+            fechaTimbradoGenerada = dianResponse.fechaTimbrado || new Date();
+            estadoFinal = 'E'; // ENVIADA
+            
+            console.log('\n✅ FACTURA ACEPTADA Y TIMBRADA POR DIAN:');
+            console.log('   - CUFE:', cufeGenerado);
+            console.log('   - UUID:', dianResponse.uuid || 'N/A');
+            console.log('   - Fecha timbrado:', fechaTimbradoGenerada);
+            console.log('   - PDF URL:', dianResponse.pdf_url || 'N/A');
+            console.log('   - XML URL:', dianResponse.xml_url || 'N/A');
+            console.log('   - QR Code:', dianResponse.qr_code ? 'Presente' : 'N/A');
+            console.log('='.repeat(80) + '\n');
+          } else {
+            // Factura rechazada o error en respuesta
+            estadoFinal = 'R'; // RECHAZADA
+            
+            console.log('\n❌ FACTURA RECHAZADA O ERROR EN RESPUESTA DIAN:');
+            console.log('   - success:', dianResponse.success);
+            console.log('   - status:', dianResponse.status);
+            console.log('   - statusCode:', dianResponse.statusCode);
+            console.log('   - message:', dianResponse.message || 'Sin mensaje');
+            console.log('   - CUFE presente:', dianResponse.cufe ? 'Sí' : 'No');
+            console.log('   - Respuesta completa:', JSON.stringify(dianResponse, null, 2));
+            console.log('='.repeat(80) + '\n');
+          }
+        } catch (dianError) {
+          // Error al enviar a DIAN
+          console.error('❌ Error al enviar factura a DIAN:', dianError);
+          console.error('   Stack:', dianError.stack);
+          
+          // Marcar como rechazada si hay error
           estadoFinal = 'R'; // RECHAZADA
-          console.log(`❌ Factura rechazada en el proceso de timbrado`);
+          
+          // Loggear error detallado pero continuar con la actualización
+          // El estado RECHAZADA quedará guardado en la base de datos
         }
       }
       
