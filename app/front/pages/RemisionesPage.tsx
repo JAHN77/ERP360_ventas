@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Table, { Column } from '../components/ui/Table';
 import Card, { CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Remision, DocumentItem, Pedido, Producto, Cliente } from '../types';
@@ -15,6 +15,7 @@ import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal'
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { apiClient } from '../services/apiClient';
+import { formatDateOnly } from '../utils/formatters';
 // Supabase eliminado: descarga de adjuntos se implementará vía backend
 
 const formatCurrency = (value: number) => {
@@ -57,14 +58,13 @@ const RemisionesPage: React.FC = () => {
     productos: allProducts,
     aprobarRemision,
     crearRemision,
-    transportadoras,
     archivosAdjuntos,
   } = useData();
 
   // Estados para paginación del servidor
   const [remisiones, setRemisiones] = useState<Remision[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(100); // Aumentar pageSize para cargar más remisiones
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
@@ -74,95 +74,140 @@ const RemisionesPage: React.FC = () => {
   // No es necesario forzar un refresh aquí, ya que causaría un ciclo infinito
 
   const [statusFilter, setStatusFilter] = useState('Todos');
-  const [clientFilter, setClientFilter] = useState('Todos');
   
-  // Cargar remisiones con paginación (con debounce para búsqueda)
-  useEffect(() => {
-    const loadRemisiones = async () => {
-      setIsLoadingRemisiones(true);
-      try {
-        const estrec = statusFilter !== 'Todos' ? statusFilter : undefined;
-        const codter = clientFilter !== 'Todos' ? clientFilter : undefined;
-        const remisionesRes = await apiClient.getRemisiones(
-          currentPage, 
-          pageSize, 
-          searchTerm || undefined,
-          codter,
-          undefined, // codalm
-          estrec
-        );
-        if (remisionesRes.success) {
-          // Obtener detalles de remisiones para los items
-          const remisionesDetalleRes = await apiClient.getRemisionesDetalle();
-          const detallesData = remisionesDetalleRes.success && Array.isArray(remisionesDetalleRes.data) 
-            ? remisionesDetalleRes.data 
-            : [];
-          
-          // Mapear remisiones con sus items
-          const remisionesData = (remisionesRes.data as any[]) || [];
-          const remisionesConDetalles = remisionesData.map(r => {
-            const remisionIdStr = String(r.id || r.numrec || '');
-            const remisionNumrec = r.numrec;
-            const items = detallesData.filter((d: any) => {
-              const detalleRemisionId = String(d.remisionId || d.numrec || '');
-              const detalleNumrec = d.numrec;
-              return detalleRemisionId === remisionIdStr || 
-                     (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
-            });
-            
-            return {
-              id: String(r.id || r.numrec || ''),
-              numeroRemision: r.numeroRemision || `REM-${String(r.numrec || '').padStart(4, '0')}`,
-              fechaRemision: r.fechaRemision || (r.fecrec ? new Date(r.fecrec).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
-              pedidoId: r.pedidoId ? String(r.pedidoId) : undefined,
-              facturaId: r.facturaId || undefined,
-              clienteId: r.clienteId || r.codter || '',
-              codter: r.codter || r.clienteId || '',
-              vendedorId: r.vendedorId || r.codVendedor || undefined,
-              codVendedor: r.codVendedor || r.CODVEN || r.vendedorId || undefined,
-              subtotal: Number(r.subtotal) || 0,
-              descuentoValor: Number(r.descuentoValor) || 0,
-              ivaValor: Number(r.ivaValor) || 0,
-              total: Number(r.total) || 0,
-              observaciones: r.observaciones || r.observa || '',
-              estado: r.estado || 'BORRADOR',
-              empresaId: r.empresaId || r.codalm || '001',
-              codalm: r.codalm || r.empresaId || '001',
-              items: items.length > 0 ? items : [],
-              estadoEnvio: r.estadoEnvio || undefined,
-              metodoEnvio: r.metodoEnvio || undefined,
-              transportadoraId: r.transportadoraId || undefined,
-              transportadora: r.transportadora || undefined,
-              numeroGuia: r.numeroGuia || undefined,
-              fechaDespacho: r.fechaDespacho || undefined,
-              fechaCreacion: r.fechaCreacion || r.fecsys || undefined,
-              codUsuario: r.codUsuario || r.codusu || undefined
-            } as Remision;
+  // Función para cargar remisiones (extraída para poder reutilizarla)
+  const loadRemisiones = useCallback(async () => {
+    setIsLoadingRemisiones(true);
+    try {
+      // NO filtrar por estado de remisión en el backend, ya que el filtro es por estado de pedido
+      // El filtrado por estado del pedido se hace en el frontend después de agrupar
+      // Solo enviar searchTerm si tiene al menos 2 caracteres
+      const trimmedSearch = searchTerm.trim();
+      const searchToSend = trimmedSearch.length >= 2 ? trimmedSearch : undefined;
+      
+      const remisionesRes = await apiClient.getRemisiones(
+        currentPage, 
+        pageSize, 
+        searchToSend,
+        undefined, // codter - ahora se maneja con searchTerm
+        undefined, // codalm
+        undefined // No filtrar por estado de remisión aquí, se filtra por estado de pedido en el frontend
+      );
+      if (remisionesRes.success) {
+        // OPTIMIZACIÓN: No cargar todos los detalles al inicio (lazy loading)
+        // Los detalles se cargarán solo cuando se abra el modal de una remisión específica
+        // Esto hace que la carga inicial sea mucho más rápida
+        const remisionesData = (remisionesRes.data as any[]) || [];
+        const remisionesConDetalles = remisionesData.map(r => {
+          return {
+            id: String(r.id || r.numrec || ''),
+            numeroRemision: r.numeroRemision || `REM-${String(r.numrec || '').padStart(4, '0')}`,
+            fechaRemision: r.fechaRemision || (r.fecrec ? new Date(r.fecrec).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
+            pedidoId: r.pedidoId ? String(r.pedidoId) : undefined,
+            facturaId: r.facturaId || undefined,
+            clienteId: r.clienteId || r.codter || '',
+            codter: r.codter || r.clienteId || '',
+            vendedorId: r.vendedorId || r.codVendedor || undefined,
+            codVendedor: r.codVendedor || r.CODVEN || r.vendedorId || undefined,
+            subtotal: Number(r.subtotal) || 0,
+            descuentoValor: Number(r.descuentoValor) || 0,
+            ivaValor: Number(r.ivaValor) || 0,
+            total: Number(r.total) || 0,
+            observaciones: r.observaciones || r.observa || '',
+            estado: r.estado || 'BORRADOR',
+            empresaId: r.empresaId || r.codalm || '001',
+            codalm: r.codalm || r.empresaId || '001',
+            items: [], // Los items se cargarán bajo demanda cuando se abra el modal
+            estadoEnvio: r.estadoEnvio || undefined,
+            metodoEnvio: r.metodoEnvio || undefined,
+            transportadoraId: r.transportadoraId || undefined,
+            transportadora: r.transportadora || undefined,
+            numeroGuia: r.numeroGuia || undefined,
+            fechaDespacho: r.fechaDespacho || undefined,
+            fechaCreacion: r.fechaCreacion || r.fecsys || undefined,
+            codUsuario: r.codUsuario || r.codusu || undefined
+          } as Remision;
+        });
+        
+        setRemisiones(remisionesConDetalles);
+        
+        // OPTIMIZACIÓN: Log en desarrollo para debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.log('📦 [RemisionesPage] Remisiones cargadas:', remisionesConDetalles.length);
+          console.log('📋 [RemisionesPage] Ejemplos de remisiones:', remisionesConDetalles.slice(0, 5).map(r => ({
+            id: r.id,
+            numeroRemision: r.numeroRemision,
+            pedidoId: r.pedidoId,
+            estado: r.estado,
+            clienteId: r.clienteId
+          })));
+          console.log('📊 [RemisionesPage] Resumen de remisiones:', {
+            total: remisionesConDetalles.length,
+            conPedido: remisionesConDetalles.filter(r => r.pedidoId).length,
+            sinPedido: remisionesConDetalles.filter(r => !r.pedidoId).length,
+            porEstado: remisionesConDetalles.reduce((acc, r) => {
+              const estado = r.estado || 'SIN_ESTADO';
+              acc[estado] = (acc[estado] || 0) + 1;
+              return acc;
+            }, {} as Record<string, number>)
           });
-          
-          setRemisiones(remisionesConDetalles);
-          
-          // Usar información de paginación del servidor
-          if ((remisionesRes as any).pagination) {
-            setTotalItems((remisionesRes as any).pagination.total);
-            setTotalPages((remisionesRes as any).pagination.totalPages);
-          }
         }
-      } catch (error) {
-        console.error('Error cargando remisiones:', error);
-        addNotification({ message: 'Error al cargar remisiones', type: 'error' });
-      } finally {
-        setIsLoadingRemisiones(false);
+        
+        // Usar información de paginación del servidor
+        if ((remisionesRes as any).pagination) {
+          setTotalItems((remisionesRes as any).pagination.total);
+          setTotalPages((remisionesRes as any).pagination.totalPages);
+        }
       }
-    };
+    } catch (error) {
+      console.error('Error cargando remisiones:', error);
+      addNotification({ message: 'Error al cargar remisiones', type: 'error' });
+    } finally {
+      setIsLoadingRemisiones(false);
+    }
+  }, [currentPage, pageSize, searchTerm, addNotification]);
+
+  // Cargar remisiones inicialmente y cuando cambian page/pageSize (sin debounce)
+  useEffect(() => {
+    loadRemisiones();
+  }, [currentPage, pageSize, loadRemisiones]);
+
+  // Recargar remisiones cuando los pedidos cambien (para re-agrupar con pedidos que se cargaron después)
+  useEffect(() => {
+    // Solo recargar si ya tenemos remisiones cargadas (para evitar recargas innecesarias al inicio)
+    if (remisiones.length > 0) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔄 [RemisionesPage] Pedidos actualizados, re-agrupando remisiones...');
+      }
+      // No llamar loadRemisiones aquí porque solo necesitamos re-agrupar, no recargar desde el backend
+      // El useMemo de remisionGroups se actualizará automáticamente cuando pedidos cambie
+    }
+  }, [pedidos.length]); // Solo cuando cambia la cantidad de pedidos
+
+  // Cargar remisiones con debounce cuando cambia searchTerm
+  useEffect(() => {
+    // Validar que el searchTerm tenga al menos 2 caracteres, o esté vacío para mostrar todo
+    const trimmedSearch = searchTerm.trim();
+    const shouldSearch = trimmedSearch.length === 0 || trimmedSearch.length >= 2;
+    
+    if (!shouldSearch && trimmedSearch.length === 1) {
+      // Si tiene 1 carácter, no buscar (esperar más caracteres)
+      return;
+    }
+    
+    // Si el searchTerm cambió y es válido, resetear a página 1
+    if (trimmedSearch.length >= 2) {
+      setCurrentPage(1);
+    }
     
     // Debounce para búsqueda: esperar 500ms después de que el usuario deje de escribir
+    // Si no hay búsqueda, cargar inmediatamente (pero solo si searchTerm cambió, no en carga inicial)
     const timeoutId = setTimeout(() => {
       loadRemisiones();
-    }, searchTerm ? 500 : 0);
+    }, trimmedSearch.length > 0 ? 500 : 0);
     
     return () => clearTimeout(timeoutId);
-  }, [currentPage, pageSize, searchTerm, statusFilter, clientFilter, addNotification]);
+  }, [searchTerm, loadRemisiones]);
   
   // Handlers para paginación
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -190,10 +235,6 @@ const RemisionesPage: React.FC = () => {
   const [remisionItems, setRemisionItems] = useState<RemisionItemForm[]>([]);
   
   // State for new logistic details
-  const [shippingMethod, setShippingMethod] = useState<'transportadoraExterna' | 'transportePropio' | 'recogeCliente'>('transportadoraExterna');
-  const [transportadoraId, setTransportadoraId] = useState('');
-  const [otraTransportadora, setOtraTransportadora] = useState('');
-  const [numeroGuia, setNumeroGuia] = useState('');
   const [fechaDespacho, setFechaDespacho] = useState(new Date().toISOString().split('T')[0]);
   const [observacionesInternas, setObservacionesInternas] = useState('');
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -205,6 +246,7 @@ const RemisionesPage: React.FC = () => {
   
   const [isCreating, setIsCreating] = useState(false);
   const [isDelivering, setIsDelivering] = useState<string | null>(null);
+  const [loadingRemisionDetails, setLoadingRemisionDetails] = useState<Set<string>>(new Set());
 
   // Solo mostrar pedidos CONFIRMADO en "Listos para Despacho"
   // Excluir explícitamente pedidos que ya fueron completamente remitidos (REMITIDO)
@@ -226,112 +268,116 @@ const RemisionesPage: React.FC = () => {
     return filtrados;
   }, [pedidos]);
 
+  // OPTIMIZACIÓN: Crear mapas de búsqueda rápida para pedidos y clientes (O(1) en lugar de O(n))
+  const pedidosMap = useMemo(() => {
+    const map = new Map<string, Pedido>();
+    pedidos.forEach(p => {
+      const key = String(p.id);
+      map.set(key, p);
+      // También indexar por número de pedido por si acaso
+      if (p.numeroPedido) {
+        map.set(p.numeroPedido, p);
+      }
+    });
+    
+    // OPTIMIZACIÓN: Log en desarrollo para debugging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🗺️ [RemisionesPage] Mapa de pedidos creado:', {
+        totalPedidos: pedidos.length,
+        pedidosEnMapa: map.size,
+        estados: Array.from(map.values()).reduce((acc, p) => {
+          const estado = p.estado || 'SIN_ESTADO';
+          acc[estado] = (acc[estado] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>)
+      });
+    }
+    
+    return map;
+  }, [pedidos]);
+
+  const clientesMap = useMemo(() => {
+    const map = new Map<string, Cliente>();
+    clientes.forEach(c => {
+      // Indexar por múltiples claves para búsqueda rápida
+      const idKey = String(c.id);
+      map.set(idKey, c);
+      if (c.numeroDocumento) {
+        map.set(c.numeroDocumento, c);
+      }
+      if (c.codter) {
+        map.set(c.codter, c);
+      }
+    });
+    return map;
+  }, [clientes]);
+
+  // Función helper optimizada para buscar cliente
+  const findCliente = useCallback((clienteId: string | undefined): Cliente | undefined => {
+    if (!clienteId) return undefined;
+    const key = String(clienteId);
+    return clientesMap.get(key);
+  }, [clientesMap]);
+
+  // Función helper optimizada para buscar pedido
+  const findPedido = useCallback((pedidoId: string | number | undefined): Pedido | undefined => {
+    if (!pedidoId) return undefined;
+    const key = String(pedidoId);
+    return pedidosMap.get(key);
+  }, [pedidosMap]);
+
   const remisionGroups = useMemo(() => {
     const groups: { [pedidoId: string]: RemisionGroup } = {};
     
-    console.log('📦 [RemisionesPage] Total remisiones disponibles:', remisiones.length);
-    console.log('📦 [RemisionesPage] Total pedidos disponibles:', pedidos.length);
-    console.log('📦 [RemisionesPage] Ejemplo de remisión:', remisiones[0] ? {
-        id: remisiones[0].id,
-        numeroRemision: remisiones[0].numeroRemision,
-        pedidoId: remisiones[0].pedidoId,
-        tipoPedidoId: typeof remisiones[0].pedidoId,
-        clienteId: remisiones[0].clienteId,
-        itemsCount: remisiones[0].items?.length || 0
-    } : 'No hay remisiones');
+    // OPTIMIZACIÓN: Solo logs en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📦 [RemisionesPage] Procesando', remisiones.length, 'remisiones');
+      console.log('📦 [RemisionesPage] Ejemplos de remisiones:', remisiones.slice(0, 3).map(r => ({
+        id: r.id,
+        numeroRemision: r.numeroRemision,
+        pedidoId: r.pedidoId,
+        estado: r.estado,
+        clienteId: r.clienteId
+      })));
+    }
 
-    // Ensure all remisiones are considered by iterating through them
+    // OPTIMIZACIÓN: Iterar una sola vez y usar mapas para búsquedas rápidas
     remisiones.forEach(remision => {
-        // Si la remisión tiene pedidoId, buscar el pedido
-        if (remision.pedidoId !== null && remision.pedidoId !== undefined) {
-            // Buscar pedido por ID (puede ser numérico o string)
-            const pedido = pedidos.find(p => 
-                String(p.id) === String(remision.pedidoId) ||
-                p.id === remision.pedidoId
-            );
-            
-            if (pedido) {
-                const pedidoIdKey = String(remision.pedidoId);
-                if (!groups[pedidoIdKey]) {
-                    groups[pedidoIdKey] = {
-                        id: pedido.id,
-                        pedido: pedido,
-                        remisiones: [],
-                        cliente: (() => {
-                            // Buscar cliente por ID numérico o por codter/numeroDocumento
-                            return clientes.find(c => 
-                                String(c.id) === String(pedido.clienteId) ||
-                                c.numeroDocumento === pedido.clienteId ||
-                                c.codter === pedido.clienteId
-                            );
-                        })(),
-                    };
-                }
-                groups[pedidoIdKey].remisiones.push(remision);
-            } else {
-                console.warn('⚠️ [RemisionesPage] Remisión con pedidoId pero pedido no encontrado:', {
-                    remisionId: remision.id,
-                    remisionNumero: remision.numeroRemision,
-                    pedidoIdBuscado: remision.pedidoId,
-                    tipoPedidoId: typeof remision.pedidoId
-                });
-                // Crear un grupo especial para remisiones sin pedido encontrado
-                const sinPedidoKey = `sin-pedido-${remision.id}`;
-                if (!groups[sinPedidoKey]) {
-                    // Buscar cliente directamente desde la remisión
-                    const clienteRemision = clientes.find(c => 
-                        String(c.id) === String(remision.clienteId) ||
-                        c.numeroDocumento === remision.clienteId ||
-                        c.codter === remision.clienteId
-                    );
-                    
-                    // Crear un pedido "fantasma" para mantener la estructura
-                    const pedidoFantasma: Pedido = {
-                        id: `sin-pedido-${remision.id}`,
-                        numeroPedido: `Sin Pedido (${remision.numeroRemision})`,
-                        fechaPedido: remision.fechaRemision || new Date().toISOString().split('T')[0],
-                        clienteId: remision.clienteId || '',
-                        vendedorId: remision.vendedorId || '',
-                        subtotal: remision.subtotal || 0,
-                        descuentoValor: remision.descuentoValor || 0,
-                        ivaValor: remision.ivaValor || 0,
-                        total: remision.total || 0,
-                        estado: 'REMITIDO',
-                        observaciones: 'Remisión sin pedido asociado',
-                        items: remision.items || [],
-                        empresaId: remision.empresaId || '001'
-                    };
-                    
-                    groups[sinPedidoKey] = {
-                        id: pedidoFantasma.id,
-                        pedido: pedidoFantasma,
-                        remisiones: [],
-                        cliente: clienteRemision,
-                    };
-                }
-                groups[sinPedidoKey].remisiones.push(remision);
+        const pedidoIdStr = remision.pedidoId ? String(remision.pedidoId) : null;
+        const pedido = pedidoIdStr ? findPedido(pedidoIdStr) : null;
+        
+        if (pedido) {
+            // Remisión con pedido encontrado - agrupar por pedido (INCLUYE PEDIDOS REMITIDOS)
+            const pedidoIdKey = pedidoIdStr!;
+            if (!groups[pedidoIdKey]) {
+                const cliente = findCliente(pedido.clienteId);
+                groups[pedidoIdKey] = {
+                    id: pedido.id,
+                    pedido: pedido,
+                    remisiones: [],
+                    cliente: cliente,
+                };
             }
+            groups[pedidoIdKey].remisiones.push(remision);
         } else {
-            // Remisión sin pedidoId - crear grupo especial
-            console.log('ℹ️ [RemisionesPage] Remisión sin pedidoId:', {
-                remisionId: remision.id,
-                remisionNumero: remision.numeroRemision,
-                clienteId: remision.clienteId
-            });
-            
+            // Remisión sin pedido o pedido no encontrado - crear grupo individual
+            // IMPORTANTE: Esto incluye remisiones con pedido_id NULL y remisiones cuyo pedido no está cargado todavía
             const sinPedidoKey = `sin-pedido-${remision.id}`;
             if (!groups[sinPedidoKey]) {
-                // Buscar cliente directamente desde la remisión
-                const clienteRemision = clientes.find(c => 
-                    String(c.id) === String(remision.clienteId) ||
-                    c.numeroDocumento === remision.clienteId ||
-                    c.codter === remision.clienteId
-                );
+                const clienteRemision = findCliente(remision.clienteId);
+                
+                // Determinar el estado del pedido fantasma basado en si hay un pedidoId pero no se encontró
+                // Si tiene pedidoId pero no se encontró, puede ser un pedido REMITIDO que aún no se cargó
+                let estadoFantasma = 'REMITIDO'; // Por defecto REMITIDO para remisiones sin pedido
+                if (pedidoIdStr && !pedido) {
+                    // Hay un pedidoId pero no se encontró el pedido - podría estar en estado REMITIDO
+                    estadoFantasma = 'REMITIDO';
+                }
                 
                 // Crear un pedido "fantasma" para mantener la estructura
                 const pedidoFantasma: Pedido = {
                     id: `sin-pedido-${remision.id}`,
-                    numeroPedido: `Sin Pedido (${remision.numeroRemision})`,
+                    numeroPedido: pedidoIdStr ? `Pedido ${pedidoIdStr} (No encontrado)` : `Sin Pedido (${remision.numeroRemision})`,
                     fechaPedido: remision.fechaRemision || new Date().toISOString().split('T')[0],
                     clienteId: remision.clienteId || '',
                     vendedorId: remision.vendedorId || '',
@@ -339,8 +385,8 @@ const RemisionesPage: React.FC = () => {
                     descuentoValor: remision.descuentoValor || 0,
                     ivaValor: remision.ivaValor || 0,
                     total: remision.total || 0,
-                    estado: 'REMITIDO',
-                    observaciones: 'Remisión sin pedido asociado',
+                    estado: estadoFantasma,
+                    observaciones: pedidoIdStr ? `Remisión asociada a pedido ${pedidoIdStr} (pedido no encontrado en contexto)` : 'Remisión sin pedido asociado',
                     items: remision.items || [],
                     empresaId: remision.empresaId || '001'
                 };
@@ -356,27 +402,71 @@ const RemisionesPage: React.FC = () => {
         }
     });
 
-    // Sort remisiones within each group by date
-    Object.values(groups).forEach(group => {
-        group.remisiones.sort((a, b) => new Date(a.fechaRemision).getTime() - new Date(b.fechaRemision).getTime());
+    // OPTIMIZACIÓN: Ordenar solo una vez después de agrupar
+    const groupsArray = Object.values(groups);
+    
+    // Sort remisiones within each group by date (más eficiente hacerlo aquí)
+    groupsArray.forEach(group => {
+        group.remisiones.sort((a, b) => {
+            const dateA = new Date(a.fechaRemision).getTime();
+            const dateB = new Date(b.fechaRemision).getTime();
+            return dateA - dateB;
+        });
     });
 
-    const sortedGroups = Object.values(groups).sort((a, b) => 
-        new Date(b.remisiones[0].fechaRemision).getTime() - new Date(a.remisiones[0].fechaRemision).getTime()
-    );
+    // Sort groups by most recent remision date
+    const sortedGroups = groupsArray.sort((a, b) => {
+        if (a.remisiones.length === 0) return 1;
+        if (b.remisiones.length === 0) return -1;
+        const dateA = new Date(a.remisiones[a.remisiones.length - 1].fechaRemision).getTime();
+        const dateB = new Date(b.remisiones[b.remisiones.length - 1].fechaRemision).getTime();
+        return dateB - dateA;
+    });
     
-    console.log('✅ [RemisionesPage] Grupos de remisiones creados:', sortedGroups.length);
-    console.log('📋 [RemisionesPage] Ejemplo de grupo:', sortedGroups[0] ? {
-        pedidoId: sortedGroups[0].pedido?.id,
-        pedidoNumero: sortedGroups[0].pedido?.numeroPedido,
-        clienteNombre: sortedGroups[0].cliente?.nombreCompleto,
-        remisionesCount: sortedGroups[0].remisiones.length
-    } : 'No hay grupos');
+    // OPTIMIZACIÓN: Log en desarrollo para debugging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ [RemisionesPage] Grupos creados:', sortedGroups.length);
+      console.log('📋 [RemisionesPage] Ejemplos de grupos:', sortedGroups.slice(0, 5).map(g => ({
+        pedidoId: g.pedido?.id,
+        pedidoNumero: g.pedido?.numeroPedido,
+        pedidoEstado: g.pedido?.estado,
+        remisionesCount: g.remisiones.length,
+        remisionesIds: g.remisiones.map(r => r.id),
+        cliente: g.cliente?.nombreCompleto
+      })));
+      console.log('📊 [RemisionesPage] Resumen de estados:', {
+        total: sortedGroups.length,
+        porEstado: sortedGroups.reduce((acc, g) => {
+          const estado = g.pedido?.estado || 'SIN_ESTADO';
+          acc[estado] = (acc[estado] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>)
+      });
+    }
     
     return sortedGroups;
-  }, [remisiones, pedidos, clientes]);
+  }, [remisiones, findPedido, findCliente]);
   
   // El filtrado ahora se hace en el servidor, solo convertimos a array
+
+  // OPTIMIZACIÓN: Usar Map para búsqueda rápida de remisiones por ID y grupos por pedidoId
+  const remisionesByIdMap = useMemo(() => {
+    const map = new Map<string, Remision>();
+    remisiones.forEach(r => {
+      map.set(String(r.id), r);
+    });
+    return map;
+  }, [remisiones]);
+
+  const remisionGroupsByPedidoIdMap = useMemo(() => {
+    const map = new Map<string, RemisionGroup>();
+    remisionGroups.forEach(group => {
+      if (group.pedido?.id) {
+        map.set(String(group.pedido.id), group);
+      }
+    });
+    return map;
+  }, [remisionGroups]);
 
   useEffect(() => {
     const focusId = params?.focusId;
@@ -384,6 +474,19 @@ const RemisionesPage: React.FC = () => {
       return;
     }
 
+    // OPTIMIZACIÓN: Buscar primero la remisión por ID, luego el grupo usando mapa
+    const focusRemision = remisionesByIdMap.get(String(focusId));
+    if (focusRemision && focusRemision.pedidoId) {
+      const targetGroup = remisionGroupsByPedidoIdMap.get(String(focusRemision.pedidoId));
+      if (targetGroup) {
+        setFocusedGroupId(String(targetGroup.id));
+        setSelectedGroup(targetGroup);
+        setDetailModalOpen(true);
+        return;
+      }
+    }
+    
+    // Fallback: buscar en todos los grupos (más lento pero necesario)
     const targetGroup = remisionGroups.find((group) =>
       group.remisiones.some((remision) => String(remision.id) === String(focusId))
     );
@@ -393,32 +496,49 @@ const RemisionesPage: React.FC = () => {
       setSelectedGroup(targetGroup);
       setDetailModalOpen(true);
     }
-  }, [params?.focusId, remisionGroups]);
+  }, [params?.focusId, remisionGroups, remisionesByIdMap, remisionGroupsByPedidoIdMap]);
 
+
+  // OPTIMIZACIÓN: Crear mapa de productos para búsqueda rápida
+  const productosMap = useMemo(() => {
+    const map = new Map<number | string, Producto>();
+    allProducts.forEach(p => {
+      map.set(p.id, p);
+      map.set(String(p.id), p);
+    });
+    return map;
+  }, [allProducts]);
 
   useEffect(() => {
     if (pedidoToRemisionar) {
-        // Buscar remisiones previas comparando IDs de forma flexible
-        const remisionesPrevias = remisiones.filter(r => 
-            String(r.pedidoId) === String(pedidoToRemisionar.id) ||
-            r.pedidoId === pedidoToRemisionar.id
-        );
+        const pedidoIdStr = String(pedidoToRemisionar.id);
+        // OPTIMIZACIÓN: Filtrar una sola vez usando comparación directa
+        const remisionesPrevias = remisiones.filter(r => {
+          if (!r.pedidoId) return false;
+          return String(r.pedidoId) === pedidoIdStr;
+        });
         
         const itemsPendientes = pedidoToRemisionar.items.reduce<RemisionItemForm[]>((acc, itemPedido) => {
-            // Buscar producto por ID (puede ser numérico o string)
-            const producto = allProducts.find(p => 
-                String(p.id) === String(itemPedido.productoId) ||
-                p.id === itemPedido.productoId
-            );
+            // OPTIMIZACIÓN: Usar mapa para búsqueda O(1)
+            const producto = productosMap.get(itemPedido.productoId) || productosMap.get(String(itemPedido.productoId));
 
             if (!producto) {
-                console.warn(`Producto con ID ${itemPedido.productoId} no encontrado. Omitiendo del formulario de remisión.`);
+                if (process.env.NODE_ENV === 'development') {
+                  console.warn(`Producto con ID ${itemPedido.productoId} no encontrado. Omitiendo del formulario de remisión.`);
+                }
                 return acc;
             }
 
-            const cantYaEnviada = remisionesPrevias.flatMap(r => r.items)
-                .filter(i => String(i.productoId) === String(itemPedido.productoId))
-                .reduce((sum, i) => sum + i.cantidad, 0);
+            // OPTIMIZACIÓN: Calcular cantidad enviada más eficientemente
+            const productoIdStr = String(itemPedido.productoId);
+            const cantYaEnviada = remisionesPrevias.reduce((sum, r) => {
+              return sum + (r.items?.reduce((itemSum, i) => {
+                if (String(i.productoId) === productoIdStr) {
+                  return itemSum + (i.cantidad || i.cantidadEnviada || 0);
+                }
+                return itemSum;
+              }, 0) || 0);
+            }, 0);
             
             const cantPendiente = itemPedido.cantidad - cantYaEnviada;
 
@@ -450,50 +570,173 @@ const RemisionesPage: React.FC = () => {
         
         setRemisionItems(itemsPendientes);
     }
-  }, [pedidoToRemisionar, remisiones, allProducts]);
+  }, [pedidoToRemisionar, remisiones, productosMap]);
 
 
-  // Convertir remisionGroups a array para la tabla (ya viene paginado del servidor)
+  // Convertir remisionGroups a array y aplicar filtro por estado del pedido
   const remisionGroupsArray = useMemo(() => {
-    return Object.values(remisionGroups);
-  }, [remisionGroups]);
+    const allGroups = Object.values(remisionGroups);
+    
+    // OPTIMIZACIÓN: Log en desarrollo para debugging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 [RemisionesPage] Filtrando grupos:', {
+        totalGroups: allGroups.length,
+        statusFilter: statusFilter,
+        gruposConEstado: allGroups.map(g => ({
+          pedidoNumero: g.pedido?.numeroPedido,
+          pedidoEstado: g.pedido?.estado,
+          remisionesCount: g.remisiones.length
+        }))
+      });
+    }
+    
+    // Si el filtro es "Todos", mostrar todos los grupos (incluyendo remitidos)
+    if (statusFilter === 'Todos') {
+      return allGroups;
+    }
+    
+    // Filtrar por estado del pedido
+    const filtered = allGroups.filter(group => {
+      const pedidoEstado = group.pedido?.estado;
+      const matches = pedidoEstado === statusFilter;
+      
+      // Log en desarrollo para debugging
+      if (process.env.NODE_ENV === 'development' && !matches && allGroups.length < 5) {
+        console.log('🚫 [RemisionesPage] Grupo filtrado:', {
+          pedidoNumero: group.pedido?.numeroPedido,
+          pedidoEstado: pedidoEstado,
+          statusFilter: statusFilter
+        });
+      }
+      
+      return matches;
+    });
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ [RemisionesPage] Grupos después del filtro:', filtered.length);
+    }
+    
+    return filtered;
+  }, [remisionGroups, statusFilter]);
+
+  // OPTIMIZACIÓN: Memoizar búsqueda de cliente para evitar recalcular en cada render
+  const getClienteNombre = useCallback((clienteId: string | undefined): string => {
+    if (!clienteId) return 'N/A';
+    const cliente = findCliente(clienteId);
+    return cliente?.nombreCompleto || cliente?.razonSocial || 'N/A';
+  }, [findCliente]);
 
   const pedidosTable = useTable<Pedido>({
     data: pedidosPorRemisionar,
     searchKeys: [
         'numeroPedido', 
-        (item) => {
-            const cliente = clientes.find(c => 
-                String(c.id) === String(item.clienteId) ||
-                c.numeroDocumento === item.clienteId ||
-                c.codter === item.clienteId
-            );
-            return cliente?.nombreCompleto || cliente?.razonSocial || '';
-        }
+        (item) => getClienteNombre(item.clienteId)
     ]
   });
 
-  const handleOpenDetailModal = (group: RemisionGroup) => {
+  const handleOpenDetailModal = useCallback(async (group: RemisionGroup) => {
     setSelectedGroup(group);
     setDetailModalOpen(true);
-  };
+    
+    // OPTIMIZACIÓN: Cargar detalles de remisiones solo cuando se abra el modal (lazy loading)
+    // Esto mejora significativamente el rendimiento de carga inicial
+    const remisionesToLoad = group.remisiones.filter(r => !r.items || r.items.length === 0);
+    if (remisionesToLoad.length === 0) {
+      // Todos los detalles ya están cargados
+      return;
+    }
+    
+    // Cargar detalles de cada remisión que no los tenga
+    setLoadingRemisionDetails(new Set(remisionesToLoad.map(r => r.id)));
+    
+    try {
+      const detallesPromises = remisionesToLoad.map(async (remision) => {
+        try {
+          const detallesRes = await apiClient.getRemisionDetalleById(remision.id);
+          if (detallesRes.success && Array.isArray(detallesRes.data)) {
+            return { remisionId: remision.id, items: detallesRes.data };
+          }
+          return { remisionId: remision.id, items: [] };
+        } catch (error) {
+          console.error(`Error cargando detalles de remisión ${remision.id}:`, error);
+          return { remisionId: remision.id, items: [] };
+        }
+      });
+      
+      const detallesResults = await Promise.all(detallesPromises);
+      
+      // Actualizar las remisiones en el grupo con sus detalles
+      const updatedRemisiones = group.remisiones.map(remision => {
+        const detallesResult = detallesResults.find(d => d.remisionId === remision.id);
+        if (detallesResult && detallesResult.items.length > 0) {
+          return { ...remision, items: detallesResult.items };
+        }
+        return remision;
+      });
+      
+      // Actualizar el grupo seleccionado y también las remisiones en el estado principal
+      const updatedGroup = { ...group, remisiones: updatedRemisiones };
+      setSelectedGroup(updatedGroup);
+      
+      // Actualizar también en el estado principal de remisiones para que se mantenga actualizado
+      setRemisiones(prevRemisiones => {
+        return prevRemisiones.map(r => {
+          const detallesResult = detallesResults.find(d => d.remisionId === r.id);
+          if (detallesResult && detallesResult.items.length > 0) {
+            return { ...r, items: detallesResult.items };
+          }
+          return r;
+        });
+      });
+    } catch (error) {
+      console.error('Error cargando detalles de remisiones:', error);
+      addNotification({ message: 'Error al cargar detalles de remisiones', type: 'warning' });
+    } finally {
+      setLoadingRemisionDetails(new Set());
+    }
+  }, [addNotification]);
   
-  const handleOpenCreateModal = (pedido: Pedido) => {
+  const handleOpenCreateModal = useCallback((pedido: Pedido) => {
     setPedidoToRemisionar(pedido);
     setCreateModalOpen(true);
     // Reset logistic form fields
-    setShippingMethod('transportadoraExterna');
-    setTransportadoraId('');
-    setOtraTransportadora('');
-    setNumeroGuia('');
     setFechaDespacho(new Date().toISOString().split('T')[0]);
     setObservacionesInternas('');
     setFormErrors({});
-  };
+  }, []);
   
-  const handlePrintRemision = (remision: Remision) => {
+  const handlePrintRemision = useCallback(async (remision: Remision) => {
+    // Si la remisión no tiene items cargados, cargarlos antes de abrir el preview
+    if (!remision.items || remision.items.length === 0) {
+      try {
+        const detallesRes = await apiClient.getRemisionDetalleById(remision.id);
+        if (detallesRes.success && Array.isArray(detallesRes.data)) {
+          const remisionConItems = { ...remision, items: detallesRes.data };
+          setRemisionToPreview(remisionConItems);
+          
+          // Actualizar también en el estado principal
+          setRemisiones(prevRemisiones => {
+            return prevRemisiones.map(r => 
+              r.id === remision.id ? remisionConItems : r
+            );
+          });
+          
+          // Actualizar también en el grupo seleccionado si está abierto
+          if (selectedGroup) {
+            const updatedRemisiones = selectedGroup.remisiones.map(r => 
+              r.id === remision.id ? remisionConItems : r
+            );
+            setSelectedGroup({ ...selectedGroup, remisiones: updatedRemisiones });
+          }
+          return;
+        }
+      } catch (error) {
+        console.error('Error cargando detalles para preview:', error);
+        addNotification({ message: 'Error al cargar detalles de la remisión', type: 'warning' });
+      }
+    }
     setRemisionToPreview(remision);
-  };
+  }, [addNotification, selectedGroup, productosMap]);
 
   const handleDescargarAdjunto = async (remisionId: string) => {
     const adjunto = archivosAdjuntos.find(a => a.entidadId === remisionId && a.entidadTipo === 'REMISION');
@@ -531,7 +774,7 @@ const RemisionesPage: React.FC = () => {
     }
   }, [params, pedidos, setPage]);
 
-  const handleAprobarEntrega = async (remisionId: string) => {
+  const handleAprobarEntrega = useCallback(async (remisionId: string) => {
     if (isDelivering) return;
     setIsDelivering(remisionId);
     
@@ -539,6 +782,12 @@ const RemisionesPage: React.FC = () => {
         const updatedRemision = await aprobarRemision(remisionId);
         if (updatedRemision) {
             setDeliveryResult(updatedRemision);
+            
+            // Actualizar la remisión en el estado local
+            setRemisiones(prevRemisiones => 
+                prevRemisiones.map(r => r.id === remisionId ? updatedRemision : r)
+            );
+            
             // Actualizar el grupo seleccionado con la remisión actualizada
             if (selectedGroup) {
                 const updatedRemisiones = selectedGroup.remisiones.map(r => 
@@ -549,6 +798,10 @@ const RemisionesPage: React.FC = () => {
                     remisiones: updatedRemisiones
                 });
             }
+            
+            // Recargar remisiones para asegurar que todo esté sincronizado
+            await loadRemisiones();
+            
             addNotification({ 
                 message: `✅ Remisión ${updatedRemision.numeroRemision} marcada como Entregada. Ahora puede ser facturada.`, 
                 type: 'success', 
@@ -569,7 +822,7 @@ const RemisionesPage: React.FC = () => {
     } finally {
         setIsDelivering(null);
     }
-  }
+  }, [aprobarRemision, addNotification, selectedGroup]);
 
   const handleItemQuantityChange = (productoId: number, cantidad: number) => {
     setRemisionItems(prevItems => prevItems.map(item => {
@@ -601,50 +854,29 @@ const RemisionesPage: React.FC = () => {
         return;
     }
     
-    if (shippingMethod === 'transportadoraExterna') {
-        if (!transportadoraId) {
-            addNotification({ message: 'Debe seleccionar una transportadora.', type: 'warning' });
-            setFormErrors(prev => ({ ...prev, transportadoraId: 'Campo obligatorio' }));
-            setIsCreating(false);
-            return;
-        }
-        if (transportadoraId === 'otra' && !otraTransportadora.trim()) {
-            addNotification({ message: 'Debe especificar el nombre de la nueva transportadora.', type: 'warning' });
-            setFormErrors(prev => ({ ...prev, otraTransportadora: 'Campo obligatorio' }));
-            setIsCreating(false);
-            return;
-        }
-    }
-    
     try {
         const logisticData = {
-            metodoEnvio: shippingMethod,
-            transportadoraId: transportadoraId,
-            otraTransportadora: otraTransportadora.trim(),
-            numeroGuia: numeroGuia,
             fechaDespacho: fechaDespacho,
             observaciones: observacionesInternas,
         };
 
         const { nuevaRemision, mensaje } = await crearRemision(pedidoToRemisionar, itemsAEnviar, logisticData);
 
-        // El backend actualiza automáticamente el estado del pedido cuando se crea una remisión
-        // y crearRemision ya recarga pedidos y remisiones desde el backend con los estados actualizados
-        // No es necesario actualizar manualmente el estado ni hacer refresh adicional
-        
         // Notificar éxito
         addNotification({ message: mensaje, type: 'success' });
         
         handleCloseModals();
         setRemisionSuccessData(nuevaRemision);
+        
+        // OPTIMIZACIÓN: Recargar la lista de remisiones inmediatamente después de crear una nueva
+        // Resetear a página 1 para asegurar que la nueva remisión aparezca
+        setCurrentPage(1);
+        await loadRemisiones();
 
         const LOW_STOCK_THRESHOLD = 10;
         nuevaRemision.items.forEach(item => {
-            // Buscar producto por ID (puede ser numérico o string)
-            const producto = allProducts.find(p => 
-                String(p.id) === String(item.productoId) ||
-                p.id === item.productoId
-            );
+            // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
+            const producto = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
             if (producto) {
                 const newStock = (producto.controlaExistencia ?? 0) - item.cantidad; // Simulate new stock
                 if (newStock === 0) {
@@ -670,7 +902,8 @@ const RemisionesPage: React.FC = () => {
   };
 
 
-  const remisionesGroupColumns: Column<RemisionGroup>[] = [
+  // OPTIMIZACIÓN: Memoizar columnas para evitar recrearlas en cada render
+  const remisionesGroupColumns: Column<RemisionGroup>[] = useMemo(() => [
     { header: 'Pedido Origen', accessor: 'pedido', cell: ({ pedido }) => <span className="font-semibold">{pedido.numeroPedido}</span> },
     { header: 'Cliente', accessor: 'cliente', cell: ({ cliente }) => cliente?.nombreCompleto || 'N/A' },
     { header: 'Nº Entregas', accessor: 'remisiones', cell: ({ remisiones }) => (
@@ -727,24 +960,21 @@ const RemisionesPage: React.FC = () => {
             </div>
         );
     }},
-  ];
+  ], [handleOpenDetailModal, handleAprobarEntrega, isDelivering]);
 
-  const pedidosColumns: Column<Pedido>[] = [
+  // OPTIMIZACIÓN: Memoizar columnas para evitar recrearlas en cada render
+  const pedidosColumns: Column<Pedido>[] = useMemo(() => [
     { header: 'Número Pedido', accessor: 'numeroPedido' },
     { 
         header: 'Cliente', 
         accessor: 'clienteId', 
-        cell: (item) => {
-            // Buscar cliente por ID numérico o por codter/numeroDocumento
-            const cliente = clientes.find(c => 
-                String(c.id) === String(item.clienteId) ||
-                c.numeroDocumento === item.clienteId ||
-                c.codter === item.clienteId
-            );
-            return cliente?.nombreCompleto || cliente?.razonSocial || item.clienteId || 'N/A';
-        }
+        cell: (item) => getClienteNombre(item.clienteId)
     },
-    { header: 'Fecha', accessor: 'fechaPedido' },
+    { 
+        header: 'Fecha', 
+        accessor: 'fechaPedido',
+        cell: (item) => formatDateOnly(item.fechaPedido)
+    },
     { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
     { header: 'Acciones', accessor: 'id', cell: (item) => (
         <ProtectedComponent permission="remisiones:create">
@@ -754,19 +984,15 @@ const RemisionesPage: React.FC = () => {
             </button>
         </ProtectedComponent>
     )},
-  ];
+  ], [getClienteNombre, handleOpenCreateModal]);
   
+  // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
   const currentCliente = useMemo(() => {
     if (!pedidoToRemisionar) return null;
-    // Buscar cliente por ID numérico o por codter/numeroDocumento
-    return clientes.find(c => 
-        String(c.id) === String(pedidoToRemisionar.clienteId) ||
-        c.numeroDocumento === pedidoToRemisionar.clienteId ||
-        c.codter === pedidoToRemisionar.clienteId
-    );
-  }, [pedidoToRemisionar, clientes]);
+    return findCliente(pedidoToRemisionar.clienteId);
+  }, [pedidoToRemisionar, findCliente]);
 
-  const additionalFilters = (
+  const additionalFilters = useMemo(() => (
     <div className="flex flex-col sm:flex-row gap-4">
         <div>
             <label htmlFor="statusFilter" className="sr-only">Estado del Pedido</label>
@@ -781,22 +1007,8 @@ const RemisionesPage: React.FC = () => {
                 ))}
             </select>
         </div>
-        <div>
-            <label htmlFor="clientFilter" className="sr-only">Cliente</label>
-            <select
-                id="clientFilter"
-                value={clientFilter}
-                onChange={(e) => setClientFilter(e.target.value)}
-                className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-                <option value="Todos">Todos los Clientes</option>
-                {clientes.map(c => (
-                    <option key={c.id} value={c.id}>{c.nombreCompleto}</option>
-                ))}
-            </select>
-        </div>
     </div>
-  );
+  ), [statusFilter]);
 
 
   return (
@@ -882,9 +1094,19 @@ const RemisionesPage: React.FC = () => {
                 
                 <h4 className="text-base font-semibold pt-4 border-t border-slate-200 dark:border-slate-700">Historial de Entregas ({selectedGroup.remisiones.length})</h4>
                 
+                {loadingRemisionDetails.size > 0 && (
+                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-200">
+                            <i className="fas fa-spinner fa-spin"></i>
+                            <span>Cargando detalles de remisiones...</span>
+                        </div>
+                    </div>
+                )}
+                
                 <div className="space-y-4">
                     {selectedGroup.remisiones.map((remision, index) => {
                         const tieneAdjunto = archivosAdjuntos.some(a => a.entidadId === remision.id && a.entidadTipo === 'REMISION');
+                        const isLoadingDetails = loadingRemisionDetails.has(remision.id);
                         return (
                         <div key={remision.id} className="border border-slate-200 dark:border-slate-700 rounded-lg">
                             <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900/50 rounded-t-lg">
@@ -893,7 +1115,7 @@ const RemisionesPage: React.FC = () => {
                                     <i className="fas fa-truck text-slate-500 mr-3"></i>
                                     Entrega #{index + 1}: {remision.numeroRemision}
                                 </h5>
-                                 <p className="text-xs text-slate-500 dark:text-slate-400 ml-8">Fecha: {remision.fechaRemision}</p>
+                                 <p className="text-xs text-slate-500 dark:text-slate-400 ml-8">Fecha: {formatDateOnly(remision.fechaRemision)}</p>
                                </div>
                                 <div className="flex items-center gap-2">
                                     <StatusBadge status={remision.estado as any} />
@@ -908,32 +1130,13 @@ const RemisionesPage: React.FC = () => {
                                     )}
                                 </div>
                             </div>
-                            {remision.metodoEnvio && (
-                                <div className="px-3 pt-2 pb-1 border-b dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 text-xs text-slate-500 dark:text-slate-400 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                    <div>
-                                        <span className="font-semibold block">Método de Envío</span>
-                                        <span>
-                                            {
-                                                remision.metodoEnvio === 'transportadoraExterna' ? 'Transportadora' :
-                                                remision.metodoEnvio === 'transportePropio' ? 'Transporte Propio' : 'Recoge Cliente'
-                                            }
-                                        </span>
-                                    </div>
-                                    {remision.transportadora && (
-                                        <div>
-                                            <span className="font-semibold block">Transportadora</span>
-                                            <span>{remision.transportadora}</span>
-                                        </div>
-                                    )}
-                                    {remision.numeroGuia && (
-                                        <div>
-                                            <span className="font-semibold block">Nº Guía</span>
-                                            <span className="font-mono">{remision.numeroGuia}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
                              <div className="p-3">
+                               {isLoadingDetails ? (
+                                 <div className="text-center py-4 text-slate-500 dark:text-slate-400">
+                                   <i className="fas fa-spinner fa-spin mr-2"></i>
+                                   Cargando items...
+                                 </div>
+                               ) : remision.items && remision.items.length > 0 ? (
                                <table className="w-full table-fixed text-xs">
                                   <thead>
                                      <tr className="border-b dark:border-slate-600">
@@ -945,11 +1148,8 @@ const RemisionesPage: React.FC = () => {
                                   </thead>
                                   <tbody>
                                     {remision.items.map((item, index) => {
-                                        // Buscar producto por ID (puede ser numérico o string)
-                                        const product = allProducts.find(p => 
-                                            String(p.id) === String(item.productoId) ||
-                                            p.id === item.productoId
-                                        );
+                                        // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
+                                        const product = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
                                         
                                         // Obtener nombre del producto: primero del producto encontrado, luego del item
                                         const productoNombre = product?.nombre || 
@@ -980,6 +1180,11 @@ const RemisionesPage: React.FC = () => {
                                     })}
                                   </tbody>
                                </table>
+                               ) : (
+                                 <div className="text-center py-4 text-slate-500 dark:text-slate-400 text-sm">
+                                   No hay items registrados para esta remisión.
+                                 </div>
+                               )}
                              </div>
                              {/* Botones de acción: mostrar para remisiones en BORRADOR o EN_TRANSITO */}
                              {(remision.estado === 'EN_TRANSITO' || remision.estado === 'BORRADOR') && (
@@ -1103,10 +1308,8 @@ const RemisionesPage: React.FC = () => {
                                 <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
                                 {remisionItems.map((item, index) => {
                                     // Buscar producto en el catálogo para verificar si existe
-                                    const producto = allProducts.find(p => 
-                                        String(p.id) === String(item.productoId) ||
-                                        p.id === item.productoId
-                                    );
+                                    // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
+                                    const producto = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
                                     
                                     // Obtener nombre del producto: primero del producto encontrado, luego del item
                                     const productoNombre = producto?.nombre || 
@@ -1154,51 +1357,6 @@ const RemisionesPage: React.FC = () => {
                     <CardContent>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                             <div>
-                                <label htmlFor="shippingMethod" className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Método de Envío</label>
-                                <select id="shippingMethod" value={shippingMethod} onChange={(e) => setShippingMethod(e.target.value as any)} className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500">
-                                    <option value="transportadoraExterna">Transportadora Externa</option>
-                                    <option value="transportePropio">Transporte Propio</option>
-                                    <option value="recogeCliente">Recoge Cliente en Bodega</option>
-                                </select>
-                            </div>
-
-                            {shippingMethod === 'transportadoraExterna' && (
-                                <>
-                                    <div>
-                                        <label htmlFor="transportadora" className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Transportadora</label>
-                                        <select id="transportadora" value={transportadoraId} onChange={(e) => {
-                                                setTransportadoraId(e.target.value);
-                                                if (formErrors.transportadoraId) {
-                                                    setFormErrors(prev => ({ ...prev, transportadoraId: '' }));
-                                                }
-                                            }} className={`w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-1 ${formErrors.transportadoraId ? 'border-red-500 ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'}`} required={shippingMethod === 'transportadoraExterna'}>
-                                            <option value="">Seleccione...</option>
-                                            {transportadoras.map(t => (
-                                                <option key={t.id} value={t.id}>{t.nombre}</option>
-                                            ))}
-                                            <option value="otra">Otra (especificar)</option>
-                                        </select>
-                                        {formErrors.transportadoraId && <p className="mt-1 text-xs text-red-500">{formErrors.transportadoraId}</p>}
-                                    </div>
-                                    {transportadoraId === 'otra' && (
-                                        <div>
-                                            <label htmlFor="otraTransportadora" className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Nombre Nueva Transportadora</label>
-                                            <input type="text" id="otraTransportadora" value={otraTransportadora} onChange={(e) => {
-                                                    setOtraTransportadora(e.target.value);
-                                                    if (formErrors.otraTransportadora) {
-                                                        setFormErrors(prev => ({ ...prev, otraTransportadora: '' }));
-                                                    }
-                                                }} className={`w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-1 ${formErrors.otraTransportadora ? 'border-red-500 ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'}`} required />
-                                            {formErrors.otraTransportadora && <p className="mt-1 text-xs text-red-500">{formErrors.otraTransportadora}</p>}
-                                        </div>
-                                    )}
-                                    <div>
-                                        <label htmlFor="numeroGuia" className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Número de Guía</label>
-                                        <input type="text" id="numeroGuia" value={numeroGuia} onChange={(e) => setNumeroGuia(e.target.value)} className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                                    </div>
-                                </>
-                            )}
-                            <div>
                                 <label htmlFor="fechaDespacho" className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Fecha Estimada de Despacho</label>
                                 <input type="date" id="fechaDespacho" value={fechaDespacho} onChange={(e) => setFechaDespacho(e.target.value)} className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500" />
                             </div>
@@ -1242,17 +1400,11 @@ const RemisionesPage: React.FC = () => {
                 { 
                     label: 'Cliente', 
                     value: (() => {
-                        const cliente = clientes.find(c => 
-                            String(c.id) === String(remisionSuccessData.clienteId) ||
-                            c.numeroDocumento === remisionSuccessData.clienteId ||
-                            c.codter === remisionSuccessData.clienteId
-                        );
+                        const cliente = findCliente(remisionSuccessData.clienteId);
                         return cliente?.nombreCompleto || cliente?.razonSocial || remisionSuccessData.clienteId || 'N/A';
                     })()
                 },
-                { label: 'Pedido Origen', value: pedidos.find(p => p.id === remisionSuccessData.pedidoId)?.numeroPedido || 'N/A' },
-                { label: 'Transportadora', value: remisionSuccessData.transportadora || 'N/A' },
-                { label: 'Nº Guía', value: remisionSuccessData.numeroGuia || 'N/A' },
+                { label: 'Pedido Origen', value: findPedido(remisionSuccessData.pedidoId)?.numeroPedido || 'N/A' },
             ]}
             primaryAction={{
                 label: 'Ver/Imprimir Documento',
@@ -1282,15 +1434,11 @@ const RemisionesPage: React.FC = () => {
                 { 
                     label: 'Cliente', 
                     value: (() => {
-                        const cliente = clientes.find(c => 
-                            String(c.id) === String(deliveryResult.clienteId) ||
-                            c.numeroDocumento === deliveryResult.clienteId ||
-                            c.codter === deliveryResult.clienteId
-                        );
+                        const cliente = findCliente(deliveryResult.clienteId);
                         return cliente?.nombreCompleto || cliente?.razonSocial || deliveryResult.clienteId || 'N/A';
                     })()
                 },
-                { label: 'Pedido Origen', value: pedidos.find(p => p.id === deliveryResult.pedidoId)?.numeroPedido || 'N/A' },
+                { label: 'Pedido Origen', value: findPedido(deliveryResult.pedidoId)?.numeroPedido || 'N/A' },
             ]}
             primaryAction={{
                 label: 'Ir a Facturación',

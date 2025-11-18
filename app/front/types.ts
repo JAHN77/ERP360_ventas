@@ -177,6 +177,7 @@ export interface Categoria {
 
 export interface DocumentoDetalle {
   id?: string; // uuid
+  detaPedidoId?: number; // ID del detalle del pedido en ven_detapedidos (para remisiones)
   productoId: number;
   codProducto?: string; // Código de producto (CHAR(8))
   cantidad: number;
@@ -313,6 +314,7 @@ export interface Factura {
   remisionesIds: string[];
   estadoDevolucion?: 'DEVOLUCION_PARCIAL' | 'DEVOLUCION_TOTAL';
   fechaTimbrado?: string;
+  motivoRechazo?: string; // Motivo del rechazo cuando la factura es rechazada
 }
 
 

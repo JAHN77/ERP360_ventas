@@ -249,6 +249,12 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         setSelectedCliente(found);
     };
     const pickCliente = async (c: Cliente) => {
+        // Validar que el cliente tenga un ID válido (no vacío, no null, no undefined, y no solo espacios)
+        if (!c || !c.id || String(c.id).trim() === '') {
+            console.warn('⚠️ Intento de seleccionar cliente sin ID válido:', c);
+            return; // No seleccionar si no tiene ID válido
+        }
+        
         setClienteId(c.id);
         setClienteSearch(c.nombreCompleto || c.razonSocial || '');
         setIsClienteOpen(false);
@@ -448,16 +454,27 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         }}
                         onFocus={() => { if(clienteSearch.trim().length>=2) setIsClienteOpen(true); }}
                         onBlur={() => {
-                            // Auto-seleccionar si hay coincidencia exacta
-                            const list = clienteResults.length > 0 ? clienteResults : clientes;
-                            const exactMatch = list.find(c => {
-                                const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim()).toLowerCase();
-                                const doc = (c.numeroDocumento || '').toLowerCase();
-                                const search = clienteSearch.toLowerCase();
-                                return nombre === search || doc === search;
-                            });
-                            if (exactMatch && !selectedCliente) {
-                                pickCliente(exactMatch);
+                            // Solo buscar coincidencia si hay texto en el campo y no hay cliente seleccionado
+                            if (clienteSearch.trim().length >= 2 && !selectedCliente) {
+                                const list = clienteResults.length > 0 ? clienteResults : clientes;
+                                const exactMatch = list.find(c => {
+                                    // Validar que el cliente tenga un ID válido
+                                    if (!c || !c.id || String(c.id).trim() === '') {
+                                        return false; // Ignorar clientes sin ID válido
+                                    }
+                                    const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim()).toLowerCase();
+                                    const doc = (c.numeroDocumento || '').toLowerCase();
+                                    const search = clienteSearch.toLowerCase();
+                                    return nombre === search || doc === search;
+                                });
+                                if (exactMatch && !selectedCliente) {
+                                    pickCliente(exactMatch);
+                                }
+                            }
+                            // Si el campo está vacío o solo espacios, limpiar la selección
+                            if (clienteSearch.trim() === '' && selectedCliente) {
+                                setClienteId('');
+                                setSelectedCliente(null);
                             }
                             // Usar setTimeout para permitir que el click del dropdown se procese primero
                             setTimeout(() => {
@@ -469,6 +486,10 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                             if(e.key==='Enter'){ 
                                 const list = clienteResults.length > 0 ? clienteResults : clientes;
                                 const filtered = list.filter(c => {
+                                    // Validar que el cliente tenga un ID válido
+                                    if (!c || !c.id || String(c.id).trim() === '') {
+                                        return false; // Ignorar clientes sin ID válido
+                                    }
                                     const nombre = c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim().toLowerCase();
                                     const doc = (c.numeroDocumento || '').toLowerCase();
                                     const search = clienteSearch.toLowerCase();
@@ -483,7 +504,12 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
                             {(() => {
                                 const listaMostrar = clienteResults.length > 0 ? clienteResults : clientes;
+                                // Filtrar primero por ID válido, luego por búsqueda
                                 const filtered = listaMostrar.filter(c => {
+                                    // Validar que el cliente tenga un ID válido
+                                    if (!c || !c.id || String(c.id).trim() === '') {
+                                        return false; // Ignorar clientes sin ID válido
+                                    }
                                     const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || '').toLowerCase();
                                     const doc = (c.numeroDocumento || '').toLowerCase();
                                     const search = clienteSearch.toLowerCase();

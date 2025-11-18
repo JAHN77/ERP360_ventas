@@ -20,6 +20,7 @@ import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { logger } from '../utils/logger';
 import { apiClient } from '../services/apiClient';
+import { formatDateOnly } from '../utils/formatters';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -319,7 +320,7 @@ const PedidosPage: React.FC = () => {
             return cliente?.nombreCompleto || cliente?.razonSocial || item.clienteId || 'N/A';
         }
     },
-    { header: 'Fecha', accessor: 'fechaPedido' },
+    { header: 'Fecha', accessor: 'fechaPedido', cell: (item) => formatDateOnly(item.fechaPedido) },
     { header: 'Total', accessor: 'total', cell: (item) => formatCurrency(item.total) },
     { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
     { header: 'Acciones', accessor: 'id', cell: (item) => (
@@ -439,11 +440,11 @@ const PedidosPage: React.FC = () => {
                     </div>
                     <div>
                         <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Emisión</p>
-                        <p className="text-slate-800 dark:text-slate-200">{selectedPedido.fechaPedido}</p>
+                        <p className="text-slate-800 dark:text-slate-200">{formatDateOnly(selectedPedido.fechaPedido)}</p>
                     </div>
                     <div>
                         <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Entrega Estimada</p>
-                        <p className="text-slate-800 dark:text-slate-200">{selectedPedido.fechaEntregaEstimada || 'N/A'}</p>
+                        <p className="text-slate-800 dark:text-slate-200">{formatDateOnly(selectedPedido.fechaEntregaEstimada)}</p>
                     </div>
                     <div className="sm:col-span-2">
                         <p className="font-semibold text-slate-600 dark:text-slate-400">Instrucciones de Entrega</p>

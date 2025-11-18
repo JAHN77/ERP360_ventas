@@ -14,6 +14,7 @@ import SendEmailModal from '../components/comercial/SendEmailModal';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { useNavigation } from '../hooks/useNavigation';
+import { formatDateOnly } from '../utils/formatters';
 // Supabase eliminado: descargas de adjuntos se implementarán vía backend
 
 const formatCurrency = (value: number) => {
@@ -31,9 +32,8 @@ const filterOptions = [
 
 const FacturasPage: React.FC = () => {
   const { params, setPage } = useNavigation();
-  const { facturas, remisiones, clientes, pedidos, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores } = useData();
+  const { facturas, remisiones, clientes, pedidos, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones } = useData();
   const [statusFilter, setStatusFilter] = useState('Todos');
-  const [clientFilter, setClientFilter] = useState('Todos');
   const [selectedRemisiones, setSelectedRemisiones] = useState<Set<string>>(new Set());
   const { addNotification } = useNotifications();
   
@@ -43,6 +43,15 @@ const FacturasPage: React.FC = () => {
   const [isFacturando, setIsFacturando] = useState(false);
   const [facturaToPreview, setFacturaToPreview] = useState<Factura | null>(null);
   const [facturaToEmail, setFacturaToEmail] = useState<Factura | null>(null);
+
+  // Refrescar facturas y remisiones al montar el componente para asegurar que se muestren las disponibles
+  useEffect(() => {
+    // Cargar siempre al montar el componente para asegurar que las remisiones estén disponibles
+    // Esto es necesario porque las remisiones no se cargan automáticamente en el DataContext inicial
+    refreshFacturasYRemisiones().catch(error => {
+      console.error('Error al refrescar facturas y remisiones:', error);
+    });
+  }, [refreshFacturasYRemisiones]); // Solo dependemos de refreshFacturasYRemisiones, sin verificar facturas.length
 
   useEffect(() => {
     const focusId = params?.focusId;
@@ -63,16 +72,50 @@ const FacturasPage: React.FC = () => {
   }, [params?.focusId, facturas, selectedFactura, isDetailModalOpen]);
 
   // Filtrar remisiones que están listas para facturar:
-  // - Estado ENTREGADO
+  // - Estado ENTREGADO (o 'D' en BD que se mapea a ENTREGADO)
   // - Sin facturaId (no han sido facturadas aún)
+  // NOTA: Si la tabla ven_remiciones_enc no tiene campo factura_id, todas las remisiones ENTREGADO aparecerán
   const remisionesPorFacturar = useMemo(() => {
     const filtradas = remisiones.filter(r => {
-      // Verificar que el estado sea ENTREGADO
-      const estadoCorrecto = r.estado === 'ENTREGADO';
+      // Verificar que el estado sea ENTREGADO (puede venir como 'ENTREGADO' o 'D')
+      const estadoStr = String(r.estado || '').trim().toUpperCase();
+      const estadoCorrecto = estadoStr === 'ENTREGADO' || estadoStr === 'D';
+      
       // Verificar que no tenga facturaId (no haya sido facturada)
-      const sinFactura = !r.facturaId || r.facturaId === null || r.facturaId === '';
+      // Si facturaId es null, undefined, o string vacío, se considera sin factura
+      const facturaIdStr = r.facturaId ? String(r.facturaId).trim() : '';
+      const sinFactura = !facturaIdStr || facturaIdStr === '' || facturaIdStr === 'null' || facturaIdStr === 'undefined';
+      
+      // Log para depuración (solo en desarrollo)
+      if (process.env.NODE_ENV === 'development' && estadoCorrecto) {
+        console.log(`🔍 [FacturasPage] Remisión ${r.numeroRemision}:`, {
+          estado: r.estado,
+          estadoStr: estadoStr,
+          estadoCorrecto: estadoCorrecto,
+          facturaId: r.facturaId,
+          facturaIdStr: facturaIdStr,
+          sinFactura: sinFactura,
+          pasaFiltro: estadoCorrecto && sinFactura
+        });
+      }
+      
       return estadoCorrecto && sinFactura;
     });
+    
+    // Log para depuración
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`📋 [FacturasPage] Remisiones disponibles para facturar:`, {
+        totalRemisiones: remisiones.length,
+        remisionesFiltradas: filtradas.length,
+        estadosEncontrados: [...new Set(remisiones.map(r => r.estado))],
+        remisionesPorEstado: remisiones.reduce((acc, r) => {
+          const estado = String(r.estado || 'SIN_ESTADO');
+          acc[estado] = (acc[estado] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>)
+      });
+    }
+    
     return filtradas;
   }, [remisiones]);
 
@@ -95,19 +138,8 @@ const FacturasPage: React.FC = () => {
     if (statusFilter !== 'Todos') {
         sortedInvoices = sortedInvoices.filter(f => f.estado === statusFilter);
     }
-    if (clientFilter !== 'Todos') {
-        // Filtrar por cliente usando búsqueda flexible
-        sortedInvoices = sortedInvoices.filter(f => {
-          const clienteFactura = clientes.find(c => 
-            String(c.id) === String(f.clienteId) ||
-            c.numeroDocumento === f.clienteId ||
-            c.codter === f.clienteId
-          );
-          return clienteFactura && String(clienteFactura.id) === String(clientFilter);
-        });
-    }
     return sortedInvoices;
-  }, [facturas, statusFilter, clientFilter, clientes]);
+  }, [facturas, statusFilter]);
 
   const {
     paginatedData: paginatedInvoices,
@@ -499,7 +531,19 @@ const FacturasPage: React.FC = () => {
   const totalAFacturar = useMemo(() => {
     if (selectedRemisiones.size === 0) return 0;
     const remisionesSeleccionadas = remisiones.filter(r => selectedRemisiones.has(r.id));
-    return remisionesSeleccionadas.reduce((total, rem) => total + rem.items.reduce((sum, item) => sum + item.total * (1 + item.ivaPorcentaje/100) , 0), 0);
+    return remisionesSeleccionadas.reduce((total, rem) => {
+      return total + rem.items.reduce((sum, item) => {
+        // Si el item tiene total, usarlo directamente (ya incluye IVA)
+        // Si no, calcular: subtotal + IVA
+        if (item.total && item.total > 0) {
+          return sum + item.total;
+        }
+        // Calcular manualmente si falta total
+        const subtotal = (item.precioUnitario || 0) * (item.cantidad || item.cantidadEnviada || 0) * (1 - ((item.descuentoPorcentaje || 0) / 100));
+        const valorIva = subtotal * ((item.ivaPorcentaje || 0) / 100);
+        return sum + subtotal + valorIva;
+      }, 0);
+    }, 0);
   }, [selectedRemisiones, remisiones]);
 
 
@@ -569,7 +613,7 @@ const FacturasPage: React.FC = () => {
       );
       return cliente?.nombreCompleto || 'N/A';
     }},
-    { header: 'Fecha Emisión', accessor: 'fechaFactura' },
+    { header: 'Fecha Emisión', accessor: 'fechaFactura', cell: (item) => formatDateOnly(item.fechaFactura) },
     { header: 'Total', accessor: 'total', cell: (item) => formatCurrency(item.total) },
     { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
     { header: 'Acciones', accessor: 'id', cell: (item) => (
@@ -589,20 +633,6 @@ const FacturasPage: React.FC = () => {
             >
                 {filterOptions.map(option => (
                     <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-            </select>
-        </div>
-        <div>
-            <label htmlFor="clientFilter" className="sr-only">Cliente</label>
-            <select
-                id="clientFilter"
-                value={clientFilter}
-                onChange={(e) => setClientFilter(e.target.value)}
-                className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-                <option value="Todos">Todos los Clientes</option>
-                {clientes.map(c => (
-                    <option key={c.id} value={c.id}>{c.nombreCompleto}</option>
                 ))}
             </select>
         </div>
@@ -700,7 +730,7 @@ const FacturasPage: React.FC = () => {
                 <div className="text-right">
                     <StatusBadge status={selectedFactura.estado as any} />
                     <p className="text-slate-600 dark:text-slate-300 mt-2">
-                        <span className="font-semibold">Fecha Emisión:</span> {selectedFactura.fechaFactura}
+                        <span className="font-semibold">Fecha Emisión:</span> {formatDateOnly(selectedFactura.fechaFactura)}
                     </p>
                 </div>
             </div>
@@ -718,7 +748,7 @@ const FacturasPage: React.FC = () => {
                                 <>
                                     <p><span className="font-semibold text-slate-600 dark:text-slate-400">CUFE:</span></p>
                                     <p className="font-mono text-xs break-all bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-600">{selectedFactura.cufe}</p>
-                                    <p className="mt-2"><span className="font-semibold text-slate-600 dark:text-slate-400">Fecha Timbrado:</span> <span>{selectedFactura.fechaTimbrado ? new Date(selectedFactura.fechaTimbrado).toLocaleString('es-CO') : new Date().toLocaleString('es-CO')}</span></p>
+                                    <p className="mt-2"><span className="font-semibold text-slate-600 dark:text-slate-400">Fecha Timbrado:</span> <span>{formatDateOnly(selectedFactura.fechaTimbrado || new Date().toISOString())}</span></p>
                                 </>
                             ) : (
                                 <p className="text-sm text-slate-600 dark:text-slate-400">Factura enviada y timbrada correctamente.</p>
@@ -726,11 +756,21 @@ const FacturasPage: React.FC = () => {
                         </div>
                     </div>
                 ) : selectedFactura.estado === 'RECHAZADA' ? (
-                    <div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700 flex items-center gap-3">
-                        <i className="fas fa-times-circle text-red-500 fa-lg"></i>
-                        <div>
-                            <h5 className="font-semibold text-red-800 dark:text-red-300">Factura Rechazada</h5>
-                            <p className="text-xs">La factura fue rechazada en el proceso de timbrado.</p>
+                    <div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700">
+                        <div className="flex items-start gap-3">
+                            <i className="fas fa-times-circle text-red-500 fa-lg mt-1"></i>
+                            <div className="flex-1">
+                                <h5 className="font-semibold text-red-800 dark:text-red-300 mb-2">Factura Rechazada</h5>
+                                <p className="text-sm text-red-700 dark:text-red-300 mb-2">
+                                    La factura fue rechazada en el proceso de timbrado.
+                                </p>
+                                {selectedFactura.motivoRechazo && (
+                                    <div className="mt-2 p-2 bg-white dark:bg-slate-800 rounded border border-red-300 dark:border-red-600">
+                                        <p className="text-xs font-semibold text-red-800 dark:text-red-300 mb-1">Motivo del rechazo:</p>
+                                        <p className="text-xs text-red-700 dark:text-red-400">{selectedFactura.motivoRechazo}</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 ) : (

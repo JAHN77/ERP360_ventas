@@ -17,6 +17,7 @@ import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { findClienteByIdentifier } from '../utils/clientes';
+import { formatDateOnly } from '../utils/formatters';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -449,20 +450,7 @@ const CotizacionesPage: React.FC = () => {
     { 
       header: 'Fecha', 
       accessor: 'fechaCotizacion',
-      cell: (item) => {
-        if (!item.fechaCotizacion) return 'N/A';
-        try {
-          // Si es una fecha ISO con hora, extraer solo la fecha
-          const fechaStr = String(item.fechaCotizacion);
-          if (fechaStr.includes('T')) {
-            return fechaStr.split('T')[0];
-          }
-          // Si ya es solo fecha, devolverla tal cual
-          return fechaStr.substring(0, 10);
-        } catch (error) {
-          return item.fechaCotizacion;
-        }
-      }
+      cell: (item) => formatDateOnly(item.fechaCotizacion)
     },
     { header: 'Vendedor', accessor: 'vendedorId', cell: (item) => {
         // Buscar vendedor por ID o código
@@ -702,7 +690,7 @@ const CotizacionesPage: React.FC = () => {
               </div>
               <div>
                 <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Emisión:</p>
-                <p>{selectedCotizacion.fechaCotizacion ? String(selectedCotizacion.fechaCotizacion).split('T')[0] : 'N/A'}</p>
+                <p>{formatDateOnly(selectedCotizacion.fechaCotizacion)}</p>
               </div>
               <div>
                 <p className="font-semibold text-slate-600 dark:text-slate-400">Estado:</p>
@@ -711,7 +699,7 @@ const CotizacionesPage: React.FC = () => {
               {selectedCotizacion.fechaVencimiento && (
                 <div>
                   <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Vencimiento:</p>
-                  <p>{String(selectedCotizacion.fechaVencimiento).split('T')[0]}</p>
+                  <p>{formatDateOnly(selectedCotizacion.fechaVencimiento)}</p>
                 </div>
               )}
               {selectedCotizacion.formaPago && (
@@ -735,7 +723,7 @@ const CotizacionesPage: React.FC = () => {
               {selectedCotizacion.fechaAprobacion && (
                 <div>
                   <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Aprobación:</p>
-                  <p>{String(selectedCotizacion.fechaAprobacion).split('T')[0]}</p>
+                  <p>{formatDateOnly(selectedCotizacion.fechaAprobacion)}</p>
                 </div>
               )}
               {selectedCotizacion.codUsuario && (
@@ -747,7 +735,7 @@ const CotizacionesPage: React.FC = () => {
               {selectedCotizacion.fechaCreacion && (
                 <div>
                   <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Creación:</p>
-                  <p>{new Date(selectedCotizacion.fechaCreacion).toLocaleString('es-CO')}</p>
+                  <p>{formatDateOnly(selectedCotizacion.fechaCreacion)}</p>
                 </div>
               )}
               {selectedCotizacion.observacionesInternas && (
@@ -1054,8 +1042,8 @@ const CotizacionesPage: React.FC = () => {
 
         const summaryDetails = [
             { label: 'Número', value: cotizacion.numeroCotizacion },
-            { label: 'Fecha', value: new Date(cotizacion.fechaCotizacion).toLocaleDateString('es-CO') },
-            { label: 'Válida hasta', value: new Date(cotizacion.fechaVencimiento).toLocaleDateString('es-CO') },
+            { label: 'Fecha', value: formatDateOnly(cotizacion.fechaCotizacion) },
+            { label: 'Válida hasta', value: formatDateOnly(cotizacion.fechaVencimiento) },
             { label: 'Cliente', value: cliente.nombreCompleto || cliente.razonSocial || 'N/A' },
             { label: 'Vendedor', value: vendedor ? `${vendedor.primerNombre} ${vendedor.primerApellido}`.trim() : 'N/A' },
             { label: 'Estado', value: 'Aprobada' },

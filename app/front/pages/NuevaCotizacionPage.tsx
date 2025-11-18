@@ -10,6 +10,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import ApprovalSuccessModal from '../components/ui/ApprovalSuccessModal';
 import { useData } from '../hooks/useData';
 import { findClienteByIdentifier } from '../utils/clientes';
+import { formatDateOnly } from '../utils/formatters';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -366,8 +367,8 @@ const NuevaCotizacionPage: React.FC = () => {
                         summaryTitle="Resumen de la Cotización"
                         summaryDetails={[
                             { label: 'Número', value: cotizacion.numeroCotizacion },
-                            { label: 'Fecha', value: new Date(cotizacion.fechaCotizacion).toLocaleDateString('es-CO') },
-                            { label: 'Válida hasta', value: new Date(cotizacion.fechaVencimiento).toLocaleDateString('es-CO') },
+                            { label: 'Fecha', value: formatDateOnly(cotizacion.fechaCotizacion) },
+                            { label: 'Válida hasta', value: formatDateOnly(cotizacion.fechaVencimiento) },
                             { label: 'Cliente', value: cliente.nombreCompleto || cliente.razonSocial || 'N/A' },
                             { label: 'Vendedor', value: vendedor ? `${vendedor.primerNombre} ${vendedor.primerApellido}`.trim() : 'N/A' },
                             { label: 'Estado', value: cotizacion.estado === 'ENVIADA' ? 'Enviada a Aprobación' : cotizacion.estado },

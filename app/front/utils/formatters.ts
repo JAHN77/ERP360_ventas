@@ -71,3 +71,22 @@ export const formatPercentage = (value: number, decimals: number = 0): string =>
   return `${formatNumber(value, decimals)}%`;
 };
 
+/**
+ * Formatea una fecha para mostrar solo la fecha sin hora (YYYY-MM-DD)
+ * Extrae solo la parte de fecha de valores ISO (ej: 2025-11-15T00:00:00.000Z -> 2025-11-15)
+ */
+export const formatDateOnly = (fecha: string | Date | null | undefined): string => {
+  if (!fecha) return 'N/A';
+  try {
+    const fechaStr = String(fecha);
+    // Si es una fecha ISO con hora, extraer solo la fecha
+    if (fechaStr.includes('T')) {
+      return fechaStr.split('T')[0];
+    }
+    // Si ya es solo fecha, devolverla tal cual
+    return fechaStr.substring(0, 10);
+  } catch (error) {
+    return String(fecha);
+  }
+};
+

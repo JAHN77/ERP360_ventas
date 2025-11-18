@@ -67,11 +67,25 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           // Mapear bodegas de la BD al formato Sede
           // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
           const mappedBodegas = response.data.map((b: any, index: number) => {
-            // El código viene directamente desde la BD (codalm)
-            const codigoAlmacen = String(b.codigo || b.codalm || b.id || '').trim();
+            // CRÍTICO: Obtener el código directamente desde la BD (codalm) y preservarlo como string
+            // No convertir el código a número, ya que puede tener formato "002", "003", etc.
+            const codigoAlmacenRaw = b.codigo || b.codalm || b.id || '';
+            // Asegurar que el código se preserve como string con formato correcto
+            let codigoAlmacen: string;
+            if (codigoAlmacenRaw !== null && codigoAlmacenRaw !== undefined) {
+              // Convertir a string y eliminar espacios
+              codigoAlmacen = String(codigoAlmacenRaw).trim();
+              // Si es numérico, asegurar formato con ceros a la izquierda (002, 003, etc.)
+              if (/^\d+$/.test(codigoAlmacen)) {
+                codigoAlmacen = codigoAlmacen.padStart(3, '0');
+              }
+            } else {
+              // Si no hay código, usar índice + 1 como código (formato 001, 002, etc.)
+              codigoAlmacen = String(index + 1).padStart(3, '0');
+            }
             
             // Convertir código a número para el ID si es posible (ej: "001" -> 1, "002" -> 2)
-            // Si no es numérico, usar el índice + 1
+            // Esto es solo para compatibilidad con el ID numérico, pero el código se preserva como string
             let bodegaId: number;
             if (codigoAlmacen && /^\d+$/.test(codigoAlmacen)) {
               bodegaId = parseInt(codigoAlmacen, 10);
@@ -83,15 +97,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             const direccionBodega = (b.direccion || b.diralm || '').trim();
             const ciudadBodega = (b.ciudad || b.ciualm || '').trim();
             
-            // Usar el código directamente de la BD (ya viene formateado)
-            const bodegaCodigo = codigoAlmacen.padStart(3, '0');
+            // CRÍTICO: Usar el código preservado directamente (ya está formateado con padStart)
+            const bodegaCodigo = codigoAlmacen; // Ya está formateado como "002", "003", etc.
             
-            logger.log({ prefix: 'AuthContext', level: 'debug' }, `Mapeando bodega: ${nombreBodega} (${bodegaCodigo})`);
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, `Mapeando bodega: ${nombreBodega} - ID: ${bodegaId}, Código: ${bodegaCodigo}`);
             
             return {
-              id: bodegaId, // ID numérico para compatibilidad
+              id: bodegaId, // ID numérico para compatibilidad (1, 2, 3, etc.)
               nombre: nombreBodega,
-              codigo: bodegaCodigo, // Código del almacén desde BD (codalm)
+              codigo: bodegaCodigo, // CRÍTICO: Código del almacén desde BD preservado como string ("002", "003", etc.)
               empresaId: 1, // Por defecto asignar a la empresa principal
               municipioId: 11001, // Bogotá por defecto
               direccion: direccionBodega,
@@ -323,12 +337,27 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (sede) {
         // Actualizar la sede con los datos proporcionados si están disponibles
         // Esto asegura que el nombre mostrado sea el correcto (ej: "Bodega Norte", "Bodega Sur")
+        // CRÍTICO: Asegurar que el código se preserve como string con formato correcto
+        let codigoActualizado: string;
+        if (sedeData?.codigo) {
+          // Si se proporciona código en sedeData, usarlo y asegurar formato
+          const codigoRaw = String(sedeData.codigo).trim();
+          codigoActualizado = /^\d+$/.test(codigoRaw) ? codigoRaw.padStart(3, '0') : codigoRaw;
+        } else if (sede.codigo) {
+          // Si hay código en la sede original, preservarlo
+          const codigoRaw = String(sede.codigo).trim();
+          codigoActualizado = /^\d+$/.test(codigoRaw) ? codigoRaw.padStart(3, '0') : codigoRaw;
+        } else {
+          // Si no hay código, usar el ID formateado como código
+          codigoActualizado = String(sede.id).padStart(3, '0');
+        }
+        
         const sedeActualizada: Sede = {
           ...sede,
           // Si se proporciona nombre en sedeData, usarlo (prioridad)
           nombre: sedeData?.nombre || sede.nombre,
-          // Si se proporciona código en sedeData, usarlo (prioridad)
-          codigo: sedeData?.codigo || sede.codigo
+          // CRÍTICO: Usar el código preservado/formateado correctamente
+          codigo: codigoActualizado
         };
         
         logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede encontrada y actualizada:', {

@@ -161,7 +161,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     const resp = await apiSearchProductos(q, 20);
                     if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
-                        const productsInList = new Set(items.map(item => item.productoId));
+        const productsInList = new Set(items.map(item => item.productoId));
                         const mappedProducts = dataArray.map((p: any) => ({
                             ...p,
                             unidadMedida: p.unidadMedidaNombre || p.unidadMedida || 'Unidad',
@@ -185,6 +185,12 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     }, [productSearchTerm, items, cotizacionId]);
 
     const pickCliente = async (c: Cliente) => {
+        // Validar que el cliente tenga un ID válido (no vacío, no null, no undefined, y no solo espacios)
+        if (!c || !c.id || String(c.id).trim() === '') {
+            console.warn('⚠️ Intento de seleccionar cliente sin ID válido:', c);
+            return; // No seleccionar si no tiene ID válido
+        }
+        
         setClienteId(c.id);
         setClienteSearch(c.nombreCompleto || c.razonSocial || '');
         setIsClienteOpen(false);
@@ -341,7 +347,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     const bodegaCodigo = selectedSede?.codigo 
       ? String(selectedSede.codigo).padStart(3, '0')
       : '001'; // Fallback si no hay bodega seleccionada
-    
+
     return (
         <form onSubmit={handleSubmit}>
             {/* Información de bodega seleccionada */}
@@ -392,15 +398,27 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                             }}
                             onFocus={() => { if(clienteSearch.trim().length>=2) setIsClienteOpen(true); }}
                             onBlur={() => {
-                                const list = clienteResults.length > 0 ? clienteResults : clientes;
-                                const exactMatch = list.find(c => {
-                                    const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim()).toLowerCase();
-                                    const doc = (c.numeroDocumento || '').toLowerCase();
-                                    const search = clienteSearch.toLowerCase();
-                                    return nombre === search || doc === search;
-                                });
-                                if (exactMatch && !selectedCliente) {
-                                    pickCliente(exactMatch);
+                                // Solo buscar coincidencia si hay texto en el campo y no hay cliente seleccionado
+                                if (clienteSearch.trim().length >= 2 && !selectedCliente) {
+                                    const list = clienteResults.length > 0 ? clienteResults : clientes;
+                                    const exactMatch = list.find(c => {
+                                        // Validar que el cliente tenga un ID válido
+                                        if (!c || !c.id || String(c.id).trim() === '') {
+                                            return false; // Ignorar clientes sin ID válido
+                                        }
+                                        const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim()).toLowerCase();
+                                        const doc = (c.numeroDocumento || '').toLowerCase();
+                                        const search = clienteSearch.toLowerCase();
+                                        return nombre === search || doc === search;
+                                    });
+                                    if (exactMatch && !selectedCliente) {
+                                        pickCliente(exactMatch);
+                                    }
+                                }
+                                // Si el campo está vacío o solo espacios, limpiar la selección
+                                if (clienteSearch.trim() === '' && selectedCliente) {
+                                    setClienteId('');
+                                    setSelectedCliente(null);
                                 }
                                 setTimeout(() => {
                                     setIsClienteOpen(false);
@@ -411,6 +429,10 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                 if(e.key==='Enter'){ 
                                     const list = clienteResults.length > 0 ? clienteResults : clientes;
                                     const filtered = list.filter(c => {
+                                        // Validar que el cliente tenga un ID válido
+                                        if (!c || !c.id || String(c.id).trim() === '') {
+                                            return false; // Ignorar clientes sin ID válido
+                                        }
                                         const nombre = c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim().toLowerCase();
                                         const doc = (c.numeroDocumento || '').toLowerCase();
                                         const search = clienteSearch.toLowerCase();
@@ -425,7 +447,12 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                             <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
                                 {(() => {
                                     const listaMostrar = clienteResults.length > 0 ? clienteResults : clientes;
+                                    // Filtrar primero por ID válido, luego por búsqueda
                                     const filtered = listaMostrar.filter(c => {
+                                        // Validar que el cliente tenga un ID válido
+                                        if (!c || !c.id || String(c.id).trim() === '') {
+                                            return false; // Ignorar clientes sin ID válido
+                                        }
                                         const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || '').toLowerCase();
                                         const doc = (c.numeroDocumento || '').toLowerCase();
                                         const search = clienteSearch.toLowerCase();
@@ -718,7 +745,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     {/* Table of items */}
                     <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
                         <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                            <thead className="bg-slate-50 dark:bg-slate-700">
+                             <thead className="bg-slate-50 dark:bg-slate-700">
                                 <tr>
                                     <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Producto</th>
                                     <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
@@ -773,9 +800,9 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     </div>
                 </div>
 
-                <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg space-y-1 h-fit">
+                 <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg space-y-1 h-fit">
                     <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Resumen</h4>
-                    <div className="flex justify-between text-sm">
+                     <div className="flex justify-between text-sm">
                         <span className="text-slate-500 dark:text-slate-400">Subtotal Bruto:</span>
                         <span className="font-medium">{formatCurrency(totals.subtotalBruto)}</span>
                     </div>
@@ -808,8 +835,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         </>
                     ) : (
                         <>
-                            <i className="fas fa-save mr-2"></i>
-                            Crear Pedido
+                    <i className="fas fa-save mr-2"></i>
+                    Crear Pedido
                         </>
                     )}
                 </button>

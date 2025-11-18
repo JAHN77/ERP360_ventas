@@ -831,11 +831,23 @@ app.get('/api/facturas', async (req, res) => {
     }));
     res.json({ success: true, data: facturasMapeadas });
   } catch (error) {
-    console.error('Error fetching facturas:', error);
+    console.error('❌ Error obteniendo facturas:', error);
+    console.error('❌ Stack trace:', error.stack);
+    console.error('❌ Detalles completos:', {
+      message: error.message,
+      code: error.code,
+      number: error.number,
+      originalError: error.originalError,
+      sqlMessage: error.originalError?.info?.message
+    });
     res.status(500).json({ 
       success: false, 
       message: 'Error obteniendo facturas',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? {
+        sqlMessage: error.originalError?.info?.message,
+        tableName: TABLE_NAMES.facturas
+      } : undefined
     });
   }
 });
@@ -846,11 +858,23 @@ app.get('/api/facturas-detalle', async (req, res) => {
     const detalles = await executeQuery(QUERIES.GET_FACTURAS_DETALLE);
     res.json({ success: true, data: detalles });
   } catch (error) {
-    console.error('Error fetching facturas detalle:', error);
+    console.error('❌ Error obteniendo detalles de facturas:', error);
+    console.error('❌ Stack trace:', error.stack);
+    console.error('❌ Detalles completos:', {
+      message: error.message,
+      code: error.code,
+      number: error.number,
+      originalError: error.originalError,
+      sqlMessage: error.originalError?.info?.message
+    });
     res.status(500).json({ 
       success: false, 
       message: 'Error obteniendo detalles de facturas',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? {
+        sqlMessage: error.originalError?.info?.message,
+        tableName: TABLE_NAMES.facturas_detalle
+      } : undefined
     });
   }
 });
@@ -997,47 +1021,14 @@ app.get('/api/pedidos', async (req, res) => {
           const estadoActual = mapEstadoFromDb(pedido.estado);
           
           // Verificar si tiene remisiones
-          // ven_recibos usa numped para relacionarse con pedidos, no pedido_id
+          // ven_remiciones_enc usa pedido_id para relacionarse con pedidos
           const reqRemisiones = new sql.Request(pool);
           reqRemisiones.input('pedidoId', sql.Int, pedidoId);
-          // Primero obtener el numero_pedido para generar numped
-          const reqPedidoNum = new sql.Request(pool);
-          reqPedidoNum.input('pedidoId', sql.Int, pedidoId);
-          const pedidoNumResult = await reqPedidoNum.query(`
-            SELECT numero_pedido
-            FROM ven_pedidos
-            WHERE id = @pedidoId
+          const remisionesResult = await reqRemisiones.query(`
+            SELECT COUNT(*) as total
+            FROM ${TABLE_NAMES.remisiones}
+            WHERE pedido_id = @pedidoId
           `);
-          const numeroPedido = pedidoNumResult.recordset[0]?.numero_pedido;
-          
-          // Generar numped desde numero_pedido
-          let numpedForRemisiones = null;
-          if (numeroPedido) {
-            const match = String(numeroPedido).match(/(\d+)/);
-            if (match) {
-              numpedForRemisiones = 'PED' + match[1].padStart(5, '0');
-            } else {
-              numpedForRemisiones = String(numeroPedido).replace(/-/g, '').substring(0, 8).padStart(8, '0');
-            }
-            numpedForRemisiones = numpedForRemisiones.substring(0, 8).padStart(8, '0');
-          }
-          
-          let remisionesResult;
-          if (numpedForRemisiones) {
-            reqRemisiones.input('numped', sql.Char(8), numpedForRemisiones);
-            remisionesResult = await reqRemisiones.query(`
-              SELECT COUNT(*) as total
-              FROM ven_recibos
-              WHERE numped = @numped
-            `);
-          } else {
-            // Fallback: intentar con pedido_id si existe
-            remisionesResult = await reqRemisiones.query(`
-              SELECT COUNT(*) as total
-              FROM ven_recibos
-              WHERE pedido_id = @pedidoId
-            `);
-          }
           
           const tieneRemisiones = remisionesResult.recordset[0].total > 0;
           
@@ -1102,11 +1093,18 @@ app.get('/api/pedidos', async (req, res) => {
             }
             
             const reqItemsRemitidos = new sql.Request(pool);
-            let itemsRemitidosResult;
-            // ven_recibos usa numped, no pedido_id. ven_detarecibo no tiene items de productos, solo pagos
-            // Por ahora, asumir que no hay items remitidos ya que ven_detarecibo es para pagos
-            // Si necesitas verificar items remitidos, necesitarías otra tabla o estructura
-            itemsRemitidosResult = { recordset: [] };
+            reqItemsRemitidos.input('pedidoId', sql.Int, pedidoId);
+            // Obtener items remitidos desde ven_remiciones_det usando cantidad_enviada
+            const itemsRemitidosResult = await reqItemsRemitidos.query(`
+              SELECT 
+                rd.codins,
+                (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))) as producto_id,
+                SUM(rd.cantidad_enviada) as cantidad_remitida
+              FROM ${TABLE_NAMES.remisiones_detalle} rd
+              INNER JOIN ${TABLE_NAMES.remisiones} r ON rd.remision_id = r.id
+              WHERE r.pedido_id = @pedidoId
+              GROUP BY rd.codins
+            `);
             
             // Verificar si todos los items están completamente remitidos
             let todosRemitidos = true;
@@ -1114,7 +1112,7 @@ app.get('/api/pedidos', async (req, res) => {
             
             for (const itemPedido of itemsPedidoResult.recordset) {
               const itemRemitido = itemsRemitidosResult.recordset.find(
-                ir => ir.producto_id === itemPedido.producto_id
+                ir => String(ir.codins || '').trim() === String(itemPedido.codins || '').trim()
               );
               const cantidadRemitida = itemRemitido ? parseFloat(itemRemitido.cantidad_remitida) : 0;
               const cantidadPedida = parseFloat(itemPedido.cantidad);
@@ -1218,33 +1216,43 @@ app.get('/api/pedidos-detalle', async (req, res) => {
 // Ruta para obtener remisiones
 app.get('/api/remisiones', async (req, res) => {
   try {
-    console.log('📦 [Backend] Obteniendo remisiones desde ven_recibos...');
-    const { codter, codalm, numped, estrec, page, pageSize, search } = req.query;
+    console.log('📦 [Backend] Obteniendo remisiones desde ven_remiciones_enc...');
+    const { codter, codalm, pedidoId, estado, page, pageSize, search } = req.query;
     
     // Construir WHERE dinámicamente
     let whereClauses = [];
     if (codter) whereClauses.push(`LTRIM(RTRIM(r.codter)) = LTRIM(RTRIM('${codter}'))`);
-    if (codalm) whereClauses.push(`r.codalm = '${codalm}'`);
-    if (numped) whereClauses.push(`r.numped = ${numped}`);
-    if (estrec) {
-      // Mapear estado del frontend al estado de BD
-      const estadoMap = {
-        'BORRADOR': 'B',
-        'ENTREGADO': 'E',
-        'EN_TRANSITO': 'T',
-        'CANCELADO': 'C'
-      };
-      const estadoDb = estadoMap[estrec] || estrec;
-      whereClauses.push(`r.estrec = '${estadoDb}'`);
+    if (codalm) whereClauses.push(`LTRIM(RTRIM(r.codalm)) = LTRIM(RTRIM('${codalm}'))`);
+    if (pedidoId) {
+      const pedidoIdNum = parseInt(pedidoId);
+      if (isFinite(pedidoIdNum)) {
+        whereClauses.push(`r.pedido_id = ${pedidoIdNum}`);
+      }
+    }
+    if (estado) {
+      // Mapear el estado del frontend a formato de BD antes de buscar
+      const estadoDb = mapEstadoToDb(estado);
+      whereClauses.push(`LTRIM(RTRIM(r.estado)) = LTRIM(RTRIM('${estadoDb}'))`);
     }
     
-    // Búsqueda por número de remisión, cliente o observaciones
-    if (search && search.trim() !== '' && search !== '[object Object]') {
+    // Búsqueda ampliada: número de remisión, cliente ID, cliente nombre, pedido origen, vendedor, estado, observaciones
+    // Validar que tenga al menos 2 caracteres
+    if (search && search.trim() !== '' && search !== '[object Object]' && search.trim().length >= 2) {
       const searchTerm = search.trim().replace(/'/g, "''"); // Escapar comillas simples
       whereClauses.push(`(
-        CAST(r.numrec AS VARCHAR) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(r.numero_remision)) LIKE '%${searchTerm}%' OR
         LTRIM(RTRIM(r.codter)) LIKE '%${searchTerm}%' OR
-        LTRIM(RTRIM(r.observa)) LIKE '%${searchTerm}%'
+        LTRIM(RTRIM(CAST(r.pedido_id AS VARCHAR))) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(r.estado)) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(r.observaciones)) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(COALESCE(c.nomter, ''))) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(COALESCE(c.nom1, ''))) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(COALESCE(c.nom2, ''))) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(COALESCE(c.apl1, ''))) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(COALESCE(c.apl2, ''))) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(COALESCE(v.nomven, ''))) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(COALESCE(CAST(v.ideven AS VARCHAR(20)), ''))) LIKE '%${searchTerm}%' OR
+        LTRIM(RTRIM(COALESCE(v.codven, ''))) LIKE '%${searchTerm}%'
       )`);
     }
     
@@ -1255,60 +1263,42 @@ app.get('/api/remisiones', async (req, res) => {
     const size = parseInt(pageSize) || 50;
     const offset = (pageNum - 1) * size;
     
-    // Query para contar total de registros
+    // Query para contar total de registros (con JOINs para búsqueda en cliente y vendedor)
+    // NOTA: ven_vendedor usa ideven como ID, que se mapea a codi_emple. El JOIN debe usar ideven o codven
     const countQuery = `
       SELECT COUNT(*) as total
-      FROM ven_recibos r
+      FROM ${TABLE_NAMES.remisiones} r
+      LEFT JOIN ${TABLE_NAMES.clientes} c ON LTRIM(RTRIM(r.codter)) = LTRIM(RTRIM(c.codter))
+      LEFT JOIN ${TABLE_NAMES.vendedores} v ON (
+        LTRIM(RTRIM(r.codven)) = LTRIM(RTRIM(CAST(v.ideven AS VARCHAR(20)))) OR
+        LTRIM(RTRIM(r.codven)) = LTRIM(RTRIM(v.codven))
+      )
       ${where}
     `;
     const countResult = await executeQuery(countQuery);
     const total = countResult[0]?.total || 0;
     const totalPages = Math.ceil(total / size);
     
-    // Query principal con paginación
+    // Query principal con paginación - Usando estructura de ven_remiciones_enc
     const sqlQuery = `
       SELECT 
         r.id,
-        -- Mapear numrec a numeroRemision (formato: REM-0001)
-        'REM-' + RIGHT('0000' + CAST(r.numrec AS VARCHAR), 4) as numeroRemision,
-        r.numrec,
-        r.codalm,
-        r.tipdoc,
-        -- Mapear fecrec a fechaRemision
-        CAST(r.fecrec AS DATE) as fechaRemision,
-        r.fecrec,
-        -- Mapear numped a pedidoId (puede ser NULL)
-        CAST(r.numped AS VARCHAR(20)) as pedidoId,
-        r.numped,
-        -- Mapear codter a clienteId
-        LTRIM(RTRIM(r.codter)) as clienteId,
-        r.codter,
-        -- Mapear CODVEN a vendedorId
-        LTRIM(RTRIM(r.CODVEN)) as vendedorId,
-        r.CODVEN as codVendedor,
-        -- Mapear valores: valrec = total, netrec = neto, desrec = descuento
-        COALESCE(r.netrec, 0) as subtotal,
-        COALESCE(r.desrec, 0) as descuentoValor,
-        -- Calcular IVA si es necesario (valrec - netrec - desrec)
-        COALESCE(r.valrec, 0) - COALESCE(r.netrec, 0) - COALESCE(r.desrec, 0) as ivaValor,
-        COALESCE(r.valrec, 0) as total,
-        -- Mapear observa a observaciones
-        LTRIM(RTRIM(COALESCE(r.observa, ''))) as observaciones,
-        -- Mapear estrec a estado (B=BORRADOR, otros estados según corresponda)
-        CASE 
-          WHEN r.estrec = 'B' THEN 'BORRADOR'
-          WHEN r.estrec = 'E' THEN 'ENTREGADO'
-          WHEN r.estrec = 'T' THEN 'EN_TRANSITO'
-          WHEN r.estrec = 'C' THEN 'CANCELADO'
-          ELSE 'BORRADOR'
-        END as estado,
-        r.estrec as estadoOriginal,
-        -- Mapear codalm a empresaId
-        r.codalm as empresaId,
-        -- Campos adicionales de la BD real
-        r.fecsys as fechaCreacion,
-        r.codusu as codUsuario,
-        -- Campos que no existen en la BD pero se dejan como NULL para compatibilidad
+        LTRIM(RTRIM(COALESCE(r.numero_remision, ''))) as numeroRemision,
+        LTRIM(RTRIM(COALESCE(r.codalm, ''))) as codalm,
+        CAST(r.fecha_remision AS DATE) as fechaRemision,
+        CAST(COALESCE(r.pedido_id, NULL) AS INT) as pedidoId,
+        LTRIM(RTRIM(COALESCE(r.codter, ''))) as clienteId,
+        LTRIM(RTRIM(COALESCE(r.codven, ''))) as vendedorId,
+        LTRIM(RTRIM(COALESCE(r.estado, 'BORRADOR'))) as estado,
+        LTRIM(RTRIM(COALESCE(r.observaciones, ''))) as observaciones,
+        LTRIM(RTRIM(COALESCE(r.codusu, ''))) as codUsuario,
+        COALESCE(r.fec_creacion, GETDATE()) as fechaCreacion,
+        -- Campos calculados/compatibilidad (no existen en la tabla pero se dejan como NULL)
+        NULL as subtotal,
+        NULL as descuentoValor,
+        NULL as ivaValor,
+        NULL as total,
+        NULL as empresaId,
         NULL as facturaId,
         NULL as estadoEnvio,
         NULL as metodoEnvio,
@@ -1316,18 +1306,30 @@ app.get('/api/remisiones', async (req, res) => {
         NULL as transportadora,
         NULL as numeroGuia,
         NULL as fechaDespacho
-      FROM ven_recibos r
+      FROM ${TABLE_NAMES.remisiones} r
+      LEFT JOIN ${TABLE_NAMES.clientes} c ON LTRIM(RTRIM(r.codter)) = LTRIM(RTRIM(c.codter))
+      LEFT JOIN ${TABLE_NAMES.vendedores} v ON (
+        LTRIM(RTRIM(r.codven)) = LTRIM(RTRIM(CAST(v.ideven AS VARCHAR(20)))) OR
+        LTRIM(RTRIM(r.codven)) = LTRIM(RTRIM(v.codven))
+      )
       ${where}
-      ORDER BY r.fecrec DESC
+      ORDER BY r.fecha_remision DESC, r.id DESC
       OFFSET ${offset} ROWS
       FETCH NEXT ${size} ROWS ONLY
     `;
     
     const remisiones = await executeQuery(sqlQuery);
-    console.log(`✅ [Backend] Remisiones encontradas: ${remisiones.length} de ${total} total (página ${pageNum}/${totalPages})`);
+    
+    // Mapear estados de BD a frontend usando mapEstadoFromDb
+    const remisionesMapeadas = remisiones.map(r => ({
+      ...r,
+      estado: mapEstadoFromDb(r.estado)
+    }));
+    
+    console.log(`✅ [Backend] Remisiones encontradas: ${remisionesMapeadas.length} de ${total} total (página ${pageNum}/${totalPages})`);
     res.json({ 
       success: true, 
-      data: remisiones,
+      data: remisionesMapeadas,
       pagination: {
         page: pageNum,
         pageSize: size,
@@ -1337,175 +1339,130 @@ app.get('/api/remisiones', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error obteniendo remisiones:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('❌ Stack trace:', error.stack);
+    console.error('❌ Detalles completos:', {
+      message: error.message,
+      code: error.code,
+      number: error.number,
+      originalError: error.originalError,
+      sqlMessage: error.originalError?.info?.message,
+      sqlNumber: error.originalError?.info?.number,
+      sqlState: error.originalError?.info?.state,
+      sqlClass: error.originalError?.info?.class
+    });
+    console.error('❌ Query que causó el error:', {
+      countQuery,
+      sqlQuery: sqlQuery?.substring(0, 500) + '...'
+    });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error obteniendo remisiones',
+      error: error.message,
+      ...(process.env.NODE_ENV === 'development' ? {
+        sqlError: {
+          message: error.originalError?.info?.message,
+          number: error.originalError?.info?.number,
+          state: error.originalError?.info?.state,
+          class: error.originalError?.info?.class
+        },
+        details: {
+          sqlMessage: error.originalError?.info?.message,
+          tableName: TABLE_NAMES.remisiones
+        }
+      } : {})
+    });
   }
 });
 
-// Detalle de pagos/cobros asociados (ven_detarecibo)
-app.get('/api/remisiones/:numrec/detalle', async (req, res) => {
+// Detalle de items de una remisión específica (ven_remiciones_det)
+app.get('/api/remisiones/:id/detalle', async (req, res) => {
   try {
-    const { numrec } = req.params;
-    const { codalm, tipdoc } = req.query;
-    if (!codalm || !tipdoc) {
-      return res.status(400).json({ success: false, message: 'codalm y tipdoc son requeridos para identificar el recibo' });
+    const { id } = req.params;
+    const remisionIdNum = parseInt(id);
+    if (!isFinite(remisionIdNum) || remisionIdNum < 1) {
+      return res.status(400).json({ success: false, message: 'ID de remisión inválido' });
     }
-    const sql = `
+    
+    const sqlQuery = `
       SELECT
-        id,
-        codalm,
-        tipdoc,
-        numrec,
-        valcuo,
-        forpag,
-        numdoc,
-        codban,
-        feccheq,
-        abocuo,
-        salcuo,
-        estrec
-      FROM ven_detarecibo
-      WHERE numrec = ${numrec} AND codalm = '${codalm}' AND tipdoc = '${tipdoc}'
+        rd.id,
+        CAST(COALESCE(rd.remision_id, 0) AS INT) as remisionId,
+        CAST(COALESCE(rd.deta_pedido_id, NULL) AS INT) as detaPedidoId,
+        LTRIM(RTRIM(COALESCE(rd.codins, ''))) as codProducto,
+        -- Obtener el ID del producto desde inv_insumos usando codins
+        COALESCE(
+          (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+          NULL
+        ) as productoId,
+        -- Obtener descripción del producto
+        COALESCE(
+          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+          LTRIM(RTRIM(COALESCE(rd.codins, '')))
+        ) as descripcion,
+        COALESCE(rd.cantidad_enviada, 0) as cantidadEnviada,
+        COALESCE(rd.cantidad_facturada, 0) as cantidadFacturada,
+        COALESCE(rd.cantidad_devuelta, 0) as cantidadDevuelta,
+        -- Campos calculados/compatibilidad
+        COALESCE(rd.cantidad_enviada, 0) as cantidad,
+        NULL as precioUnitario,
+        NULL as descuentoPorcentaje,
+        NULL as ivaPorcentaje,
+        NULL as subtotal,
+        NULL as valorIva,
+        NULL as total
+      FROM ${TABLE_NAMES.remisiones_detalle} rd
+      WHERE rd.remision_id = ${remisionIdNum}
     `;
-    const data = await executeQuery(sql);
+    const data = await executeQuery(sqlQuery);
     res.json({ success: true, data });
   } catch (error) {
+    console.error('❌ Error obteniendo detalle de remisión:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Endpoint para obtener items de productos de una remisión (desde el pedido relacionado)
+// Endpoint para obtener items de productos de todas las remisiones (desde ven_remiciones_det)
 app.get('/api/remisiones-detalle', async (req, res) => {
   try {
     console.log('📦 [Backend] Obteniendo detalles de remisiones (items de productos)...');
     
-    // Obtener todas las remisiones con sus pedidos relacionados
-    // Compatible con ambas estructuras: numped (real) y pedido_id (alternativa)
-    const remisionesQuery = `
-      SELECT DISTINCT
-        r.id as remisionId,
-        r.numrec,
-        COALESCE(r.numped, CAST(r.pedido_id AS VARCHAR)) as numped,
-        r.pedido_id,
-        r.codalm,
-        r.tipdoc
-      FROM ven_recibos r
-      WHERE (r.numped IS NOT NULL AND r.numped > 0) OR (r.pedido_id IS NOT NULL AND r.pedido_id > 0)
-    `;
-    const remisiones = await executeQuery(remisionesQuery);
-    
-    if (remisiones.length === 0) {
-      console.log('⚠️ [Backend] No se encontraron remisiones con pedidos relacionados');
-      return res.json({ success: true, data: [] });
-    }
-    
-    // Obtener numpeds únicos y también pedido_ids para mapear
-    const numpeds = remisiones.map(r => r.numped).filter(v => v && v !== '0' && v !== '');
-    const pedidoIds = remisiones.map(r => r.pedido_id).filter(v => v && v > 0);
-    
-    if (numpeds.length === 0 && pedidoIds.length === 0) {
-      return res.json({ success: true, data: [] });
-    }
-    
-    // Construir query para obtener items, compatible con ambas estructuras
-    let itemsQuery;
-    if (numpeds.length > 0) {
-      // Usar numped (estructura real)
-      const numpedsStr = numpeds.map(n => `'${String(n).substring(0, 8).padStart(8, '0')}'`).join(',');
-      itemsQuery = `
+    // Obtener todos los items de remisiones desde ven_remiciones_det
+    const sqlQuery = `
         SELECT 
-          pd.numped,
-          pd.codins as codProducto,
-          pd.codins,
-          -- Buscar el ID del producto desde inv_insumos
-          (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as productoId,
-          pd.canped as cantidad,
-          pd.valins as precioUnitario,
-          COALESCE(pd.dctped, 0) as descuentoPorcentaje,
-          COALESCE(pd.ivaped, 0) as ivaPorcentaje,
+        rd.id,
+        CAST(COALESCE(rd.remision_id, 0) AS INT) as remisionId,
+        CAST(COALESCE(rd.deta_pedido_id, NULL) AS INT) as detaPedidoId,
+        LTRIM(RTRIM(COALESCE(rd.codins, ''))) as codProducto,
+        -- Obtener el ID del producto desde inv_insumos usando codins
+        COALESCE(
+          (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+          NULL
+        ) as productoId,
           -- Obtener descripción del producto
-          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(desins, ''))) FROM inv_insumos WHERE codins = pd.codins) as descripcion,
-          -- Calcular subtotal, IVA y total
-          pd.canped * pd.valins * (1 - COALESCE(pd.dctped, 0) / 100) as subtotal,
-          pd.canped * pd.valins * (1 - COALESCE(pd.dctped, 0) / 100) * (COALESCE(pd.ivaped, 0) / 100) as valorIva,
-          pd.canped * pd.valins * (1 - COALESCE(pd.dctped, 0) / 100) * (1 + COALESCE(pd.ivaped, 0) / 100) as total,
-          -- Campos adicionales
-          COALESCE(pd.canent, 0) as cantEntregada,
-          COALESCE(pd.canfac, 0) as cantFacturada,
-          pd.estped as estadoItem,
-          pd.codalm,
-          pd.serial,
-          pd.numfac
-        FROM ven_detapedidos pd
-        WHERE pd.numped IN (${numpedsStr})
-      `;
-    } else {
-      // Usar pedido_id (estructura alternativa)
-      const pedidoIdsStr = pedidoIds.join(',');
-      itemsQuery = `
-        SELECT 
-          CAST(pd.pedido_id AS VARCHAR) as numped,
-          pd.codins as codProducto,
-          pd.codins,
-          pd.producto_id as productoId,
-          pd.cantidad,
-          pd.precio_unitario as precioUnitario,
-          COALESCE(pd.descuento_porcentaje, 0) as descuentoPorcentaje,
-          COALESCE(pd.iva_porcentaje, 0) as ivaPorcentaje,
-          pd.descripcion,
-          COALESCE(pd.subtotal, 0) as subtotal,
-          COALESCE(pd.valor_iva, 0) as valorIva,
-          COALESCE(pd.total, 0) as total,
-          0 as cantEntregada,
-          0 as cantFacturada,
-          'P' as estadoItem,
-          pd.codalm,
-          NULL as serial,
-          NULL as numfac
-        FROM ven_detapedidos pd
-        WHERE pd.pedido_id IN (${pedidoIdsStr})
-      `;
-    }
+        COALESCE(
+          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+          LTRIM(RTRIM(COALESCE(rd.codins, '')))
+        ) as descripcion,
+        COALESCE(rd.cantidad_enviada, 0) as cantidadEnviada,
+        COALESCE(rd.cantidad_facturada, 0) as cantidadFacturada,
+        COALESCE(rd.cantidad_devuelta, 0) as cantidadDevuelta,
+        -- Campos calculados/compatibilidad
+        COALESCE(rd.cantidad_enviada, 0) as cantidad,
+        NULL as precioUnitario,
+        NULL as descuentoPorcentaje,
+        NULL as ivaPorcentaje,
+        NULL as subtotal,
+        NULL as valorIva,
+        NULL as total
+      FROM ${TABLE_NAMES.remisiones_detalle} rd
+      WHERE rd.remision_id IS NOT NULL
+      ORDER BY rd.remision_id, rd.id
+    `;
     
-    const items = await executeQuery(itemsQuery);
+    const items = await executeQuery(sqlQuery);
     
-    // Mapear items a remisiones usando numped o pedido_id
-    const itemsMapeados = [];
-    items.forEach(item => {
-      // Encontrar todas las remisiones que corresponden a este pedido
-      const remisionesDelPedido = remisiones.filter(r => {
-        const remisionNumped = String(r.numped || '').trim();
-        const itemNumped = String(item.numped || '').trim();
-        return remisionNumped === itemNumped || 
-               (r.pedido_id && String(r.pedido_id) === itemNumped);
-      });
-      
-      remisionesDelPedido.forEach(remision => {
-        itemsMapeados.push({
-          id: `rem-${remision.remisionId}-prod-${item.codProducto}`,
-          remisionId: String(remision.remisionId),
-          numrec: remision.numrec, // Agregar numrec para facilitar el match
-          productoId: item.productoId ? Number(item.productoId) : null,
-          codProducto: item.codProducto,
-          cantidad: Number(item.cantidad) || 0,
-          precioUnitario: Number(item.precioUnitario) || 0,
-          descuentoPorcentaje: Number(item.descuentoPorcentaje) || 0,
-          ivaPorcentaje: Number(item.ivaPorcentaje) || 0,
-          descripcion: item.descripcion || '',
-          subtotal: Number(item.subtotal) || 0,
-          valorIva: Number(item.valorIva) || 0,
-          total: Number(item.total) || 0,
-          cantEntregada: Number(item.cantEntregada) || 0,
-          cantFacturada: Number(item.cantFacturada) || 0,
-          estadoItem: item.estadoItem,
-          codalm: item.codalm,
-          serial: item.serial,
-          numFactura: item.numfac
-        });
-      });
-    });
-    
-    console.log(`✅ [Backend] Items de remisiones encontrados: ${itemsMapeados.length}`);
-    res.json({ success: true, data: itemsMapeados });
+    console.log(`✅ [Backend] Items de remisiones encontrados: ${items.length}`);
+    res.json({ success: true, data: items });
   } catch (error) {
     console.error('❌ Error obteniendo detalles de remisiones:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -1610,7 +1567,7 @@ app.get('/api/notas-credito', async (req, res) => {
         estado_dian AS estadoDian,
         created_at AS createdAt,
         updated_at AS updatedAt
-      FROM ven_notas
+      FROM ${TABLE_NAMES.notas_credito}
       ORDER BY fecha_emision DESC, id DESC
     `);
 
@@ -1654,11 +1611,23 @@ app.get('/api/notas-credito', async (req, res) => {
 
     res.json({ success: true, data });
   } catch (error) {
-    console.error('Error fetching notas credito:', error);
+    console.error('❌ Error obteniendo notas de crédito:', error);
+    console.error('❌ Stack trace:', error.stack);
+    console.error('❌ Detalles completos:', {
+      message: error.message,
+      code: error.code,
+      number: error.number,
+      originalError: error.originalError,
+      sqlMessage: error.originalError?.info?.message
+    });
     res.status(500).json({ 
       success: false, 
       message: 'Error obteniendo notas de crédito',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? {
+        sqlMessage: error.originalError?.info?.message,
+        tableName: TABLE_NAMES.notas_credito
+      } : undefined
     });
   }
 });
@@ -3344,6 +3313,49 @@ app.post('/api/pedidos', async (req, res) => {
       
       console.log(`✅ Cliente encontrado: codter="${clienteIdStr}" (${clienteResult.recordset[0].nomter})`);
       
+      // Validar que el almacén existe (empresaId debe corresponder a un almacén activo)
+      const empresaIdStr = String(empresaId || '001').trim();
+      console.log(`🔍 Validando almacén: "${empresaIdStr}"`);
+      
+      const reqCheckAlmacen = new sql.Request(tx);
+      reqCheckAlmacen.input('codalm', sql.VarChar(10), empresaIdStr);
+      const almacenResult = await reqCheckAlmacen.query(`
+        SELECT codalm, nomalm, activo
+        FROM inv_almacen
+        WHERE codalm = @codalm AND activo = 1
+      `);
+      
+      if (almacenResult.recordset.length === 0) {
+        await tx.rollback();
+        console.error(`❌ Almacén NO encontrado o inactivo: codalm="${empresaIdStr}"`);
+        
+        // Obtener ejemplos de almacenes disponibles
+        let ejemplosAlmacenes = [];
+        try {
+          const reqEjemplos = new sql.Request(tx);
+          const ejemplosResult = await reqEjemplos.query(`
+            SELECT TOP 5 codalm, nomalm, activo
+            FROM inv_almacen
+            ORDER BY codalm
+          `);
+          ejemplosAlmacenes = ejemplosResult.recordset;
+        } catch (err) {
+          console.error('Error obteniendo ejemplos de almacenes:', err);
+        }
+        
+        return res.status(400).json({ 
+          success: false, 
+          message: `Almacén/Bodega con código '${empresaIdStr}' no encontrado o inactivo. Verifique que el código de almacén exista en la base de datos.`, 
+          error: 'ALMACEN_NOT_FOUND',
+          debug: {
+            empresaIdRecibido: empresaIdStr,
+            ejemplosAlmacenes: ejemplosAlmacenes
+          }
+        });
+      }
+      
+      console.log(`✅ Almacén encontrado: codalm="${empresaIdStr}" (${almacenResult.recordset[0].nomalm})`);
+      
       // Validar que el vendedor existe si se proporciona
       let vendedorIdFinal = null;
       if (vendedorId !== null && vendedorId !== undefined) {
@@ -3479,7 +3491,7 @@ app.post('/api/pedidos', async (req, res) => {
       
       const req1 = new sql.Request(tx);
       const estadoMapeado = mapEstadoToDb(estado);
-
+      
       // Insertar con estructura real de la tabla ven_pedidos
       // Columnas reales: id, numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, 
       // empresa_id, codtar, codusu, cotizacion_id, subtotal, descuento_valor, descuento_porcentaje,
@@ -3488,60 +3500,90 @@ app.post('/api/pedidos', async (req, res) => {
       const codVendedorFinal = vendedorIdFinal ? String(vendedorIdFinal).trim() : null;
       
       // Normalizar y validar valores numéricos
-      const subtotalNum = Number(subtotal) || 0;
-      const descuentoValorNum = Number(descuentoValor) || 0;
-      const ivaValorNum = Number(ivaValor) || 0;
-      const totalNum = Number(total) || 0;
-      const impoconsumoValorNum = Number(impoconsumoValor) || 0;
+      // CRÍTICO: Validar todos los valores antes de procesarlos
+      const subtotalRaw = subtotal;
+      const descuentoValorRaw = descuentoValor;
+      const ivaValorRaw = ivaValor;
+      const totalRaw = total;
+      const impoconsumoValorRaw = impoconsumoValor;
       
-      // Validar que sean números finitos
-      const subtotalFinal = isFinite(subtotalNum) ? Math.max(0, subtotalNum) : 0;
-      const descuentoValorFinal = isFinite(descuentoValorNum) ? Math.max(0, descuentoValorNum) : 0;
-      const ivaValorFinal = isFinite(ivaValorNum) ? Math.max(0, ivaValorNum) : 0;
-      const totalFinal = isFinite(totalNum) ? Math.max(0, totalNum) : 0;
-      const impoconsumoValorFinal = isFinite(impoconsumoValorNum) ? Math.max(0, impoconsumoValorNum) : 0;
+      console.log('📊 Valores recibidos del body:', {
+        subtotal: subtotalRaw,
+        descuentoValor: descuentoValorRaw,
+        ivaValor: ivaValorRaw,
+        total: totalRaw,
+        impoconsumoValor: impoconsumoValorRaw
+      });
+      
+      // Convertir a número y validar
+      const subtotalNum = typeof subtotalRaw === 'number' ? subtotalRaw : parseFloat(subtotalRaw);
+      const descuentoValorNum = typeof descuentoValorRaw === 'number' ? descuentoValorRaw : parseFloat(descuentoValorRaw);
+      const ivaValorNum = typeof ivaValorRaw === 'number' ? ivaValorRaw : parseFloat(ivaValorRaw);
+      const totalNum = typeof totalRaw === 'number' ? totalRaw : parseFloat(totalRaw);
+      const impoconsumoValorNum = typeof impoconsumoValorRaw === 'number' ? impoconsumoValorRaw : parseFloat(impoconsumoValorRaw);
+      
+      // Validar que sean números finitos y no NaN
+      if (!isFinite(subtotalNum) || isNaN(subtotalNum)) {
+        console.error(`❌ subtotal inválido: ${subtotalRaw} → ${subtotalNum}`);
+        throw new Error(`subtotal inválido: ${subtotalRaw}`);
+      }
+      if (!isFinite(totalNum) || isNaN(totalNum)) {
+        console.error(`❌ total inválido: ${totalRaw} → ${totalNum}`);
+        throw new Error(`total inválido: ${totalRaw}`);
+      }
+      
+      // Validar que sean números finitos y limitar a rango válido para DECIMAL(18,2)
+      const maxDecimal18_2 = 9999999999999999.99;
+      const subtotalFinal = Math.max(0, Math.min(Math.abs(subtotalNum), maxDecimal18_2));
+      const descuentoValorFinal = Math.max(0, Math.min(Math.abs(descuentoValorNum || 0), maxDecimal18_2));
+      const ivaValorFinal = Math.max(0, Math.min(Math.abs(ivaValorNum || 0), maxDecimal18_2));
+      const totalFinal = Math.max(0, Math.min(Math.abs(totalNum), maxDecimal18_2));
+      const impoconsumoValorFinal = Math.max(0, Math.min(Math.abs(impoconsumoValorNum || 0), maxDecimal18_2));
+      
+      // Validar valores DECIMAL(18,2) sin redondeo - usar valores exactos
+      const subtotalFinalLimited = Math.min(subtotalFinal, maxDecimal18_2);
+      const descuentoValorFinalLimited = Math.min(descuentoValorFinal, maxDecimal18_2);
+      const ivaValorFinalLimited = Math.min(ivaValorFinal, maxDecimal18_2);
+      const impoconsumoValorFinalLimited = Math.min(impoconsumoValorFinal, maxDecimal18_2);
+      const totalFinalLimited = Math.min(totalFinal, maxDecimal18_2);
       
       // Calcular porcentajes si es necesario - Limitar a rango válido para DECIMAL(5,2) (máx 999.99)
       let descuentoPorcentaje = 0;
-      if (subtotalFinal > 0 && descuentoValorFinal > 0) {
-        descuentoPorcentaje = (descuentoValorFinal / subtotalFinal) * 100;
-        // Limitar a 999.99 (máximo para DECIMAL(5,2))
-        descuentoPorcentaje = Math.min(Math.max(descuentoPorcentaje, 0), 999.99);
-        // Redondear a 2 decimales
-        descuentoPorcentaje = Math.round(descuentoPorcentaje * 100) / 100;
+      if (subtotalFinalLimited > 0 && subtotalFinalLimited !== Infinity && descuentoValorFinalLimited > 0 && descuentoValorFinalLimited !== Infinity) {
+        const descuentoPorcentajeCalc = (descuentoValorFinalLimited / subtotalFinalLimited) * 100;
+        // Validar que sea finito antes de limitar
+        if (isFinite(descuentoPorcentajeCalc) && !isNaN(descuentoPorcentajeCalc)) {
+          descuentoPorcentaje = Math.min(Math.max(descuentoPorcentajeCalc, 0), 999.99);
+        }
       }
       
       let ivaPorcentaje = 0;
-      const baseParaIva = subtotalFinal - descuentoValorFinal;
-      if (baseParaIva > 0 && ivaValorFinal > 0) {
-        ivaPorcentaje = (ivaValorFinal / baseParaIva) * 100;
-        // Limitar a 999.99 (máximo para DECIMAL(5,2))
-        ivaPorcentaje = Math.min(Math.max(ivaPorcentaje, 0), 999.99);
-        // Redondear a 2 decimales
-        ivaPorcentaje = Math.round(ivaPorcentaje * 100) / 100;
+      const baseParaIva = subtotalFinalLimited - descuentoValorFinalLimited;
+      if (baseParaIva > 0 && baseParaIva !== Infinity && ivaValorFinalLimited > 0 && ivaValorFinalLimited !== Infinity) {
+        const ivaPorcentajeCalc = (ivaValorFinalLimited / baseParaIva) * 100;
+        // Validar que sea finito antes de limitar
+        if (isFinite(ivaPorcentajeCalc) && !isNaN(ivaPorcentajeCalc)) {
+          ivaPorcentaje = Math.min(Math.max(ivaPorcentajeCalc, 0), 999.99);
+        }
       }
       
-      // Validar que no sean NaN o Infinity
-      if (!isFinite(descuentoPorcentaje)) descuentoPorcentaje = 0;
-      if (!isFinite(ivaPorcentaje)) ivaPorcentaje = 0;
+      // Validación final: asegurar que no sean NaN, Infinity o valores fuera de rango
+      if (!isFinite(descuentoPorcentaje) || isNaN(descuentoPorcentaje) || descuentoPorcentaje < 0 || descuentoPorcentaje > 999.99) {
+        descuentoPorcentaje = 0;
+      }
+      if (!isFinite(ivaPorcentaje) || isNaN(ivaPorcentaje) || ivaPorcentaje < 0 || ivaPorcentaje > 999.99) {
+        ivaPorcentaje = 0;
+      }
       
-      // Asegurar que los porcentajes estén dentro del rango válido y redondeados
-      descuentoPorcentaje = Math.max(0, Math.min(999.99, Math.round(descuentoPorcentaje * 100) / 100));
-      ivaPorcentaje = Math.max(0, Math.min(999.99, Math.round(ivaPorcentaje * 100) / 100));
+      // Asegurar que los porcentajes estén dentro del rango válido (sin redondeo)
+      descuentoPorcentaje = Math.max(0, Math.min(999.99, descuentoPorcentaje));
+      ivaPorcentaje = Math.max(0, Math.min(999.99, ivaPorcentaje));
       
-      // Limitar valores DECIMAL(18,2) al máximo permitido y asegurar exactamente 2 decimales
-      const maxDecimal18_2 = 9999999999999999.99;
-      const subtotalFinalLimited = parseFloat(Math.min(subtotalFinal, maxDecimal18_2).toFixed(2));
-      const descuentoValorFinalLimited = parseFloat(Math.min(descuentoValorFinal, maxDecimal18_2).toFixed(2));
-      const ivaValorFinalLimited = parseFloat(Math.min(ivaValorFinal, maxDecimal18_2).toFixed(2));
-      const impoconsumoValorFinalLimited = parseFloat(Math.min(impoconsumoValorFinal, maxDecimal18_2).toFixed(2));
-      const totalFinalLimited = parseFloat(Math.min(totalFinal, maxDecimal18_2).toFixed(2));
+      // Usar valores exactos sin redondeo
+      const descuentoPorcentajeFinal = descuentoPorcentaje;
+      const ivaPorcentajeFinal = ivaPorcentaje;
       
-      // Asegurar que los porcentajes tengan exactamente 2 decimales
-      const descuentoPorcentajeFinal = parseFloat(descuentoPorcentaje.toFixed(2));
-      const ivaPorcentajeFinal = parseFloat(ivaPorcentaje.toFixed(2));
-      
-      // Log de depuración
+      // Log de depuración detallado
       console.log('📊 Valores validados para inserción:', {
         subtotal: subtotalFinalLimited,
         descuentoValor: descuentoValorFinalLimited,
@@ -3549,23 +3591,60 @@ app.post('/api/pedidos', async (req, res) => {
         ivaValor: ivaValorFinalLimited,
         ivaPorcentaje: ivaPorcentajeFinal,
         impoconsumoValor: impoconsumoValorFinalLimited,
-        total: totalFinalLimited
+        total: totalFinalLimited,
+        validaciones: {
+          subtotalEsFinite: isFinite(subtotalFinalLimited),
+          descuentoPorcentajeEnRango: descuentoPorcentajeFinal >= 0 && descuentoPorcentajeFinal <= 999.99,
+          ivaPorcentajeEnRango: ivaPorcentajeFinal >= 0 && ivaPorcentajeFinal <= 999.99,
+          totalEsFinite: isFinite(totalFinalLimited)
+        }
       });
+      
+      // Validación final antes de insertar - verificar que todos los valores estén en rango
+      if (descuentoPorcentajeFinal > 999.99 || descuentoPorcentajeFinal < 0) {
+        console.error(`❌ descuentoPorcentaje fuera de rango: ${descuentoPorcentajeFinal}`);
+        throw new Error(`descuentoPorcentaje fuera de rango válido (0-999.99): ${descuentoPorcentajeFinal}`);
+      }
+      if (ivaPorcentajeFinal > 999.99 || ivaPorcentajeFinal < 0) {
+        console.error(`❌ ivaPorcentaje fuera de rango: ${ivaPorcentajeFinal}`);
+        throw new Error(`ivaPorcentaje fuera de rango válido (0-999.99): ${ivaPorcentajeFinal}`);
+      }
+      if (subtotalFinalLimited > maxDecimal18_2 || subtotalFinalLimited < 0) {
+        console.error(`❌ subtotal fuera de rango: ${subtotalFinalLimited}`);
+        throw new Error(`subtotal fuera de rango válido: ${subtotalFinalLimited}`);
+      }
+      if (totalFinalLimited > maxDecimal18_2 || totalFinalLimited < 0) {
+        console.error(`❌ total fuera de rango: ${totalFinalLimited}`);
+        throw new Error(`total fuera de rango válido: ${totalFinalLimited}`);
+      }
       
       req1.input('numero_pedido', sql.VarChar(50), numeroPedidoFinal);
       req1.input('fecha_pedido', sql.Date, fechaPedidoFinal);
       req1.input('fecha_entrega_estimada', sql.Date, fechaEntregaEstimada || null);
       req1.input('codter', sql.VarChar(20), clienteIdStr);
-      if (codVendedorFinal) {
+        if (codVendedorFinal) {
         req1.input('codven', sql.VarChar(20), codVendedorFinal);
-      } else {
+        } else {
         req1.input('codven', sql.VarChar(20), null);
       }
       // Validar empresa_id (INT: -2,147,483,648 a 2,147,483,647)
-      const empresaIdNum = Number(empresaId) || 1;
-      const empresaIdValid = isFinite(empresaIdNum) && empresaIdNum >= -2147483648 && empresaIdNum <= 2147483647 
-        ? Math.floor(empresaIdNum) 
-        : 1;
+      // empresaId puede venir como string (codalm) o como número
+      // Intentar convertir codalm a número, si no es posible, usar 1
+      let empresaIdValid = 1;
+      try {
+        // Intentar convertir el codalm a número
+        const empresaIdNum = parseInt(empresaIdStr, 10);
+        if (!isNaN(empresaIdNum) && empresaIdNum >= -2147483648 && empresaIdNum <= 2147483647) {
+          empresaIdValid = empresaIdNum;
+        } else {
+          // Si no es un número válido, usar 1 como fallback
+          // El almacén ya fue validado arriba, así que sabemos que existe
+          empresaIdValid = 1;
+        }
+      } catch (err) {
+        // Si hay error al convertir, usar 1
+        empresaIdValid = 1;
+      }
       
       // Validar cotizacion_id (INT o NULL)
       let cotizacionIdValid = null;
@@ -3594,20 +3673,20 @@ app.post('/api/pedidos', async (req, res) => {
       req1.input('fec_modificacion', sql.DateTime, new Date());
       
       const insertHeader = await req1.query(`
-        INSERT INTO ven_pedidos (
-          numero_pedido, fecha_pedido, fecha_entrega_estimada,
+          INSERT INTO ven_pedidos (
+            numero_pedido, fecha_pedido, fecha_entrega_estimada,
           codter, codven, empresa_id, codtar, codusu, cotizacion_id,
           subtotal, descuento_valor, descuento_porcentaje, iva_valor, iva_porcentaje, 
           impoconsumo_valor, total,
           observaciones, instrucciones_entrega, estado, fec_creacion, fec_modificacion
-        ) VALUES (
-          @numero_pedido, @fecha_pedido, @fecha_entrega_estimada,
+          ) VALUES (
+            @numero_pedido, @fecha_pedido, @fecha_entrega_estimada,
           @codter, @codven, @empresa_id, @codtar, @codusu, @cotizacion_id,
           @subtotal, @descuento_valor, @descuento_porcentaje, @iva_valor, @iva_porcentaje,
           @impoconsumo_valor, @total,
           @observaciones, @instrucciones_entrega, @estado, @fec_creacion, @fec_modificacion
-        );
-        SELECT SCOPE_IDENTITY() AS id;`);
+          );
+          SELECT SCOPE_IDENTITY() AS id;`);
       const newIdRaw = insertHeader.recordset[0].id;
       
       // Validar que newId sea un número entero válido
@@ -3653,12 +3732,12 @@ app.post('/api/pedidos', async (req, res) => {
         
         // La BD real usa numped (CHAR(8)) en ven_detapedidos
         // Generar numped desde numero_pedido (formato: PED-001 -> PED0001)
-        // Extraer número de "PED-001" o "PED001" y formatear a 8 caracteres
+          // Extraer número de "PED-001" o "PED001" y formatear a 8 caracteres
         const match = String(numeroPedidoFinal).match(/(\d+)/);
         let numped;
-        if (match) {
-          numped = 'PED' + match[1].padStart(5, '0');
-        } else {
+          if (match) {
+            numped = 'PED' + match[1].padStart(5, '0');
+          } else {
           numped = String(numeroPedidoFinal).replace(/-/g, '').substring(0, 8).padStart(8, '0');
         }
         
@@ -3666,42 +3745,69 @@ app.post('/api/pedidos', async (req, res) => {
         numped = String(numped).substring(0, 8).padStart(8, '0');
         
         // Normalizar y validar valores numéricos del item
-        const cantidadNum = Number(it.cantidad) || 0;
-        const precioUnitarioNum = Number(it.precioUnitario) || 0;
-        const descuentoValorNum = Number(it.descuentoValor) || 0;
-        const valorIvaNum = Number(it.valorIva) || 0;
+        // CRÍTICO: Validar todos los valores antes de usar parseFloat para evitar overflow
+        const cantidadRaw = it.cantidad;
+        const precioUnitarioRaw = it.precioUnitario;
+        const descuentoValorRaw = it.descuentoValor || it.descuentoPorcentaje || 0;
+        const valorIvaRaw = it.valorIva || 0;
+        
+        // Convertir a número y validar
+        const cantidadNum = typeof cantidadRaw === 'number' ? cantidadRaw : parseFloat(cantidadRaw);
+        const precioUnitarioNum = typeof precioUnitarioRaw === 'number' ? precioUnitarioRaw : parseFloat(precioUnitarioRaw);
+        const descuentoValorNum = typeof descuentoValorRaw === 'number' ? descuentoValorRaw : parseFloat(descuentoValorRaw);
+        const valorIvaNum = typeof valorIvaRaw === 'number' ? valorIvaRaw : parseFloat(valorIvaRaw);
+        
+        // Validar que sean números finitos y no NaN
+        if (!isFinite(cantidadNum) || isNaN(cantidadNum)) {
+          console.error(`❌ Item ${idx + 1}: cantidad inválida:`, cantidadRaw, '→', cantidadNum);
+          throw new Error(`Item ${idx + 1}: cantidad inválida (${cantidadRaw})`);
+        }
+        if (!isFinite(precioUnitarioNum) || isNaN(precioUnitarioNum)) {
+          console.error(`❌ Item ${idx + 1}: precioUnitario inválido:`, precioUnitarioRaw, '→', precioUnitarioNum);
+          throw new Error(`Item ${idx + 1}: precioUnitario inválido (${precioUnitarioRaw})`);
+        }
         
         // Validar que sean números finitos y limitar a rango válido para DECIMAL(18,2)
         // DECIMAL(18,2) puede almacenar valores hasta 9999999999999999.99
-        const maxDecimal = 9999999999999999.99;
-        const cantidad = isFinite(cantidadNum) ? Math.max(0, Math.min(cantidadNum, maxDecimal)) : 0;
-        const valins = isFinite(precioUnitarioNum) ? Math.max(0, Math.min(precioUnitarioNum, maxDecimal)) : 0;
-        const dctped = isFinite(descuentoValorNum) ? Math.max(0, Math.min(descuentoValorNum, maxDecimal)) : 0;
-        const ivaped = isFinite(valorIvaNum) ? Math.max(0, Math.min(valorIvaNum, maxDecimal)) : 0;
-        
-        // Redondear a 2 decimales y limitar al máximo permitido, asegurando exactamente 2 decimales
         const maxDecimal18_2 = 9999999999999999.99;
-        const cantidadFinal = parseFloat(Math.min(Math.max(0, cantidad), maxDecimal18_2).toFixed(2));
-        const valinsFinal = parseFloat(Math.min(Math.max(0, valins), maxDecimal18_2).toFixed(2));
-        const dctpedFinal = parseFloat(Math.min(Math.max(0, dctped), maxDecimal18_2).toFixed(2));
-        const ivapedFinal = parseFloat(Math.min(Math.max(0, ivaped), maxDecimal18_2).toFixed(2));
+        const minDecimal = 0;
         
-        // Validar que sean números finitos
-        const cantidadFinalValid = isFinite(cantidadFinal) ? cantidadFinal : 0;
-        const valinsFinalValid = isFinite(valinsFinal) ? valinsFinal : 0;
-        const dctpedFinalValid = isFinite(dctpedFinal) ? dctpedFinal : 0;
-        const ivapedFinalValid = isFinite(ivapedFinal) ? ivapedFinal : 0;
+        // Asegurar que estén en el rango válido
+        // Validar valores sin redondeo - usar valores exactos
+        const cantidad = Math.max(minDecimal, Math.min(Math.abs(cantidadNum), maxDecimal18_2));
+        const valins = Math.max(minDecimal, Math.min(Math.abs(precioUnitarioNum), maxDecimal18_2));
+        const dctped = Math.max(minDecimal, Math.min(Math.abs(descuentoValorNum || 0), maxDecimal18_2));
+        const ivaped = Math.max(minDecimal, Math.min(Math.abs(valorIvaNum || 0), maxDecimal18_2));
         
-        // Log de depuración para items
-        console.log(`📦 Item ${idx + 1} valores validados:`, {
+        // Validación final: asegurar que sean números finitos y válidos (sin redondeo)
+        const cantidadFinalValid = isFinite(cantidad) && !isNaN(cantidad) ? cantidad : 0;
+        const valinsFinalValid = isFinite(valins) && !isNaN(valins) ? valins : 0;
+        const dctpedFinalValid = isFinite(dctped) && !isNaN(dctped) ? dctped : 0;
+        const ivapedFinalValid = isFinite(ivaped) && !isNaN(ivaped) ? ivaped : 0;
+        
+        // Log de depuración detallado para items
+        console.log(`📦 Item ${idx + 1} - Valores originales:`, {
+          cantidadRaw,
+          precioUnitarioRaw,
+          descuentoValorRaw,
+          valorIvaRaw
+        });
+        console.log(`📦 Item ${idx + 1} - Valores validados:`, {
           cantidad: cantidadFinalValid,
           valins: valinsFinalValid,
           dctped: dctpedFinalValid,
-          ivaped: ivapedFinalValid
+          ivaped: ivapedFinalValid,
+          isFinite: {
+            cantidad: isFinite(cantidadFinalValid),
+            valins: isFinite(valinsFinalValid),
+            dctped: isFinite(dctpedFinalValid),
+            ivaped: isFinite(ivapedFinalValid)
+          }
         });
         
         // Formatear codalm correctamente (CHAR(3))
-        const codalmFormatted = (empresaId || '001').toString().substring(0, 3).padStart(3, '0');
+        // Usar el codalm del almacén validado arriba
+        const codalmFormatted = empresaIdStr.substring(0, 3).padStart(3, '0');
         
         reqDet.input('numped', sql.Char(8), numped.substring(0, 8).padStart(8, '0'));
         reqDet.input('codins', sql.Char(8), codins.substring(0, 8).padStart(8, '0'));
@@ -3728,20 +3834,34 @@ app.post('/api/pedidos', async (req, res) => {
       console.log(`✅ Todos los ${items.length} items de pedido guardados`);
 
       await tx.commit();
+      console.log(`✅ Pedido guardado exitosamente con ID: ${newId}`);
       res.json({ success: true, data: { id: newId } });
     } catch (inner) {
       if (tx) {
         try {
           await tx.rollback();
+          console.error('❌ Transacción revertida debido a error');
         } catch (rollbackError) {
-          console.error('Error al hacer rollback:', rollbackError);
+          console.error('❌ Error al hacer rollback:', rollbackError);
         }
       }
       throw inner;
     }
   } catch (error) {
-    console.error('❌ Error creando pedido:', error);
+    console.error('❌❌❌ ERROR CREANDO PEDIDO ❌❌❌');
+    console.error('Mensaje:', error.message);
     console.error('Stack trace:', error.stack);
+    if (error.originalError) {
+      console.error('Error original:', error.originalError.message);
+      if (error.originalError.info) {
+        console.error('Info SQL:', error.originalError.info.message);
+        console.error('Número de error SQL:', error.originalError.info.number);
+        console.error('Estado SQL:', error.originalError.info.state);
+        console.error('Clase SQL:', error.originalError.info.class);
+        console.error('Procedimiento SQL:', error.originalError.info.procName);
+        console.error('Línea SQL:', error.originalError.info.lineNumber);
+      }
+    }
     console.error('Error completo:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     
     const errorMessage = error.message || 'Error desconocido al crear pedido';
@@ -3752,6 +3872,7 @@ app.post('/api/pedidos', async (req, res) => {
       message: 'Error creando pedido', 
       error: errorMessage,
       details: errorDetails,
+      sqlMessage: process.env.NODE_ENV === 'development' ? error.originalError?.info?.message : undefined,
       originalError: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -3783,6 +3904,42 @@ app.put('/api/pedidos/:id', async (req, res) => {
     await tx.begin();
     
     try {
+      // Primero verificar que el pedido existe y obtener su estado actual
+      const reqCheck = new sql.Request(tx);
+      reqCheck.input('pedidoId', sql.Int, idNum);
+      const checkResult = await reqCheck.query(`
+        SELECT id, numero_pedido, estado, numero_pedido as numeroPedido
+        FROM ven_pedidos 
+        WHERE id = @pedidoId
+      `);
+      
+      if (checkResult.recordset.length === 0) {
+        await tx.rollback();
+        return res.status(404).json({ 
+          success: false, 
+          message: `Pedido con ID ${idNum} no existe en la base de datos` 
+        });
+      }
+      
+      const pedidoActual = checkResult.recordset[0];
+      const estadoActual = mapEstadoFromDb(pedidoActual.estado);
+      
+      // Validar que el pedido puede ser editado
+      // Solo se pueden editar pedidos en estado BORRADOR o ENVIADA
+      // No se pueden editar pedidos CONFIRMADO, EN_PROCESO, PARCIALMENTE_REMITIDO, REMITIDO, CANCELADO
+      const estadosNoEditables = ['CONFIRMADO', 'EN_PROCESO', 'PARCIALMENTE_REMITIDO', 'REMITIDO', 'CANCELADO'];
+      if (estadosNoEditables.includes(estadoActual)) {
+        await tx.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: `No se puede editar un pedido en estado '${estadoActual}'. Solo se pueden editar pedidos en estado BORRADOR o ENVIADA.`,
+          error: 'PEDIDO_NO_EDITABLE',
+          estadoActual: estadoActual
+        });
+      }
+      
+      console.log(`✅ Pedido encontrado: ${pedidoActual.numeroPedido}, estado actual: ${estadoActual}`);
+      
       const reqUpdate = new sql.Request(tx);
       
       // Construir campos a actualizar dinámicamente
@@ -3815,25 +3972,64 @@ app.put('/api/pedidos/:id', async (req, res) => {
         reqUpdate.input('instrucciones_entrega', sql.VarChar(500), body.instruccionesEntrega || '');
       }
       
+      // Validar y normalizar valores numéricos (SIN redondeo - usar valores exactos de la BD)
+      const maxDecimal18_2 = 9999999999999999.99;
+      
       if (body.subtotal !== undefined) {
+        const subtotalNum = Number(body.subtotal) || 0;
+        if (!isFinite(subtotalNum)) {
+          throw new Error(`subtotal inválido: ${body.subtotal}`);
+        }
+        const subtotalFinal = Math.max(0, Math.min(Math.abs(subtotalNum), maxDecimal18_2));
+        if (subtotalFinal > maxDecimal18_2 || subtotalFinal < 0) {
+          throw new Error(`subtotal fuera de rango válido: ${subtotalFinal}`);
+        }
         updates.push('subtotal = @subtotal');
-        reqUpdate.input('subtotal', sql.Decimal(18, 2), body.subtotal);
+        reqUpdate.input('subtotal', sql.Decimal(18, 2), subtotalFinal);
       }
       
       if (body.descuentoValor !== undefined) {
+        const descuentoNum = Number(body.descuentoValor) || 0;
+        if (!isFinite(descuentoNum)) {
+          throw new Error(`descuentoValor inválido: ${body.descuentoValor}`);
+        }
+        const descuentoFinal = Math.max(0, Math.min(Math.abs(descuentoNum), maxDecimal18_2));
+        if (descuentoFinal > maxDecimal18_2 || descuentoFinal < 0) {
+          throw new Error(`descuentoValor fuera de rango válido: ${descuentoFinal}`);
+        }
         updates.push('descuento_valor = @descuento_valor');
-        reqUpdate.input('descuento_valor', sql.Decimal(18, 2), body.descuentoValor);
+        reqUpdate.input('descuento_valor', sql.Decimal(18, 2), descuentoFinal);
       }
       
       if (body.ivaValor !== undefined) {
+        const ivaNum = Number(body.ivaValor) || 0;
+        if (!isFinite(ivaNum)) {
+          throw new Error(`ivaValor inválido: ${body.ivaValor}`);
+        }
+        const ivaFinal = Math.max(0, Math.min(Math.abs(ivaNum), maxDecimal18_2));
+        if (ivaFinal > maxDecimal18_2 || ivaFinal < 0) {
+          throw new Error(`ivaValor fuera de rango válido: ${ivaFinal}`);
+        }
         updates.push('iva_valor = @iva_valor');
-        reqUpdate.input('iva_valor', sql.Decimal(18, 2), body.ivaValor);
+        reqUpdate.input('iva_valor', sql.Decimal(18, 2), ivaFinal);
       }
       
       if (body.total !== undefined) {
+        const totalNum = Number(body.total) || 0;
+        if (!isFinite(totalNum)) {
+          throw new Error(`total inválido: ${body.total}`);
+        }
+        const totalFinal = Math.max(0, Math.min(Math.abs(totalNum), maxDecimal18_2));
+        if (totalFinal > maxDecimal18_2 || totalFinal < 0) {
+          throw new Error(`total fuera de rango válido: ${totalFinal}`);
+        }
         updates.push('total = @total');
-        reqUpdate.input('total', sql.Decimal(18, 2), body.total);
+        reqUpdate.input('total', sql.Decimal(18, 2), totalFinal);
       }
+      
+      // Siempre actualizar fec_modificacion
+      updates.push('fec_modificacion = @fec_modificacion');
+      reqUpdate.input('fec_modificacion', sql.DateTime, new Date());
       
       if (updates.length === 0) {
         await tx.rollback();
@@ -3852,6 +4048,142 @@ app.put('/api/pedidos/:id', async (req, res) => {
       console.log(`🔍 Ejecutando query de actualización para pedido ID: ${idNum}`);
       const result = await reqUpdate.query(updateQuery);
       
+      // Si se envían items, actualizar los items del pedido
+      if (body.items && Array.isArray(body.items) && body.items.length > 0) {
+        console.log(`📦 Actualizando ${body.items.length} items del pedido...`);
+        
+        // Obtener el numero_pedido y empresa_id del pedido existente para generar numped y codalm
+        const pedidoActualizado = result.recordset[0];
+        const numeroPedidoFinal = pedidoActualizado?.numero_pedido || pedidoActual.numeroPedido;
+        const empresaIdDelPedido = pedidoActualizado?.empresa_id || pedidoActual.empresa_id || 1;
+        
+        // Obtener codalm del almacén asociado al pedido
+        let codalmDelPedido = '001';
+        try {
+          const reqAlmacen = new sql.Request(tx);
+          reqAlmacen.input('empresaId', sql.Int, empresaIdDelPedido);
+          const almacenResult = await reqAlmacen.query(`
+            SELECT TOP 1 codalm
+            FROM inv_almacen
+            WHERE CAST(codalm AS INT) = @empresaId OR codalm = CAST(@empresaId AS VARCHAR(10))
+          `);
+          if (almacenResult.recordset.length > 0) {
+            codalmDelPedido = almacenResult.recordset[0].codalm.trim();
+          }
+        } catch (err) {
+          console.warn(`⚠️ No se pudo obtener codalm del pedido, usando '001': ${err.message}`);
+        }
+        
+        const match = String(numeroPedidoFinal).match(/(\d+)/);
+        let numped;
+        if (match) {
+          numped = 'PED' + match[1].padStart(5, '0');
+        } else {
+          numped = String(numeroPedidoFinal).replace(/-/g, '').substring(0, 8).padStart(8, '0');
+        }
+        numped = String(numped).substring(0, 8).padStart(8, '0');
+        
+        // Eliminar items antiguos
+        const reqDeleteItems = new sql.Request(tx);
+        reqDeleteItems.input('pedidoId', sql.Int, idNum);
+        await reqDeleteItems.query(`DELETE FROM ven_detapedidos WHERE pedido_id = @pedidoId`);
+        console.log(`🗑️ Items antiguos eliminados`);
+        
+        // Insertar nuevos items
+        for (let idx = 0; idx < body.items.length; idx++) {
+          const it = body.items[idx];
+          const reqDet = new sql.Request(tx);
+          
+          // Validar productoId
+          const productoIdNum = typeof it.productoId === 'number' ? it.productoId : parseInt(it.productoId, 10);
+          if (isNaN(productoIdNum)) {
+            throw new Error(`Item ${idx + 1}: productoId inválido: ${it.productoId}`);
+          }
+          
+          // Obtener codins del producto
+          const reqGetCodins = new sql.Request(tx);
+          reqGetCodins.input('productoId', sql.Int, productoIdNum);
+          const codinsResult = await reqGetCodins.query(`
+            SELECT TOP 1 codins
+            FROM inv_insumos
+            WHERE id = @productoId
+          `);
+          
+          if (codinsResult.recordset.length === 0) {
+            throw new Error(`Item ${idx + 1}: Producto con ID ${productoIdNum} no encontrado en inv_insumos`);
+          }
+          
+          const codins = codinsResult.recordset[0].codins.trim();
+          
+          // Validar y normalizar valores numéricos (igual que en POST)
+          const cantidadRaw = it.cantidad;
+          const precioUnitarioRaw = it.precioUnitario;
+          const descuentoValorRaw = it.descuentoValor || it.descuentoPorcentaje || 0;
+          const valorIvaRaw = it.valorIva || 0;
+          
+          const cantidadNum = typeof cantidadRaw === 'number' ? cantidadRaw : parseFloat(cantidadRaw);
+          const precioUnitarioNum = typeof precioUnitarioRaw === 'number' ? precioUnitarioRaw : parseFloat(precioUnitarioRaw);
+          const descuentoValorNum = typeof descuentoValorRaw === 'number' ? descuentoValorRaw : parseFloat(descuentoValorRaw);
+          const valorIvaNum = typeof valorIvaRaw === 'number' ? valorIvaRaw : parseFloat(valorIvaRaw);
+          
+          if (!isFinite(cantidadNum) || isNaN(cantidadNum)) {
+            throw new Error(`Item ${idx + 1}: cantidad inválida (${cantidadRaw})`);
+          }
+          if (!isFinite(precioUnitarioNum) || isNaN(precioUnitarioNum)) {
+            throw new Error(`Item ${idx + 1}: precioUnitario inválido (${precioUnitarioRaw})`);
+          }
+          
+          // Validar y normalizar valores (SIN redondeo - usar valores exactos de la BD)
+          const maxDecimal18_2 = 9999999999999999.99;
+          
+          // Validar que sean finitos y dentro del rango permitido
+          if (!isFinite(cantidadNum) || cantidadNum < 0 || cantidadNum > maxDecimal18_2) {
+            throw new Error(`Item ${idx + 1}: cantidad fuera de rango válido: ${cantidadNum}`);
+          }
+          if (!isFinite(precioUnitarioNum) || precioUnitarioNum < 0 || precioUnitarioNum > maxDecimal18_2) {
+            throw new Error(`Item ${idx + 1}: precioUnitario fuera de rango válido: ${precioUnitarioNum}`);
+          }
+          if (!isFinite(descuentoValorNum) || descuentoValorNum < 0 || descuentoValorNum > maxDecimal18_2) {
+            throw new Error(`Item ${idx + 1}: descuentoValor fuera de rango válido: ${descuentoValorNum}`);
+          }
+          if (!isFinite(valorIvaNum) || valorIvaNum < 0 || valorIvaNum > maxDecimal18_2) {
+            throw new Error(`Item ${idx + 1}: valorIva fuera de rango válido: ${valorIvaNum}`);
+          }
+          
+          // Usar valores exactos sin redondeo
+          const cantidadFinal = Math.max(0, Math.abs(cantidadNum));
+          const valinsFinal = Math.max(0, Math.abs(precioUnitarioNum));
+          const dctpedFinal = Math.max(0, Math.abs(descuentoValorNum || 0));
+          const ivapedFinal = Math.max(0, Math.abs(valorIvaNum || 0));
+          
+          // Usar codalm del pedido existente, no del body
+          const codalmFormatted = codalmDelPedido.substring(0, 3).padStart(3, '0');
+          
+          reqDet.input('numped', sql.Char(8), numped);
+          reqDet.input('codins', sql.Char(8), codins.substring(0, 8).padStart(8, '0'));
+          reqDet.input('valins', sql.Decimal(18, 2), valinsFinal);
+          reqDet.input('canped', sql.Decimal(18, 2), cantidadFinal);
+          reqDet.input('ivaped', sql.Decimal(18, 2), ivapedFinal);
+          reqDet.input('dctped', sql.Decimal(18, 2), dctpedFinal);
+          reqDet.input('estped', sql.Char(1), 'B');
+          reqDet.input('codalm', sql.Char(3), codalmFormatted);
+          reqDet.input('pedido_id', sql.Int, idNum);
+          reqDet.input('feccargo', sql.Date, body.fechaPedido || new Date().toISOString().split('T')[0]);
+          reqDet.input('codtec', sql.VarChar(20), '');
+          
+          await reqDet.query(`
+            INSERT INTO ven_detapedidos (
+              numped, codins, valins, canped, ivaped, dctped,
+              estped, codalm, pedido_id, feccargo, codtec, Fecsys
+            ) VALUES (
+              @numped, @codins, @valins, @canped, @ivaped, @dctped,
+              @estped, @codalm, @pedido_id, @feccargo, @codtec, GETDATE()
+            );`);
+          console.log(`✅ Item ${idx + 1} actualizado correctamente`);
+        }
+        console.log(`✅ Todos los ${body.items.length} items del pedido actualizados`);
+      }
+      
       console.log(`📊 Resultados de la actualización:`, {
         rowsAffected: result.rowsAffected,
         recordsetLength: result.recordset?.length || 0,
@@ -3865,7 +4197,7 @@ app.put('/api/pedidos/:id', async (req, res) => {
         // Verificar si el pedido existe antes de actualizar
         const reqCheck = new sql.Request(tx);
         reqCheck.input('pedidoId', sql.Int, idNum);
-        const checkResult = await reqCheck.query('SELECT id, numero_pedido, estado FROM ven_pedidos WHERE id = @pedidoId');
+        const checkResult = await reqCheck.query('SELECT id, numero_pedido, estado, empresa_id FROM ven_pedidos WHERE id = @pedidoId');
         
         if (checkResult.recordset.length === 0) {
           return res.status(404).json({ 
@@ -3934,7 +4266,7 @@ app.post('/api/remisiones', async (req, res) => {
       subtotal, descuentoValor = 0, ivaValor = 0, total = 0,
       observaciones = '', estado = 'BORRADOR',
       estadoEnvio = 'Total', metodoEnvio, transportadoraId, transportadora, numeroGuia,
-      empresaId, items = []
+      empresaId, codalm, codusu, items = []
     } = body;
 
     console.log('📋 Datos parseados:', {
@@ -4204,7 +4536,7 @@ app.post('/api/remisiones', async (req, res) => {
         try {
           const ultimaRemResult = await reqUltimaRem.query(`
             SELECT numero_remision 
-            FROM ven_recibos 
+            FROM ${TABLE_NAMES.remisiones} 
             WHERE numero_remision LIKE 'REM-%'
             ORDER BY numero_remision DESC
           `);
@@ -4236,7 +4568,7 @@ app.post('/api/remisiones', async (req, res) => {
         reqCheckNumRem.input('numero_remision', sql.VarChar(50), numeroRemisionStr);
         const remisionExistente = await reqCheckNumRem.query(`
           SELECT id, numero_remision 
-          FROM ven_recibos 
+          FROM ${TABLE_NAMES.remisiones} 
           WHERE numero_remision = @numero_remision
         `);
         
@@ -4271,94 +4603,204 @@ app.post('/api/remisiones', async (req, res) => {
       }
       
       const req1 = new sql.Request(tx);
-      const estadoMapeado = mapEstadoToDb(estado);
+      const estadoMapeado = estado || 'BORRADOR'; // Usar estado directamente sin mapeo
       
-      req1.input('numero_remision', numeroRemisionFinal);
-      req1.input('fecha_remision', fechaRemisionFinal);
-      req1.input('fecha_despacho', fechaDespacho || null);
-      req1.input('pedido_id', pedidoIdFinal);
-      req1.input('factura_id', facturaIdFinal);
-      req1.input('cliente_id', sql.VarChar(20), clienteIdStr);
+      // Validar codalm (requerido en ven_remiciones_enc)
+      // Si viene empresaId, usarlo como codalm, sino usar el codalm del body o '001'
+      const codalmFinal = codalm || empresaId || '001'; // Valor por defecto si no se proporciona
+      
+      console.log('📝 Preparando INSERT en ven_remiciones_enc con los siguientes valores:');
+      console.log(`   - codalm: "${codalmFinal}"`);
+      console.log(`   - numero_remision: "${numeroRemisionFinal}"`);
+      console.log(`   - fecha_remision: "${fechaRemisionFinal}"`);
+      console.log(`   - pedido_id: ${pedidoIdFinal}`);
+      console.log(`   - codter: "${clienteIdStr}"`);
+      console.log(`   - codven: "${vendedorIdFinal || 'NULL'}"`);
+      console.log(`   - estado: "${estadoMapeado}"`);
+      console.log(`   - observaciones: "${observaciones || ''}"`);
+      console.log(`   - codusu: "${codusu || 'NULL'}"`);
+      
+      req1.input('codalm', sql.VarChar(10), codalmFinal);
+      req1.input('numero_remision', sql.VarChar(50), numeroRemisionFinal);
+      req1.input('fecha_remision', sql.Date, fechaRemisionFinal);
+      req1.input('pedido_id', sql.Int, pedidoIdFinal);
+      req1.input('codter', sql.VarChar(20), clienteIdStr);
       if (vendedorIdFinal) {
-        req1.input('vendedor_id', sql.VarChar(20), vendedorIdFinal);
+        req1.input('codven', sql.VarChar(20), vendedorIdFinal);
       } else {
-        req1.input('vendedor_id', sql.VarChar(20), null);
+        req1.input('codven', sql.VarChar(20), null);
       }
-      req1.input('empresa_id', empresaId || 1);
-      req1.input('subtotal', subtotal);
-      req1.input('descuento_valor', descuentoValor);
-      req1.input('iva_valor', ivaValor);
-      req1.input('total', total);
-      req1.input('observaciones', observaciones);
-      req1.input('estado', estadoMapeado);
-      req1.input('estado_envio', estadoEnvio);
-      req1.input('metodo_envio', metodoEnvio || null);
-      req1.input('transportadora_id', transportadoraIdFinal);
-      req1.input('transportadora', transportadora || null);
-      req1.input('numero_guia', numeroGuia || null);
+      req1.input('estado', sql.VarChar(20), estadoMapeado);
+      req1.input('observaciones', sql.VarChar(500), observaciones || '');
+      req1.input('codusu', sql.VarChar(20), codusu || null);
+      req1.input('fec_creacion', sql.DateTime, new Date());
 
+      console.log('🔄 Ejecutando INSERT en ven_remiciones_enc...');
       const insertHeader = await req1.query(`
-        INSERT INTO ven_recibos (
-          numero_remision, fecha_remision, fecha_despacho,
-          pedido_id, factura_id, cliente_id, vendedor_id, empresa_id,
-          subtotal, descuento_valor, iva_valor, total,
-          observaciones, estado, estado_envio, metodo_envio,
-          transportadora_id, transportadora, numero_guia
+        INSERT INTO ${TABLE_NAMES.remisiones} (
+          codalm, numero_remision, fecha_remision,
+          pedido_id, codter, codven, estado, observaciones, codusu, fec_creacion
         ) VALUES (
-          @numero_remision, @fecha_remision, @fecha_despacho,
-          @pedido_id, @factura_id, @cliente_id, @vendedor_id, @empresa_id,
-          @subtotal, @descuento_valor, @iva_valor, @total,
-          @observaciones, @estado, @estado_envio, @metodo_envio,
-          @transportadora_id, @transportadora, @numero_guia
+          @codalm, @numero_remision, @fecha_remision,
+          @pedido_id, @codter, @codven, @estado, @observaciones, @codusu, @fec_creacion
         );
         SELECT SCOPE_IDENTITY() AS id;`);
       const newId = insertHeader.recordset[0].id;
+      console.log(`✅ INSERT exitoso. ID generado: ${newId}`);
 
       console.log(`📦 Guardando ${items.length} items de remisión...`);
       for (let idx = 0; idx < items.length; idx++) {
         const it = items[idx];
         const reqDet = new sql.Request(tx);
         console.log(`➕ Insertando item ${idx + 1}/${items.length}:`, { 
-          productoId: it.productoId, 
-          cantidad: it.cantidad,
-          precioUnitario: it.precioUnitario,
-          descripcion: it.descripcion || '',
-          total: it.total
+          codProducto: it.codProducto, 
+          cantidadEnviada: it.cantidadEnviada || it.cantidad,
+          detaPedidoId: it.detaPedidoId
         });
         
-        // Validar que el productoId sea numérico (producto_id es INT)
-        const productoIdNum = typeof it.productoId === 'number' ? it.productoId : parseInt(it.productoId, 10);
-        if (isNaN(productoIdNum)) {
-          throw new Error(`Item ${idx + 1}: productoId inválido: ${it.productoId}`);
+        // Validar codins (requerido en ven_remiciones_det)
+        const codinsFinal = String(it.codProducto || it.codins || '').trim();
+        if (!codinsFinal) {
+          throw new Error(`Item ${idx + 1}: codProducto/codins es requerido`);
         }
         
-        reqDet.input('remision_id', newId);
-        reqDet.input('producto_id', sql.Int, productoIdNum);
-        reqDet.input('cantidad', sql.Decimal(18, 2), it.cantidad);
-        reqDet.input('precio_unitario', sql.Decimal(18, 2), it.precioUnitario);
-        reqDet.input('descuento_porcentaje', sql.Decimal(5, 2), it.descuentoPorcentaje || 0);
-        reqDet.input('iva_porcentaje', sql.Decimal(5, 2), it.ivaPorcentaje || 0);
-        reqDet.input('descripcion', sql.VarChar(500), it.descripcion || '');
-        reqDet.input('subtotal', sql.Decimal(18, 2), it.subtotal || 0);
-        reqDet.input('valor_iva', sql.Decimal(18, 2), it.valorIva || 0);
-        reqDet.input('total', sql.Decimal(18, 2), it.total);
+        // Validar cantidad_enviada
+        const cantidadEnviadaNum = Number(it.cantidadEnviada || it.cantidad || 0);
+        const cantidadEnviadaFinal = isFinite(cantidadEnviadaNum) ? Math.max(0, cantidadEnviadaNum) : 0;
         
+        // Obtener deta_pedido_id (ID del detalle del pedido en ven_detapedidos)
+        // Si viene en el item, usarlo. Si no, buscarlo usando pedidoId y codins
+        let detaPedidoIdFinal = null;
+        
+        if (it.detaPedidoId !== null && it.detaPedidoId !== undefined) {
+          // Si viene en el payload, usarlo
+          const detaPedidoIdNum = Number(it.detaPedidoId);
+          if (isFinite(detaPedidoIdNum) && detaPedidoIdNum > 0) {
+            detaPedidoIdFinal = Math.floor(detaPedidoIdNum);
+            console.log(`   ✅ detaPedidoId del payload: ${detaPedidoIdFinal}`);
+          }
+        } else if (pedidoIdFinal && pedidoIdFinal !== null) {
+          // NOTA: ven_detapedidos NO tiene columna 'id' como clave primaria
+          // La tabla no tiene un identificador único por registro
+          // Por lo tanto, deta_pedido_id se deja como NULL
+          // La relación se mantiene a través de pedido_id en ven_remiciones_enc
+          console.log(`   ℹ️ ven_detapedidos no tiene columna 'id', deta_pedido_id se dejará como NULL`);
+          console.log(`   ℹ️ La relación se mantiene a través de pedido_id=${pedidoIdFinal} y codins=${codinsFinal}`);
+        }
+        
+        // Validar y normalizar cantidad_facturada y cantidad_devuelta
+        const cantidadFacturadaNum = Number(it.cantidadFacturada || 0);
+        const cantidadFacturadaFinal = isFinite(cantidadFacturadaNum) ? Math.max(0, parseFloat(cantidadFacturadaNum.toFixed(2))) : 0;
+        
+        const cantidadDevueltaNum = Number(it.cantidadDevuelta || 0);
+        const cantidadDevueltaFinal = isFinite(cantidadDevueltaNum) ? Math.max(0, parseFloat(cantidadDevueltaNum.toFixed(2))) : 0;
+        
+        reqDet.input('remision_id', sql.Int, newId);
+        reqDet.input('deta_pedido_id', sql.Int, detaPedidoIdFinal);
+        reqDet.input('codins', sql.VarChar(50), codinsFinal);
+        reqDet.input('cantidad_enviada', sql.Decimal(18, 2), cantidadEnviadaFinal);
+        reqDet.input('cantidad_facturada', sql.Decimal(18, 2), cantidadFacturadaFinal);
+        reqDet.input('cantidad_devuelta', sql.Decimal(18, 2), cantidadDevueltaFinal);
+        
+        try {
         await reqDet.query(`
-          INSERT INTO ven_detarecibo (
-            remision_id, producto_id, cantidad, precio_unitario,
-            descuento_porcentaje, iva_porcentaje, descripcion,
-            subtotal, valor_iva, total
+            INSERT INTO ${TABLE_NAMES.remisiones_detalle} (
+              remision_id, deta_pedido_id, codins, cantidad_enviada, cantidad_facturada, cantidad_devuelta
           ) VALUES (
-            @remision_id, @producto_id, @cantidad, @precio_unitario,
-            @descuento_porcentaje, @iva_porcentaje, @descripcion,
-            @subtotal, @valor_iva, @total
+              @remision_id, @deta_pedido_id, @codins, @cantidad_enviada, @cantidad_facturada, @cantidad_devuelta
           );`);
         console.log(`✅ Item ${idx + 1} guardado correctamente`);
+        } catch (itemError) {
+          console.error(`❌ Error insertando item ${idx + 1}:`, itemError.message);
+          if (itemError.originalError?.info) {
+            console.error('Info SQL:', itemError.originalError.info.message);
+          }
+          throw itemError; // Re-lanzar para que se capture en el catch externo
+        }
       }
       console.log(`✅ Todos los ${items.length} items de remisión guardados`);
 
+      // Registrar movimientos en inv_kardex para cada item de la remisión
+      // NOTA: Temporalmente deshabilitado - se implementará después de verificar que las remisiones se guarden correctamente
+      // NOTA: Si el kardex falla, no interrumpe la creación de la remisión
+      /*
+      console.log(`📝 Intentando registrar movimientos en inv_kardex...`);
+      let kardexRegistrados = 0;
+      for (let idx = 0; idx < items.length; idx++) {
+        const it = items[idx];
+        const codinsFinal = String(it.codProducto || it.codins || '').trim();
+        const cantidadEnviadaNum = Number(it.cantidadEnviada || it.cantidad || 0);
+        const cantidadEnviadaFinal = isFinite(cantidadEnviadaNum) ? Math.max(0, cantidadEnviadaNum) : 0;
+        
+        if (codinsFinal && cantidadEnviadaFinal > 0) {
+          try {
+            // Obtener costo del producto desde inv_insumos
+            const reqProducto = new sql.Request(tx);
+            reqProducto.input('codins', sql.VarChar(50), codinsFinal);
+            const productoResult = await reqProducto.query(`
+              SELECT TOP 1 ultimo_costo, costo_promedio 
+              FROM inv_insumos 
+              WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(@codins))
+            `);
+            
+            const costoUnitario = productoResult.recordset.length > 0 
+              ? parseFloat(productoResult.recordset[0].ultimo_costo || productoResult.recordset[0].costo_promedio || 0)
+              : 0;
+            const precioVenta = parseFloat((it.precioUnitario || 0).toFixed(2));
+            
+            // Insertar en inv_kardex
+            // Estructura real: codalm char(3), codins char(8), feckar datetime, tipkar char(2), dockar int, etc.
+            const codalmKardex = String(codalmFinal || '001').substring(0, 3).padEnd(3, ' '); // Exactamente 3 caracteres
+            const codinsKardex = String(codinsFinal).substring(0, 8).padEnd(8, ' '); // Exactamente 8 caracteres
+            const tipkarKardex = 'S '; // Salida - exactamente 2 caracteres
+            const dockarKardex = newId; // Usar el ID de la remisión como dockar (INT)
+            const observaKardex = String(`Rem ${numeroRemisionFinal}`).substring(0, 100); // Máximo 100 caracteres
+            const numremKardex = newId; // Usar el ID de la remisión como numrem (INT)
+            const fechaRemisionDateTime = new Date(fechaRemisionFinal + 'T00:00:00');
+            
+            const reqKardex = new sql.Request(tx);
+            reqKardex.input('codalm', sql.Char(3), codalmKardex);
+            reqKardex.input('codins', sql.Char(8), codinsKardex);
+            reqKardex.input('feckar', sql.DateTime, fechaRemisionDateTime);
+            reqKardex.input('tipkar', sql.Char(2), tipkarKardex);
+            reqKardex.input('dockar', sql.Int, dockarKardex);
+            reqKardex.input('cankar', sql.Numeric(18, 2), -cantidadEnviadaFinal); // Negativo porque es salida
+            reqKardex.input('coskar', sql.Numeric(18, 2), costoUnitario);
+            reqKardex.input('venkar', sql.Numeric(18, 2), precioVenta);
+            reqKardex.input('codter', sql.VarChar(15), clienteIdStr ? String(clienteIdStr).substring(0, 15) : null);
+            reqKardex.input('codusu', sql.VarChar(12), codusu ? String(codusu).substring(0, 12) : 'SISTEMA');
+            reqKardex.input('numrem', sql.Int, numremKardex);
+            reqKardex.input('FECREM', sql.DateTime, fechaRemisionDateTime);
+            reqKardex.input('numcom', sql.Int, null);
+            reqKardex.input('observa', sql.VarChar(100), observaKardex);
+            
+            await reqKardex.query(`
+              INSERT INTO inv_kardex (
+                codalm, codins, feckar, tipkar, dockar, cankar, coskar, venkar,
+                codter, codusu, numrem, FECREM, numcom, observa, fecsys
+              ) VALUES (
+                @codalm, @codins, @feckar, @tipkar, @dockar, @cankar, @coskar, @venkar,
+                @codter, @codusu, @numrem, @FECREM, @numcom, @observa, GETDATE()
+              )
+            `);
+            kardexRegistrados++;
+            console.log(`✅ Movimiento kardex registrado para ${codinsFinal} (cantidad: ${cantidadEnviadaFinal})`);
+          } catch (kardexError) {
+            console.error(`⚠️ Error registrando kardex para item ${idx + 1} (${codinsFinal}):`, kardexError.message);
+            if (kardexError.originalError?.info) {
+              console.error('   Info SQL:', kardexError.originalError.info.message);
+            }
+            // Continuar con el siguiente item sin interrumpir la transacción
+          }
+        }
+      }
+      console.log(`✅ Movimientos de kardex: ${kardexRegistrados}/${items.length} registrados`);
+      */
+
       // Actualizar estado del pedido si se proporcionó pedidoId
-      if (pedidoIdFinal) {
+      // SOLUCIÓN: Envolver en try-catch para que no interrumpa la creación de la remisión si falla
+      if (pedidoIdFinal && pedidoIdFinal !== null && pedidoIdFinal !== undefined) {
+        try {
         console.log(`🔄 Actualizando estado del pedido ID: ${pedidoIdFinal}`);
         
         // Obtener el pedido actual para verificar su estado y cantidades
@@ -4379,21 +4821,22 @@ app.post('/api/remisiones', async (req, res) => {
           reqRemisionesPrevias.input('pedidoId', sql.Int, pedidoIdFinal);
           const remisionesPreviasResult = await reqRemisionesPrevias.query(`
             SELECT id, numero_remision
-            FROM ven_recibos
+              FROM ${TABLE_NAMES.remisiones}
             WHERE pedido_id = @pedidoId
           `);
           
           // Obtener total de items remitidos (incluyendo esta nueva remisión)
+            // Usar cantidad_enviada desde ven_remiciones_det
           const reqItemsRemitidos = new sql.Request(tx);
           reqItemsRemitidos.input('pedidoId', sql.Int, pedidoIdFinal);
           const itemsRemitidosResult = await reqItemsRemitidos.query(`
             SELECT 
-              dr.producto_id,
-              SUM(dr.cantidad) as cantidad_remitida
-            FROM ven_detarecibo dr
-            INNER JOIN ven_recibos r ON dr.remision_id = r.id
+                rd.codins,
+                SUM(rd.cantidad_enviada) as cantidad_remitida
+              FROM ${TABLE_NAMES.remisiones_detalle} rd
+              INNER JOIN ${TABLE_NAMES.remisiones} r ON rd.remision_id = r.id
             WHERE r.pedido_id = @pedidoId
-            GROUP BY dr.producto_id
+              GROUP BY rd.codins
           `);
           
           // Obtener total de items del pedido
@@ -4401,9 +4844,9 @@ app.post('/api/remisiones', async (req, res) => {
           reqItemsPedido.input('pedidoId', sql.Int, pedidoIdFinal);
           const itemsPedidoResult = await reqItemsPedido.query(`
             SELECT 
-              producto_id,
-              cantidad
-            FROM ven_detapedidos
+                codins,
+                canped as cantidad
+              FROM ${TABLE_NAMES.pedidos_detalle}
             WHERE pedido_id = @pedidoId
           `);
           
@@ -4413,7 +4856,7 @@ app.post('/api/remisiones', async (req, res) => {
           
           for (const itemPedido of itemsPedidoResult.recordset) {
             const itemRemitido = itemsRemitidosResult.recordset.find(
-              ir => ir.producto_id === itemPedido.producto_id
+                ir => String(ir.codins || '').trim() === String(itemPedido.codins || '').trim()
             );
             const cantidadRemitida = itemRemitido ? parseFloat(itemRemitido.cantidad_remitida) : 0;
             const cantidadPedida = parseFloat(itemPedido.cantidad);
@@ -4458,10 +4901,27 @@ app.post('/api/remisiones', async (req, res) => {
           }
         } else {
           console.warn(`⚠️ No se encontró el pedido ID: ${pedidoIdFinal} para actualizar su estado`);
+          }
+        } catch (pedidoError) {
+          console.error(`⚠️ Error actualizando estado del pedido (no interrumpe la creación de la remisión):`, pedidoError.message);
+          if (pedidoError.originalError?.info) {
+            console.error('   Info SQL:', pedidoError.originalError.info.message);
+          }
+          // NO lanzar el error - continuar con el commit de la remisión
         }
       }
 
+      console.log('🔄 Haciendo commit de la transacción...');
       await tx.commit();
+      console.log('✅✅✅ COMMIT EXITOSO - Remisión guardada en la base de datos ✅✅✅');
+      console.log(`📊 Resumen de la remisión guardada:`);
+      console.log(`   - ID: ${newId}`);
+      console.log(`   - Número: ${numeroRemisionFinal}`);
+      console.log(`   - Cliente: ${clienteIdStr}`);
+      console.log(`   - Items: ${items.length}`);
+      console.log(`   - Pedido ID: ${pedidoIdFinal || 'N/A'}`);
+      console.log(`   - Tabla: ${TABLE_NAMES.remisiones}`);
+      
       res.json({ success: true, data: { id: newId } });
     } catch (inner) {
       if (tx) {
@@ -4474,8 +4934,20 @@ app.post('/api/remisiones', async (req, res) => {
       throw inner;
     }
   } catch (error) {
-    console.error('❌ Error creando remisión:', error);
+    console.error('❌❌❌ ERROR CREANDO REMISIÓN ❌❌❌');
+    console.error('Mensaje:', error.message);
     console.error('Stack trace:', error.stack);
+    if (error.originalError) {
+      console.error('Error original:', error.originalError.message);
+      if (error.originalError.info) {
+        console.error('Info SQL:', error.originalError.info.message);
+        console.error('Número de error SQL:', error.originalError.info.number);
+        console.error('Estado SQL:', error.originalError.info.state);
+        console.error('Clase SQL:', error.originalError.info.class);
+        console.error('Procedimiento SQL:', error.originalError.info.procName);
+        console.error('Línea SQL:', error.originalError.info.lineNumber);
+      }
+    }
     console.error('Error completo:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     
     const errorMessage = error.message || 'Error desconocido al crear remisión';
@@ -4520,20 +4992,11 @@ app.put('/api/remisiones/:id', async (req, res) => {
       const updates = [];
       
       if (body.estado !== undefined) {
+        // Mapear el estado del frontend al formato de la BD
         const estadoMapeado = mapEstadoToDb(body.estado);
         updates.push('estado = @estado');
         reqUpdate.input('estado', sql.VarChar(20), estadoMapeado);
-        console.log(`🔄 Actualizando estado: ${body.estado} -> ${estadoMapeado}`);
-      }
-      
-      if (body.fechaDespacho !== undefined) {
-        updates.push('fecha_despacho = @fecha_despacho');
-        reqUpdate.input('fecha_despacho', sql.Date, body.fechaDespacho || null);
-      }
-      
-      if (body.numeroGuia !== undefined) {
-        updates.push('numero_guia = @numero_guia');
-        reqUpdate.input('numero_guia', sql.VarChar(50), body.numeroGuia || null);
+        console.log(`🔄 Actualizando estado: ${body.estado} → ${estadoMapeado} (BD)`);
       }
       
       if (body.observaciones !== undefined) {
@@ -4541,18 +5004,66 @@ app.put('/api/remisiones/:id', async (req, res) => {
         reqUpdate.input('observaciones', sql.VarChar(500), body.observaciones || '');
       }
       
+      if (body.codalm !== undefined) {
+        updates.push('codalm = @codalm');
+        reqUpdate.input('codalm', sql.VarChar(10), body.codalm);
+      }
+      
+      if (body.codven !== undefined) {
+        updates.push('codven = @codven');
+        reqUpdate.input('codven', sql.VarChar(20), body.codven || null);
+      }
+      
       if (updates.length === 0) {
         await tx.rollback();
         return res.status(400).json({ success: false, message: 'No hay campos para actualizar' });
       }
       
+      // Verificar que la remisión existe antes de actualizar
+      const reqCheck = new sql.Request(tx);
+      reqCheck.input('remisionId', sql.Int, idNum);
+      const checkResult = await reqCheck.query(`
+        SELECT id, numero_remision, estado, pedido_id, codter
+        FROM ${TABLE_NAMES.remisiones} 
+        WHERE id = @remisionId
+      `);
+      
+      if (checkResult.recordset.length === 0) {
+        await tx.rollback();
+        console.error(`❌ Remisión con ID ${idNum} no encontrada`);
+        return res.status(404).json({ 
+          success: false, 
+          message: `Remisión con ID ${idNum} no existe en la base de datos`,
+          error: 'REMISION_NOT_FOUND'
+        });
+      }
+      
+      const remisionActual = checkResult.recordset[0];
+      const estadoActualMapeado = mapEstadoFromDb(remisionActual.estado);
+      console.log(`✅ Remisión encontrada: ID=${remisionActual.id}, estado actual=${remisionActual.estado} (${estadoActualMapeado})`);
+      
+      // Validar que se puede actualizar el estado si se está cambiando a ENTREGADO
+      if (body.estado === 'ENTREGADO' || body.estado === 'ENTREGADA') {
+        // Solo se pueden marcar como entregadas remisiones en estado BORRADOR o EN_TRANSITO
+        if (estadoActualMapeado !== 'BORRADOR' && estadoActualMapeado !== 'EN_TRANSITO') {
+          await tx.rollback();
+          console.error(`❌ No se puede marcar como entregada una remisión en estado: ${estadoActualMapeado}`);
+          return res.status(400).json({ 
+            success: false, 
+            message: `No se puede marcar como entregada una remisión en estado '${estadoActualMapeado}'. Solo se pueden marcar como entregadas remisiones en estado BORRADOR o EN_TRANSITO.`,
+            error: 'ESTADO_INVALIDO',
+            estadoActual: estadoActualMapeado
+          });
+        }
+      }
+      
       reqUpdate.input('remisionId', sql.Int, idNum);
       
       const updateQuery = `
-        UPDATE ven_recibos 
+        UPDATE ${TABLE_NAMES.remisiones} 
         SET ${updates.join(', ')}
         WHERE id = @remisionId;
-        SELECT * FROM ven_recibos WHERE id = @remisionId;
+        SELECT * FROM ${TABLE_NAMES.remisiones} WHERE id = @remisionId;
       `;
       
       console.log(`🔍 Ejecutando query de actualización para remisión ID: ${idNum}`);
@@ -4570,7 +5081,7 @@ app.put('/api/remisiones/:id', async (req, res) => {
         // Verificar si la remisión existe antes de actualizar
         const reqCheck = new sql.Request(tx);
         reqCheck.input('remisionId', sql.Int, idNum);
-        const checkResult = await reqCheck.query('SELECT id, numero_remision, estado FROM ven_recibos WHERE id = @remisionId');
+        const checkResult = await reqCheck.query(`SELECT id, numero_remision, estado FROM ${TABLE_NAMES.remisiones} WHERE id = @remisionId`);
         
         if (checkResult.recordset.length === 0) {
           return res.status(404).json({ 
@@ -4588,10 +5099,12 @@ app.put('/api/remisiones/:id', async (req, res) => {
       await tx.commit();
       
       const updatedRemision = result.recordset[0];
+      const estadoMapeado = mapEstadoFromDb(updatedRemision.estado);
       console.log('✅ Remisión actualizada exitosamente:', {
         id: updatedRemision.id,
         numeroRemision: updatedRemision.numero_remision,
-        estado: mapEstadoFromDb(updatedRemision.estado)
+        estadoBD: updatedRemision.estado,
+        estadoMapeado: estadoMapeado
       });
       
       res.json({ 
@@ -4599,10 +5112,13 @@ app.put('/api/remisiones/:id', async (req, res) => {
         data: {
           id: updatedRemision.id,
           numeroRemision: updatedRemision.numero_remision,
-          estado: mapEstadoFromDb(updatedRemision.estado),
-          fechaDespacho: updatedRemision.fecha_despacho,
-          numeroGuia: updatedRemision.numero_guia,
-          observaciones: updatedRemision.observaciones
+          estado: estadoMapeado, // Mapear de vuelta al formato del frontend
+          observaciones: updatedRemision.observaciones || '',
+          codalm: updatedRemision.codalm || '',
+          codven: updatedRemision.codven || null,
+          pedidoId: updatedRemision.pedido_id || null,
+          clienteId: updatedRemision.codter || '',
+          fechaRemision: updatedRemision.fecha_remision ? new Date(updatedRemision.fecha_remision).toISOString().split('T')[0] : null
         }
       });
     } catch (inner) {
@@ -4926,7 +5442,7 @@ app.post('/api/facturas', async (req, res) => {
           reqRemision.input('remisionId', sql.Int, remisionIdNum);
           remisionResult = await reqRemision.query(`
             SELECT id, numero_remision, estado 
-            FROM ven_recibos 
+            FROM ${TABLE_NAMES.remisiones} 
             WHERE id = @remisionId
           `);
         } else {
@@ -4934,7 +5450,7 @@ app.post('/api/facturas', async (req, res) => {
           reqRemision.input('numeroRemision', sql.VarChar(50), remisionIdStr);
           remisionResult = await reqRemision.query(`
             SELECT id, numero_remision, estado 
-            FROM ven_recibos 
+            FROM ${TABLE_NAMES.remisiones} 
             WHERE numero_remision = @numeroRemision
           `);
         }
@@ -4946,14 +5462,14 @@ app.post('/api/facturas', async (req, res) => {
           const reqEjemplos = new sql.Request(tx);
           const ejemplosResult = await reqEjemplos.query(`
             SELECT TOP 5 id, numero_remision, estado 
-            FROM ven_recibos 
+            FROM ${TABLE_NAMES.remisiones} 
             ORDER BY id DESC
           `);
           
           return res.status(400).json({ 
             success: false, 
             message: 'REMISION_NOT_FOUND',
-            error: `Remisión con ID/código "${remisionIdStr}" no encontrada en ven_recibos`,
+            error: `Remisión con ID/código "${remisionIdStr}" no encontrada en ${TABLE_NAMES.remisiones}`,
             debug: {
               remisionIdProporcionado: remisionIdStr,
               ejemplosExistentes: ejemplosResult.recordset.map(r => ({
@@ -4974,13 +5490,13 @@ app.post('/api/facturas', async (req, res) => {
       let numeroFacturaFinal = numeroFactura ? String(numeroFactura).trim() : null;
       
       if (!numeroFacturaFinal || numeroFacturaFinal === 'AUTO' || numeroFacturaFinal === '') {
-        // Generar número automático
+        // Generar número automático usando la columna numfact
         const reqMax = new sql.Request(tx);
         const maxResult = await reqMax.query(`
-          SELECT MAX(CAST(SUBSTRING(numero_factura, 4, LEN(numero_factura)) AS INT)) as maxNum
-          FROM ven_facturas
-          WHERE numero_factura LIKE 'FC-%' 
-            AND ISNUMERIC(SUBSTRING(numero_factura, 4, LEN(numero_factura))) = 1
+          SELECT MAX(CAST(SUBSTRING(numfact, 4, LEN(numfact)) AS INT)) as maxNum
+          FROM ${TABLE_NAMES.facturas}
+          WHERE numfact LIKE 'FC-%' 
+            AND ISNUMERIC(SUBSTRING(numfact, 4, LEN(numfact))) = 1
         `);
         
         const maxNum = maxResult.recordset[0]?.maxNum || 0;
@@ -4988,13 +5504,13 @@ app.post('/api/facturas', async (req, res) => {
         numeroFacturaFinal = `FC-${String(nextNum).padStart(4, '0')}`;
         console.log(`📝 Número de factura generado automáticamente: "${numeroFacturaFinal}"`);
       } else {
-        // Validar que no exista
+        // Validar que no exista usando la columna numfact
         const reqExistente = new sql.Request(tx);
-        reqExistente.input('numeroFactura', sql.VarChar(50), numeroFacturaFinal);
+        reqExistente.input('numfact', sql.VarChar(50), numeroFacturaFinal);
         const existenteResult = await reqExistente.query(`
-          SELECT id, numero_factura, estado 
-          FROM ven_facturas 
-          WHERE numero_factura = @numeroFactura
+          SELECT ID, numfact, estfac 
+          FROM ${TABLE_NAMES.facturas} 
+          WHERE numfact = @numfact
         `);
         
         if (existenteResult.recordset.length > 0) {
@@ -5006,9 +5522,9 @@ app.post('/api/facturas', async (req, res) => {
             debug: {
               numeroFacturaProporcionado: numeroFacturaFinal,
               facturaExistente: {
-                id: existenteResult.recordset[0].id,
-                numero_factura: existenteResult.recordset[0].numero_factura,
-                estado: existenteResult.recordset[0].estado
+                ID: existenteResult.recordset[0].ID,
+                numfact: existenteResult.recordset[0].numfact,
+                estfac: existenteResult.recordset[0].estfac
               },
               sugerencia: 'Use un número de factura diferente o "AUTO" para generar automáticamente'
             }
@@ -5018,80 +5534,387 @@ app.post('/api/facturas', async (req, res) => {
         console.log(`📝 Número de factura proporcionado y válido: "${numeroFacturaFinal}"`);
       }
       
+      // 6. Obtener codalm desde empresaId o usar default
+      let codalmFinal = '001';
+      if (empresaId) {
+        try {
+          const reqAlmacen = new sql.Request(tx);
+          reqAlmacen.input('empresaId', sql.Int, empresaId);
+          const almacenResult = await reqAlmacen.query(`
+            SELECT TOP 1 codalm
+            FROM inv_almacen
+            WHERE CAST(codalm AS INT) = @empresaId OR codalm = CAST(@empresaId AS VARCHAR(10))
+          `);
+          if (almacenResult.recordset.length > 0) {
+            codalmFinal = almacenResult.recordset[0].codalm.trim();
+          }
+        } catch (err) {
+          console.warn(`⚠️ No se pudo obtener codalm del empresaId ${empresaId}, usando '001': ${err.message}`);
+        }
+      }
+      // Asegurar que codalmFinal tenga máximo 3 caracteres
+      codalmFinal = String(codalmFinal || '001').trim();
+      // Si es un número, convertirlo a string y asegurar que tenga 3 dígitos
+      if (/^\d+$/.test(codalmFinal)) {
+        codalmFinal = codalmFinal.padStart(3, '0').substring(0, 3);
+      } else {
+        codalmFinal = codalmFinal.substring(0, 3).padStart(3, '0');
+      }
+      
       // ========== INSERTAR FACTURA ==========
       const req1 = new sql.Request(tx);
       const estadoMapeado = mapEstadoToDb(estado);
       
-      req1.input('numero_factura', numeroFacturaFinal);
-      req1.input('fecha_factura', fechaFactura);
-      req1.input('fecha_vencimiento', fechaVencimiento || null);
-      req1.input('cliente_id', sql.VarChar(20), clienteIdStr);
-      req1.input('vendedor_id', sql.VarChar(20), vendedorIdFinal);
-      req1.input('remision_id', remisionIdFinal);
-      req1.input('pedido_id', pedidoIdFinal);
-      req1.input('empresa_id', empresaId || 1);
-      req1.input('subtotal', subtotal);
-      req1.input('descuento_valor', descuentoValor);
-      req1.input('iva_valor', ivaValor);
-      req1.input('total', total);
-      req1.input('observaciones', observaciones);
-      req1.input('estado', estadoMapeado);
+      // Validar y normalizar valores numéricos
+      const maxDecimal18_2 = 9999999999999999.99;
+      const subtotalFinal = Math.max(0, Math.min(Math.abs(parseFloat(subtotal) || 0), maxDecimal18_2));
+      const descuentoValorFinal = Math.max(0, Math.min(Math.abs(parseFloat(descuentoValor) || 0), maxDecimal18_2));
+      const ivaValorFinal = Math.max(0, Math.min(Math.abs(parseFloat(ivaValor) || 0), maxDecimal18_2));
+      const totalFinal = Math.max(0, Math.min(Math.abs(parseFloat(total) || 0), maxDecimal18_2));
+      
+      // Validar y truncar todos los campos VARCHAR antes de insertar
+      // IMPORTANTE: Los límites deben coincidir EXACTAMENTE con los definidos en la tabla ven_facturas
+      // Estructura real: numfact VARCHAR(15), tipfac CHAR(2), codter VARCHAR(15), codcue CHAR(8), codusu VARCHAR(10)
+      // Observa VARCHAR(150), resolucion_dian CHAR(2), estfac VARCHAR(1), estado_envio BIT, sey_key VARCHAR(120), CUFE VARCHAR(600)
+      const numfactFinal = String(numeroFacturaFinal || '').trim().substring(0, 15);
+      const codalmFinalTrunc = codalmFinal; // Ya está truncado arriba (CHAR(3))
+      const tipfacFinal = String(body.tipoFactura || '01').trim().substring(0, 2).padEnd(2, ' '); // CHAR(2) - rellenar con espacios
+      const codterFinal = String(clienteIdStr || '').trim().substring(0, 15);
+      const doccocFinal = body.documentoContable ? String(body.documentoContable).trim().substring(0, 12).padEnd(12, ' ') : null; // CHAR(12)
+      
+      // Validar que los campos requeridos no estén vacíos
+      if (!numfactFinal || numfactFinal.length === 0) {
+        await tx.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: 'NUMERO_FACTURA_REQUERIDO',
+          error: 'El número de factura es requerido'
+        });
+      }
+      if (!codterFinal || codterFinal.length === 0) {
+        await tx.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: 'CLIENTE_REQUERIDO',
+          error: 'El código del cliente es requerido'
+        });
+      }
+      
+      req1.input('numfact', sql.VarChar(15), numfactFinal);
+      req1.input('codalm', sql.Char(3), codalmFinalTrunc);
+      req1.input('tipfac', sql.Char(2), tipfacFinal);
+      req1.input('codter', sql.VarChar(15), codterFinal);
+      req1.input('doccoc', sql.Char(12), doccocFinal);
+      req1.input('fecfac', sql.DateTime, fechaFactura);
+      
+      // Calcular fecha de vencimiento si no se proporciona
+      // Si no viene fechaVencimiento, calcularla basándose en las condiciones de pago del cliente
+      let fechaVencimientoFinal = fechaVencimiento;
+      if (!fechaVencimientoFinal) {
+        // Intentar obtener días de crédito del cliente
+        const reqClienteCredito = new sql.Request(tx);
+        reqClienteCredito.input('codter', sql.VarChar(20), codterFinal);
+        // Intentar obtener días de crédito del cliente
+        // NOTA: La tabla con_terceros puede tener diferentes nombres de columnas
+        // Intentar con los nombres más comunes
+        let diasCredito = 30; // Por defecto 30 días
+        try {
+          const clienteCreditoResult = await reqClienteCredito.query(`
+            SELECT TOP 1 plazo
+            FROM con_terceros
+            WHERE codter = @codter
+          `);
+          
+          if (clienteCreditoResult.recordset.length > 0) {
+            const clienteData = clienteCreditoResult.recordset[0];
+            // Intentar obtener días de crédito desde el campo plazo
+            if (clienteData.plazo !== null && clienteData.plazo !== undefined) {
+              diasCredito = parseInt(clienteData.plazo, 10);
+              if (isNaN(diasCredito) || diasCredito <= 0) {
+                diasCredito = 30; // Por defecto 30 días si no es válido
+              }
+            }
+          }
+        } catch (err) {
+          // Si hay error al consultar (columna no existe), usar 30 días por defecto
+          console.warn(`⚠️ No se pudo obtener días de crédito del cliente ${codterFinal}, usando 30 días por defecto: ${err.message}`);
+          diasCredito = 30;
+        }
+        
+        // Calcular fecha de vencimiento sumando los días de crédito a la fecha de factura
+        const fechaFacturaDate = new Date(fechaFactura);
+        const fechaVencDate = new Date(fechaFacturaDate);
+        fechaVencDate.setDate(fechaVencDate.getDate() + diasCredito);
+        fechaVencimientoFinal = fechaVencDate.toISOString().split('T')[0];
+        
+        console.log(`📅 Fecha de vencimiento calculada automáticamente: ${fechaVencimientoFinal} (${diasCredito} días después de ${fechaFactura})`);
+      }
+      
+      req1.input('venfac', sql.DateTime, fechaVencimientoFinal);
+      
+      // Truncar codven a máximo 3 caracteres (CHAR(3) en la BD)
+      const codvenFinal = vendedorIdFinal ? String(vendedorIdFinal).trim().substring(0, 3).padEnd(3, ' ') : null;
+      req1.input('codven', sql.Char(3), codvenFinal);
+      req1.input('valvta', sql.Decimal(18, 2), subtotalFinal);
+      req1.input('valiva', sql.Decimal(18, 2), ivaValorFinal);
+      req1.input('valotr', sql.Decimal(18, 2), body.otrosValores || 0);
+      req1.input('valant', sql.Decimal(18, 2), body.anticipos || 0);
+      req1.input('valdev', sql.Decimal(18, 2), body.devoluciones || 0);
+      req1.input('abofac', sql.Decimal(18, 2), body.abonos || 0);
+      req1.input('valdcto', sql.Decimal(18, 2), descuentoValorFinal);
+      req1.input('valret', sql.Decimal(18, 2), body.retenciones || 0);
+      req1.input('valrica', sql.Decimal(18, 2), body.retencionICA || 0);
+      req1.input('valriva', sql.Decimal(18, 2), body.retencionIVA || 0);
+      req1.input('netfac', sql.Decimal(18, 2), totalFinal);
+      req1.input('valcosto', sql.Decimal(18, 2), body.costo || 0);
+      // Truncar todos los campos VARCHAR restantes según estructura real
+      // codcue es CHAR(8) NO NULL - usar valor por defecto si no se proporciona
+      const codcueFinal = String(body.cuenta || '00000000').trim().substring(0, 8).padEnd(8, '0');
+      const resolucionDianFinal = body.resolucionDian ? String(body.resolucionDian).trim().substring(0, 2).padEnd(2, ' ') : null; // CHAR(2)
+      const observaFinal = String(observaciones || '').trim().substring(0, 150); // VARCHAR(150)
+      // codusu es VARCHAR(10) NO NULL - usar valor por defecto si no se proporciona
+      const codusuFinal = String(body.usuarioId || 'SISTEMA').trim().substring(0, 10);
+      const estfacFinal = String(estadoMapeado || 'B').trim().substring(0, 1); // VARCHAR(1) - solo 1 carácter
+      // estado_envio es BIT en la BD, no VARCHAR - convertir a 0 o 1
+      const estadoEnvioFinal = body.estadoEnvio ? (body.estadoEnvio === true || body.estadoEnvio === 1 || String(body.estadoEnvio).toLowerCase() === 'true' ? 1 : 0) : null;
+      const seyKeyFinal = body.seyKey ? String(body.seyKey).trim().substring(0, 120) : null; // VARCHAR(120)
+      const cufeFinal = body.cufe ? String(body.cufe).trim().substring(0, 600) : null; // VARCHAR(600)
+      
+      req1.input('codcue', sql.Char(8), codcueFinal);
+      req1.input('efectivo', sql.Decimal(18, 2), body.efectivo || 0);
+      req1.input('cheques', sql.Decimal(18, 2), body.cheques || 0);
+      req1.input('credito', sql.Decimal(18, 2), body.credito || 0);
+      req1.input('tarjetacr', sql.Decimal(18, 2), body.tarjetaCredito || 0);
+      req1.input('TarjetaDB', sql.Decimal(18, 2), body.tarjetaDebito || 0);
+      req1.input('Transferencia', sql.Decimal(18, 2), body.transferencia || 0);
+      req1.input('valpagado', sql.Decimal(18, 2), body.valorPagado || 0);
+      req1.input('resolucion_dian', sql.Char(2), resolucionDianFinal);
+      req1.input('Observa', sql.VarChar(150), observaFinal);
+      req1.input('TARIFA_CREE', sql.Decimal(18, 2), body.tarifaCREE || 0);
+      req1.input('RETECREE', sql.Decimal(18, 2), body.retencionCREE || 0);
+      req1.input('codusu', sql.VarChar(10), codusuFinal);
+      req1.input('fecsys', sql.DateTime, new Date());
+      req1.input('estfac', sql.VarChar(1), estfacFinal);
+      req1.input('VALDOMICILIO', sql.Decimal(18, 2), body.valorDomicilio || 0);
+      req1.input('estado_envio', sql.Bit, estadoEnvioFinal);
+      req1.input('sey_key', sql.VarChar(120), seyKeyFinal);
+      req1.input('CUFE', sql.VarChar(600), cufeFinal);
+      req1.input('IdCaja', sql.Int, body.cajaId || null);
+      req1.input('Valnotas', sql.Decimal(18, 2), body.valorNotas || 0);
 
-      const insertHeader = await req1.query(`
-        INSERT INTO ven_facturas (
-          numero_factura, fecha_factura, fecha_vencimiento,
-          cliente_id, vendedor_id, remision_id, pedido_id, empresa_id,
-          subtotal, descuento_valor, iva_valor, total,
-          observaciones, estado
-        ) VALUES (
-          @numero_factura, @fecha_factura, @fecha_vencimiento,
-          @cliente_id, @vendedor_id, @remision_id, @pedido_id, @empresa_id,
-          @subtotal, @descuento_valor, @iva_valor, @total,
-          @observaciones, @estado
-        );
-        SELECT SCOPE_IDENTITY() AS id;`);
-      const newId = insertHeader.recordset[0].id;
+      // Log detallado de todos los valores antes de insertar para debugging
+      console.log('📋 Valores a insertar en ven_facturas (con límites reales):', {
+        numfact: { valor: numfactFinal, longitud: numfactFinal.length, max: 15, tipo: 'VARCHAR(15)' },
+        codalm: { valor: codalmFinalTrunc, longitud: codalmFinalTrunc.length, max: 3, tipo: 'CHAR(3)' },
+        tipfac: { valor: tipfacFinal, longitud: tipfacFinal.length, max: 2, tipo: 'CHAR(2)' },
+        codter: { valor: codterFinal, longitud: codterFinal.length, max: 15, tipo: 'VARCHAR(15)' },
+        doccoc: { valor: doccocFinal, longitud: doccocFinal?.length || 0, max: 12, tipo: 'CHAR(12)' },
+        codven: { valor: codvenFinal, longitud: codvenFinal?.length || 0, max: 3, tipo: 'CHAR(3)' },
+        codcue: { valor: codcueFinal, longitud: codcueFinal?.length || 0, max: 8, tipo: 'CHAR(8)' },
+        resolucion_dian: { valor: resolucionDianFinal, longitud: resolucionDianFinal?.length || 0, max: 2, tipo: 'CHAR(2)' },
+        Observa: { valor: observaFinal, longitud: observaFinal.length, max: 150, tipo: 'VARCHAR(150)' },
+        codusu: { valor: codusuFinal, longitud: codusuFinal?.length || 0, max: 10, tipo: 'VARCHAR(10)' },
+        estfac: { valor: estfacFinal, longitud: estfacFinal.length, max: 1, tipo: 'VARCHAR(1)' },
+        estado_envio: { valor: estadoEnvioFinal, tipo: 'BIT' },
+        sey_key: { valor: seyKeyFinal, longitud: seyKeyFinal?.length || 0, max: 120, tipo: 'VARCHAR(120)' },
+        CUFE: { valor: cufeFinal, longitud: cufeFinal?.length || 0, max: 600, tipo: 'VARCHAR(600)' }
+      });
+
+      let newId;
+      try {
+        const insertHeader = await req1.query(`
+          INSERT INTO ${TABLE_NAMES.facturas} (
+            numfact, codalm, tipfac, codter, doccoc, fecfac, venfac, codven,
+            valvta, valiva, valotr, valant, valdev, abofac, valdcto, valret, valrica, valriva,
+            netfac, valcosto, codcue, efectivo, cheques, credito, tarjetacr, TarjetaDB, Transferencia,
+            valpagado, resolucion_dian, Observa, TARIFA_CREE, RETECREE, codusu, fecsys, estfac,
+            VALDOMICILIO, estado_envio, sey_key, CUFE, IdCaja, Valnotas
+          ) VALUES (
+            @numfact, @codalm, @tipfac, @codter, @doccoc, @fecfac, @venfac, @codven,
+            @valvta, @valiva, @valotr, @valant, @valdev, @abofac, @valdcto, @valret, @valrica, @valriva,
+            @netfac, @valcosto, @codcue, @efectivo, @cheques, @credito, @tarjetacr, @TarjetaDB, @Transferencia,
+            @valpagado, @resolucion_dian, @Observa, @TARIFA_CREE, @RETECREE, @codusu, @fecsys, @estfac,
+            @VALDOMICILIO, @estado_envio, @sey_key, @CUFE, @IdCaja, @Valnotas
+          );
+          SELECT SCOPE_IDENTITY() AS ID;`);
+        newId = insertHeader.recordset[0].ID;
+        console.log(`✅ Factura header insertada correctamente con ID: ${newId}`);
+      } catch (insertError) {
+        console.error('❌ Error insertando header de factura:', insertError);
+        console.error('❌ Detalles del error SQL:', {
+          message: insertError.message,
+          code: insertError.code,
+          number: insertError.number,
+          state: insertError.state,
+          class: insertError.class,
+          serverName: insertError.serverName,
+          procName: insertError.procName,
+          lineNumber: insertError.lineNumber,
+          originalError: insertError.originalError
+        });
+        console.error('❌ Valores que causaron el error:', {
+          numfact: numfactFinal,
+          codalm: codalmFinalTrunc,
+          tipfac: tipfacFinal,
+          codter: codterFinal,
+          doccoc: doccocFinal,
+          codven: codvenFinal,
+          codcue: codcueFinal,
+          resolucion_dian: resolucionDianFinal,
+          Observa: observaFinal,
+          codusu: codusuFinal,
+          estfac: estfacFinal,
+          estado_envio: estadoEnvioFinal,
+          sey_key: seyKeyFinal,
+          CUFE: cufeFinal
+        });
+        await tx.rollback();
+        throw new Error(`Error insertando factura: ${insertError.message}. Verifique que todos los campos estén dentro de los límites permitidos.`);
+      }
 
       console.log(`📦 Guardando ${items.length} items de factura...`);
+      console.log(`📋 Items recibidos:`, JSON.stringify(items.map(it => ({
+        productoId: it.productoId,
+        cantidad: it.cantidad,
+        precioUnitario: it.precioUnitario,
+        descuentoPorcentaje: it.descuentoPorcentaje,
+        ivaPorcentaje: it.ivaPorcentaje,
+        subtotal: it.subtotal,
+        valorIva: it.valorIva,
+        total: it.total
+      })), null, 2));
+      
       for (let idx = 0; idx < items.length; idx++) {
         const it = items[idx];
         const reqDet = new sql.Request(tx);
-        console.log(`➕ Insertando item ${idx + 1}/${items.length}:`, { 
-          productoId: it.productoId, 
-          cantidad: it.cantidad,
-          precioUnitario: it.precioUnitario,
-          descripcion: it.descripcion || '',
-          total: it.total
-        });
         
-        // Validar que el productoId sea numérico (producto_id es INT)
+        // Validar que el productoId sea numérico
         const productoIdNum = typeof it.productoId === 'number' ? it.productoId : parseInt(it.productoId, 10);
-        if (isNaN(productoIdNum)) {
+        if (isNaN(productoIdNum) || productoIdNum <= 0) {
+          console.error(`❌ Item ${idx + 1}: productoId inválido:`, it.productoId);
           throw new Error(`Item ${idx + 1}: productoId inválido: ${it.productoId}`);
         }
         
-        reqDet.input('factura_id', newId);
-        reqDet.input('producto_id', sql.Int, productoIdNum);
-        reqDet.input('cantidad', sql.Decimal(18, 2), it.cantidad);
-        reqDet.input('precio_unitario', sql.Decimal(18, 2), it.precioUnitario);
-        reqDet.input('descuento_porcentaje', sql.Decimal(5, 2), it.descuentoPorcentaje || 0);
-        reqDet.input('iva_porcentaje', sql.Decimal(5, 2), it.ivaPorcentaje || 0);
-        reqDet.input('descripcion', sql.VarChar(500), it.descripcion || '');
-        reqDet.input('subtotal', sql.Decimal(18, 2), it.subtotal || 0);
-        reqDet.input('valor_iva', sql.Decimal(18, 2), it.valorIva || 0);
-        reqDet.input('total', sql.Decimal(18, 2), it.total);
+        // Obtener codins desde inv_insumos usando el id del producto
+        const reqProducto = new sql.Request(tx);
+        reqProducto.input('productoId', sql.Int, productoIdNum);
+        const productoResult = await reqProducto.query(`
+          SELECT TOP 1 codins, nomins
+          FROM inv_insumos
+          WHERE id = @productoId
+        `);
         
-        await reqDet.query(`
-          INSERT INTO ven_detafact (
-            factura_id, producto_id, cantidad, precio_unitario,
-            descuento_porcentaje, iva_porcentaje, descripcion,
-            subtotal, valor_iva, total
-          ) VALUES (
-            @factura_id, @producto_id, @cantidad, @precio_unitario,
-            @descuento_porcentaje, @iva_porcentaje, @descripcion,
-            @subtotal, @valor_iva, @total
-          );`);
-        console.log(`✅ Item ${idx + 1} guardado correctamente`);
+        if (productoResult.recordset.length === 0) {
+          await tx.rollback();
+          throw new Error(`Item ${idx + 1}: Producto con ID ${productoIdNum} no encontrado en inv_insumos`);
+        }
+        
+        const codins = String(productoResult.recordset[0].codins || '').trim().substring(0, 8).padStart(8, '0');
+        const nomins = String(productoResult.recordset[0].nomins || '').trim();
+        
+        // Validar y normalizar valores numéricos
+        const maxDecimal18_2 = 9999999999999999.99;
+        const cantidadRaw = it.cantidad;
+        const precioUnitarioRaw = it.precioUnitario;
+        const descuentoPorcentajeRaw = it.descuentoPorcentaje || 0;
+        const ivaPorcentajeRaw = it.ivaPorcentaje || 0;
+        const subtotalRaw = it.subtotal;
+        const valorIvaRaw = it.valorIva || 0;
+        
+        const cantidadNum = typeof cantidadRaw === 'number' ? cantidadRaw : parseFloat(cantidadRaw);
+        const precioUnitarioNum = typeof precioUnitarioRaw === 'number' ? precioUnitarioRaw : parseFloat(precioUnitarioRaw);
+        const descuentoPorcentajeNum = typeof descuentoPorcentajeRaw === 'number' ? descuentoPorcentajeRaw : parseFloat(descuentoPorcentajeRaw);
+        const ivaPorcentajeNum = typeof ivaPorcentajeRaw === 'number' ? ivaPorcentajeRaw : parseFloat(ivaPorcentajeRaw);
+        const subtotalNum = typeof subtotalRaw === 'number' ? subtotalRaw : parseFloat(subtotalRaw);
+        const valorIvaNum = typeof valorIvaRaw === 'number' ? valorIvaRaw : parseFloat(valorIvaRaw);
+        
+        // Validar que sean números finitos
+        if (!isFinite(cantidadNum) || isNaN(cantidadNum) || cantidadNum <= 0) {
+          console.error(`❌ Item ${idx + 1}: cantidad inválida:`, cantidadRaw, '→', cantidadNum);
+          throw new Error(`Item ${idx + 1}: cantidad inválida (${cantidadRaw})`);
+        }
+        if (!isFinite(precioUnitarioNum) || isNaN(precioUnitarioNum) || precioUnitarioNum < 0) {
+          console.error(`❌ Item ${idx + 1}: precioUnitario inválido:`, precioUnitarioRaw, '→', precioUnitarioNum);
+          throw new Error(`Item ${idx + 1}: precioUnitario inválido (${precioUnitarioRaw}). Verifique que los items de la remisión tengan precios.`);
+        }
+        
+        // Normalizar valores dentro del rango válido
+        const qtyinsFinal = Math.max(0.01, Math.min(Math.abs(cantidadNum), maxDecimal18_2));
+        const valinsFinal = Math.max(0, Math.min(Math.abs(precioUnitarioNum), maxDecimal18_2));
+        const desinsFinal = Math.max(0, Math.min(Math.abs(descuentoPorcentajeNum), 100));
+        const ivainsFinal = Math.max(0, Math.min(Math.abs(ivaPorcentajeNum), 100));
+        const valorIvaFinal = Math.max(0, Math.min(Math.abs(valorIvaNum), maxDecimal18_2));
+        // Calcular valdescuento (valor del descuento, no porcentaje)
+        const valdescuentoFinal = Math.max(0, Math.min(Math.abs(subtotalNum * (desinsFinal / 100)), maxDecimal18_2));
+        // cosins (costo) - usar 0 si no se proporciona
+        const cosinsFinal = 0;
+        
+        console.log(`➕ Insertando item ${idx + 1}/${items.length}:`, { 
+          productoId: productoIdNum,
+          codins: codins,
+          qtyins: qtyinsFinal,
+          valins: valinsFinal,
+          desins: desinsFinal,
+          ivains: valorIvaFinal,
+          valdescuento: valdescuentoFinal,
+          observa: (it.descripcion || nomins || '').substring(0, 50)
+        });
+        
+        // Mapear a columnas reales de ven_detafact
+        reqDet.input('codalm', sql.Char(3), codalmFinalTrunc);
+        reqDet.input('tipfact', sql.Char(2), tipfacFinal);
+        reqDet.input('numfac', sql.Char(12), numfactFinal.substring(0, 12).padEnd(12, ' '));
+        reqDet.input('codins', sql.VarChar(8), codins);
+        reqDet.input('qtyins', sql.Decimal(18, 2), qtyinsFinal);
+        reqDet.input('valins', sql.Decimal(18, 2), valinsFinal);
+        reqDet.input('ivains', sql.Decimal(18, 2), valorIvaFinal);
+        reqDet.input('desins', sql.Decimal(5, 2), desinsFinal);
+        reqDet.input('valdescuento', sql.Decimal(18, 2), valdescuentoFinal);
+        reqDet.input('cosins', sql.Decimal(18, 2), cosinsFinal);
+        reqDet.input('observa', sql.VarChar(50), (it.descripcion || nomins || '').substring(0, 50));
+        reqDet.input('estfac', sql.Char(1), estfacFinal);
+        reqDet.input('PRECIOUND', sql.Decimal(18, 2), valinsFinal);
+        reqDet.input('QTYVTA', sql.Decimal(18, 2), qtyinsFinal);
+        reqDet.input('PRECIO_LISTA', sql.Decimal(18, 2), valinsFinal);
+        reqDet.input('id_factura', sql.Int, newId);
+        
+        try {
+          await reqDet.query(`
+            INSERT INTO ${TABLE_NAMES.facturas_detalle} (
+              codalm, tipfact, numfac, codins, qtyins, valins, ivains, desins, valdescuento, cosins,
+              observa, estfac, PRECIOUND, QTYVTA, PRECIO_LISTA, id_factura
+            ) VALUES (
+              @codalm, @tipfact, @numfac, @codins, @qtyins, @valins, @ivains, @desins, @valdescuento, @cosins,
+              @observa, @estfac, @PRECIOUND, @QTYVTA, @PRECIO_LISTA, @id_factura
+            );`);
+          console.log(`✅ Item ${idx + 1} guardado correctamente`);
+        } catch (itemError) {
+          console.error(`❌ Error insertando item ${idx + 1}:`, itemError);
+          console.error(`❌ Detalles del item:`, {
+            codalm: codalmFinalTrunc,
+            tipfact: tipfacFinal,
+            numfac: numfactFinal,
+            codins: codins,
+            qtyins: qtyinsFinal,
+            valins: valinsFinal,
+            ivains: valorIvaFinal,
+            desins: desinsFinal,
+            valdescuento: valdescuentoFinal,
+            cosins: cosinsFinal,
+            observa: (it.descripcion || nomins || '').substring(0, 50),
+            estfac: estfacFinal,
+            id_factura: newId
+          });
+          console.error(`❌ Error SQL:`, {
+            message: itemError.message,
+            code: itemError.code,
+            number: itemError.number,
+            state: itemError.state,
+            sqlMessage: itemError.originalError?.message
+          });
+          await tx.rollback();
+          throw new Error(`Error insertando item ${idx + 1}: ${itemError.message}`);
+        }
       }
       console.log(`✅ Todos los ${items.length} items de factura guardados`);
 
@@ -5112,37 +5935,19 @@ app.post('/api/facturas', async (req, res) => {
         }
       }
       
-      // Actualizar todas las remisiones relacionadas
+      // NOTA: ven_remiciones_enc no tiene campo factura_id
+      // Si necesitas relacionar remisiones con facturas, considera agregar este campo a la tabla
+      // o usar una tabla de relación intermedia
+      // Por ahora, se omite la actualización de factura_id en remisiones
       if (remisionesParaActualizar.length > 0) {
-        for (const remisionIdStr of remisionesParaActualizar) {
-          const remisionIdNum = typeof remisionIdStr === 'number' ? remisionIdStr : parseInt(String(remisionIdStr), 10);
-          if (!isNaN(remisionIdNum)) {
-            const reqUpdateRemision = new sql.Request(tx);
-            reqUpdateRemision.input('factura_id', newId);
-            reqUpdateRemision.input('remision_id', remisionIdNum);
-            await reqUpdateRemision.query(`
-              UPDATE ven_recibos 
-              SET factura_id = @factura_id 
-              WHERE id = @remision_id
-            `);
-            console.log(`✅ Remisión ${remisionIdNum} actualizada con factura_id ${newId}`);
-          }
-        }
+        console.log(`ℹ️ Nota: Se recibieron ${remisionesParaActualizar.length} remisión(es) para relacionar, pero ven_remiciones_enc no tiene campo factura_id.`);
       }
       
-      // También actualizar todas las remisiones del mismo cliente que estén en estado ENTREGADO y sin factura
-      // Esto asegura que si hay múltiples remisiones relacionadas, todas se vinculen
-      const reqUpdateRemisionesCliente = new sql.Request(tx);
-      reqUpdateRemisionesCliente.input('factura_id', newId);
-      reqUpdateRemisionesCliente.input('cliente_id', sql.VarChar(20), clienteIdStr);
-      const updateResult = await reqUpdateRemisionesCliente.query(`
-        UPDATE ven_recibos 
-        SET factura_id = @factura_id 
-        WHERE cliente_id = @cliente_id 
-          AND estado = 'D' 
-          AND factura_id IS NULL
-      `);
-      console.log(`✅ ${updateResult.rowsAffected[0]} remisión(es) del cliente ${clienteIdStr} actualizada(s) con factura_id ${newId}`);
+      // NOTA: ven_remiciones_enc no tiene campo factura_id
+      // Si necesitas relacionar remisiones con facturas, considera agregar este campo a la tabla
+      // o usar una tabla de relación intermedia
+      // Por ahora, se omite la actualización de factura_id en remisiones
+      console.log(`ℹ️ Nota: ven_remiciones_enc no tiene campo factura_id. Se omite la relación remisión-factura.`);
 
       await tx.commit();
       res.json({ success: true, data: { id: newId } });
@@ -5152,7 +5957,31 @@ app.post('/api/facturas', async (req, res) => {
     }
   } catch (error) {
     console.error('❌ Error creando factura:', error);
-    res.status(500).json({ success: false, message: 'Error creando factura', error: error.message });
+    console.error('❌ Stack trace:', error.stack);
+    console.error('❌ Detalles del error:', {
+      message: error.message,
+      code: error.code,
+      number: error.number,
+      state: error.state,
+      class: error.class,
+      serverName: error.serverName,
+      procName: error.procName,
+      lineNumber: error.lineNumber,
+      originalError: error.originalError
+    });
+    console.error('❌ Body recibido:', JSON.stringify(req.body, null, 2));
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error creando factura', 
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? {
+        code: error.code,
+        number: error.number,
+        state: error.state,
+        lineNumber: error.lineNumber,
+        sqlMessage: error.originalError?.message || error.message
+      } : undefined
+    });
   }
 });
 
@@ -5201,9 +6030,9 @@ app.put('/api/facturas/:id', async (req, res) => {
       const reqCheck = new sql.Request(tx);
       reqCheck.input('id', sql.Int, idNum);
       const checkResult = await reqCheck.query(`
-        SELECT id, numero_factura, estado 
-        FROM ven_facturas 
-        WHERE id = @id
+        SELECT ID, numfact, estfac 
+        FROM ${TABLE_NAMES.facturas} 
+        WHERE ID = @id
       `);
       
       if (checkResult.recordset.length === 0) {
@@ -5216,10 +6045,11 @@ app.put('/api/facturas/:id', async (req, res) => {
       }
       
       const facturaExistente = checkResult.recordset[0];
-      console.log(`✅ Factura encontrada: ${facturaExistente.numero_factura} (estado: ${facturaExistente.estado})`);
+      const estadoActualMapeado = mapEstadoFromDb(facturaExistente.estfac);
+      console.log(`✅ Factura encontrada: ${facturaExistente.numfact} (estado: ${facturaExistente.estfac} -> ${estadoActualMapeado})`);
       
       // Mapear estado del frontend al backend si es necesario
-      const estadoDb = body.estado ? mapEstadoToDb(body.estado) : facturaExistente.estado;
+      const estadoDb = body.estado ? mapEstadoToDb(body.estado) : facturaExistente.estfac;
       
       // Construir la consulta de actualización dinámicamente
       const updates = [];
@@ -5231,9 +6061,9 @@ app.put('/api/facturas/:id', async (req, res) => {
       let fechaTimbradoGenerada = null;
       let estadoFinal = estadoDb;
       
-      if (body.estado === 'ENVIADA' && facturaExistente.estado !== 'E') {
+      if (body.estado === 'ENVIADA' && facturaExistente.estfac !== 'E') {
         // Simular proceso de timbrado
-        console.log(`🔄 Simulando proceso de timbrado para factura ${facturaExistente.numero_factura}...`);
+        console.log(`🔄 Simulando proceso de timbrado para factura ${facturaExistente.numfact}...`);
         
         // Simular aceptación o rechazo (80% probabilidad de aceptación)
         const probabilidadAceptacion = Math.random();
@@ -5243,7 +6073,7 @@ app.put('/api/facturas/:id', async (req, res) => {
           // Factura aceptada - generar CUFE simulado
           // Formato CUFE simulado: prefijo + timestamp + número de factura + hash simulado
           const timestamp = Date.now();
-          const numeroFacturaLimpio = facturaExistente.numero_factura.replace(/[^0-9]/g, '');
+          const numeroFacturaLimpio = facturaExistente.numfact.replace(/[^0-9]/g, '');
           const hashSimulado = Math.random().toString(36).substring(2, 15).toUpperCase();
           cufeGenerado = `CUFE-${timestamp}-${numeroFacturaLimpio}-${hashSimulado}`;
           fechaTimbradoGenerada = new Date();
@@ -5251,38 +6081,90 @@ app.put('/api/facturas/:id', async (req, res) => {
           
           console.log(`✅ Factura aceptada y timbrada. CUFE generado: ${cufeGenerado}`);
         } else {
-          // Factura rechazada
+          // Factura rechazada - generar motivo de rechazo
           estadoFinal = 'R'; // RECHAZADA
-          console.log(`❌ Factura rechazada en el proceso de timbrado`);
+          
+          // Generar motivo de rechazo simulado (en producción vendría del servicio de facturación)
+          const motivosRechazo = [
+            'Error en validación de datos del cliente: NIT o documento inválido',
+            'Número de factura duplicado en el sistema de facturación electrónica',
+            'Error en cálculo de totales: Los valores no coinciden con los registrados',
+            'Producto sin código de barras o referencia inválida',
+            'Fecha de factura fuera del rango permitido por la DIAN',
+            'Cliente con régimen tributario no válido para facturación',
+            'Error en la estructura del XML: Campos obligatorios faltantes',
+            'Servicio de facturación temporalmente no disponible'
+          ];
+          const motivoRechazo = motivosRechazo[Math.floor(Math.random() * motivosRechazo.length)];
+          
+          // Guardar motivo de rechazo en observaciones si no hay observaciones previas
+          // o agregarlo al final si ya existen
+          const observacionesActuales = facturaExistente.Observa || '';
+          const observacionesConRechazo = observacionesActuales 
+            ? `${observacionesActuales} | MOTIVO RECHAZO: ${motivoRechazo}`
+            : `MOTIVO RECHAZO: ${motivoRechazo}`;
+          
+          // Truncar a 150 caracteres (límite de VARCHAR(150))
+          const observacionesFinal = observacionesConRechazo.substring(0, 150);
+          
+          reqUpdate.input('Observa', sql.VarChar(150), observacionesFinal);
+          updates.push('Observa = @Observa');
+          
+          console.log(`❌ Factura rechazada en el proceso de timbrado. Motivo: ${motivoRechazo}`);
         }
       }
       
+      // Construir actualizaciones dinámicamente usando las columnas reales
       if (body.estado !== undefined) {
-        reqUpdate.input('estado', sql.VarChar(20), estadoFinal);
-        updates.push('estado = @estado');
+        reqUpdate.input('estfac', sql.VarChar(10), estadoFinal);
+        updates.push('estfac = @estfac');
       }
       
       if (body.observaciones !== undefined) {
-        reqUpdate.input('observaciones', sql.VarChar(500), body.observaciones);
-        updates.push('observaciones = @observaciones');
+        reqUpdate.input('Observa', sql.VarChar(500), body.observaciones);
+        updates.push('Observa = @Observa');
       }
       
       // Si se generó un CUFE en la simulación, usarlo
       if (cufeGenerado) {
-        reqUpdate.input('cufe', sql.VarChar(100), cufeGenerado);
-        updates.push('cufe = @cufe');
+        reqUpdate.input('CUFE', sql.VarChar(100), cufeGenerado);
+        updates.push('CUFE = @CUFE');
       } else if (body.cufe !== undefined) {
-        reqUpdate.input('cufe', sql.VarChar(100), body.cufe);
-        updates.push('cufe = @cufe');
+        reqUpdate.input('CUFE', sql.VarChar(100), body.cufe);
+        updates.push('CUFE = @CUFE');
       }
       
-      // Si se generó una fecha de timbrado en la simulación, usarla
-      if (fechaTimbradoGenerada) {
-        reqUpdate.input('fecha_timbrado', sql.DateTime, fechaTimbradoGenerada);
-        updates.push('fecha_timbrado = @fecha_timbrado');
-      } else if (body.fechaTimbrado !== undefined) {
-        reqUpdate.input('fecha_timbrado', sql.DateTime, body.fechaTimbrado);
-        updates.push('fecha_timbrado = @fecha_timbrado');
+      // Actualizar fecsys siempre que se actualice la factura
+      reqUpdate.input('fecsys', sql.DateTime, new Date());
+      updates.push('fecsys = @fecsys');
+      
+      // Campos adicionales opcionales
+      if (body.subtotal !== undefined) {
+        const maxDecimal18_2 = 9999999999999999.99;
+        const valvtaFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.subtotal) || 0), maxDecimal18_2));
+        reqUpdate.input('valvta', sql.Decimal(18, 2), valvtaFinal);
+        updates.push('valvta = @valvta');
+      }
+      
+      if (body.ivaValor !== undefined) {
+        const maxDecimal18_2 = 9999999999999999.99;
+        const valivaFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.ivaValor) || 0), maxDecimal18_2));
+        reqUpdate.input('valiva', sql.Decimal(18, 2), valivaFinal);
+        updates.push('valiva = @valiva');
+      }
+      
+      if (body.total !== undefined) {
+        const maxDecimal18_2 = 9999999999999999.99;
+        const netfacFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.total) || 0), maxDecimal18_2));
+        reqUpdate.input('netfac', sql.Decimal(18, 2), netfacFinal);
+        updates.push('netfac = @netfac');
+      }
+      
+      if (body.descuentoValor !== undefined) {
+        const maxDecimal18_2 = 9999999999999999.99;
+        const valdctoFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.descuentoValor) || 0), maxDecimal18_2));
+        reqUpdate.input('valdcto', sql.Decimal(18, 2), valdctoFinal);
+        updates.push('valdcto = @valdcto');
       }
       
       if (updates.length === 0) {
@@ -5294,42 +6176,56 @@ app.put('/api/facturas/:id', async (req, res) => {
         });
       }
       
-      // Agregar fecha de actualización
-      reqUpdate.input('updated_at', sql.DateTime, new Date());
-      updates.push('updated_at = @updated_at');
-      
       const updateQuery = `
-        UPDATE ven_facturas 
+        UPDATE ${TABLE_NAMES.facturas} 
         SET ${updates.join(', ')}
-        WHERE id = @id;
+        WHERE ID = @id;
         
         SELECT 
-          f.id,
-          f.numero_factura as numeroFactura,
-          f.fecha_factura as fechaFactura,
-          f.fecha_vencimiento as fechaVencimiento,
-          f.cliente_id as clienteId,
-          f.vendedor_id as vendedorId,
-          f.remision_id as remisionId,
-          f.pedido_id as pedidoId,
-          f.empresa_id as empresaId,
-          f.subtotal,
-          f.descuento_valor as descuentoValor,
-          f.iva_valor as ivaValor,
-          f.total,
-          f.observaciones,
-          f.estado,
-          f.cufe,
-          f.fecha_timbrado as fechaTimbrado,
-          -- Obtener todas las remisiones relacionadas con esta factura
-          STUFF((
-            SELECT ',' + CAST(r.id AS VARCHAR)
-            FROM ven_recibos r
-            WHERE r.factura_id = f.id
-            FOR XML PATH('')
-          ), 1, 1, '') as remisionesIds
-        FROM ven_facturas f
-        WHERE f.id = @id;
+          f.ID as id,
+          f.numfact as numeroFactura,
+          f.codalm as empresaId,
+          f.tipfac as tipoFactura,
+          f.codter as clienteId,
+          f.doccoc as documentoContable,
+          f.fecfac as fechaFactura,
+          f.venfac as fechaVencimiento,
+          f.codven as vendedorId,
+          f.valvta as subtotal,
+          f.valiva as ivaValor,
+          f.valotr as otrosValores,
+          f.valant as anticipos,
+          f.valdev as devoluciones,
+          f.abofac as abonos,
+          f.valdcto as descuentoValor,
+          f.valret as retenciones,
+          f.valrica as retencionICA,
+          f.valriva as retencionIVA,
+          f.netfac as total,
+          f.valcosto as costo,
+          f.codcue as cuenta,
+          f.efectivo,
+          f.cheques,
+          f.credito,
+          f.tarjetacr as tarjetaCredito,
+          f.TarjetaDB as tarjetaDebito,
+          f.Transferencia,
+          f.valpagado as valorPagado,
+          f.resolucion_dian as resolucionDian,
+          f.Observa as observaciones,
+          f.TARIFA_CREE as tarifaCREE,
+          f.RETECREE as retencionCREE,
+          f.codusu as usuarioId,
+          f.fecsys as fechaSistema,
+          f.estfac as estado,
+          f.VALDOMICILIO as valorDomicilio,
+          f.estado_envio as estadoEnvio,
+          f.sey_key as seyKey,
+          f.CUFE as cufe,
+          f.IdCaja as cajaId,
+          f.Valnotas as valorNotas
+        FROM ${TABLE_NAMES.facturas} f
+        WHERE f.ID = @id;
       `;
       
       const result = await reqUpdate.query(updateQuery);

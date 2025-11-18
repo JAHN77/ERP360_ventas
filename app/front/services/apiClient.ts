@@ -228,6 +228,10 @@ class ApiClient {
     return this.request('/remisiones-detalle');
   }
 
+  async getRemisionDetalleById(id: string | number) {
+    return this.request(`/remisiones/${id}/detalle`);
+  }
+
   async getNotasCredito() {
     return this.request('/notas-credito');
   }

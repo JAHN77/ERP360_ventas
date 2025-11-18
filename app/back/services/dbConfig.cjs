@@ -32,8 +32,8 @@ const TABLE_NAMES = {
   cotizaciones_detalle: 'ven_detacotizacion',
   pedidos: 'ven_pedidos',
   pedidos_detalle: 'ven_detapedidos',
-  remisiones: 'ven_recibos',
-  remisiones_detalle: 'ven_detarecibo',
+  remisiones: 'ven_remiciones_enc',
+  remisiones_detalle: 'ven_remiciones_det',
   notas_credito: 'ven_notas',
   archivos_adjuntos: 'archivos_adjuntos',
   medidas: 'inv_medidas',
@@ -136,52 +136,88 @@ const QUERIES = {
     ORDER BY ins.nomins
   `,
 
-  // Obtener facturas con detalles
+  // Obtener facturas con detalles - Usando columnas reales de ven_facturas
   GET_FACTURAS: `
     SELECT 
-      f.id,
-      f.numero_factura as numeroFactura,
-      f.fecha_factura as fechaFactura,
-      f.fecha_vencimiento as fechaVencimiento,
-      f.cliente_id as clienteId,
-      f.vendedor_id as vendedorId,
-      f.remision_id as remisionId,
-      f.pedido_id as pedidoId,
-      f.subtotal,
-      f.descuento_valor as descuentoValor,
-      f.iva_valor as ivaValor,
-      f.total,
-      f.observaciones,
-      f.estado,
-      f.cufe,
-      f.empresa_id as empresaId,
-      f.fecha_timbrado as fechaTimbrado,
-      -- Obtener todas las remisiones relacionadas con esta factura
-      -- Buscar tanto por factura_id en remisiones como por remision_id en factura
-      STUFF((
-        SELECT ',' + CAST(r.id AS VARCHAR)
-        FROM ${TABLE_NAMES.remisiones} r
-        WHERE r.factura_id = f.id OR r.id = f.remision_id
-        FOR XML PATH('')
-      ), 1, 1, '') as remisionesIds
+      f.ID as id,
+      f.numfact as numeroFactura,
+      f.codalm as empresaId,
+      f.tipfac as tipoFactura,
+      f.codter as clienteId,
+      f.doccoc as documentoContable,
+      f.fecfac as fechaFactura,
+      f.venfac as fechaVencimiento,
+      f.codven as vendedorId,
+      f.valvta as subtotal,
+      f.valiva as ivaValor,
+      f.valotr as otrosValores,
+      f.valant as anticipos,
+      f.valdev as devoluciones,
+      f.abofac as abonos,
+      f.valdcto as descuentoValor,
+      f.valret as retenciones,
+      f.valrica as retencionICA,
+      f.valriva as retencionIVA,
+      f.netfac as total,
+      f.valcosto as costo,
+      f.codcue as cuenta,
+      f.efectivo,
+      f.cheques,
+      f.credito,
+      f.tarjetacr as tarjetaCredito,
+      f.TarjetaDB as tarjetaDebito,
+      f.Transferencia,
+      f.valpagado as valorPagado,
+      f.resolucion_dian as resolucionDian,
+      f.Observa as observaciones,
+      f.TARIFA_CREE as tarifaCREE,
+      f.RETECREE as retencionCREE,
+      f.codusu as usuarioId,
+      f.fecsys as fechaSistema,
+      f.estfac as estado,
+      f.VALDOMICILIO as valorDomicilio,
+      f.estado_envio as estadoEnvio,
+      f.sey_key as seyKey,
+      f.CUFE as cufe,
+      f.IdCaja as cajaId,
+      f.Valnotas as valorNotas
     FROM ${TABLE_NAMES.facturas} f
-    ORDER BY f.fecha_factura DESC
+    ORDER BY f.fecfac DESC
   `,
 
-  // Obtener detalles de facturas
+  // Obtener detalles de facturas - Usando columnas reales de ven_detafact
   GET_FACTURAS_DETALLE: `
     SELECT 
-      fd.id,
-      fd.factura_id as facturaId,
-      fd.producto_id as productoId,
-      fd.cantidad,
-      fd.precio_unitario as precioUnitario,
-      fd.descuento_porcentaje as descuentoPorcentaje,
-      fd.iva_porcentaje as ivaPorcentaje,
-      fd.descripcion,
-      fd.subtotal,
-      fd.valor_iva as valorIva,
-      fd.total
+      fd.ID as id,
+      fd.id_factura as facturaId,
+      -- Obtener producto_id y tasa_iva desde inv_insumos usando codins
+      COALESCE(
+        (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+        NULL
+      ) as productoId,
+      COALESCE(
+        (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+        0
+      ) as tasaIvaProducto,
+      fd.qtyins as cantidad,
+      fd.valins as precioUnitario,
+      fd.desins as descuentoPorcentaje,
+      -- Usar tasa_iva del producto, o calcular desde ivains si no está disponible
+      COALESCE(
+        (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+        CASE 
+          WHEN fd.valins > 0 AND fd.qtyins > 0 THEN 
+            (fd.ivains / ((fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0))) * 100
+          ELSE 0
+        END
+      ) as ivaPorcentaje,
+      fd.observa as descripcion,
+      -- Calcular subtotal: (valins * qtyins) - valdescuento
+      (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) as subtotal,
+      fd.ivains as valorIva,
+      -- Calcular total: subtotal + ivains
+      (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) + COALESCE(fd.ivains, 0) as total,
+      fd.codins as codProducto
     FROM ${TABLE_NAMES.facturas_detalle} fd
   `,
 
@@ -285,6 +321,9 @@ const QUERIES = {
   // También tiene numped (CHAR(8)) para compatibilidad con sistema antiguo
   GET_PEDIDOS_DETALLE: `
     SELECT 
+      -- NOTA: ven_detapedidos NO tiene columna 'id', se usa pedido_id + codins como identificador
+      -- Para detaPedidoId, usaremos NULL o podríamos usar ROW_NUMBER() si es necesario
+      NULL as detaPedidoId, -- ven_detapedidos no tiene ID único, se buscará por pedido_id + codins
       -- Usar pedido_id directamente si existe, sino usar el id del JOIN
       CAST(COALESCE(pd.pedido_id, p.id) AS INT) as pedidoId,
       pd.numped,
@@ -335,50 +374,26 @@ const QUERIES = {
     WHERE pd.pedido_id IS NOT NULL OR (pd.numped IS NOT NULL AND LTRIM(RTRIM(pd.numped)) <> '')
   `,
 
-  // Obtener remisiones - Usando estructura REAL de ven_recibos
+  // Obtener remisiones - Usando estructura de ven_remiciones_enc
   GET_REMISIONES: `
     SELECT 
       r.id,
-      -- Mapear numrec a numeroRemision (formato: REM-0001)
-      'REM-' + RIGHT('0000' + CAST(r.numrec AS VARCHAR), 4) as numeroRemision,
-      r.numrec,
-      r.codalm,
-      r.tipdoc,
-      -- Mapear fecrec a fechaRemision
-      CAST(r.fecrec AS DATE) as fechaRemision,
-      r.fecrec,
-      -- Mapear numped a pedidoId (puede ser NULL)
-      CAST(r.numped AS VARCHAR(20)) as pedidoId,
-      r.numped,
-      -- Mapear codter a clienteId
-      LTRIM(RTRIM(r.codter)) as clienteId,
-      r.codter,
-      -- Mapear CODVEN a vendedorId
-      LTRIM(RTRIM(r.CODVEN)) as vendedorId,
-      r.CODVEN as codVendedor,
-      -- Mapear valores: valrec = total, netrec = neto, desrec = descuento
-      COALESCE(r.netrec, 0) as subtotal,
-      COALESCE(r.desrec, 0) as descuentoValor,
-      -- Calcular IVA si es necesario (valrec - netrec - desrec)
-      COALESCE(r.valrec, 0) - COALESCE(r.netrec, 0) - COALESCE(r.desrec, 0) as ivaValor,
-      COALESCE(r.valrec, 0) as total,
-      -- Mapear observa a observaciones
-      LTRIM(RTRIM(COALESCE(r.observa, ''))) as observaciones,
-      -- Mapear estrec a estado (B=BORRADOR, otros estados según corresponda)
-      CASE 
-        WHEN r.estrec = 'B' THEN 'BORRADOR'
-        WHEN r.estrec = 'E' THEN 'ENTREGADO'
-        WHEN r.estrec = 'T' THEN 'EN_TRANSITO'
-        WHEN r.estrec = 'C' THEN 'CANCELADO'
-        ELSE 'BORRADOR'
-      END as estado,
-      r.estrec as estadoOriginal,
-      -- Mapear codalm a empresaId
-      r.codalm as empresaId,
-      -- Campos adicionales de la BD real
-      r.fecsys as fechaCreacion,
-      r.codusu as codUsuario,
-      -- Campos que no existen en la BD pero se dejan como NULL para compatibilidad
+      LTRIM(RTRIM(COALESCE(r.numero_remision, ''))) as numeroRemision,
+      LTRIM(RTRIM(COALESCE(r.codalm, ''))) as codalm,
+      CAST(r.fecha_remision AS DATE) as fechaRemision,
+      CAST(COALESCE(r.pedido_id, NULL) AS INT) as pedidoId,
+      LTRIM(RTRIM(COALESCE(r.codter, ''))) as clienteId,
+      LTRIM(RTRIM(COALESCE(r.codven, ''))) as vendedorId,
+      LTRIM(RTRIM(COALESCE(r.estado, 'BORRADOR'))) as estado,
+      LTRIM(RTRIM(COALESCE(r.observaciones, ''))) as observaciones,
+      LTRIM(RTRIM(COALESCE(r.codusu, ''))) as codUsuario,
+      COALESCE(r.fec_creacion, GETDATE()) as fechaCreacion,
+      -- Campos calculados/compatibilidad (no existen en la tabla pero se dejan como NULL)
+      NULL as subtotal,
+      NULL as descuentoValor,
+      NULL as ivaValor,
+      NULL as total,
+      NULL as empresaId,
       NULL as facturaId,
       NULL as estadoEnvio,
       NULL as metodoEnvio,
@@ -387,39 +402,283 @@ const QUERIES = {
       NULL as numeroGuia,
       NULL as fechaDespacho
     FROM ${TABLE_NAMES.remisiones} r
-    ORDER BY r.fecrec DESC
+    ORDER BY r.fecha_remision DESC, r.id DESC
   `,
 
-  // Obtener detalles de remisiones - ven_detarecibo contiene PAGOS/COBROS, no productos
-  // NOTA: Esta tabla NO contiene items de productos, solo información de pagos/cuotas
+  // Obtener detalles de remisiones - Usando estructura de ven_remiciones_det
+  // Obtener precios desde el pedido relacionado (ven_detapedidos) usando subconsultas para mayor confiabilidad
   GET_REMISIONES_DETALLE: `
     SELECT 
       rd.id,
-      -- Usar numrec como remisionId (junto con codalm y tipdoc forman la clave)
-      CAST(rd.numrec AS VARCHAR(20)) as remisionId,
-      rd.numrec,
-      rd.codalm,
-      rd.tipdoc,
-      -- Información de pago/cuota
-      COALESCE(rd.valcuo, 0) as valcuo,
-      LTRIM(RTRIM(COALESCE(rd.forpag, ''))) as forpag,
-      LTRIM(RTRIM(COALESCE(rd.numdoc, ''))) as numdoc,
-      LTRIM(RTRIM(COALESCE(rd.codban, ''))) as codban,
-      rd.feccheq as feccheq,
-      COALESCE(rd.abocuo, 0) as abocuo,
-      COALESCE(rd.salcuo, 0) as salcuo,
-      rd.estrec as estrec,
-      -- Campos que no existen pero se dejan como NULL para compatibilidad
-      NULL as productoId,
-      NULL as cantidad,
-      NULL as precioUnitario,
-      NULL as descuentoPorcentaje,
-      NULL as ivaPorcentaje,
-      NULL as descripcion,
-      NULL as subtotal,
-      NULL as valorIva,
-      NULL as total
+      CAST(COALESCE(rd.remision_id, 0) AS INT) as remisionId,
+      CAST(COALESCE(rd.deta_pedido_id, NULL) AS INT) as detaPedidoId,
+      LTRIM(RTRIM(COALESCE(rd.codins, ''))) as codProducto,
+      -- Obtener el ID del producto desde inv_insumos usando codins
+      COALESCE(
+        (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+        NULL
+      ) as productoId,
+      -- Obtener descripción del producto
+      COALESCE(
+        (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+        LTRIM(RTRIM(COALESCE(rd.codins, '')))
+      ) as descripcion,
+      COALESCE(rd.cantidad_enviada, 0) as cantidadEnviada,
+      COALESCE(rd.cantidad_facturada, 0) as cantidadFacturada,
+      COALESCE(rd.cantidad_devuelta, 0) as cantidadDevuelta,
+      -- Campos calculados/compatibilidad
+      COALESCE(rd.cantidad_enviada, 0) as cantidad,
+      -- Obtener precios desde el pedido relacionado usando subconsulta
+      -- Buscar en ven_detapedidos usando pedido_id de la remisión y codins
+      COALESCE(
+        (SELECT TOP 1 pd.valins 
+         FROM ven_detapedidos pd
+         INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+         WHERE re.id = rd.remision_id 
+           AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+         ORDER BY pd.pedido_id DESC),
+        0
+      ) as precioUnitario,
+      -- Calcular descuentoPorcentaje desde dctped del pedido
+      CASE 
+        WHEN COALESCE(rd.cantidad_enviada, 0) > 0 
+          AND (
+            SELECT TOP 1 pd.valins 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+          ) > 0
+          AND (
+            SELECT TOP 1 pd.canped 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+          ) > 0
+        THEN (
+          (SELECT TOP 1 COALESCE(pd.dctped, 0) 
+           FROM ven_detapedidos pd
+           INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+           WHERE re.id = rd.remision_id 
+             AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))) 
+          / 
+          (rd.cantidad_enviada * 
+           (SELECT TOP 1 pd.valins 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
+        ) * 100
+        ELSE 0
+      END as descuentoPorcentaje,
+      -- Calcular ivaPorcentaje desde ivaped del pedido
+      CASE 
+        WHEN COALESCE(rd.cantidad_enviada, 0) > 0 
+          AND (
+            SELECT TOP 1 pd.valins 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+          ) > 0
+          AND (
+            SELECT TOP 1 pd.canped 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+          ) > 0
+          AND (
+            (rd.cantidad_enviada * 
+             (SELECT TOP 1 pd.valins 
+              FROM ven_detapedidos pd
+              INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+              WHERE re.id = rd.remision_id 
+                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))) 
+             - 
+             (SELECT TOP 1 COALESCE(pd.dctped, 0) 
+              FROM ven_detapedidos pd
+              INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+              WHERE re.id = rd.remision_id 
+                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins)))) > 0
+          )
+        THEN (
+          (SELECT TOP 1 COALESCE(pd.ivaped, 0) 
+           FROM ven_detapedidos pd
+           INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+           WHERE re.id = rd.remision_id 
+             AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))) 
+          / 
+          (rd.cantidad_enviada * 
+           (SELECT TOP 1 pd.valins 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))) 
+           - 
+           (SELECT TOP 1 COALESCE(pd.dctped, 0) 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
+        ) * 100
+        ELSE 0
+      END as ivaPorcentaje,
+      -- Calcular subtotal (cantidad enviada * precio unitario - descuento proporcional)
+      CASE 
+        WHEN (
+          SELECT TOP 1 pd.canped 
+          FROM ven_detapedidos pd
+          INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+          WHERE re.id = rd.remision_id 
+            AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+        ) > 0
+        THEN (
+          (rd.cantidad_enviada * 
+           COALESCE(
+             (SELECT TOP 1 pd.valins 
+              FROM ven_detapedidos pd
+              INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+              WHERE re.id = rd.remision_id 
+                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+             0
+           )) 
+          - 
+          (COALESCE(
+             (SELECT TOP 1 COALESCE(pd.dctped, 0) 
+              FROM ven_detapedidos pd
+              INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+              WHERE re.id = rd.remision_id 
+                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+             0
+           ) * 
+           (rd.cantidad_enviada / 
+            (SELECT TOP 1 pd.canped 
+             FROM ven_detapedidos pd
+             INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+             WHERE re.id = rd.remision_id 
+               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
+          )
+        )
+        ELSE (
+          rd.cantidad_enviada * 
+          COALESCE(
+            (SELECT TOP 1 pd.valins 
+             FROM ven_detapedidos pd
+             INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+             WHERE re.id = rd.remision_id 
+               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+            0
+          )
+        )
+      END as subtotal,
+      -- Obtener valorIva desde ivaped del pedido (proporcional a cantidad enviada)
+      CASE 
+        WHEN (
+          SELECT TOP 1 pd.canped 
+          FROM ven_detapedidos pd
+          INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+          WHERE re.id = rd.remision_id 
+            AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+        ) > 0 
+        THEN (
+          COALESCE(
+            (SELECT TOP 1 COALESCE(pd.ivaped, 0) 
+             FROM ven_detapedidos pd
+             INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+             WHERE re.id = rd.remision_id 
+               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+            0
+          ) * 
+          (rd.cantidad_enviada / 
+           (SELECT TOP 1 pd.canped 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
+        )
+        ELSE 0
+      END as valorIva,
+      -- Calcular total (subtotal + iva)
+      (
+        CASE 
+          WHEN (
+            SELECT TOP 1 pd.canped 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+          ) > 0
+          THEN (
+            (rd.cantidad_enviada * 
+             COALESCE(
+               (SELECT TOP 1 pd.valins 
+                FROM ven_detapedidos pd
+                INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+                WHERE re.id = rd.remision_id 
+                  AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+               0
+             )) 
+            - 
+            (COALESCE(
+               (SELECT TOP 1 COALESCE(pd.dctped, 0) 
+                FROM ven_detapedidos pd
+                INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+                WHERE re.id = rd.remision_id 
+                  AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+               0
+             ) * 
+             (rd.cantidad_enviada / 
+              (SELECT TOP 1 pd.canped 
+               FROM ven_detapedidos pd
+               INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+               WHERE re.id = rd.remision_id 
+                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
+            )
+          )
+          ELSE (
+            rd.cantidad_enviada * 
+            COALESCE(
+              (SELECT TOP 1 pd.valins 
+               FROM ven_detapedidos pd
+               INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+               WHERE re.id = rd.remision_id 
+                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+              0
+            )
+          )
+        END
+        +
+        CASE 
+          WHEN (
+            SELECT TOP 1 pd.canped 
+            FROM ven_detapedidos pd
+            INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+            WHERE re.id = rd.remision_id 
+              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+          ) > 0 
+          THEN (
+            COALESCE(
+              (SELECT TOP 1 COALESCE(pd.ivaped, 0) 
+               FROM ven_detapedidos pd
+               INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+               WHERE re.id = rd.remision_id 
+                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+              0
+            ) * 
+            (rd.cantidad_enviada / 
+             (SELECT TOP 1 pd.canped 
+              FROM ven_detapedidos pd
+              INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+              WHERE re.id = rd.remision_id 
+                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
+          )
+          ELSE 0
+        END
+      ) as total
     FROM ${TABLE_NAMES.remisiones_detalle} rd
+    WHERE rd.remision_id IS NOT NULL
   `,
 
   // Obtener notas de crédito
