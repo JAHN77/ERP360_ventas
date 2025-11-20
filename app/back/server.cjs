@@ -31,6 +31,7 @@ const mapEstadoToDb = (estado) => {
     'VENCIDA': 'V',
     'CONFIRMADO': 'C',
     'EN_PROCESO': 'P',
+    'TIMBRANDO': 'P', // Usar 'P' para estado de timbrado en proceso
     'PARCIALMENTE_REMITIDO': 'PR',
     'REMITIDO': 'M',
     'CANCELADO': 'X',
@@ -52,7 +53,7 @@ const mapEstadoFromDb = (estado) => {
     'R': 'RECHAZADA',
     'V': 'VENCIDA',
     'C': 'CONFIRMADO',
-    'P': 'EN_PROCESO',
+    'P': 'TIMBRANDO', // 'P' = TIMBRANDO (estado temporal mientras DIAN procesa)
     'PR': 'PARCIALMENTE_REMITIDO',
     'M': 'REMITIDO',
     'X': 'CANCELADO',
@@ -144,9 +145,14 @@ if (compression) {
 
 app.use(express.json({ limit: '5mb' }));
 
-// Middleware de logging
+// Middleware de logging mejorado
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  const timestamp = new Date().toISOString();
+  console.log(`\n📥 [${timestamp}] ${req.method} ${req.path}`);
+  if (req.method === 'PUT' && req.path.includes('/facturas/')) {
+    console.log(`   🔍 Body recibido:`, JSON.stringify(req.body, null, 2));
+    console.log(`   🔍 Params:`, req.params);
+  }
   next();
 });
 
@@ -7219,25 +7225,56 @@ app.post('/api/facturas', async (req, res) => {
 // --- ACTUALIZAR FACTURA ---
 // Registrar el endpoint PUT antes de definirlo
 console.log(`📝 Registrando endpoint: PUT /api/facturas/:id`);
+
 app.put('/api/facturas/:id', async (req, res) => {
-  console.log('\n' + '='.repeat(80));
-  console.log('🚀 [PUT /api/facturas/:id] ========== INICIO DE PETICIÓN ==========');
-  console.log('='.repeat(80));
-  console.log(`✅ Endpoint PUT /api/facturas/:id alcanzado`);
-  console.log(`   Params:`, req.params);
-  console.log(`   Method:`, req.method);
-  console.log(`   Path:`, req.path);
-  console.log(`   URL completa:`, req.url);
-  console.log(`   Original URL:`, req.originalUrl);
-  const { id } = req.params;
-  const body = req.body || {};
+  // ID único para rastrear esta petición en todos los logs
+  const requestId = `PUT-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   
-  console.log(`\n📥 [PUT /api/facturas/:id] DATOS RECIBIDOS:`);
-  console.log(`   - ID recibido: "${id}" (tipo: ${typeof id})`);
-  console.log(`   - Body completo:`, JSON.stringify(body, null, 2));
-  console.log(`   - Body.estado: "${body.estado}" (tipo: ${typeof body.estado})`);
-  console.log(`   - Body.estado === "ENVIADA":`, body.estado === 'ENVIADA');
-  console.log(`   - Todas las claves en body:`, Object.keys(body));
+  console.log('\n' + '='.repeat(80));
+  console.log(`🚀 [PUT /api/facturas/:id] [${requestId}] ========== INICIO DE PETICIÓN ==========`);
+  console.log('='.repeat(80));
+  console.log(`✅ [${requestId}] Endpoint PUT /api/facturas/:id ALCANZADO - Timestamp: ${new Date().toISOString()}`);
+  console.log(`   [${requestId}] Params:`, JSON.stringify(req.params));
+  console.log(`   [${requestId}] Method:`, req.method);
+  console.log(`   [${requestId}] Path:`, req.path);
+  console.log(`   [${requestId}] URL completa:`, req.url);
+  console.log(`   [${requestId}] Original URL:`, req.originalUrl);
+  console.log(`   [${requestId}] IP del cliente:`, req.ip || req.connection.remoteAddress);
+  
+  const { id } = req.params;
+  
+  // IMPORTANTE: Verificar que el body se haya parseado correctamente
+  let body = req.body;
+  console.log(`\n📥 [${requestId}] [PUT /api/facturas/:id] VERIFICANDO BODY:`);
+  console.log(`   [${requestId}] Body recibido (tipo):`, typeof body);
+  console.log(`   [${requestId}] Body es null?:`, body === null);
+  console.log(`   [${requestId}] Body es undefined?:`, body === undefined);
+  console.log(`   [${requestId}] Body (raw):`, body);
+  
+  // Si el body no está parseado, intentar parsearlo manualmente
+  if (!body || (typeof body === 'string' && body.length > 0)) {
+    console.log(`   [${requestId}] ⚠️ Body parece ser string, intentando parsear...`);
+    try {
+      if (typeof body === 'string') {
+        body = JSON.parse(body);
+        console.log(`   [${requestId}] ✅ Body parseado manualmente:`, body);
+      }
+    } catch (parseError) {
+      console.error(`   [${requestId}] ❌ Error parseando body:`, parseError);
+      body = {};
+    }
+  }
+  
+  body = body || {};
+  
+  console.log(`\n📥 [${requestId}] [PUT /api/facturas/:id] DATOS RECIBIDOS (DESPUÉS DE PARSING):`);
+  console.log(`   [${requestId}] - ID recibido: "${id}" (tipo: ${typeof id})`);
+  console.log(`   [${requestId}] - Body completo:`, JSON.stringify(body, null, 2));
+  console.log(`   [${requestId}] - Body.estado: "${body.estado}" (tipo: ${typeof body.estado})`);
+  console.log(`   [${requestId}] - Body.estado === "ENVIADA":`, body.estado === 'ENVIADA');
+  console.log(`   [${requestId}] - Body.timbrado:`, body.timbrado);
+  console.log(`   [${requestId}] - Body.timbrar:`, body.timbrar);
+  console.log(`   [${requestId}] - Todas las claves en body:`, Object.keys(body));
   
   // Intentar convertir a número
   const idNum = parseInt(id, 10);
@@ -7284,35 +7321,35 @@ app.put('/api/facturas/:id', async (req, res) => {
       const facturaExistente = checkResult.recordset[0];
       const estadoActualMapeado = mapEstadoFromDb(facturaExistente.estfac);
       
-      console.log('\n' + '='.repeat(80));
-      console.log('📋 [TIMBRADO] ========== VERIFICANDO CONDICIONES PARA TIMBRADO ==========');
-      console.log('='.repeat(80));
-      console.log('✅ Factura encontrada:');
-      console.log('   - ID:', facturaExistente.ID);
-      console.log('   - Número:', facturaExistente.numfact);
-      console.log('   - Estado en BD (estfac):', facturaExistente.estfac);
-      console.log('   - Estado mapeado:', estadoActualMapeado);
-      console.log('   - Estado desde body (body.estado):', body.estado);
-      console.log('   - Tipo de body.estado:', typeof body.estado);
-      console.log('   - facturaExistente.estado:', facturaExistente.estado);
-      console.log('   - facturaExistente tiene campo estado?:', 'estado' in facturaExistente);
-      console.log('   - Todos los campos de facturaExistente:', Object.keys(facturaExistente));
+      console.log(`\n[${requestId}] ` + '='.repeat(80));
+      console.log(`[${requestId}] 📋 [TIMBRADO] ========== VERIFICANDO CONDICIONES PARA TIMBRADO ==========`);
+      console.log(`[${requestId}] ` + '='.repeat(80));
+      console.log(`[${requestId}] ✅ Factura encontrada:`);
+      console.log(`[${requestId}]    - ID:`, facturaExistente.ID);
+      console.log(`[${requestId}]    - Número:`, facturaExistente.numfact);
+      console.log(`[${requestId}]    - Estado en BD (estfac):`, facturaExistente.estfac);
+      console.log(`[${requestId}]    - Estado mapeado:`, estadoActualMapeado);
+      console.log(`[${requestId}]    - Estado desde body (body.estado):`, body.estado);
+      console.log(`[${requestId}]    - Tipo de body.estado:`, typeof body.estado);
+      console.log(`[${requestId}]    - facturaExistente.estado:`, facturaExistente.estado);
+      console.log(`[${requestId}]    - facturaExistente tiene campo estado?:`, 'estado' in facturaExistente);
+      console.log(`[${requestId}]    - Todos los campos de facturaExistente:`, Object.keys(facturaExistente));
       
       // Mapear estado del frontend al backend si es necesario
       const estadoDb = body.estado ? mapEstadoToDb(body.estado) : facturaExistente.estfac;
-      console.log('   - Estado mapeado a BD (estadoDb):', estadoDb);
+      console.log(`[${requestId}]    - Estado mapeado a BD (estadoDb):`, estadoDb);
       
       // Verificar condiciones para timbrado
       const condicion1 = body.estado === 'ENVIADA';
       const condicion2 = facturaExistente.estfac !== 'E';
       const condicion3 = estadoActualMapeado !== 'ENVIADA';
       
-      console.log('\n🔍 [TIMBRADO] CONDICIONES PARA TIMBRADO:');
-      console.log('   1. body.estado === "ENVIADA":', condicion1, `(body.estado="${body.estado}")`);
-      console.log('   2. facturaExistente.estfac !== "E":', condicion2, `(estfac="${facturaExistente.estfac}")`);
-      console.log('   3. estadoActualMapeado !== "ENVIADA":', condicion3, `(estadoActualMapeado="${estadoActualMapeado}")`);
-      console.log('   - Condición combinada (1 && 2):', condicion1 && condicion2);
-      console.log('   - Condición combinada (1 && 3):', condicion1 && condicion3);
+      console.log(`\n[${requestId}] 🔍 [TIMBRADO] CONDICIONES PARA TIMBRADO:`);
+      console.log(`[${requestId}]    1. body.estado === "ENVIADA":`, condicion1, `(body.estado="${body.estado}")`);
+      console.log(`[${requestId}]    2. facturaExistente.estfac !== "E":`, condicion2, `(estfac="${facturaExistente.estfac}")`);
+      console.log(`[${requestId}]    3. estadoActualMapeado !== "ENVIADA":`, condicion3, `(estadoActualMapeado="${estadoActualMapeado}")`);
+      console.log(`[${requestId}]    - Condición combinada (1 && 2):`, condicion1 && condicion2);
+      console.log(`[${requestId}]    - Condición combinada (1 && 3):`, condicion1 && condicion3);
       
       // Construir la consulta de actualización dinámicamente
       const updates = [];
@@ -7324,81 +7361,121 @@ app.put('/api/facturas/:id', async (req, res) => {
       let fechaTimbradoGenerada = null;
       let estadoFinal = estadoDb;
       
-      // CORREGIR: Usar estfac en lugar de estado
-      if (body.estado === 'ENVIADA' && facturaExistente.estfac !== 'E') {
-        console.log('\n✅ [TIMBRADO] CONDICIÓN CUMPLIDA - INICIANDO PROCESO DE TIMBRADO');
-        console.log('='.repeat(80));
+      // CORREGIR: Permitir timbrado desde CUALQUIER estado (incluyendo BORRADOR)
+      // El timbrado se ejecuta si:
+      // 1. Se intenta cambiar a estado ENVIADA (desde cualquier estado previo)
+      // 2. O si viene explícitamente body.timbrado === true o body.timbrar === true
+      // NO requiere que el estado previo sea diferente de 'E', porque puede ser un reintento
+      const debeTimbrar = (body.estado === 'ENVIADA') || 
+                          (body.timbrado === true) ||
+                          (body.timbrar === true);
+      
+      if (debeTimbrar) {
+        console.log(`\n[${requestId}] ✅ [TIMBRADO] CONDICIÓN CUMPLIDA - INICIANDO PROCESO DE TIMBRADO`);
+        console.log(`[${requestId}] ` + '='.repeat(80));
+        console.log(`[${requestId}] 🔍 [TIMBRADO] Razón del timbrado:`);
+        console.log(`[${requestId}]    - body.estado === "ENVIADA":`, body.estado === 'ENVIADA');
+        console.log(`[${requestId}]    - body.timbrado === true:`, body.timbrado === true);
+        console.log(`[${requestId}]    - body.timbrar === true:`, body.timbrar === true);
+        console.log(`[${requestId}]    - Estado actual de factura (estfac):`, facturaExistente.estfac);
+        console.log(`[${requestId}]    - Estado actual mapeado:`, estadoActualMapeado);
+        console.log(`[${requestId}]    - debeTimbrar (resultado final):`, debeTimbrar);
+        console.log(`[${requestId}] ⏰ [TIMBRADO] Timestamp de inicio de timbrado:`, new Date().toISOString());
+        
+        // IMPORTANTE: Primero cambiar el estado a TIMBRANDO (P) para indicar que está en proceso
+        // Esto es un estado temporal mientras DIAN procesa la factura
+        console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 0: Cambiando estado a TIMBRANDO (EN_PROCESO)...`);
+        estadoFinal = 'P'; // TIMBRANDO/EN_PROCESO - estado temporal mientras DIAN procesa
+        
         // Proceso de timbrado real con DIAN
-        console.log(`🔄 Iniciando proceso de timbrado con DIAN para factura ${facturaExistente.numero_factura}...`);
+        console.log(`[${requestId}] 🔄 [TIMBRADO] Iniciando proceso de timbrado con DIAN para factura ${facturaExistente.numfact || facturaExistente.numero_factura || idNum}...`);
+        console.log(`[${requestId}]    Estado temporal: TIMBRANDO (P) - La factura está siendo procesada por DIAN`);
         
         try {
           // 1. Obtener resolución DIAN activa
+          console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 1: Obteniendo resolución DIAN activa...`);
           const resolution = await DIANService.getDIANResolution();
+          console.log(`[${requestId}] ✅ Resolución DIAN obtenida: ID=${resolution.id}, Consecutivo=${resolution.consecutivo}`);
           
           // 2. Obtener parámetros DIAN
+          console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 2: Obteniendo parámetros DIAN...`);
           const dianParams = await DIANService.getDIANParameters();
+          console.log(`[${requestId}] ✅ Parámetros DIAN obtenidos: URL=${dianParams.url_base}, TestSetID=${dianParams.testSetID}`);
           
           // 3. Obtener factura completa con detalles y cliente
+          console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 3: Obteniendo factura completa con detalles y cliente...`);
           const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
+          console.log(`[${requestId}] ✅ Factura completa obtenida: ${facturaCompleta.factura.numfact}, ${facturaCompleta.detalles?.length || 0} detalles`);
           
           // 4. Transformar factura al formato JSON requerido por DIAN
+          console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 4: Transformando factura al formato JSON requerido por DIAN...`);
           const invoiceJson = await DIANService.transformVenFacturaForDIAN(
             facturaCompleta,
             resolution,
             dianParams,
             body.invoiceData || {}
           );
+          console.log(`[${requestId}] ✅ Factura transformada al formato DIAN. Número: ${invoiceJson.number}, Total: ${invoiceJson.legal_monetary_totals?.payable_amount}`);
           
           // 5. Enviar factura a DIAN
+          console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 5: ENVIANDO FACTURA A DIAN...`);
+          console.log(`[${requestId}]    URL de DIAN: ${dianParams.url_base}/api/ubl2.1/invoice/${dianParams.testSetID}`);
           const dianResponse = await DIANService.sendInvoiceToDIAN(
             invoiceJson,
             dianParams.testSetID,
             dianParams.url_base
           );
+          console.log(`[${requestId}] ✅ Respuesta de DIAN recibida`);
           
-          // 6. Procesar respuesta de DIAN
-          console.log('\n' + '='.repeat(80));
-          console.log('🔄 PROCESANDO RESPUESTA DE DIAN:');
-          console.log('='.repeat(80));
-          console.log('📋 success:', dianResponse.success);
-          console.log('📋 status:', dianResponse.status);
-          console.log('📋 statusCode:', dianResponse.statusCode);
-          console.log('📋 cufe:', dianResponse.cufe || 'null');
-          console.log('📋 uuid:', dianResponse.uuid || 'null');
-          console.log('📋 isValid:', dianResponse.isValid);
-          console.log('📋 message:', dianResponse.message || 'null');
+          // 6. Procesar respuesta de DIAN y actualizar estado según resultado
+          console.log(`\n[${requestId}] ` + '='.repeat(80));
+          console.log(`[${requestId}] 🔄 [TIMBRADO] PASO 6: PROCESANDO RESPUESTA DE DIAN`);
+          console.log(`[${requestId}] ` + '='.repeat(80));
+          console.log(`[${requestId}] 📋 success:`, dianResponse.success);
+          console.log(`[${requestId}] 📋 status:`, dianResponse.status);
+          console.log(`[${requestId}] 📋 statusCode:`, dianResponse.statusCode);
+          console.log(`[${requestId}] 📋 cufe:`, dianResponse.cufe || 'null');
+          console.log(`[${requestId}] 📋 uuid:`, dianResponse.uuid || 'null');
+          console.log(`[${requestId}] 📋 isValid:`, dianResponse.isValid);
+          console.log(`[${requestId}] 📋 message:`, dianResponse.message || 'null');
           
           if (dianResponse.success && dianResponse.cufe) {
-            // Factura aceptada y timbrada
+            // Factura aceptada y timbrada por DIAN
             cufeGenerado = dianResponse.cufe;
             fechaTimbradoGenerada = dianResponse.fechaTimbrado || new Date();
-            estadoFinal = 'E'; // ENVIADA
+            estadoFinal = 'E'; // ENVIADA - Solo después de que DIAN confirme el timbrado
             
-            console.log('\n✅ FACTURA ACEPTADA Y TIMBRADA POR DIAN:');
-            console.log('   - CUFE:', cufeGenerado);
-            console.log('   - UUID:', dianResponse.uuid || 'N/A');
-            console.log('   - Fecha timbrado:', fechaTimbradoGenerada);
-            console.log('   - PDF URL:', dianResponse.pdf_url || 'N/A');
-            console.log('   - XML URL:', dianResponse.xml_url || 'N/A');
-            console.log('   - QR Code:', dianResponse.qr_code ? 'Presente' : 'N/A');
-            console.log('='.repeat(80) + '\n');
+            console.log(`\n[${requestId}] ✅ FACTURA ACEPTADA Y TIMBRADA POR DIAN:`);
+            console.log(`[${requestId}]    - CUFE:`, cufeGenerado);
+            console.log(`[${requestId}]    - UUID:`, dianResponse.uuid || 'N/A');
+            console.log(`[${requestId}]    - Fecha timbrado:`, fechaTimbradoGenerada);
+            console.log(`[${requestId}]    - PDF URL:`, dianResponse.pdf_url || 'N/A');
+            console.log(`[${requestId}]    - XML URL:`, dianResponse.xml_url || 'N/A');
+            console.log(`[${requestId}]    - QR Code:`, dianResponse.qr_code ? 'Presente' : 'N/A');
+            console.log(`[${requestId}]    - Estado final: ENVIADA (E) - Factura timbrada exitosamente`);
+            console.log(`[${requestId}] ` + '='.repeat(80) + '\n');
           } else {
-            // Factura rechazada o error en respuesta
+            // Factura rechazada o error en respuesta de DIAN
             estadoFinal = 'R'; // RECHAZADA
             
-            console.log('\n❌ FACTURA RECHAZADA O ERROR EN RESPUESTA DIAN:');
-            console.log('   - success:', dianResponse.success);
-            console.log('   - status:', dianResponse.status);
-            console.log('   - statusCode:', dianResponse.statusCode);
-            console.log('   - message:', dianResponse.message || 'Sin mensaje');
-            console.log('   - CUFE presente:', dianResponse.cufe ? 'Sí' : 'No');
-            console.log('   - Respuesta completa:', JSON.stringify(dianResponse, null, 2));
-            console.log('='.repeat(80) + '\n');
+            console.log(`\n[${requestId}] ❌ FACTURA RECHAZADA O ERROR EN RESPUESTA DIAN:`);
+            console.log(`[${requestId}]    - success:`, dianResponse.success);
+            console.log(`[${requestId}]    - status:`, dianResponse.status);
+            console.log(`[${requestId}]    - statusCode:`, dianResponse.statusCode);
+            console.log(`[${requestId}]    - message:`, dianResponse.message || 'Sin mensaje');
+            console.log(`[${requestId}]    - CUFE presente:`, dianResponse.cufe ? 'Sí' : 'No');
+            console.log(`[${requestId}]    - Estado final: RECHAZADA (R)`);
+            console.log(`[${requestId}]    - Respuesta completa:`, JSON.stringify(dianResponse, null, 2));
+            console.log(`[${requestId}] ` + '='.repeat(80) + '\n');
           }
         } catch (dianError) {
-          // Error al enviar a DIAN
-          console.error('❌ Error al enviar factura a DIAN:', dianError);
-          console.error('   Stack:', dianError.stack);
+          // Error al enviar a DIAN o durante el proceso
+          console.error(`\n[${requestId}] ❌ ERROR AL ENVIAR FACTURA A DIAN:`);
+          console.error(`[${requestId}] ` + '='.repeat(80));
+          console.error(`[${requestId}]    - Error:`, dianError.message);
+          console.error(`[${requestId}]    - Stack:`, dianError.stack);
+          console.error(`[${requestId}]    - Timestamp:`, new Date().toISOString());
+          console.error(`[${requestId}] ` + '='.repeat(80));
           
           // Marcar como rechazada si hay error
           estadoFinal = 'R'; // RECHAZADA
@@ -7407,17 +7484,17 @@ app.put('/api/facturas/:id', async (req, res) => {
           // El estado RECHAZADA quedará guardado en la base de datos
         }
       } else {
-        console.log('\n⚠️ [TIMBRADO] CONDICIÓN NO CUMPLIDA - NO SE TIMBRARÁ LA FACTURA');
-        console.log('='.repeat(80));
-        console.log('   Razones por las que NO se timbrará:');
-        if (body.estado !== 'ENVIADA') {
-          console.log('   ❌ body.estado no es "ENVIADA":', body.estado);
-        }
-        if (facturaExistente.estfac === 'E') {
-          console.log('   ❌ La factura ya está timbrada (estfac = "E")');
-        }
-        console.log('   ℹ️ La factura se actualizará normalmente sin timbrar');
-        console.log('='.repeat(80) + '\n');
+        console.log(`\n[${requestId}] ⚠️ [TIMBRADO] CONDICIÓN NO CUMPLIDA - NO SE TIMBRARÁ LA FACTURA`);
+        console.log(`[${requestId}] ` + '='.repeat(80));
+        console.log(`[${requestId}]    Razones por las que NO se timbrará:`);
+        console.log(`[${requestId}]    - body.estado recibido: "${body.estado}" (tipo: ${typeof body.estado})`);
+        console.log(`[${requestId}]    - body.estado === "ENVIADA":`, body.estado === 'ENVIADA');
+        console.log(`[${requestId}]    - body.timbrado:`, body.timbrado, `(tipo: ${typeof body.timbrado})`);
+        console.log(`[${requestId}]    - body.timbrar:`, body.timbrar, `(tipo: ${typeof body.timbrar})`);
+        console.log(`[${requestId}]    - debeTimbrar (resultado):`, debeTimbrar);
+        console.log(`[${requestId}]    ℹ️ Para timbrar, envía: { estado: "ENVIADA" } o { timbrado: true }`);
+        console.log(`[${requestId}]    ℹ️ La factura se actualizará normalmente sin timbrar`);
+        console.log(`[${requestId}] ` + '='.repeat(80) + '\n');
       }
       
       // Construir actualizaciones dinámicamente usando las columnas reales
@@ -7587,11 +7664,15 @@ app.put('/api/facturas/:id', async (req, res) => {
         remisionesIds: remisionesIds
       };
       
-      console.log(`✅ Factura actualizada exitosamente:`, {
-        id: facturaMapeada.id,
-        numeroFactura: facturaMapeada.numeroFactura,
-        estado: facturaMapeada.estado
-      });
+      console.log(`\n[${requestId}] ✅ [PUT /api/facturas/:id] FACTURA ACTUALIZADA EXITOSAMENTE`);
+      console.log(`[${requestId}] ` + '='.repeat(80));
+      console.log(`[${requestId}]    - ID:`, facturaMapeada.id);
+      console.log(`[${requestId}]    - Número:`, facturaMapeada.numeroFactura);
+      console.log(`[${requestId}]    - Estado final:`, facturaMapeada.estado);
+      console.log(`[${requestId}]    - CUFE:`, facturaMapeada.cufe || 'No generado');
+      console.log(`[${requestId}]    - Fecha timbrado:`, facturaMapeada.fechaTimbrado || 'N/A');
+      console.log(`[${requestId}] ⏰ Timestamp final:`, new Date().toISOString());
+      console.log(`[${requestId}] ` + '='.repeat(80) + '\n');
       
       res.json({ 
         success: true, 
@@ -7599,15 +7680,259 @@ app.put('/api/facturas/:id', async (req, res) => {
       });
     } catch (inner) {
       await tx.rollback();
-      console.error('❌ Error interno en transacción:', inner);
+      console.error(`\n[${requestId}] ❌ [PUT /api/facturas/:id] ERROR INTERNO EN TRANSACCIÓN:`);
+      console.error(`[${requestId}] ` + '='.repeat(80));
+      console.error(`[${requestId}]    - Error:`, inner.message);
+      console.error(`[${requestId}]    - Stack:`, inner.stack);
+      console.error(`[${requestId}]    - Timestamp:`, new Date().toISOString());
+      console.error(`[${requestId}] ` + '='.repeat(80) + '\n');
       throw inner;
     }
   } catch (error) {
-    console.error('❌ Error actualizando factura:', error);
-    console.error('❌ Stack trace:', error.stack);
+    console.error(`\n[${requestId}] ❌ [PUT /api/facturas/:id] ERROR GENERAL:`);
+    console.error(`[${requestId}] ` + '='.repeat(80));
+    console.error(`[${requestId}]    - Error:`, error.message);
+    console.error(`[${requestId}]    - Stack:`, error.stack);
+    console.error(`[${requestId}]    - Timestamp:`, new Date().toISOString());
+    console.error(`[${requestId}]    - ID factura:`, req.params.id);
+    console.error(`[${requestId}]    - Body recibido:`, JSON.stringify(req.body, null, 2));
+    console.error(`[${requestId}] ` + '='.repeat(80) + '\n');
+    
     res.status(500).json({ 
       success: false, 
       message: `Error actualizando factura: ${error.message}`, 
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      requestId: requestId // Incluir requestId en la respuesta para debugging
+    });
+  }
+});
+
+// ========== ENDPOINT ESPECÍFICO PARA TIMBRADO DE FACTURA ==========
+console.log(`📝 Registrando endpoint: POST /api/facturas/:id/timbrar`);
+app.post('/api/facturas/:id/timbrar', async (req, res) => {
+  console.log('\n' + '='.repeat(80));
+  console.log('🚀 [POST /api/facturas/:id/timbrar] ========== TIMBRADO ESPECÍFICO ==========');
+  console.log('='.repeat(80));
+  
+  const { id } = req.params;
+  const body = req.body || {};
+  
+  console.log(`📥 [TIMBRADO] Solicitud de timbrado recibida:`);
+  console.log(`   - ID factura: "${id}"`);
+  console.log(`   - Body:`, JSON.stringify(body, null, 2));
+  
+  const idNum = parseInt(id, 10);
+  
+  if (isNaN(idNum)) {
+    console.error(`❌ [TIMBRADO] ID inválido: "${id}"`);
+    return res.status(400).json({ 
+      success: false, 
+      message: `ID de factura inválido: ${id}. Se espera un número.`,
+      error: 'INVALID_ID'
+    });
+  }
+  
+  try {
+    const pool = await getConnection();
+    const tx = new sql.Transaction(pool);
+    await tx.begin();
+    
+    try {
+      // Verificar que la factura existe
+      const reqCheck = new sql.Request(tx);
+      reqCheck.input('id', sql.Int, idNum);
+      const checkResult = await reqCheck.query(`
+        SELECT ID, numfact, estfac 
+        FROM ${TABLE_NAMES.facturas} 
+        WHERE ID = @id
+      `);
+      
+      if (checkResult.recordset.length === 0) {
+        await tx.rollback();
+        console.error(`❌ [TIMBRADO] Factura con ID ${idNum} no encontrada`);
+        return res.status(404).json({ 
+          success: false, 
+          message: `Factura con ID ${idNum} no encontrada`,
+          error: 'FACTURA_NOT_FOUND'
+        });
+      }
+      
+      const facturaExistente = checkResult.recordset[0];
+      const estadoActualMapeado = mapEstadoFromDb(facturaExistente.estfac);
+      
+      console.log(`✅ [TIMBRADO] Factura encontrada:`);
+      console.log(`   - ID: ${facturaExistente.ID}`);
+      console.log(`   - Número: ${facturaExistente.numfact}`);
+      console.log(`   - Estado actual: ${facturaExistente.estfac} (${estadoActualMapeado})`);
+      
+      // SIEMPRE ejecutar proceso de timbrado a DIAN
+      let cufeGenerado = null;
+      let fechaTimbradoGenerada = null;
+      let estadoFinal = 'E'; // Por defecto ENVIADA
+      let motivoRechazo = null;
+      
+      console.log('\n🔄 [TIMBRADO] INICIANDO PROCESO DE TIMBRADO CON DIAN');
+      console.log('='.repeat(80));
+      
+      try {
+        // 1. Obtener resolución DIAN activa
+        console.log('\n📋 [TIMBRADO] PASO 1: Obteniendo resolución DIAN...');
+        const resolution = await DIANService.getDIANResolution();
+        
+        // 2. Obtener parámetros DIAN
+        console.log('\n📋 [TIMBRADO] PASO 2: Obteniendo parámetros DIAN...');
+        const dianParams = await DIANService.getDIANParameters();
+        
+        // 3. Obtener factura completa con detalles y cliente
+        console.log('\n📋 [TIMBRADO] PASO 3: Obteniendo factura completa...');
+        const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
+        
+        // 4. Transformar factura al formato JSON requerido por DIAN
+        console.log('\n📋 [TIMBRADO] PASO 4: Transformando factura al formato DIAN...');
+        const invoiceJson = await DIANService.transformVenFacturaForDIAN(
+          facturaCompleta,
+          resolution,
+          dianParams,
+          body.invoiceData || {}
+        );
+        
+        // 5. Enviar factura a DIAN
+        console.log('\n📋 [TIMBRADO] PASO 5: Enviando factura a DIAN...');
+        const dianResponse = await DIANService.sendInvoiceToDIAN(
+          invoiceJson,
+          dianParams.testSetID,
+          dianParams.url_base
+        );
+        
+        // 6. Procesar respuesta de DIAN
+        console.log('\n📋 [TIMBRADO] PASO 6: Procesando respuesta de DIAN...');
+        console.log('='.repeat(80));
+        console.log('📋 [TIMBRADO] Respuesta DIAN:');
+        console.log('   - success:', dianResponse.success);
+        console.log('   - status:', dianResponse.status);
+        console.log('   - statusCode:', dianResponse.statusCode);
+        console.log('   - cufe:', dianResponse.cufe || 'null');
+        console.log('   - uuid:', dianResponse.uuid || 'null');
+        console.log('   - isValid:', dianResponse.isValid);
+        console.log('   - message:', dianResponse.message || 'null');
+        console.log('='.repeat(80));
+        
+        if (dianResponse.success && dianResponse.cufe) {
+          // Factura aceptada y timbrada
+          cufeGenerado = dianResponse.cufe;
+          fechaTimbradoGenerada = dianResponse.fechaTimbrado || new Date();
+          estadoFinal = 'E'; // ENVIADA
+          
+          console.log('\n✅ [TIMBRADO] FACTURA ACEPTADA Y TIMBRADA POR DIAN:');
+          console.log('   - CUFE:', cufeGenerado);
+          console.log('   - UUID:', dianResponse.uuid || 'N/A');
+          console.log('   - Fecha timbrado:', fechaTimbradoGenerada);
+          console.log('   - PDF URL:', dianResponse.pdf_url || 'N/A');
+          console.log('   - XML URL:', dianResponse.xml_url || 'N/A');
+          console.log('   - QR Code:', dianResponse.qr_code ? 'Presente' : 'N/A');
+        } else {
+          // Factura rechazada o error en respuesta
+          estadoFinal = 'R'; // RECHAZADA
+          motivoRechazo = dianResponse.message || `Error en timbrado. Status: ${dianResponse.statusCode || 'desconocido'}`;
+          
+          console.log('\n❌ [TIMBRADO] FACTURA RECHAZADA O ERROR EN RESPUESTA DIAN:');
+          console.log('   - success:', dianResponse.success);
+          console.log('   - status:', dianResponse.status);
+          console.log('   - statusCode:', dianResponse.statusCode);
+          console.log('   - message:', motivoRechazo);
+          console.log('   - CUFE presente:', dianResponse.cufe ? 'Sí' : 'No');
+          console.log('   - Respuesta completa:', JSON.stringify(dianResponse, null, 2));
+        }
+      } catch (dianError) {
+        // Error al enviar a DIAN
+        estadoFinal = 'R'; // RECHAZADA
+        motivoRechazo = dianError.message || 'Error desconocido al enviar a DIAN';
+        
+        console.error('\n❌ [TIMBRADO] ERROR AL ENVIAR FACTURA A DIAN:');
+        console.error('   - Error:', dianError.message);
+        console.error('   - Stack:', dianError.stack);
+      }
+      
+      // Actualizar factura con el resultado del timbrado
+      const reqUpdate = new sql.Request(tx);
+      reqUpdate.input('id', sql.Int, idNum);
+      reqUpdate.input('estfac', sql.VarChar(10), estadoFinal);
+      reqUpdate.input('fecsys', sql.DateTime, new Date());
+      
+      const updates = ['estfac = @estfac', 'fecsys = @fecsys'];
+      
+      if (cufeGenerado) {
+        reqUpdate.input('CUFE', sql.VarChar(100), cufeGenerado);
+        updates.push('CUFE = @CUFE');
+      }
+      
+      const updateQuery = `
+        UPDATE ${TABLE_NAMES.facturas} 
+        SET ${updates.join(', ')}
+        WHERE ID = @id;
+        
+        SELECT 
+          f.ID as id,
+          f.numfact as numeroFactura,
+          f.estfac as estado,
+          f.CUFE as cufe,
+          f.fecsys as fechaSistema
+        FROM ${TABLE_NAMES.facturas} f
+        WHERE f.ID = @id;
+      `;
+      
+      const result = await reqUpdate.query(updateQuery);
+      await tx.commit();
+      
+      if (result.recordset.length === 0) {
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Error al actualizar la factura después del timbrado',
+          error: 'UPDATE_FAILED'
+        });
+      }
+      
+      const facturaActualizada = result.recordset[0];
+      const estadoMapeado = mapEstadoFromDb(facturaActualizada.estado);
+      
+      console.log('\n✅ [TIMBRADO] PROCESO COMPLETADO:');
+      console.log('='.repeat(80));
+      console.log('   - Estado final:', estadoFinal, `(${estadoMapeado})`);
+      console.log('   - CUFE:', cufeGenerado || 'No generado');
+      console.log('   - Motivo rechazo:', motivoRechazo || 'N/A');
+      console.log('='.repeat(80) + '\n');
+      
+      res.json({ 
+        success: estadoFinal === 'E',
+        status: estadoFinal === 'E' ? 'ACEPTADA' : 'RECHAZADA',
+        data: {
+          id: String(facturaActualizada.id),
+          numeroFactura: facturaActualizada.numeroFactura,
+          estado: estadoMapeado,
+          cufe: facturaActualizada.cufe || cufeGenerado,
+          fechaTimbrado: fechaTimbradoGenerada,
+          motivoRechazo: motivoRechazo
+        },
+        message: estadoFinal === 'E' 
+          ? 'Factura timbrada exitosamente' 
+          : `Factura rechazada: ${motivoRechazo || 'Error desconocido'}`
+      });
+      
+    } catch (inner) {
+      await tx.rollback();
+      throw inner;
+    }
+  } catch (error) {
+    console.error('\n❌ [TIMBRADO] ERROR EN PROCESO DE TIMBRADO:');
+    console.error('='.repeat(80));
+    console.error('   - Error:', error.message);
+    console.error('   - Stack:', error.stack);
+    console.error('='.repeat(80) + '\n');
+    
+    res.status(500).json({ 
+      success: false, 
+      message: `Error al timbrar la factura: ${error.message}`,
       error: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
