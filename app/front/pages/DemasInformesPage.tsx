@@ -11,6 +11,7 @@ import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useNotifications } from '../hooks/useNotifications';
 import { Cotizacion, Pedido, Remision, Factura, NotaCredito } from '../types';
 import { findClienteByIdentifier, getClienteNombreSeguro } from '../utils/clientes';
+import { formatDateOnly } from '../utils/formatters';
 
 import CotizacionPreviewModal from '../components/comercial/CotizacionPreviewModal';
 import PedidoPreviewModal from '../components/comercial/PedidoPreviewModal';
@@ -122,27 +123,27 @@ const DemasInformesPage: React.FC = () => {
 
     const cotizacionColumns: Column<Cotizacion>[] = [
         { header: 'Número', accessor: 'numeroCotizacion' }, { header: 'Cliente', accessor: 'clienteId', cell: item => clienteName(item.clienteId) },
-        { header: 'Fecha', accessor: 'fechaCotizacion' }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
+        { header: 'Fecha', accessor: 'fechaCotizacion', cell: item => formatDateOnly(item.fechaCotizacion) }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
         { header: 'Estado', accessor: 'estado', cell: item => <StatusBadge status={item.estado} /> },
     ];
     const pedidoColumns: Column<Pedido>[] = [
         { header: 'Número', accessor: 'numeroPedido' }, { header: 'Cliente', accessor: 'clienteId', cell: item => clienteName(item.clienteId) },
-        { header: 'Fecha', accessor: 'fechaPedido' }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
+        { header: 'Fecha', accessor: 'fechaPedido', cell: item => formatDateOnly(item.fechaPedido) }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
         { header: 'Estado', accessor: 'estado', cell: item => <StatusBadge status={item.estado} /> },
     ];
     const remisionColumns: Column<Remision>[] = [
         { header: 'Número', accessor: 'numeroRemision' }, { header: 'Cliente', accessor: 'clienteId', cell: item => clienteName(item.clienteId) },
-        { header: 'Fecha', accessor: 'fechaRemision' }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
+        { header: 'Fecha', accessor: 'fechaRemision', cell: item => formatDateOnly(item.fechaRemision) }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
         { header: 'Estado', accessor: 'estado', cell: item => <StatusBadge status={item.estado} /> },
     ];
     const facturaColumns: Column<Factura>[] = [
         { header: 'Número', accessor: 'numeroFactura' }, { header: 'Cliente', accessor: 'clienteId', cell: item => clienteName(item.clienteId) },
-        { header: 'Fecha', accessor: 'fechaFactura' }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
+        { header: 'Fecha', accessor: 'fechaFactura', cell: item => formatDateOnly(item.fechaFactura) }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
         { header: 'Estado', accessor: 'estado', cell: item => <StatusBadge status={item.estado} /> },
     ];
     const notaCreditoColumns: Column<NotaCredito>[] = [
         { header: 'Número', accessor: 'numero' }, { header: 'Cliente', accessor: 'clienteId', cell: item => clienteName(item.clienteId) },
-        { header: 'Fecha', accessor: 'fechaEmision' }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
+        { header: 'Fecha', accessor: 'fechaEmision', cell: item => formatDateOnly(item.fechaEmision) }, { header: 'Total', accessor: 'total', cell: item => formatCurrency(item.total) },
         { header: 'Estado DIAN', accessor: 'estadoDian', cell: item => <StatusBadge status={item.estadoDian || 'PENDIENTE'} /> },
     ];
 

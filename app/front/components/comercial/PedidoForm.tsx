@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DocumentItem, Cliente, Producto, Cotizacion, Vendedor } from '../../types';
 import Card from '../ui/Card';
-import { isPositiveInteger, isWithinRange } from '../../utils/validation';
+import { isWithinRange, isPositiveInteger, isNonNegativeNumber } from '../../utils/validation';
 import { useData } from '../../hooks/useData';
+import { useAuth } from '../../hooks/useAuth';
+import { apiSearchClientes, apiSearchVendedores, apiSearchProductos, apiGetClienteById } from '../../services/apiClient';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -24,15 +26,23 @@ interface PedidoFormProps {
   onSubmit: (data: PedidoFormData) => void;
   onCancel: () => void;
   onDirtyChange?: (isDirty: boolean) => void;
+  isSubmitting?: boolean;
 }
 
-const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChange }) => {
+const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChange, isSubmitting = false }) => {
     const { clientes, cotizaciones, productos, vendedores } = useData();
+    const { selectedSede } = useAuth();
     const [clienteId, setClienteId] = useState('');
     const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
     const [vendedorId, setVendedorId] = useState('');
     const [selectedVendedor, setSelectedVendedor] = useState<Vendedor | null>(null);
     const [cotizacionId, setCotizacionId] = useState('');
+    const [clienteSearch, setClienteSearch] = useState('');
+    const [clienteResults, setClienteResults] = useState<Cliente[]>([]);
+    const [isClienteOpen, setIsClienteOpen] = useState(false);
+    const [vendedorSearch, setVendedorSearch] = useState('');
+    const [vendedorResults, setVendedorResults] = useState<Vendedor[]>([]);
+    const [isVendedorOpen, setIsVendedorOpen] = useState(false);
     const [items, setItems] = useState<DocumentItem[]>([]);
     const [fechaEntregaEstimada, setFechaEntregaEstimada] = useState('');
     const [instruccionesEntrega, setInstruccionesEntrega] = useState('');
@@ -43,8 +53,11 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     const [currentDiscount, setCurrentDiscount] = useState<number|string>(0);
     
     const searchRef = useRef<HTMLDivElement>(null);
+    const clienteRef = useRef<HTMLDivElement>(null);
+    const vendedorRef = useRef<HTMLDivElement>(null);
     const [productSearchTerm, setProductSearchTerm] = useState('');
     const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
+    const [productResults, setProductResults] = useState<Producto[]>([]);
     
     useEffect(() => {
         if (onDirtyChange) {
@@ -53,10 +66,25 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         }
     }, [cotizacionId, clienteId, vendedorId, items, fechaEntregaEstimada, instruccionesEntrega, onDirtyChange]);
 
+    const currentItemSubtotalForDisplay = useMemo(() => {
+        if (selectedProduct && isPositiveInteger(currentQuantity) && isWithinRange(Number(currentDiscount), 0, 100)) {
+            const quantityNum = Number(currentQuantity);
+            const discountNum = Number(currentDiscount);
+            return (selectedProduct.ultimoCosto * quantityNum) * (1 - (discountNum / 100));
+        }
+        return 0;
+    }, [selectedProduct, currentQuantity, currentDiscount]);
+
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
                 setIsProductDropdownOpen(false);
+            }
+            if (clienteRef.current && !clienteRef.current.contains(event.target as Node)) {
+                setIsClienteOpen(false);
+            }
+            if (vendedorRef.current && !vendedorRef.current.contains(event.target as Node)) {
+                setIsVendedorOpen(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -65,33 +93,124 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         };
     }, []);
 
-    const filteredProductsForSearch = useMemo(() => {
-        const productsInList = new Set(items.map(item => item.productoId));
-        const available = [...productos].filter(p => !productsInList.has(p.id));
-    
-        const sortedList = available.sort((a, b) => a.nombre.trim().localeCompare(b.nombre.trim()));
-    
-        const trimmedSearch = productSearchTerm.trim();
-        // Requerir mínimo 2 caracteres para mostrar resultados
-        if (!trimmedSearch || trimmedSearch.length < 2) {
-            return [];
-        }
-    
-        const lowercasedTerm = trimmedSearch.toLowerCase();
-        return sortedList.filter(p => 
-            p.nombre.toLowerCase().includes(lowercasedTerm) || 
-            String(p.id).includes(lowercasedTerm)
-        );
-    }, [productSearchTerm, productos, items]);
+    // Debounced search para clientes
+    useEffect(() => {
+        const controller = new AbortController();
+        const handler = setTimeout(async () => {
+            const q = clienteSearch.trim();
+            if (q.length >= 2) {
+                try {
+                    const resp = await apiSearchClientes(q, 20);
+                    if (resp.success && resp.data) {
+                        const dataArray = resp.data as any[];
+                        const clientesProcesados = dataArray.map((c: any) => ({
+                            ...c,
+                            nombreCompleto: c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || c.nomter || ''
+                        }));
+                        setClienteResults(clientesProcesados);
+                    } else {
+                        setClienteResults([]);
+                    }
+                    setIsClienteOpen(true);
+                } catch (error) {
+                    console.error('Error buscando clientes:', error);
+                    setClienteResults([]);
+                }
+            } else {
+                setClienteResults([]);
+                setIsClienteOpen(false);
+            }
+        }, 300);
+        return () => { clearTimeout(handler); controller.abort(); };
+    }, [clienteSearch, cotizacionId]);
 
-    const handleClienteChange = (id: string) => {
-        setClienteId(id);
-        setSelectedCliente(clientes.find(c => c.id === id) || null);
+    // Debounced search para vendedores
+    useEffect(() => {
+        const controller = new AbortController();
+        const handler = setTimeout(async () => {
+            const q = vendedorSearch.trim();
+            if (q.length >= 2) {
+                try {
+                    const resp = await apiSearchVendedores(q, 20);
+                    if (resp.success && resp.data) {
+                        const dataArray = resp.data as any[];
+                        setVendedorResults(dataArray);
+                    } else {
+                        setVendedorResults([]);
+                    }
+                    setIsVendedorOpen(true);
+                } catch (error) {
+                    console.error('Error buscando vendedores:', error);
+                    setVendedorResults([]);
+                }
+            } else {
+                setVendedorResults([]);
+                setIsVendedorOpen(false);
+            }
+        }, 300);
+        return () => { clearTimeout(handler); controller.abort(); };
+    }, [vendedorSearch, cotizacionId]);
+
+    // Búsqueda de productos server-side (debounce)
+    useEffect(() => {
+        const controller = new AbortController();
+        const handler = setTimeout(async () => {
+            const q = productSearchTerm.trim();
+            if (q.length >= 2) {
+                try {
+                    const resp = await apiSearchProductos(q, 20);
+                    if (resp.success && resp.data) {
+                        const dataArray = resp.data as any[];
+        const productsInList = new Set(items.map(item => item.productoId));
+                        const mappedProducts = dataArray.map((p: any) => ({
+                            ...p,
+                            unidadMedida: p.unidadMedidaNombre || p.unidadMedida || 'Unidad',
+                            nombre: p.nombre || p.nomins,
+                            aplicaIva: (p.tasaIva || 0) > 0,
+                            ultimoCosto: p.ultimoCosto || 0,
+                            stock: p.stock || 0,
+                            controlaExistencia: p.stock || 0
+                        }));
+                        const available = mappedProducts.filter((p: any) => !productsInList.has(p.id));
+                        setProductResults(available);
+                    }
+                } catch (error) {
+                    console.error('Error buscando productos:', error);
+                }
+            } else {
+                setProductResults([]);
+            }
+        }, 300);
+        return () => { clearTimeout(handler); controller.abort(); };
+    }, [productSearchTerm, items, cotizacionId]);
+
+    const pickCliente = async (c: Cliente) => {
+        // Validar que el cliente tenga un ID válido (no vacío, no null, no undefined, y no solo espacios)
+        if (!c || !c.id || String(c.id).trim() === '') {
+            console.warn('⚠️ Intento de seleccionar cliente sin ID válido:', c);
+            return; // No seleccionar si no tiene ID válido
+        }
+        
+        setClienteId(c.id);
+        setClienteSearch(c.nombreCompleto || c.razonSocial || '');
+        setIsClienteOpen(false);
+        try {
+            const resp = await apiGetClienteById(c.id);
+            if (resp.success && resp.data) {
+                setSelectedCliente({ ...c, ...(resp.data as any) });
+            } else {
+                setSelectedCliente(c);
+            }
+        } catch {
+            setSelectedCliente(c);
+        }
     };
-    
-    const handleVendedorChange = (id: string) => {
-        setVendedorId(id);
-        setSelectedVendedor(vendedores.find(v => v.id === id || v.codiEmple === id) || null);
+
+    const pickVendedor = (v: Vendedor) => {
+        setVendedorId(v.id);
+        setSelectedVendedor(v);
+        setVendedorSearch(`${v.primerNombre || ''} ${v.primerApellido || ''}`.trim());
+        setIsVendedorOpen(false);
     };
     
     const handleProductSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,7 +227,6 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         setSelectedProduct(product);
         setProductSearchTerm(product.nombre);
         setIsProductDropdownOpen(false);
-        setCurrentQuantity(1);
     };
 
     const handleCotizacionChange = (cId: string) => {
@@ -116,50 +234,56 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         const cotizacion = cotizaciones.find(c => c.id === cId);
         if(cotizacion) {
             // Llenar cliente y vendedor automáticamente desde la cotización
-            handleClienteChange(cotizacion.clienteId);
+            const cliente = clientes.find(c => c.id === cotizacion.clienteId);
+            if (cliente) {
+                setClienteId(cliente.id);
+                setSelectedCliente(cliente);
+                setClienteSearch(cliente.nombreCompleto || cliente.razonSocial || '');
+            }
             if (cotizacion.vendedorId) {
-                // Buscar vendedor por ID o codiEmple
                 const vendedor = vendedores.find(v => 
                     String(v.id) === String(cotizacion.vendedorId) || 
                     v.codiEmple === cotizacion.vendedorId
                 );
                 if (vendedor) {
-                    handleVendedorChange(vendedor.id || vendedor.codiEmple || '');
-                } else {
-                    // Si no se encuentra, usar el vendedorId directamente
-                    handleVendedorChange(cotizacion.vendedorId);
+                    setVendedorId(vendedor.id || vendedor.codiEmple || '');
+                    setSelectedVendedor(vendedor);
+                    setVendedorSearch(`${vendedor.primerNombre || ''} ${vendedor.primerApellido || ''}`.trim());
                 }
             }
             setItems(cotizacion.items);
         } else {
             // Limpiar campos cuando no hay cotización
             setItems([]);
-            handleClienteChange('');
-            handleVendedorChange('');
+            setClienteId('');
+            setSelectedCliente(null);
+            setClienteSearch('');
+            setVendedorId('');
+            setSelectedVendedor(null);
+            setVendedorSearch('');
         }
     }
 
     const handleAddItem = () => {
-        const product = productos.find(p => p.id === Number(currentProductId));
-        if (!product || !isPositiveInteger(currentQuantity) || !isWithinRange(Number(currentDiscount), 0, 100)) return;
+        if (!selectedProduct || !isPositiveInteger(currentQuantity) || !isWithinRange(Number(currentDiscount), 0, 100)) return;
         
-        if (items.some(item => item.productoId === product.id)) {
+        if (items.some(item => item.productoId === selectedProduct.id)) {
             alert("El producto ya está en la lista.");
             return;
         }
 
         const quantityNum = Number(currentQuantity);
         const discountNum = Number(currentDiscount);
-        const precioUnitario = product.ultimoCosto;
-        const ivaPorcentaje = product.aplicaIva ? 19 : 0;
+        const precioUnitario = selectedProduct.ultimoCosto;
+        const ivaPorcentaje = selectedProduct.aplicaIva ? 19 : 0;
 
         const subtotal = (precioUnitario * quantityNum) * (1 - (discountNum / 100));
         const valorIva = subtotal * (ivaPorcentaje / 100);
         const total = subtotal + valorIva;
 
         const newItem: DocumentItem = {
-            productoId: product.id,
-            descripcion: product.nombre,
+            productoId: selectedProduct.id,
+            descripcion: selectedProduct.nombre,
             cantidad: quantityNum,
             precioUnitario: precioUnitario,
             ivaPorcentaje: ivaPorcentaje,
@@ -213,12 +337,41 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     const isQuantityValid = isPositiveInteger(currentQuantity);
     const isDiscountValid = isWithinRange(Number(currentDiscount), 0, 100);
 
-    const getNumericInputClasses = (value: number | string, isValid: boolean) => `w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 ${
+    const getNumericInputClasses = (value: number | string, isValid: boolean) => `w-full px-3 py-2 text-sm text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 text-right ${
       !isValid ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
     }`;
+    const disabledInputStyle = "w-full px-3 py-2 text-sm bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md cursor-not-allowed text-slate-500 dark:text-slate-400 text-right";
+    const labelStyle = "block text-xs text-center font-medium text-slate-600 dark:text-slate-300 mb-1";
+
+    // Obtener código de bodega desde la bodega seleccionada en el header
+    const bodegaCodigo = selectedSede?.codigo 
+      ? String(selectedSede.codigo).padStart(3, '0')
+      : '001'; // Fallback si no hay bodega seleccionada
 
     return (
         <form onSubmit={handleSubmit}>
+            {/* Información de bodega seleccionada */}
+            {selectedSede ? (
+              <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-200">
+                      <i className="fas fa-warehouse"></i>
+                      <span className="font-medium">Bodega:</span>
+                      <span>{selectedSede.nombre}</span>
+                      {selectedSede.codigo && (
+                        <span className="text-xs text-blue-600 dark:text-blue-400">({selectedSede.codigo})</span>
+                      )}
+                  </div>
+              </div>
+            ) : (
+              <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                  <div className="flex items-center gap-2 text-sm text-yellow-800 dark:text-yellow-200">
+                      <i className="fas fa-exclamation-triangle"></i>
+                      <span className="font-medium">Advertencia:</span>
+                      <span>No hay bodega seleccionada. Por favor, selecciona una bodega en el header.</span>
+                  </div>
+              </div>
+            )}
+
             <div className="grid md:grid-cols-2 gap-6 mb-6">
                 <div>
                     <label htmlFor="cotizacion" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cotización de Origen (Opcional)</label>
@@ -229,23 +382,214 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                 </div>
             </div>
             
-            {/* Sección de Cliente y Vendedor - Solo visible cuando NO hay cotización o para mostrar información */}
+            {/* Sección de Cliente y Vendedor - Solo visible cuando NO hay cotización */}
             {!cotizacionId && (
                 <div className="grid md:grid-cols-2 gap-6 mb-6">
-                    <div>
+                    <div ref={clienteRef} className="relative">
                         <label htmlFor="cliente" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cliente <span className="text-red-500">*</span></label>
-                        <select id="cliente" value={clienteId} onChange={e => handleClienteChange(e.target.value)} required className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option value="" disabled>Seleccione un cliente</option>
-                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombreCompleto}</option>)}
-                        </select>
+                        <input
+                            id="cliente"
+                            value={clienteSearch}
+                            onChange={(e)=>{
+                                setClienteSearch(e.target.value);
+                                setIsClienteOpen(true);
+                                setClienteId('');
+                                setSelectedCliente(null);
+                            }}
+                            onFocus={() => { if(clienteSearch.trim().length>=2) setIsClienteOpen(true); }}
+                            onBlur={() => {
+                                // Solo buscar coincidencia si hay texto en el campo y no hay cliente seleccionado
+                                if (clienteSearch.trim().length >= 2 && !selectedCliente) {
+                                    const list = clienteResults.length > 0 ? clienteResults : clientes;
+                                    const exactMatch = list.find(c => {
+                                        // Validar que el cliente tenga un ID válido
+                                        if (!c || !c.id || String(c.id).trim() === '') {
+                                            return false; // Ignorar clientes sin ID válido
+                                        }
+                                        const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim()).toLowerCase();
+                                        const doc = (c.numeroDocumento || '').toLowerCase();
+                                        const search = clienteSearch.toLowerCase();
+                                        return nombre === search || doc === search;
+                                    });
+                                    if (exactMatch && !selectedCliente) {
+                                        pickCliente(exactMatch);
+                                    }
+                                }
+                                // Si el campo está vacío o solo espacios, limpiar la selección
+                                if (clienteSearch.trim() === '' && selectedCliente) {
+                                    setClienteId('');
+                                    setSelectedCliente(null);
+                                }
+                                setTimeout(() => {
+                                    setIsClienteOpen(false);
+                                }, 200);
+                            }}
+                            onKeyDown={(e)=>{ 
+                                if(e.key==='Escape') setIsClienteOpen(false);
+                                if(e.key==='Enter'){ 
+                                    const list = clienteResults.length > 0 ? clienteResults : clientes;
+                                    const filtered = list.filter(c => {
+                                        // Validar que el cliente tenga un ID válido
+                                        if (!c || !c.id || String(c.id).trim() === '') {
+                                            return false; // Ignorar clientes sin ID válido
+                                        }
+                                        const nombre = c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim().toLowerCase();
+                                        const doc = (c.numeroDocumento || '').toLowerCase();
+                                        const search = clienteSearch.toLowerCase();
+                                        return nombre.includes(search) || doc.includes(search);
+                                    });
+                                    if(filtered.length>0){ e.preventDefault(); pickCliente(filtered[0] as any);}
+                                }
+                            }}
+                            placeholder="Buscar cliente (min 2, nombre o documento)"
+                            className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        {isClienteOpen && clienteSearch.trim().length >= 2 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
+                                {(() => {
+                                    const listaMostrar = clienteResults.length > 0 ? clienteResults : clientes;
+                                    // Filtrar primero por ID válido, luego por búsqueda
+                                    const filtered = listaMostrar.filter(c => {
+                                        // Validar que el cliente tenga un ID válido
+                                        if (!c || !c.id || String(c.id).trim() === '') {
+                                            return false; // Ignorar clientes sin ID válido
+                                        }
+                                        const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || '').toLowerCase();
+                                        const doc = (c.numeroDocumento || '').toLowerCase();
+                                        const search = clienteSearch.toLowerCase();
+                                        return nombre.includes(search) || doc.includes(search);
+                                    });
+                                    if (filtered.length === 0) {
+                                        return (
+                                            <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
+                                                No se encontraron clientes con "{clienteSearch}"
+                                            </div>
+                                        );
+                                    }
+                                    return filtered.slice(0, 20).map(c => {
+                                        const nombreDisplay = c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || 'Sin nombre';
+                                        const docDisplay = c.numeroDocumento || '';
+                                        return (
+                                            <div 
+                                                key={c.id} 
+                                                onMouseDown={() => pickCliente(c)} 
+                                                className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
+                                            >
+                                                <div className="font-medium">{nombreDisplay}</div>
+                                                {docDisplay && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Doc: {docDisplay}</div>}
+                                            </div>
+                                        );
+                                    });
+                                })()}
+                            </div>
+                        )}
                     </div>
-                    <div>
+                    <div ref={vendedorRef} className="relative">
                         <label htmlFor="vendedor" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Vendedor</label>
-                        <select id="vendedor" value={vendedorId} onChange={e => handleVendedorChange(e.target.value)} className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option value="">Seleccione un vendedor (opcional)</option>
-                            {vendedores.map(v => <option key={v.id || v.codiEmple} value={v.id || v.codiEmple}>{v.nombreCompleto || v.nombre}</option>)}
-                        </select>
+                        <input
+                            id="vendedor"
+                            value={vendedorSearch}
+                            onChange={(e)=>{
+                                setVendedorSearch(e.target.value);
+                                setIsVendedorOpen(true);
+                                setVendedorId('');
+                                setSelectedVendedor(null);
+                            }}
+                            onFocus={() => { if(vendedorSearch.trim().length>=2) setIsVendedorOpen(true); }}
+                            onBlur={() => {
+                                const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
+                                const exactMatch = list.find(v => {
+                                    const nombre = ((v.primerNombre||'') + ' ' + (v.primerApellido||'')).trim().toLowerCase();
+                                    const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
+                                    const search = vendedorSearch.toLowerCase();
+                                    return nombre === search || codigo === search;
+                                });
+                                if (exactMatch) {
+                                    pickVendedor(exactMatch);
+                                }
+                                setTimeout(() => {
+                                    setIsVendedorOpen(false);
+                                }, 200);
+                            }}
+                            onKeyDown={(e)=>{ 
+                                if(e.key==='Escape') setIsVendedorOpen(false);
+                                if(e.key==='Enter'){ 
+                                    const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
+                                    const filtered = list.filter(v => {
+                                        const nombre = ((v.primerNombre||'') + ' ' + (v.primerApellido||'')).toLowerCase();
+                                        const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
+                                        const search = vendedorSearch.toLowerCase();
+                                        return nombre.includes(search) || codigo.includes(search);
+                                    });
+                                    if(filtered.length>0){ e.preventDefault(); pickVendedor(filtered[0] as any);}
+                                }
+                            }}
+                            placeholder="Buscar vendedor (min 2, nombre o código)"
+                            className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        {isVendedorOpen && vendedorSearch.trim().length >= 2 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
+                                {(() => {
+                                    const listaMostrar = vendedorResults.length > 0 ? vendedorResults : vendedores;
+                                    const filtered = listaMostrar.filter(v => {
+                                        const nombre = ((v.primerNombre||'') + ' ' + (v.primerApellido||'')).toLowerCase();
+                                        const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
+                                        const search = vendedorSearch.toLowerCase();
+                                        return nombre.includes(search) || codigo.includes(search);
+                                    });
+                                    if (filtered.length === 0) {
+                                        return (
+                                            <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
+                                                No se encontraron vendedores con "{vendedorSearch}"
+                                            </div>
+                                        );
+                                    }
+                                    return filtered.slice(0, 20).map(v => {
+                                        const nombreCompleto = ((v.primerNombre||'') + ' ' + (v.primerApellido||'')).trim() || 'Sin nombre';
+                                        const codigoDisplay = v.codigo || v.codigoVendedor || '';
+                                        return (
+                                            <div 
+                                                key={v.id} 
+                                                onMouseDown={() => pickVendedor(v)} 
+                                                className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
+                                            >
+                                                <div className="font-medium">{nombreCompleto}</div>
+                                                {codigoDisplay && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Código: {codigoDisplay}</div>}
+                                            </div>
+                                        );
+                                    });
+                                })()}
+                            </div>
+                        )}
                     </div>
+                    {selectedCliente && (
+                        <Card className="md:col-span-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <div className="space-y-1">
+                                <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                    {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
+                                </p>
+                                {(selectedCliente.dirter || selectedCliente.direccion) && (
+                                    <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                                        <i className="fas fa-map-marker-alt mr-1"></i>
+                                        {selectedCliente.dirter || selectedCliente.direccion}
+                                        {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
+                                    </p>
+                                )}
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                    {selectedCliente.numeroDocumento && (
+                                        <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
+                                    )}
+                                    {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
+                                        <span>
+                                            <i className="fas fa-phone mr-1"></i>
+                                            {[
+                                                selectedCliente.telefono || (selectedCliente as any).telefono,
+                                                (selectedCliente as any).celular || selectedCliente.celter
+                                            ].filter(Boolean).join(' | ')}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </Card>
+                    )}
                 </div>
             )}
             
@@ -256,29 +600,20 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         <Card className="p-3 text-sm bg-slate-50 dark:bg-slate-700/50">
                             <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">Cliente</p>
                             <p className="font-semibold text-slate-800 dark:text-slate-200">{selectedCliente.nombreCompleto}</p>
-                            <p className="text-slate-500 dark:text-slate-400">{selectedCliente.direccion}, {selectedCliente.ciudadId}</p>
-                            <p className="text-slate-500 dark:text-slate-400">{selectedCliente.email} | {selectedCliente.telefono}</p>
+                            {(selectedCliente.direccion || selectedCliente.dirter) && (
+                                <p className="text-slate-500 dark:text-slate-400">{selectedCliente.direccion || selectedCliente.dirter}{selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}</p>
+                            )}
+                            {(selectedCliente.email || selectedCliente.telefono || selectedCliente.celter) && (
+                                <p className="text-slate-500 dark:text-slate-400">{selectedCliente.email || ''} {selectedCliente.telefono || selectedCliente.celter || ''}</p>
+                            )}
                         </Card>
                     )}
                     {selectedVendedor && (
                         <Card className="p-3 text-sm bg-slate-50 dark:bg-slate-700/50">
                             <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">Vendedor</p>
-                            <p className="font-semibold text-slate-800 dark:text-slate-200">{selectedVendedor.nombreCompleto || selectedVendedor.nombre}</p>
-                            {selectedVendedor.email && <p className="text-slate-500 dark:text-slate-400">{selectedVendedor.email}</p>}
-                            {selectedVendedor.telefono && <p className="text-slate-500 dark:text-slate-400">{selectedVendedor.telefono}</p>}
+                            <p className="font-semibold text-slate-800 dark:text-slate-200">{selectedVendedor.nombreCompleto || `${selectedVendedor.primerNombre || ''} ${selectedVendedor.primerApellido || ''}`.trim() || selectedVendedor.nombre}</p>
                         </Card>
                     )}
-                </div>
-            )}
-            
-            {/* Mostrar información del cliente cuando NO hay cotización pero está seleccionado */}
-            {!cotizacionId && selectedCliente && (
-                <div className="mb-6">
-                    <Card className="p-3 text-sm bg-slate-50 dark:bg-slate-700/50">
-                        <p className="font-semibold text-slate-700 dark:text-slate-300">{selectedCliente.nombreCompleto}</p>
-                        <p className="text-slate-500 dark:text-slate-400">{selectedCliente.direccion}, {selectedCliente.ciudadId}</p>
-                        <p className="text-slate-500 dark:text-slate-400">{selectedCliente.email} | {selectedCliente.telefono}</p>
-                    </Card>
                 </div>
             )}
             
@@ -306,101 +641,108 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                 </div>
             </div>
 
-            {!cotizacionId && (
-                <div className="border-t border-b border-slate-200 dark:border-slate-700 py-6 mb-6">
-                    <h4 className="text-md font-semibold mb-3">Añadir Productos</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-start">
-                        <div ref={searchRef} className="relative md:col-span-2">
-                            <label htmlFor="producto-search" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Producto</label>
+            <div className="border-t border-b border-slate-200 dark:border-slate-700 py-4 mb-4">
+                <h4 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-100">
+                    {cotizacionId ? 'Añadir Productos Adicionales' : 'Añadir Productos'}
+                </h4>
+                    <div className="grid grid-cols-1 lg:grid-cols-8 gap-2 lg:gap-3">
+                        <div ref={searchRef} className="relative lg:col-span-3">
+                            <label htmlFor="producto-search" className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Producto</label>
                             <input
                                 type="text"
                                 id="producto-search"
                                 value={productSearchTerm}
                                 onChange={handleProductSearchChange}
                                 onFocus={() => setIsProductDropdownOpen(true)}
-                                placeholder="Buscar por nombre o ID..."
+                                placeholder="Buscar por nombre..."
                                 className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 autoComplete="off"
                             />
-                            {isProductDropdownOpen && (
-                                <>
-                                    {productSearchTerm.trim().length >= 2 ? (
-                                        filteredProductsForSearch.length > 0 ? (
-                                            <ul className="absolute z-20 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                                                {filteredProductsForSearch.map(p => (
-                                                    <li
-                                                        key={p.id}
-                                                        onMouseDown={() => handleProductSelect(p)}
-                                                        className="px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-blue-500 hover:text-white cursor-pointer"
-                                                    >
-                                                        {p.nombre} - {formatCurrency(p.ultimoCosto)} <span className="text-xs text-slate-500 dark:text-slate-400">(ID: {p.id})</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        ) : (
-                                            <ul className="absolute z-20 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg">
-                                                <li className="px-4 py-2 text-sm text-slate-500 dark:text-slate-400">
-                                                    No se encontraron productos con "{productSearchTerm}"
-                                                </li>
-                                            </ul>
-                                        )
+                            {isProductDropdownOpen && productSearchTerm.trim().length >= 2 && (
+                                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
+                                    {productResults.length === 0 ? (
+                                        <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
+                                            {productSearchTerm.trim().length >= 2 ? `No se encontraron productos con "${productSearchTerm}"` : 'Ingrese al menos 2 caracteres'}
+                                        </div>
                                     ) : (
-                                        <ul className="absolute z-20 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg">
-                                            <li className="px-4 py-2 text-sm text-slate-500 dark:text-slate-400">
-                                                Ingrese al menos 2 caracteres
-                                            </li>
-                                        </ul>
+                                        productResults.map(p => (
+                                            <div
+                                                key={p.id}
+                                                onMouseDown={() => handleProductSelect(p)}
+                                                className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
+                                            >
+                                                <div className="font-medium">{p.nombre}</div>
+                                                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                                    {formatCurrency(p.ultimoCosto)} | ID: {p.id}
+                                                    {p.referencia && ` | Ref: ${p.referencia}`}
+                                                </div>
+                                            </div>
+                                        ))
                                     )}
-                                </>
+                                </div>
                             )}
-                            <div className="h-5"></div>
                         </div>
-                        <div>
-                            <label htmlFor="cantidad" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Cantidad</label>
-                            <input type="text" pattern="[0-9]*" inputMode="numeric" id="cantidad" value={currentQuantity} onChange={e => {
+                        <div className="lg:col-span-1">
+                            <label className={labelStyle}>Unidad</label>
+                            <input type="text" value={selectedProduct?.unidadMedida || ''} disabled className={`${disabledInputStyle} text-center`} />
+                        </div>
+                        <div className="lg:col-span-1">
+                            <label className={labelStyle}>Cantidad</label>
+                            <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentQuantity} onChange={e => {
                                 const val = e.target.value.replace(/[^0-9]/g, '');
                                 setCurrentQuantity(val);
                             }} className={getNumericInputClasses(currentQuantity, isQuantityValid)} />
-                            <div className="h-5 text-center text-xs mt-1">
-                                {!isQuantityValid && <span className="text-red-500">Debe ser &gt; 0</span>}
+                            <div className="h-5 text-center text-xs mt-0.5">
+                                {!isQuantityValid && <span className="text-red-500"> &gt; 0</span>}
                                 {isQuantityValid && selectedProduct && (
                                     <>
                                         <span className="text-slate-500 dark:text-slate-400">Stock: </span>
-                                        <span className={`font-semibold ${(selectedProduct.controlaExistencia ?? 0) < Number(currentQuantity) ? 'text-orange-500' : 'text-slate-500 dark:text-slate-400'}`}>
-                                            {selectedProduct.controlaExistencia ?? 0}
+                                        <span className={`font-semibold ${((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) < Number(currentQuantity) ? 'text-orange-500' : 'text-slate-500 dark:text-slate-400'}`}>
+                                            {selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}
                                         </span>
                                     </>
                                 )}
                             </div>
                         </div>
-                         <div>
-                            <label htmlFor="descuento" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Desc. (%)</label>
-                            <input type="text" pattern="[0-9]*" inputMode="numeric" id="descuento" value={currentDiscount} onChange={e => {
+                        <div className="lg:col-span-1">
+                            <label className={labelStyle}>Vr. Unit.</label>
+                            <input type="text" value={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} disabled className={disabledInputStyle} />
+                        </div>
+                        <div className="lg:col-span-1">
+                            <label className={labelStyle}>% Iva</label>
+                            <input type="text" value={selectedProduct ? (selectedProduct.aplicaIva ? '19' : '0') : ''} disabled className={`${disabledInputStyle} text-center`} />
+                        </div>
+                        <div className="lg:col-span-1">
+                            <label className={labelStyle}>Totales</label>
+                            <input type="text" value={formatCurrency(currentItemSubtotalForDisplay)} disabled className={`${disabledInputStyle} font-bold`} />
+                        </div>
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                        <div className="w-auto">
+                            <label className={labelStyle}>% Descto</label>
+                            <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentDiscount} onChange={e => {
                                 const val = e.target.value.replace(/[^0-9]/g, '');
                                 setCurrentDiscount(val === '' ? '' : Math.min(100, parseInt(val, 10) || 0));
                             }} className={getNumericInputClasses(currentDiscount, isDiscountValid)} />
-                            <div className="h-5 text-center text-xs mt-1">
-                                {!isDiscountValid && <span className="text-red-500">Debe ser 0-100</span>}
-                            </div>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1 invisible">&nbsp;</label>
-                            <button type="button" onClick={handleAddItem} disabled={!currentProductId || !isQuantityValid || !isDiscountValid} className="w-full px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600">Añadir</button>
-                            <div className="h-5"></div>
+                        <div className="flex items-end">
+                            <button type="button" onClick={handleAddItem} disabled={!currentProductId || !isQuantityValid || !isDiscountValid} className="px-6 py-2 bg-sky-600 text-white font-semibold rounded-md hover:bg-sky-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed whitespace-nowrap">
+                                <i className="fas fa-plus mr-2"></i>Añadir Producto
+                            </button>
                         </div>
-                        {selectedProduct && Number(currentQuantity) > (selectedProduct.controlaExistencia ?? 0) && (
-                            <div className="md:col-span-5 flex items-center gap-2 text-orange-500 dark:text-orange-400 text-xs mt-2 p-2 bg-orange-50 dark:bg-orange-900/30 rounded-md border border-orange-200 dark:border-orange-800">
-                                <i className="fas fa-exclamation-triangle"></i>
-                                <span>Atención: La cantidad solicitada ({currentQuantity}) supera el stock disponible ({selectedProduct.controlaExistencia ?? 0}).</span>
-                            </div>
-                        )}
                     </div>
+                    {selectedProduct && Number(currentQuantity) > ((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) && (
+                        <div className="w-full flex items-center gap-2 text-orange-500 dark:text-orange-400 text-xs mt-2 p-2 bg-orange-50 dark:bg-orange-900/30 rounded-md border border-orange-200 dark:border-orange-800">
+                            <i className="fas fa-exclamation-triangle"></i>
+                            <span>Atención: La cantidad solicitada ({currentQuantity}) supera el stock disponible ({selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}).</span>
+                        </div>
+                    )}
                 </div>
-            )}
             
-            <div className="grid md:grid-cols-3 gap-8">
-                <div className="md:col-span-2">
-                    <h4 className="text-md font-semibold mb-3">Items del Pedido</h4>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                    <h4 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-100">Items del Pedido</h4>
+                    {/* Table of items */}
                     <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
                         <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
                              <thead className="bg-slate-50 dark:bg-slate-700">
@@ -412,31 +754,54 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                     <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Desc. %</th>
                                     <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">IVA %</th>
                                     <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Total</th>
-                                    {!cotizacionId && <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Acción</th>}
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Acción</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
-                                {items.length > 0 ? items.map(item => {
-                                    const product = productos.find(p => p.id === item.productoId);
+                                {items.length > 0 ? items.map((item, index) => {
+                                    // Buscar producto por ID (puede ser numérico o string)
+                                    const product = productos.find(p => 
+                                        String(p.id) === String(item.productoId) ||
+                                        p.id === item.productoId
+                                    );
+                                    
+                                    // Obtener nombre del producto: primero del producto encontrado, luego del item
+                                    const productoNombre = product?.nombre || 
+                                                          item.descripcion || 
+                                                          item.nombre || 
+                                                          `Producto ${index + 1}`;
+                                    
                                     return (
-                                        <tr key={item.productoId}>
-                                            <td className="px-4 py-2 text-sm">{item.descripcion}</td>
+                                        <tr key={item.productoId || `item-${index}`}>
+                                            <td className="px-4 py-2 text-sm">
+                                                {productoNombre}
+                                                {!product && (
+                                                    <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
+                                                        <i className="fas fa-exclamation-triangle"></i>
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td className="px-4 py-2 text-sm text-center">{product?.unidadMedida}</td>
                                             <td className="px-4 py-2 text-sm text-right">{item.cantidad}</td>
                                             <td className="px-4 py-2 text-sm text-right">{formatCurrency(item.precioUnitario)}</td>
                                             <td className="px-4 py-2 text-sm text-right">{item.descuentoPorcentaje}</td>
                                             <td className="px-4 py-2 text-sm text-right">{item.ivaPorcentaje}</td>
                                             <td className="px-4 py-2 text-sm text-right font-medium">{formatCurrency(item.total)}</td>
-                                            {!cotizacionId && <td className="px-4 py-2 text-center"><button type="button" onClick={() => handleRemoveItem(item.productoId)} className="text-red-500 hover:text-red-700"><i className="fas fa-trash-alt"></i></button></td>}
+                                            <td className="px-4 py-2 text-center">
+                                                <button type="button" onClick={() => handleRemoveItem(item.productoId)} className="text-red-500 hover:text-red-700"><i className="fas fa-trash-alt"></i></button>
+                                            </td>
                                         </tr>
                                     )
-                                }) : ( <tr><td colSpan={8} className="text-center py-8 text-slate-500">Añada productos al pedido.</td></tr> )}
+                                }) : (
+                                    <tr><td colSpan={8} className="text-center py-8 text-slate-500">Añada productos al pedido.</td></tr>
+                                )}
                             </tbody>
                         </table>
                     </div>
                 </div>
+
                  <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg space-y-1 h-fit">
-                    <h4 className="font-semibold text-md text-slate-800 dark:text-slate-100 mb-2">Resumen</h4>
+                    <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Resumen</h4>
                      <div className="flex justify-between text-sm">
                         <span className="text-slate-500 dark:text-slate-400">Subtotal Bruto:</span>
                         <span className="font-medium">{formatCurrency(totals.subtotalBruto)}</span>
@@ -450,7 +815,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         <span className="">{formatCurrency(totals.subtotalNeto)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                        <span className="text-slate-500 dark:text-slate-400">IVA ({items[0]?.ivaPorcentaje || 19}%):</span>
+                        <span className="text-slate-500 dark:text-slate-400">IVA (19%):</span>
                         <span className="font-medium">{formatCurrency(totals.iva)}</span>
                     </div>
                     <div className="flex justify-between text-lg font-bold border-t border-slate-200 dark:border-slate-600 pt-2 mt-2">
@@ -461,10 +826,19 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             </div>
             
             <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-4">
-                <button type="button" onClick={onCancel} className="px-6 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">Cancelar</button>
-                <button type="submit" disabled={!canSubmit} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed">
+                <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-6 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Cancelar</button>
+                <button type="submit" disabled={!canSubmit || isSubmitting} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center">
+                    {isSubmitting ? (
+                        <>
+                            <i className="fas fa-spinner fa-spin mr-2"></i>
+                            Creando Pedido...
+                        </>
+                    ) : (
+                        <>
                     <i className="fas fa-save mr-2"></i>
                     Crear Pedido
+                        </>
+                    )}
                 </button>
             </div>
         </form>

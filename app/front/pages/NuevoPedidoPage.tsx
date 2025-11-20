@@ -5,6 +5,7 @@ import { useNavigation } from '../hooks/useNavigation';
 import { DocumentItem } from '../types';
 import Modal from '../components/ui/Modal';
 import { useData } from '../hooks/useData';
+import { useNotifications } from '../hooks/useNotifications';
 
 interface PedidoFormData {
     clienteId: string;
@@ -21,23 +22,35 @@ interface PedidoFormData {
 const NuevoPedidoPage: React.FC = () => {
     const { setPage } = useNavigation();
     const { crearPedido } = useData();
+    const { addNotification } = useNotifications();
     const [isCancelConfirmOpen, setCancelConfirmOpen] = useState(false);
     const [isFormDirty, setFormDirty] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
 
-    const handleCreatePedido = (formData: PedidoFormData) => {
-        crearPedido({
-            clienteId: formData.clienteId,
-            vendedorId: formData.vendedorId,
-            cotizacionId: formData.cotizacionId,
-            items: formData.items,
-            subtotal: formData.subtotal,
-            ivaValor: formData.iva,
-            total: formData.total,
-            fechaEntregaEstimada: formData.fechaEntregaEstimada,
-            instruccionesEntrega: formData.instruccionesEntrega,
-        });
-        alert('Pedido creado exitosamente.');
-        setPage('pedidos');
+    const handleCreatePedido = async (formData: PedidoFormData) => {
+        if (isCreating) return;
+        setIsCreating(true);
+        try {
+            addNotification({ message: 'Creando pedido...', type: 'info' });
+            await crearPedido({
+                clienteId: formData.clienteId,
+                vendedorId: formData.vendedorId,
+                cotizacionId: formData.cotizacionId,
+                items: formData.items,
+                subtotal: formData.subtotal,
+                ivaValor: formData.iva,
+                total: formData.total,
+                fechaEntregaEstimada: formData.fechaEntregaEstimada,
+                instruccionesEntrega: formData.instruccionesEntrega,
+            });
+            addNotification({ message: 'Pedido creado exitosamente.', type: 'success' });
+            setPage('pedidos');
+        } catch (error) {
+            console.error('Error al crear pedido:', error);
+            addNotification({ message: 'No se pudo crear el pedido. Intenta nuevamente.', type: 'warning' });
+        } finally {
+            setIsCreating(false);
+        }
     };
     
     const handleCancel = () => {
@@ -64,6 +77,7 @@ const NuevoPedidoPage: React.FC = () => {
                         onSubmit={handleCreatePedido} 
                         onCancel={handleCancel} 
                         onDirtyChange={setFormDirty}
+                        isSubmitting={isCreating}
                     />
                 </CardContent>
             </Card>

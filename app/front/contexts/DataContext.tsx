@@ -3,12 +3,7 @@ import { initialActivityLog } from '../data/activityLog';
 import {
     Cliente, InvProducto, Factura, Pedido, Cotizacion, Remision, NotaCredito, Vendedor, DocumentItem,
     Departamento, Ciudad, TipoDocumento, TipoPersona, RegimenFiscal, Usuario, Producto, Medida,
-    ActivityLog,
-    Categoria,
-    DocumentoDetalle,
-    GlobalSearchResults,
-    Transportadora,
-    ArchivoAdjunto
+    ActivityLog,Categoria,DocumentoDetalle,GlobalSearchResults,Transportadora,ArchivoAdjunto
 } from '../types';
 import { Role } from '../config/rolesConfig';
 import { 
@@ -119,6 +114,7 @@ interface DataContextType {
     crearNotaCredito: (factura: Factura, items: DocumentItem[], motivo: string) => Promise<NotaCredito>;
     crearFacturaDesdeRemisiones: (remisionIds: string[]) => Promise<{ nuevaFactura: Factura } | null>;
     timbrarFactura: (facturaId: string) => Promise<Factura | undefined>;
+    refreshFacturasYRemisiones: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -174,10 +170,16 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     useEffect(() => {
         const fetchEssentialCatalogs = async () => {
             try {
-                // Test API connection first
-                const connectionTest = await testApiConnection();
-                if (!connectionTest.success) {
-                    throw new Error('No se puede conectar con el servidor API');
+                // Test API connection first (pero no fallar si no hay conexión, solo continuar)
+                try {
+                    const connectionTest = await testApiConnection();
+                    if (!connectionTest.success) {
+                        logger.warn({ prefix: 'DataContext' }, 'No se puede conectar con el servidor API, continuando con datos mock');
+                        // No lanzar error, solo continuar sin cargar datos del servidor
+                    }
+                } catch (connectionError) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error al probar conexión API, continuando con datos mock:', connectionError);
+                    // Continuar sin lanzar error
                 }
                 
                 // Helper para extraer datos de estructura anidada
@@ -191,22 +193,30 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     return [];
                 };
 
-                // Load medidas
-                const medidasResponse = await fetchMedidas();
-                if (medidasResponse.success) {
-                    const medidasData = extractArrayData(medidasResponse);
-                    if (medidasData.length > 0) {
-                        setMedidas(medidasData);
+                // Load medidas (con manejo de errores individual)
+                try {
+                    const medidasResponse = await fetchMedidas();
+                    if (medidasResponse && medidasResponse.success) {
+                        const medidasData = extractArrayData(medidasResponse);
+                        if (medidasData.length > 0) {
+                            setMedidas(medidasData);
+                        }
                     }
+                } catch (error) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando medidas:', error);
                 }
                 
-                // Load categorias
-                const categoriasResponse = await fetchCategorias();
-                if (categoriasResponse.success) {
-                    const categoriasData = extractArrayData(categoriasResponse);
-                    if (categoriasData.length > 0) {
-                        setCategorias(categoriasData);
+                // Load categorias (con manejo de errores individual)
+                try {
+                    const categoriasResponse = await fetchCategorias();
+                    if (categoriasResponse && categoriasResponse.success) {
+                        const categoriasData = extractArrayData(categoriasResponse);
+                        if (categoriasData.length > 0) {
+                            setCategorias(categoriasData);
+                        }
                     }
+                } catch (error) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando categorías:', error);
                 }
                 
                 // Load mock data for other catalogs (temporary)
@@ -216,8 +226,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 setTiposPersona([]);
                 setRegimenesFiscal([]);
 
-                // Vendedores desde la BD
-                const vendedoresResp = await fetchVendedores();
+                // Vendedores desde la BD (con manejo de errores individual)
+                let vendedoresResp;
+                try {
+                    vendedoresResp = await fetchVendedores();
+                } catch (error) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando vendedores:', error);
+                    vendedoresResp = { success: false, data: [] };
+                }
                 if (vendedoresResp.success) {
                     const vendedoresData = extractArrayData(vendedoresResp);
                     // Normalizar el campo activo de vendedores: convertir boolean a number (true -> 1, false -> 0)
@@ -347,15 +363,20 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // Process clientes
                 // Normalizar el campo activo: convertir boolean a number (true -> 1, false -> 0)
                 const processedClientes = (clientesData as any[]).map((c: Cliente) => {
-                    // Normalizar activo: puede venir como boolean (true/false) o number (1/0)
+                    // Normalizar activo: puede venir como boolean (true/false), number (1/0), string ('1'/'0'/'true'/'false')
                     let activoNormalizado = 0;
-                    if (c.activo === true || c.activo === 1 || c.activo === '1' || String(c.activo) === 'true') {
+                    const activoValor = c.activo;
+                    if (
+                        (typeof activoValor === 'boolean' && activoValor === true) || activoValor === 1 || String(activoValor) === 'true' || String(activoValor) === '1'
+                    ) {
                         activoNormalizado = 1;
-                    } else if (c.activo === false || c.activo === 0 || c.activo === '0' || String(c.activo) === 'false') {
+                    } else if (
+                        (typeof activoValor === 'boolean' && activoValor === false) || activoValor === 0 || String(activoValor) === 'false' || String(activoValor) === '0'
+                    ) {
                         activoNormalizado = 0;
                     } else {
                         // Intentar convertir a número
-                        activoNormalizado = Number(c.activo) || 0;
+                        activoNormalizado = Number(activoValor) || 0;
                     }
                     
                     return {
@@ -398,10 +419,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     fetchFacturasDetalle(),
                     fetchCotizaciones(),
                     fetchCotizacionesDetalle(),
-                    fetchPedidos(),
+                    // Cargar pedidos inicialmente (con pageSize alto para obtener todos los pedidos disponibles)
+                    fetchPedidos(1, 10000), // Solicitar página 1 con 10000 items para obtener todos
                     fetchPedidosDetalle(),
-                    fetchRemisiones(),
-                    fetchRemisionesDetalle(),
+                    // Remisiones ahora se cargan con paginación desde RemisionesPage
+                    // fetchRemisiones(),
+                    // fetchRemisionesDetalle(),
+                    Promise.resolve({ success: true, data: [] }),
+                    Promise.resolve({ success: true, data: [] }),
                     fetchNotasCredito()
                 ]);
                 
@@ -482,13 +507,97 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         remisionesIds = [String(f.remisionId)];
                     }
                     
+                    // Buscar items que pertenezcan a esta factura (matching flexible por ID)
+                    const facturaIdStr = String(f.id || f.ID || '');
+                    const items = (facturasDetalleData as any[]).filter(d => {
+                        const detalleFacturaId = String(d.facturaId || d.factura_id || d.id_factura || '');
+                        // Comparar tanto por ID numérico como por string
+                        return facturaIdStr === detalleFacturaId || 
+                               (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
+                    }).map(d => ({
+                        // Mapear campos del detalle a la estructura esperada
+                        productoId: d.productoId || null,
+                        cantidad: Number(d.cantidad || d.qtyins || 0),
+                        precioUnitario: Number(d.precioUnitario || d.valins || 0),
+                        descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
+                        ivaPorcentaje: Number(d.ivaPorcentaje || 0),
+                        descripcion: d.descripcion || d.observa || '',
+                        subtotal: Number(d.subtotal || 0),
+                        valorIva: Number(d.valorIva || d.ivains || 0),
+                        total: Number(d.total || 0),
+                        codProducto: d.codProducto || d.codins || ''
+                    }));
+                    
+                    // Mapear todos los campos de la tabla ven_facturas
                     return {
-                        ...f,
-                        items: (facturasDetalleData as any[]).filter(d => d.facturaId === f.id),
-                    remisionesIds: remisionesIds,
-                    estadoDevolucion: f.estadoDevolucion || f.estado_devolucion || undefined
+                        // Campos principales
+                        id: String(f.id || f.ID || ''),
+                        numeroFactura: f.numeroFactura || f.numfact || '',
+                        fechaFactura: f.fechaFactura || f.fecfac || '',
+                        fechaVencimiento: f.fechaVencimiento || f.venfac || undefined,
+                        clienteId: f.clienteId || f.codter || '',
+                        vendedorId: f.vendedorId || f.codven || undefined,
+                        empresaId: f.empresaId || f.codalm || '001',
+                        // Valores financieros
+                        subtotal: Number(f.subtotal || f.valvta || 0),
+                        descuentoValor: Number(f.descuentoValor || f.valdcto || 0),
+                        ivaValor: Number(f.ivaValor || f.valiva || 0),
+                        total: Number(f.total || f.netfac || 0),
+                        otrosValores: Number(f.otrosValores || f.valotr || 0),
+                        anticipos: Number(f.anticipos || f.valant || 0),
+                        devoluciones: Number(f.devoluciones || f.valdev || 0),
+                        abonos: Number(f.abonos || f.abofac || 0),
+                        retenciones: Number(f.retenciones || f.valret || 0),
+                        retencionICA: Number(f.retencionICA || f.valrica || 0),
+                        retencionIVA: Number(f.retencionIVA || f.valriva || 0),
+                        costo: Number(f.costo || f.valcosto || 0),
+                        valorPagado: Number(f.valorPagado || f.valpagado || 0),
+                        valorDomicilio: Number(f.valorDomicilio || f.VALDOMICILIO || 0),
+                        valorNotas: Number(f.valorNotas || f.Valnotas || 0),
+                        // Formas de pago
+                        efectivo: Number(f.efectivo || 0),
+                        cheques: Number(f.cheques || 0),
+                        credito: Number(f.credito || 0),
+                        tarjetaCredito: Number(f.tarjetaCredito || f.tarjetacr || 0),
+                        tarjetaDebito: Number(f.tarjetaDebito || f.TarjetaDB || 0),
+                        transferencia: Number(f.transferencia || f.Transferencia || 0),
+                        // Información adicional
+                        tipoFactura: f.tipoFactura || f.tipfac || '01',
+                        documentoContable: f.documentoContable || f.doccoc || undefined,
+                        cuenta: f.cuenta || f.codcue || undefined,
+                        observaciones: f.observaciones || f.Observa || '',
+                        resolucionDian: f.resolucionDian || f.resolucion_dian || undefined,
+                        tarifaCREE: Number(f.tarifaCREE || f.TARIFA_CREE || 0),
+                        retencionCREE: Number(f.retencionCREE || f.RETECREE || 0),
+                        usuarioId: f.usuarioId || f.codusu || undefined,
+                        fechaSistema: f.fechaSistema || f.fecsys || undefined,
+                        estado: f.estado || f.estfac || 'BORRADOR',
+                        estadoEnvio: f.estadoEnvio || f.estado_envio || undefined,
+                        seyKey: f.seyKey || f.sey_key || undefined,
+                        cufe: f.cufe || f.CUFE || undefined,
+                        cajaId: f.cajaId || f.IdCaja || undefined,
+                        // Extraer motivo de rechazo de observaciones si existe
+                        motivoRechazo: (() => {
+                            const obs = f.observaciones || f.Observa || '';
+                            const match = obs.match(/MOTIVO RECHAZO:\s*(.+?)(?:\s*\||$)/i);
+                            return match ? match[1].trim() : undefined;
+                        })(),
+                        // Items y relaciones
+                        items: items,
+                        remisionesIds: remisionesIds,
+                        remisionId: f.remisionId || undefined,
+                        pedidoId: f.pedidoId || undefined,
+                        estadoDevolucion: f.estadoDevolucion || f.estado_devolucion || undefined,
+                        fechaTimbrado: f.fechaTimbrado || f.fecha_timbrado || undefined
                     };
                 });
+                
+                logger.log({ prefix: 'DataContext', level: 'debug' }, 'Facturas procesadas con detalles:', {
+                    facturasCount: facturasConDetalles.length,
+                    facturasConItems: facturasConDetalles.filter(f => f.items && f.items.length > 0).length,
+                    totalItems: facturasConDetalles.reduce((sum, f) => sum + (f.items?.length || 0), 0)
+                });
+                
                 setFacturas(facturasConDetalles);
 
                 // Process cotizaciones with detalles
@@ -517,16 +626,74 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 logger.log({ prefix: 'DataContext', level: 'debug' }, 'Remisiones recibidas del backend:', remisionesData?.length || 0);
                 logger.log({ prefix: 'DataContext', level: 'debug' }, 'Detalles de remisiones recibidos:', remisionesDetalleData?.length || 0);
                 
+                // Mapear remisiones con sus items de productos
                 const remisionesConDetalles = (remisionesData as any[]).map(r => {
+                    // Buscar items que pertenezcan a esta remisión
+                    // Usar id, numrec o remisionId para hacer el match
+                    const remisionIdStr = String(r.id || r.numrec || '');
+                    const remisionNumrec = r.numrec;
                     const items = (remisionesDetalleData as any[]).filter(d => {
-                        // Comparar IDs asegurándonos de que sean del mismo tipo
-                        const remisionId = String(r.id);
-                        const detalleRemisionId = String(d.remisionId);
-                        return remisionId === detalleRemisionId;
-                    });
+                        const detalleRemisionId = String(d.remisionId || d.numrec || '');
+                        const detalleNumrec = d.numrec;
+                        // Match por ID o por numrec
+                        return detalleRemisionId === remisionIdStr || 
+                               (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
+                    }).map(d => ({
+                        // Mapear campos del detalle de remisión a la estructura esperada
+                        productoId: d.productoId || null,
+                        cantidad: Number(d.cantidad) || Number(d.cantidadEnviada) || 0,
+                        cantidadEnviada: Number(d.cantidadEnviada) || Number(d.cantidad) || 0,
+                        cantidadFacturada: Number(d.cantidadFacturada) || 0,
+                        cantidadDevuelta: Number(d.cantidadDevuelta) || 0,
+                        precioUnitario: Number(d.precioUnitario) || 0,
+                        descuentoPorcentaje: Number(d.descuentoPorcentaje) || 0,
+                        ivaPorcentaje: Number(d.ivaPorcentaje) || 0,
+                        descripcion: d.descripcion || '',
+                        subtotal: Number(d.subtotal) || 0,
+                        valorIva: Number(d.valorIva) || 0,
+                        total: Number(d.total) || 0,
+                        codProducto: d.codProducto || ''
+                    }));
+                    
+                    // Mapear campos de la remisión a la estructura esperada por el frontend
                     return {
-                        ...r,
-                        items: items
+                        id: String(r.id || r.numrec || ''),
+                        numeroRemision: r.numeroRemision || `REM-${String(r.numrec || '').padStart(4, '0')}`,
+                        fechaRemision: r.fechaRemision || (r.fecrec ? new Date(r.fecrec).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
+                        pedidoId: r.pedidoId ? String(r.pedidoId) : undefined,
+                        facturaId: r.facturaId || undefined,
+                        clienteId: r.clienteId || r.codter || '',
+                        codter: r.codter || r.clienteId || '',
+                        vendedorId: r.vendedorId || r.codVendedor || undefined,
+                        codVendedor: r.codVendedor || r.CODVEN || r.vendedorId || undefined,
+                        subtotal: Number(r.subtotal) || 0,
+                        descuentoValor: Number(r.descuentoValor) || 0,
+                        ivaValor: Number(r.ivaValor) || 0,
+                        total: Number(r.total) || 0,
+                        observaciones: r.observaciones || r.observa || '',
+                        // Mapear estado: si viene como 'D' de la BD, convertirlo a 'ENTREGADO'
+                        estado: (() => {
+                            const estadoRaw = r.estado || 'BORRADOR';
+                            const estadoStr = String(estadoRaw).trim().toUpperCase();
+                            // Si viene como 'D' (código de BD), mapear a 'ENTREGADO'
+                            if (estadoStr === 'D') return 'ENTREGADO';
+                            // Si ya viene como 'ENTREGADO', mantenerlo
+                            if (estadoStr === 'ENTREGADO') return 'ENTREGADO';
+                            // Para otros estados, usar el mapeo estándar o el valor original
+                            return estadoRaw;
+                        })(),
+                        empresaId: r.empresaId || r.codalm || '001',
+                        codalm: r.codalm || r.empresaId || '001',
+                        items: items.length > 0 ? items : [],
+                        // Campos opcionales
+                        estadoEnvio: r.estadoEnvio || undefined,
+                        metodoEnvio: r.metodoEnvio || undefined,
+                        transportadoraId: r.transportadoraId || undefined,
+                        transportadora: r.transportadora || undefined,
+                        numeroGuia: r.numeroGuia || undefined,
+                        fechaDespacho: r.fechaDespacho || undefined,
+                        fechaCreacion: r.fechaCreacion || r.fecsys || undefined,
+                        codUsuario: r.codUsuario || r.codusu || undefined
                     };
                 });
                 
@@ -656,7 +823,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const codter = String((c as any).codter ?? '').trim();
                 return clientId === idStr || clientId === numeroDocumento || clientId === codter;
             });
-            return cliente?.nombreCompleto || cliente?.razonSocial || cliente?.nombre || 'Desconocido';
+            return cliente?.nombreCompleto || cliente?.razonSocial || (cliente as any)?.nombre || 'Desconocido';
         };
 
         return Array.from(salesMap.entries())
@@ -769,35 +936,35 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 if (!c) return false;
                 // Intentar múltiples nombres de propiedad para compatibilidad
                 const numeroCotizacion = getNumeroDocumento(c, 'numeroCotizacion', 'numcot', 'numero_cotizacion');
-                const clienteNombre = findClienteNombre(c.clienteId || c.codter || c.cliente_id);
+                const clienteNombre = findClienteNombre(c.clienteId || (c as any).codter || (c as any).cliente_id);
                 return numeroCotizacion.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
             
             pedidos: (Array.isArray(pedidos) ? pedidos : []).filter(p => {
                 if (!p) return false;
                 const numeroPedido = getNumeroDocumento(p, 'numeroPedido', 'numero_pedido', 'numeroPedido');
-                const clienteNombre = findClienteNombre(p.clienteId || p.cliente_id);
+                const clienteNombre = findClienteNombre(p.clienteId || (p as any).cliente_id);
                 return numeroPedido.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
             
             facturas: (Array.isArray(facturas) ? facturas : []).filter(f => {
                 if (!f) return false;
                 const numeroFactura = getNumeroDocumento(f, 'numeroFactura', 'numero_factura', 'numeroFactura');
-                const clienteNombre = findClienteNombre(f.clienteId || f.cliente_id);
+                const clienteNombre = findClienteNombre(f.clienteId || (f as any).cliente_id);
                 return numeroFactura.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
             
             remisiones: (Array.isArray(remisiones) ? remisiones : []).filter(r => {
                 if (!r) return false;
                 const numeroRemision = getNumeroDocumento(r, 'numeroRemision', 'numero_remision', 'numeroRemision');
-                const clienteNombre = findClienteNombre(r.clienteId || r.cliente_id);
+                const clienteNombre = findClienteNombre(r.clienteId || (r as any).cliente_id);
                 return numeroRemision.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
             
             productos: (Array.isArray(productos) ? productos : []).filter(p => {
                 if (!p) return false;
                 const nombre = safeToLowerCase(p.nombre || p.nomins);
-                const codigo = safeToLowerCase(p.codigo || p.codins);
+                const codigo = safeToLowerCase((p as any).codigo || p.codins);
                 const referencia = safeToLowerCase(p.referencia);
                 return nombre.includes(searchTerm) || 
                        codigo.includes(searchTerm) || 
@@ -807,7 +974,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             clientes: (Array.isArray(clientes) ? clientes : []).filter(c => {
                 if (!c) return false;
                 const nombreCompleto = safeToLowerCase(c.nombreCompleto || c.razonSocial || c.nomter);
-                const numeroDocumento = safeToLowerCase(c.numeroDocumento || c.codter || c.numero_documento);
+                const numeroDocumento = safeToLowerCase(c.numeroDocumento || (c as any).codter || (c as any).numero_documento);
                 return nombreCompleto.includes(searchTerm) || numeroDocumento.includes(searchTerm);
             }).slice(0, 5)
         };
@@ -887,8 +1054,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             throw new Error(response.message || response.error || 'No se pudo registrar la entrada de inventario.');
         }
 
-        const movimiento = response.data?.movimiento ?? null;
-        const productoRespuesta = response.data?.producto ?? response.data;
+        const movimiento = (response.data as any)?.movimiento ?? null;
+        const productoRespuesta = (response.data as any)?.producto ?? response.data;
         if (!productoRespuesta) {
             throw new Error('La respuesta del servidor no contiene la información del producto actualizado.');
         }
@@ -908,8 +1075,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             ...(productoExistente || {} as InvProducto),
             ...productoCamel,
             id: Number(productoCamel.id ?? productoId),
-            codins: productoCamel.codins || productoCamel.codigo || productoExistente?.codins || productoExistente?.codigo || '',
-            codigo: productoCamel.codigo || productoExistente?.codigo,
+            codins: productoCamel.codins || (productoCamel as any).codigo || productoExistente?.codins || (productoExistente as any)?.codigo || '',
             nombre: productoCamel.nombre || productoCamel.nomins || productoExistente?.nombre || '',
             nomins: productoCamel.nomins || productoCamel.nombre || productoExistente?.nomins || productoCamel.nombre || '',
             unidadMedida: unidadMedidaNombre,
@@ -917,9 +1083,6 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             controlaExistencia: productoCamel.stock ?? productoExistente?.controlaExistencia ?? 0,
             precioInventario: productoCamel.precioInventario ?? productoExistente?.precioInventario ?? 0,
             precio: precioVentaActualizado,
-            precioPublico: Number((productoCamel as any).precioPublico ?? productoExistente?.precioPublico ?? precioVentaActualizado),
-            precioMayorista: Number((productoCamel as any).precioMayorista ?? productoExistente?.precioMayorista ?? 0),
-            precioMinorista: Number((productoCamel as any).precioMinorista ?? productoExistente?.precioMinorista ?? 0),
             ultimoCosto: Number((productoCamel as any).ultimoCosto ?? productoExistente?.ultimoCosto ?? 0)
         };
 
@@ -1064,24 +1227,89 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     remisionesIds = [String(f.remisionId)];
                 }
                 
+                // Buscar items que pertenezcan a esta factura (matching flexible por ID)
+                const facturaIdStr = String(f.id || f.ID || '');
+                const items = (facturasDetalleData as any[]).filter(d => {
+                    const detalleFacturaId = String(d.facturaId || d.factura_id || d.id_factura || '');
+                    // Comparar tanto por ID numérico como por string
+                    return facturaIdStr === detalleFacturaId || 
+                           (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
+                }).map(d => ({
+                    // Mapear campos del detalle a la estructura esperada
+                    productoId: d.productoId || null,
+                    cantidad: Number(d.cantidad || d.qtyins || 0),
+                    precioUnitario: Number(d.precioUnitario || d.valins || 0),
+                    descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
+                    ivaPorcentaje: Number(d.ivaPorcentaje || 0),
+                    descripcion: d.descripcion || d.observa || '',
+                    subtotal: Number(d.subtotal || 0),
+                    valorIva: Number(d.valorIva || d.ivains || 0),
+                    total: Number(d.total || 0),
+                    codProducto: d.codProducto || d.codins || ''
+                }));
+                
                 return {
                     ...f,
-                    items: (facturasDetalleData as any[]).filter(d => d.facturaId === f.id),
+                    items: items,
                     remisionesIds: remisionesIds,
                     estadoDevolucion: f.estadoDevolucion || f.estado_devolucion || undefined
                 };
             });
+            
+            logger.log({ prefix: 'refreshFacturasYRemisiones', level: 'debug' }, 'Facturas procesadas con detalles:', {
+                facturasCount: facturasConDetalles.length,
+                facturasConItems: facturasConDetalles.filter(f => f.items && f.items.length > 0).length,
+                totalItems: facturasConDetalles.reduce((sum, f) => sum + (f.items?.length || 0), 0)
+            });
+            
             setFacturas(facturasConDetalles);
 
             // Process remisiones with detalles
             const remisionesConDetalles = (remisionesData as any[]).map(r => {
                 const items = (remisionesDetalleData as any[]).filter(d => {
-                    const remisionId = String(r.id);
-                    const detalleRemisionId = String(d.remisionId);
-                    return remisionId === detalleRemisionId;
+                    const remisionId = String(r.id || r.numrec || '');
+                    const detalleRemisionId = String(d.remisionId || d.numrec || '');
+                    const remisionNumrec = r.numrec;
+                    const detalleNumrec = d.numrec;
+                    // Match por ID o por numrec
+                    return remisionId === detalleRemisionId || 
+                           (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
+                }).map(d => {
+                    // Mapear campos del detalle de remisión a la estructura esperada
+                    return {
+                        productoId: d.productoId || d.producto_id || d.codins || d.codProducto || 0,
+                        codProducto: d.codProducto || d.cod_producto || d.codins || '',
+                        cantidad: Number(d.cantidad || d.cantidadEnviada || d.cantidad_enviada || 0),
+                        cantidadEnviada: Number(d.cantidadEnviada || d.cantidad_enviada || d.cantidad || 0),
+                        cantidadFacturada: Number(d.cantidadFacturada || d.cantidad_facturada || 0),
+                        cantidadDevuelta: Number(d.cantidadDevuelta || d.cantidad_devuelta || 0),
+                        precioUnitario: Number(d.precioUnitario || d.precio_unitario || d.valorUnitario || d.valor_unitario || 0),
+                        descuentoPorcentaje: Number(d.descuentoPorcentaje || d.descuento_porcentaje || d.descuentoPorc || 0),
+                        ivaPorcentaje: Number(d.ivaPorcentaje || d.iva_porcentaje || d.ivaPorc || 0),
+                        subtotal: Number(d.subtotal || d.sub_total || 0),
+                        valorIva: Number(d.valorIva || d.valor_iva || d.ivaValor || d.iva_valor || 0),
+                        total: Number(d.total || 0),
+                        descripcion: d.descripcion || d.descrip || d.nombre || `Producto ${d.productoId || d.producto_id || ''}`,
+                        remisionId: d.remisionId || d.remision_id || d.numrec || r.id || r.numrec,
+                        detaPedidoId: d.detaPedidoId || d.deta_pedido_id || null
+                    };
                 });
+                
+                // Mapear estado: si viene como 'D' de la BD, convertirlo a 'ENTREGADO'
+                const estadoMapeado = (() => {
+                    const estadoRaw = r.estado || 'BORRADOR';
+                    const estadoStr = String(estadoRaw).trim().toUpperCase();
+                    // Si viene como 'D' (código de BD), mapear a 'ENTREGADO'
+                    if (estadoStr === 'D') return 'ENTREGADO';
+                    // Si ya viene como 'ENTREGADO', mantenerlo
+                    if (estadoStr === 'ENTREGADO') return 'ENTREGADO';
+                    // Para otros estados, usar el mapeo estándar o el valor original
+                    return estadoRaw;
+                })();
+                
                 return {
                     ...r,
+                    estado: estadoMapeado,
                     items: items
                 };
             });
@@ -1144,9 +1372,32 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Process remisiones with detalles
             const remisionesConDetalles = (remisionesData as any[]).map(r => {
                 const items = (remisionesDetalleData as any[]).filter(d => {
-                    const remisionId = String(r.id);
-                    const detalleRemisionId = String(d.remisionId);
-                    return remisionId === detalleRemisionId;
+                    const remisionId = String(r.id || r.numrec || '');
+                    const detalleRemisionId = String(d.remisionId || d.numrec || '');
+                    const remisionNumrec = r.numrec;
+                    const detalleNumrec = d.numrec;
+                    // Match por ID o por numrec
+                    return remisionId === detalleRemisionId || 
+                           (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
+                }).map(d => {
+                    // Mapear campos del detalle de remisión a la estructura esperada
+                    return {
+                        productoId: d.productoId || d.producto_id || d.codins || d.codProducto || 0,
+                        codProducto: d.codProducto || d.cod_producto || d.codins || '',
+                        cantidad: Number(d.cantidad || d.cantidadEnviada || d.cantidad_enviada || 0),
+                        cantidadEnviada: Number(d.cantidadEnviada || d.cantidad_enviada || d.cantidad || 0),
+                        cantidadFacturada: Number(d.cantidadFacturada || d.cantidad_facturada || 0),
+                        cantidadDevuelta: Number(d.cantidadDevuelta || d.cantidad_devuelta || 0),
+                        precioUnitario: Number(d.precioUnitario || d.precio_unitario || d.valorUnitario || d.valor_unitario || 0),
+                        descuentoPorcentaje: Number(d.descuentoPorcentaje || d.descuento_porcentaje || d.descuentoPorc || 0),
+                        ivaPorcentaje: Number(d.ivaPorcentaje || d.iva_porcentaje || d.ivaPorc || 0),
+                        subtotal: Number(d.subtotal || d.sub_total || 0),
+                        valorIva: Number(d.valorIva || d.valor_iva || d.ivaValor || d.iva_valor || 0),
+                        total: Number(d.total || 0),
+                        descripcion: d.descripcion || d.descrip || d.nombre || `Producto ${d.productoId || d.producto_id || ''}`,
+                        remisionId: d.remisionId || d.remision_id || d.numrec || r.id || r.numrec,
+                        detaPedidoId: d.detaPedidoId || d.deta_pedido_id || null
+                    };
                 });
                 return {
                     ...r,
@@ -1233,14 +1484,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             
             // Buscar el cliente para obtener su codter (numeroDocumento)
             const cliente = clientes.find(c => c.id === data.clienteId || String(c.id) === String(data.clienteId));
-            const clienteCodter = cliente?.numeroDocumento || cliente?.codter || data.clienteId;
+            const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || data.clienteId;
             
             logger.log({ prefix: 'crearCotizacion', level: 'debug' }, 'Datos del cliente:', {
                 clienteIdRecibido: data.clienteId,
                 clienteEncontrado: cliente ? {
                     id: cliente.id,
                     numeroDocumento: cliente.numeroDocumento,
-                    codter: cliente.codter,
+                    codter: (cliente as any).codter,
                     nombreCompleto: cliente.nombreCompleto
                 } : 'NO ENCONTRADO',
                 codterAUsar: clienteCodter
@@ -1345,7 +1596,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             });
             
             if (resp.success && resp.data) {
-                const updatedQuote = { ...currentQuote, ...data, ...resp.data } as Cotizacion;
+                const updatedQuote = { ...currentQuote, ...data, ...(resp.data as any) } as Cotizacion;
                 
                 setCotizaciones(prev => {
                     const exists = prev.some(c => String(c.id) === idStr);
@@ -1394,17 +1645,17 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const cliente = clientes.find(c => 
                     String(c.id) === String(data.clienteId) ||
                     c.numeroDocumento === data.clienteId ||
-                    c.codter === data.clienteId
+                    (c as any).codter === data.clienteId
                 );
                 
                 if (cliente) {
                     // Usar numeroDocumento o codter, priorizando numeroDocumento
-                    clienteCodter = cliente.numeroDocumento || cliente.codter || data.clienteId;
+                    clienteCodter = cliente.numeroDocumento || (cliente as any).codter || data.clienteId;
                     logger.log({ prefix: 'crearPedido', level: 'debug' }, 'Cliente encontrado:', {
                         id: cliente.id,
                         nombre: cliente.nombreCompleto || cliente.razonSocial,
                         numeroDocumento: cliente.numeroDocumento,
-                        codter: cliente.codter,
+                        codter: (cliente as any).codter,
                         clienteIdOriginal: data.clienteId,
                         clienteCodterFinal: clienteCodter
                     });
@@ -1440,14 +1691,22 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             const fechaPedido = data.fechaPedido || new Date().toISOString().split('T')[0];
             
             // Obtener código de bodega desde la bodega seleccionada en el header
-            const bodegaCodigo = selectedSede?.codigo 
-              ? String(selectedSede.codigo).padStart(3, '0')
-              : '001'; // Fallback si no hay bodega seleccionada
+            let bodegaCodigo: string | undefined;
             
-            if (!selectedSede) {
-                logger.warn({ prefix: 'crearPedido' }, 'No hay bodega seleccionada, usando fallback:', bodegaCodigo);
-            } else {
+            if (selectedSede?.codigo) {
+                bodegaCodigo = String(selectedSede.codigo).padStart(3, '0');
                 logger.log({ prefix: 'crearPedido', level: 'debug' }, 'Usando bodega seleccionada:', selectedSede.nombre, 'Código:', bodegaCodigo);
+            } else {
+                // Si no hay bodega seleccionada, intentar obtener la primera bodega disponible
+                // o usar el valor que viene en data.empresaId
+                if (data.empresaId) {
+                    bodegaCodigo = String(data.empresaId).padStart(3, '0');
+                    logger.warn({ prefix: 'crearPedido' }, 'No hay bodega seleccionada, usando empresaId del data:', bodegaCodigo);
+                } else {
+                    // Si tampoco hay empresaId, lanzar error más descriptivo
+                    logger.error({ prefix: 'crearPedido' }, 'No hay bodega seleccionada ni empresaId proporcionado');
+                    throw new Error('No hay bodega seleccionada. Por favor, seleccione una bodega antes de crear el pedido.');
+                }
             }
             
             const payload = {
@@ -1488,12 +1747,28 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             }
             
             // Mostrar más detalles del error
-            const errorMessage = resp.message || resp.error || 'No se pudo crear el pedido';
+            let errorMessage = resp.message || resp.error || 'No se pudo crear el pedido';
+            
+            // Si hay información de debug (almacenes disponibles), incluirla en el mensaje
+            const debugInfo = (resp as any).debug;
+            if (debugInfo && debugInfo.ejemplosAlmacenes) {
+                const almacenes = debugInfo.ejemplosAlmacenes;
+                if (almacenes.length > 0) {
+                    const almacenesList = almacenes.map((a: any) => 
+                        `"${a.codalm}" (${a.nomalm || 'Sin nombre'}, activo: ${a.activo ? 'Sí' : 'No'})`
+                    ).join(', ');
+                    errorMessage += `\n\nAlmacenes disponibles en la base de datos: ${almacenesList}`;
+                } else {
+                    errorMessage += '\n\n⚠️ No hay almacenes registrados en la base de datos. Por favor, cree al menos un almacén antes de crear pedidos.';
+                }
+            }
+            
             logger.error({ prefix: 'crearPedido' }, 'Error en respuesta:', {
                 message: errorMessage,
                 success: resp.success,
                 data: resp.data,
-                error: resp.error
+                error: resp.error,
+                debug: (resp as any).debug
             });
             throw new Error(errorMessage);
         } catch (e) {
@@ -1561,8 +1836,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Actualizar el estado local con los datos de la respuesta
             const pedidoAprobado: Pedido = { 
                 ...pedido, 
-                estado: resp.data.estado || 'CONFIRMADO',
-                ...resp.data
+                estado: ((resp.data as any)?.estado || 'CONFIRMADO') as Pedido['estado'],
+                ...(resp.data as any)
             };
             setPedidos(prev => prev.map(p => (p.id === id ? pedidoAprobado : p)));
             
@@ -1650,9 +1925,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const cliente = clientes.find(c => 
                     String(c.id) === String(cotizacion.clienteId) ||
                     c.numeroDocumento === cotizacion.clienteId ||
-                    c.codter === cotizacion.clienteId
+                    (c as any).codter === cotizacion.clienteId
                 );
-                const clienteCodter = cliente?.numeroDocumento || cliente?.codter || cotizacion.clienteId;
+                const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || cotizacion.clienteId;
                 
                 // El vendedorId de la cotización ya debería ser el codi_emple, pero verificamos
                 const vendedorCodiEmple = cotizacion.vendedorId || '';
@@ -1678,9 +1953,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         ...item,
                         pedidoId: '',
                         // Asegurar que la descripción tenga el nombre del producto si está disponible
-                        descripcion: item.descripcion || producto?.nombre || item.nombre || `Producto ${item.productoId}`,
+                        descripcion: item.descripcion || producto?.nombre || (item as any).nombre || `Producto ${item.productoId}`,
                         // Asegurar que la unidad de medida esté disponible
-                        unidadMedida: item.unidadMedida || producto?.unidadMedida || 'Unidad'
+                        unidadMedida: (item as any).unidadMedida || producto?.unidadMedida || 'Unidad'
                     };
                 });
                 
@@ -1696,7 +1971,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         const itemTotal = (item.precioUnitario || 0) * (item.cantidad || 0);
                         return sum + (itemTotal * ((item.descuentoPorcentaje || 0) / 100));
                     }, 0),
-                    ivaValor: itemsParaPedido.reduce((sum, item) => sum + (item.ivaValor || item.valorIva || 0), 0),
+                    ivaValor: itemsParaPedido.reduce((sum, item) => sum + ((item as any).ivaValor || item.valorIva || 0), 0),
                     total: itemsParaPedido.reduce((sum, item) => sum + (item.total || 0), 0),
                     estado: 'ENVIADA', // Estado inicial: pedido creado desde cotización aprobada, necesita aprobación
                     observaciones: `Pedido creado desde cotización ${cotizacion.numeroCotizacion}`,
@@ -1757,44 +2032,93 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         }
     }, [cotizaciones, clientes, productos, user, addActivityLog, crearPedido, actualizarCotizacion, refreshData]);
 
-    const aprobarRemision = useCallback(async (id: string): Promise<Remision | undefined> => {
+    const aprobarRemision = useCallback(async (id: string | number): Promise<Remision | undefined> => {
         try {
-            const remision = remisiones.find(r => r.id === id);
-            if (!remision) {
-                logger.error({ prefix: 'aprobarRemision' }, 'Remisión no encontrada:', id);
+            // Normalizar el ID para búsqueda (convertir a string para comparación)
+            const idStr = String(id);
+            const idNum = typeof id === 'number' ? id : parseInt(idStr, 10);
+            
+            if (isNaN(idNum)) {
+                logger.error({ prefix: 'aprobarRemision' }, 'ID inválido, no se puede convertir a número:', id);
                 return undefined;
             }
             
-            // Solo se pueden marcar como entregadas remisiones en estado EN_TRANSITO o BORRADOR
-            if (remision.estado !== 'EN_TRANSITO' && remision.estado !== 'BORRADOR') {
-                logger.warn({ prefix: 'aprobarRemision' }, `No se puede marcar como entregada una remisión en estado: ${remision.estado}`);
-                return undefined;
+            // Buscar la remisión con comparación flexible (string o number)
+            // Si el array está vacío, simplemente continuar con la actualización directa
+            const remision = remisiones.length > 0 ? remisiones.find(r => {
+                const rIdStr = String(r.id);
+                const rIdNum = typeof r.id === 'number' ? r.id : parseInt(rIdStr, 10);
+                return rIdStr === idStr || rIdNum === idNum;
+            }) : null;
+            
+            // Si se encuentra en el array local, validar el estado
+            if (remision) {
+                // Solo se pueden marcar como entregadas remisiones en estado EN_TRANSITO o BORRADOR
+                if (remision.estado !== 'EN_TRANSITO' && remision.estado !== 'BORRADOR') {
+                    logger.warn({ prefix: 'aprobarRemision' }, `No se puede marcar como entregada una remisión en estado: ${remision.estado}`);
+                    return undefined;
+                }
+            } else {
+                // Si no se encuentra en el array local, log informativo pero continuar
+                // Esto es normal cuando las remisiones se cargan con paginación
+                logger.log({ prefix: 'aprobarRemision', level: 'debug' }, 'Remisión no encontrada en estado local (puede ser normal con paginación), actualizando directamente en BD:', {
+                    idBuscado: id,
+                    idTipo: typeof id,
+                    remisionesEnEstado: remisiones.length
+                });
             }
             
             // Llamar a la API para actualizar el estado en la base de datos
+            // El backend validará el estado actual y si se puede actualizar
             const { apiUpdateRemision } = await import('../services/apiClient');
-            const idNum = typeof remision.id === 'number' ? remision.id : parseInt(String(remision.id), 10);
+            const remisionIdNum = remision ? (typeof remision.id === 'number' ? remision.id : parseInt(String(remision.id), 10)) : idNum;
             
             logger.log({ prefix: 'aprobarRemision', level: 'debug' }, 'Actualizando remisión en BD:', {
-                id: idNum,
-                estadoActual: remision.estado,
+                id: remisionIdNum,
+                estadoActual: remision?.estado || 'desconocido',
                 estadoNuevo: 'ENTREGADO'
             });
             
-            const resp = await apiUpdateRemision(idNum, { estado: 'ENTREGADO' });
+            const resp = await apiUpdateRemision(remisionIdNum, { estado: 'ENTREGADO' });
             
             if (!resp.success || !resp.data) {
                 logger.error({ prefix: 'aprobarRemision' }, 'Error en respuesta de API:', resp);
                 throw new Error(resp.message || 'No se pudo actualizar la remisión en la base de datos');
             }
             
-            // Actualizar el estado local con los datos de la respuesta
-            const remisionEntregada: Remision = { 
+            // Construir la remisión entregada desde la respuesta de la API
+            const remisionEntregada: Remision = remision ? {
                 ...remision, 
-                estado: resp.data.estado || 'ENTREGADO',
-                ...resp.data
+                estado: ((resp.data as any).estado || 'ENTREGADO') as Remision['estado'],
+                ...(resp.data as any)
+            } : {
+                id: (resp.data as any).id,
+                numeroRemision: (resp.data as any).numeroRemision || `REM-${idNum}`,
+                estado: ((resp.data as any).estado || 'ENTREGADO') as Remision['estado'],
+                fechaRemision: (resp.data as any).fechaRemision || new Date().toISOString().split('T')[0],
+                pedidoId: (resp.data as any).pedidoId || null,
+                clienteId: (resp.data as any).clienteId || '',
+                items: [],
+                observaciones: (resp.data as any).observaciones || '',
+                codalm: (resp.data as any).codalm || '',
+                codven: (resp.data as any).codven || null
             };
-            setRemisiones(prev => prev.map(r => (r.id === id ? remisionEntregada : r)));
+            
+            // Actualizar el estado local solo si hay remisiones cargadas
+            // Si el array está vacío (paginación), no intentar actualizar
+            if (remisiones.length > 0) {
+                setRemisiones(prev => prev.map(r => {
+                    const rIdStr = String(r.id);
+                    const rIdNum = typeof r.id === 'number' ? r.id : parseInt(rIdStr, 10);
+                    const idStr = String(id);
+                    const idNum = typeof id === 'number' ? id : parseInt(idStr, 10);
+                    
+                    if (rIdStr === idStr || rIdNum === idNum) {
+                        return remisionEntregada;
+                    }
+                    return r;
+                }));
+            }
             
             // Recargar remisiones para asegurar sincronización completa
             await refreshPedidosYRemisiones();
@@ -1819,7 +2143,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         pedidoOrData: Pedido | Remision,
         items?: Array<{ productoId: number; cantidad: number }>,
         logisticData?: any
-    ): Promise<Remision | { nuevaRemision: Remision; mensaje: string }> => {
+    ): Promise<any> => {
         try {
             const { apiCreateRemision } = await import('../services/apiClient');
             
@@ -1846,9 +2170,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const cliente = clientes.find(c => 
                     String(c.id) === String(pedido.clienteId) ||
                     c.numeroDocumento === pedido.clienteId ||
-                    c.codter === pedido.clienteId
+                    (c as any).codter === pedido.clienteId
                 );
-                const clienteCodter = cliente?.numeroDocumento || cliente?.codter || pedido.clienteId;
+                const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || pedido.clienteId;
                 
                 // Construir items con información completa del producto
                 const itemsCompletos = items.map(item => {
@@ -1869,16 +2193,32 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     const valorIva = subtotalConDescuento * (ivaPorcentaje / 100);
                     const total = subtotalConDescuento + valorIva;
                     
+                    // Obtener codProducto (codins) del producto
+                    const codProducto = producto?.codins || itemPedido?.codProducto || '';
+                    if (!codProducto) {
+                        logger.warn({ prefix: 'crearRemision' }, `Producto sin codins: productoId=${item.productoId}, producto=${producto?.nombre || 'N/A'}`);
+                    }
+                    
+                    // NOTA: ven_detapedidos NO tiene columna 'id' como clave primaria
+                    // Por lo tanto, detaPedidoId siempre será null
+                    // La relación se mantiene a través de pedidoId en el encabezado de la remisión
+                    const detaPedidoId = null;
+                    
                     return {
                         productoId: item.productoId,
                         cantidad: item.cantidad,
+                        codProducto: codProducto, // CRÍTICO: Incluir codProducto para el backend
+                        cantidadEnviada: item.cantidad, // CRÍTICO: Usar cantidadEnviada en lugar de solo cantidad
+                        detaPedidoId: detaPedidoId, // Opcional pero importante para relacionar con el pedido
                         precioUnitario: precioUnitario,
                         descuentoPorcentaje: descuentoPorcentaje,
                         ivaPorcentaje: ivaPorcentaje,
                         descripcion: producto?.nombre || itemPedido?.descripcion || `Producto ${item.productoId}`,
                         subtotal: subtotalConDescuento,
                         valorIva: valorIva,
-                        total: total
+                        total: total,
+                        cantidadFacturada: 0, // Inicializar en 0
+                        cantidadDevuelta: 0 // Inicializar en 0
                     };
                 });
                 
@@ -1917,11 +2257,6 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     total: total,
                     observaciones: logisticData?.observaciones || '',
                     estado: 'BORRADOR',
-                    estadoEnvio: estadoEnvio,
-                    metodoEnvio: logisticData?.metodoEnvio || 'transportadoraExterna',
-                    transportadoraId: logisticData?.transportadoraId || null,
-                    transportadora: logisticData?.otraTransportadora || null,
-                    numeroGuia: logisticData?.numeroGuia || null,
                     empresaId: bodegaCodigo, // CRÍTICO: Incluir empresaId (código de bodega)
                     items: itemsCompletos
                 };
@@ -2058,7 +2393,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             const cliente = clientes.find(c => 
                 String(c.id) === String(primerClienteId) ||
                 c.numeroDocumento === primerClienteId ||
-                c.codter === primerClienteId
+                (c as any).codter === primerClienteId
             );
 
             if (!cliente) {
@@ -2068,7 +2403,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
             // Validar que el cliente esté activo
             // Normalizar activo para comparación segura (puede ser number o boolean)
-            const activoValue = cliente.activo === true || cliente.activo === 1 || Number(cliente.activo) === 1 ? 1 : 0;
+            const activoValue = (typeof cliente.activo === 'boolean' && cliente.activo === true) || cliente.activo === 1 || Number(cliente.activo) === 1 ? 1 : 0;
             
             if (activoValue !== 1) {
                 logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Cliente inactivo:', {
@@ -2083,13 +2418,13 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
             // Obtener el codter del cliente, asegurándose de usar el valor correcto
             // Priorizar numeroDocumento (que mapea a codter), luego codter, luego el ID original
-            const clienteCodter = String(cliente.numeroDocumento || cliente.codter || primerClienteId).trim();
+            const clienteCodter = String(cliente.numeroDocumento || (cliente as any).codter || primerClienteId).trim();
             
             logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Cliente encontrado para facturación:', {
                 clienteId: primerClienteId,
                 clienteNombre: cliente.nombreCompleto,
                 numeroDocumento: cliente.numeroDocumento,
-                codter: cliente.codter,
+                codter: (cliente as any).codter,
                 clienteCodterFinal: clienteCodter,
                 activo: cliente.activo
             });
@@ -2099,27 +2434,145 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             const itemsMap = new Map<number, DocumentItem>();
 
             remisionesSeleccionadas.forEach(remision => {
-                remision.items.forEach(item => {
-                    const productoId = typeof item.productoId === 'number' ? item.productoId : parseInt(String(item.productoId), 10);
+                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, `Procesando remisión ${remision.numeroRemision} con ${remision.items.length} items`);
+                
+                // Obtener el pedido relacionado para obtener precios si faltan
+                const pedidoRelacionado = remision.pedidoId ? pedidos.find(p => String(p.id) === String(remision.pedidoId)) : null;
+                
+                remision.items.forEach((item, itemIdx) => {
+                    let productoId = typeof item.productoId === 'number' ? item.productoId : parseInt(String(item.productoId || 0), 10);
+                    
+                    // Validar productoId
+                    if (isNaN(productoId) || productoId <= 0 || productoId === null || productoId === undefined) {
+                        logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, `Item ${itemIdx + 1} de remisión ${remision.numeroRemision} no tiene productoId válido:`, {
+                            productoId: item.productoId,
+                            productoIdTipo: typeof item.productoId,
+                            item: item
+                        });
+                        // Intentar obtener productoId desde codProducto si está disponible
+                        if (item.codProducto) {
+                            const productoDesdeCod = productos.find(p => 
+                                String((p as any).codigoInsumo) === String(item.codProducto) ||
+                                String(p.codins) === String(item.codProducto) ||
+                                String(p.id) === String(item.codProducto)
+                            );
+                            if (productoDesdeCod) {
+                                productoId = typeof productoDesdeCod.id === 'number' ? productoDesdeCod.id : parseInt(String(productoDesdeCod.id), 10);
+                                logger.warn({ prefix: 'crearFacturaDesdeRemisiones' }, `ProductoId obtenido desde codProducto para item ${itemIdx + 1}:`, {
+                                    codProducto: item.codProducto,
+                                    productoId: productoId
+                                });
+                            }
+                        }
+                        
+                        // Si aún no hay productoId válido, saltar este item
+                        if (isNaN(productoId) || productoId <= 0) {
+                            logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, `No se puede facturar item ${itemIdx + 1} de remisión ${remision.numeroRemision}: productoId inválido`, {
+                                productoIdOriginal: item.productoId,
+                                codProducto: item.codProducto,
+                                item: item
+                            });
+                            return; // Saltar este item
+                        }
+                    }
+                    
+                    // Intentar obtener precio desde el pedido si no está en el item
+                    let precioUnitario = Number(item.precioUnitario) || 0;
+                    let descuentoPorcentaje = Number(item.descuentoPorcentaje) || 0;
+                    let ivaPorcentaje = Number(item.ivaPorcentaje) || 0;
+                    
+                    // Si no hay precio, intentar obtenerlo del pedido relacionado
+                    if (precioUnitario === 0 && pedidoRelacionado && pedidoRelacionado.items) {
+                        const itemPedido = pedidoRelacionado.items.find(pItem => 
+                            (typeof pItem.productoId === 'number' ? pItem.productoId : parseInt(String(pItem.productoId), 10)) === productoId
+                        );
+                        
+                        if (itemPedido) {
+                            precioUnitario = Number(itemPedido.precioUnitario) || 0;
+                            descuentoPorcentaje = Number(itemPedido.descuentoPorcentaje) || descuentoPorcentaje;
+                            ivaPorcentaje = Number(itemPedido.ivaPorcentaje) || ivaPorcentaje;
+                            
+                            logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, `Precio obtenido desde pedido para producto ${productoId}:`, {
+                                precioUnitario: precioUnitario,
+                                descuentoPorcentaje: descuentoPorcentaje,
+                                ivaPorcentaje: ivaPorcentaje
+                            });
+                        }
+                    }
+                    
+                    // Validar que el item tenga los campos necesarios
+                    if (!precioUnitario || precioUnitario === 0 || precioUnitario === null) {
+                        logger.warn({ prefix: 'crearFacturaDesdeRemisiones' }, `Item ${itemIdx + 1} de remisión ${remision.numeroRemision} no tiene precioUnitario:`, {
+                            productoId: productoId,
+                            cantidad: item.cantidad,
+                            precioUnitario: precioUnitario,
+                            subtotal: item.subtotal,
+                            total: item.total,
+                            pedidoId: remision.pedidoId,
+                            tienePedido: !!pedidoRelacionado
+                        });
+                    }
+                    
+                    // Asegurar que todos los campos numéricos estén presentes
+                    const itemCompleto: DocumentItem = {
+                        productoId: productoId,
+                        cantidad: Number(item.cantidad) || Number((item as any).cantidadEnviada) || 0,
+                        precioUnitario: precioUnitario,
+                        descuentoPorcentaje: descuentoPorcentaje,
+                        ivaPorcentaje: ivaPorcentaje,
+                        descripcion: item.descripcion || '',
+                        subtotal: Number(item.subtotal) || 0,
+                        valorIva: Number(item.valorIva) || 0,
+                        total: Number(item.total) || 0
+                    };
+                    
+                    // Si faltan valores, calcularlos
+                    if (itemCompleto.subtotal === 0 && itemCompleto.precioUnitario > 0) {
+                        itemCompleto.subtotal = itemCompleto.precioUnitario * itemCompleto.cantidad * (1 - (itemCompleto.descuentoPorcentaje / 100));
+                    }
+                    if (itemCompleto.valorIva === 0 && itemCompleto.subtotal > 0) {
+                        itemCompleto.valorIva = itemCompleto.subtotal * (itemCompleto.ivaPorcentaje / 100);
+                    }
+                    if (itemCompleto.total === 0 && itemCompleto.subtotal > 0) {
+                        itemCompleto.total = itemCompleto.subtotal + itemCompleto.valorIva;
+                    }
                     
                     if (itemsMap.has(productoId)) {
-                        // Si el producto ya existe, sumar cantidades
+                        // Si el producto ya existe, sumar cantidades y recalcular
                         const itemExistente = itemsMap.get(productoId)!;
-                        itemExistente.cantidad += item.cantidad;
+                        itemExistente.cantidad += itemCompleto.cantidad;
                         itemExistente.subtotal = itemExistente.precioUnitario * itemExistente.cantidad * (1 - (itemExistente.descuentoPorcentaje || 0) / 100);
                         itemExistente.valorIva = itemExistente.subtotal * ((itemExistente.ivaPorcentaje || 0) / 100);
                         itemExistente.total = itemExistente.subtotal + itemExistente.valorIva;
                     } else {
                         // Si el producto no existe, agregarlo
-                        itemsMap.set(productoId, {
-                            ...item,
-                            productoId: productoId
-                        });
+                        itemsMap.set(productoId, itemCompleto);
                     }
                 });
             });
 
             itemsConsolidados.push(...Array.from(itemsMap.values()));
+
+            // Validar que todos los items tengan productoId válido
+            const itemsSinProductoId = itemsConsolidados.filter(item => !item.productoId || item.productoId <= 0 || isNaN(item.productoId));
+            if (itemsSinProductoId.length > 0) {
+                logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Items sin productoId válido encontrados:', itemsSinProductoId);
+                throw new Error(`No se puede facturar: ${itemsSinProductoId.length} item(s) no tienen productoId válido. Verifique que las remisiones tengan productos válidos configurados.`);
+            }
+
+            // Validar que todos los items tengan precios válidos
+            const itemsSinPrecio = itemsConsolidados.filter(item => !item.precioUnitario || item.precioUnitario <= 0);
+            if (itemsSinPrecio.length > 0) {
+                logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Items sin precio encontrados:', itemsSinPrecio);
+                throw new Error(`No se puede facturar: ${itemsSinPrecio.length} item(s) no tienen precio. Verifique que las remisiones estén relacionadas con un pedido y que el pedido tenga precios configurados.`);
+            }
+            
+            // Validar que todos los items tengan cantidad válida
+            const itemsSinCantidad = itemsConsolidados.filter(item => !item.cantidad || item.cantidad <= 0);
+            if (itemsSinCantidad.length > 0) {
+                logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Items sin cantidad válida encontrados:', itemsSinCantidad);
+                throw new Error(`No se puede facturar: ${itemsSinCantidad.length} item(s) no tienen cantidad válida. Verifique que las remisiones tengan cantidades configuradas.`);
+            }
 
             // Calcular totales
             const subtotal = itemsConsolidados.reduce((sum, item) => {
@@ -2194,31 +2647,89 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 ? String(selectedSede.codigo).padStart(3, '0')
                 : '001';
 
+            // Calcular fecha de vencimiento basada en las condiciones de pago del cliente
+            // Si el cliente tiene días de crédito, usar esa fecha, sino usar 30 días por defecto
+            const fechaFactura = new Date();
+            const fechaFacturaStr = fechaFactura.toISOString().split('T')[0];
+            
+            let fechaVencimiento: string;
+            if (cliente && cliente.diasCredito && cliente.diasCredito > 0) {
+                // Calcular fecha de vencimiento sumando los días de crédito
+                const fechaVenc = new Date(fechaFactura);
+                fechaVenc.setDate(fechaVenc.getDate() + cliente.diasCredito);
+                fechaVencimiento = fechaVenc.toISOString().split('T')[0];
+            } else {
+                // Por defecto, 30 días después de la fecha de factura
+                const fechaVenc = new Date(fechaFactura);
+                fechaVenc.setDate(fechaVenc.getDate() + 30);
+                fechaVencimiento = fechaVenc.toISOString().split('T')[0];
+            }
+
             // Crear payload de factura
             const facturaPayload = {
                 clienteId: clienteCodter,
                 vendedorId: vendedorCodiEmple,
                 remisionId: primeraRemision.id, // Usar la primera remisión como referencia principal
                 remisionesIds: remisionesSeleccionadas.map(r => r.id), // Enviar todas las remisiones relacionadas
-                fechaFactura: new Date().toISOString().split('T')[0],
+                fechaFactura: fechaFacturaStr,
+                fechaVencimiento: fechaVencimiento, // Incluir fecha de vencimiento calculada
                 subtotal: subtotal,
                 descuentoValor: 0,
                 ivaValor: ivaValor,
                 total: total,
-                observaciones: `Factura consolidada de ${remisionesSeleccionadas.length} remisión(es): ${remisionesSeleccionadas.map(r => r.numeroRemision).join(', ')}`,
+                // Limitar observaciones a 150 caracteres (límite real de la BD: VARCHAR(150))
+                observaciones: (() => {
+                    const obs = `Factura consolidada de ${remisionesSeleccionadas.length} remisión(es): ${remisionesSeleccionadas.map(r => r.numeroRemision).join(', ')}`;
+                    return obs.length > 150 ? obs.substring(0, 147) + '...' : obs;
+                })(),
                 estado: 'BORRADOR',
                 empresaId: bodegaCodigo,
-                items: itemsConsolidados.map(item => ({
-                    productoId: item.productoId,
-                    cantidad: item.cantidad,
-                    precioUnitario: item.precioUnitario,
-                    descuentoPorcentaje: item.descuentoPorcentaje || 0,
-                    ivaPorcentaje: item.ivaPorcentaje || 0,
-                    descripcion: item.descripcion || item.nombre || `Producto ${item.productoId}`,
-                    subtotal: item.subtotal || (item.precioUnitario * item.cantidad * (1 - ((item.descuentoPorcentaje || 0) / 100))),
-                    valorIva: item.valorIva || ((item.subtotal || (item.precioUnitario * item.cantidad * (1 - ((item.descuentoPorcentaje || 0) / 100)))) * ((item.ivaPorcentaje || 0) / 100)),
-                    total: item.total || (item.subtotal || (item.precioUnitario * item.cantidad * (1 - ((item.descuentoPorcentaje || 0) / 100))) + (item.valorIva || 0))
-                }))
+                items: itemsConsolidados.map(item => {
+                    // Asegurar que productoId sea válido (número mayor que 0)
+                    const productoId = typeof item.productoId === 'number' ? item.productoId : parseInt(String(item.productoId || 0), 10);
+                    if (isNaN(productoId) || productoId <= 0) {
+                        logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, `Item con productoId inválido en payload:`, {
+                            productoId: item.productoId,
+                            productoIdConvertido: productoId,
+                            item: item
+                        });
+                        throw new Error(`Item con productoId inválido: ${item.productoId}. No se puede enviar al backend.`);
+                    }
+                    
+                    // Asegurar que todos los valores estén presentes y sean válidos
+                    const precioUnitario = Number(item.precioUnitario) || 0;
+                    const cantidad = Number(item.cantidad) || 0;
+                    const descuentoPorcentaje = Number(item.descuentoPorcentaje) || 0;
+                    const ivaPorcentaje = Number(item.ivaPorcentaje) || 0;
+                    
+                    // Calcular valores si no están presentes
+                    const subtotalCalculado = precioUnitario * cantidad * (1 - (descuentoPorcentaje / 100));
+                    const valorIvaCalculado = subtotalCalculado * (ivaPorcentaje / 100);
+                    const totalCalculado = subtotalCalculado + valorIvaCalculado;
+                    
+                    // Validar que precioUnitario y cantidad sean válidos
+                    if (precioUnitario <= 0 || cantidad <= 0) {
+                        logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, `Item con valores inválidos:`, {
+                            productoId: productoId,
+                            precioUnitario: precioUnitario,
+                            cantidad: cantidad,
+                            itemOriginal: item
+                        });
+                        throw new Error(`Item con productoId ${productoId} tiene valores inválidos: precioUnitario=${precioUnitario}, cantidad=${cantidad}`);
+                    }
+                    
+                    return {
+                        productoId: productoId, // Asegurar que sea número válido
+                        cantidad: cantidad,
+                        precioUnitario: precioUnitario,
+                        descuentoPorcentaje: descuentoPorcentaje,
+                        ivaPorcentaje: ivaPorcentaje,
+                        descripcion: item.descripcion || `Producto ${productoId}`,
+                        subtotal: Number(item.subtotal) || subtotalCalculado,
+                        valorIva: Number(item.valorIva) || valorIvaCalculado,
+                        total: Number(item.total) || totalCalculado
+                    };
+                })
             };
 
             logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Creando factura desde remisiones:', {
@@ -2231,7 +2742,15 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 total: total,
                 facturaPayload: {
                     clienteId: facturaPayload.clienteId,
-                    clienteIdType: typeof facturaPayload.clienteId
+                    clienteIdType: typeof facturaPayload.clienteId,
+                    items: facturaPayload.items.map(item => ({
+                        productoId: item.productoId,
+                        productoIdType: typeof item.productoId,
+                        cantidad: item.cantidad,
+                        precioUnitario: item.precioUnitario,
+                        subtotal: item.subtotal,
+                        total: item.total
+                    }))
                 }
             });
 
@@ -2269,7 +2788,24 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
 
                 // Obtener items de la factura
-                const itemsFactura = (facturasDetalleData as any[]).filter(d => String(d.facturaId) === String(responseData.id));
+                const itemsFactura = (facturasDetalleData as any[]).filter(d => {
+                    const detalleFacturaId = String(d.facturaId || d.factura_id || d.id_factura || '');
+                    const facturaIdStr = String(responseData.id);
+                    return facturaIdStr === detalleFacturaId || 
+                           (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
+                }).map(d => ({
+                    // Mapear campos del detalle a la estructura esperada
+                    productoId: d.productoId || null,
+                    cantidad: Number(d.cantidad || d.qtyins || 0),
+                    precioUnitario: Number(d.precioUnitario || d.valins || 0),
+                    descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
+                    ivaPorcentaje: Number(d.ivaPorcentaje || 0),
+                    descripcion: d.descripcion || d.observa || '',
+                    subtotal: Number(d.subtotal || 0),
+                    valorIva: Number(d.valorIva || d.ivains || 0),
+                    total: Number(d.total || 0),
+                    codProducto: d.codProducto || d.codins || ''
+                }));
 
                 // Construir la factura completa con datos del backend
                 const nuevaFactura: Factura = {
@@ -2338,18 +2874,34 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
             // Si la respuesta no es exitosa, lanzar error con mensaje descriptivo
             const errorMessage = resp.message || resp.error || 'No se pudo crear la factura';
+            const errorDetails = (resp as any).details || (resp as any).debug;
+            
+            logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Error en respuesta del backend:', {
+                message: errorMessage,
+                error: resp.error,
+                details: errorDetails,
+                success: resp.success
+            });
             
             // Mejorar mensajes de error específicos
             if (errorMessage === 'CLIENTE_INACTIVO' || (errorMessage.includes('inactivo') && errorMessage.includes('Cliente'))) {
                 throw new Error('El cliente está inactivo. No se puede facturar para clientes inactivos. Active el cliente primero.');
             } else if (errorMessage === 'VENDEDOR_INACTIVO' || (errorMessage.includes('inactivo') && errorMessage.includes('Vendedor'))) {
                 throw new Error('El vendedor está inactivo. No se puede facturar con vendedores inactivos. Active el vendedor primero.');
-            } else if (errorMessage === 'CLIENTE_NOT_FOUND' || errorMessage.includes('Cliente') && errorMessage.includes('no encontrado')) {
+            } else if (errorMessage === 'CLIENTE_NOT_FOUND' || (errorMessage.includes('Cliente') && errorMessage.includes('no encontrado'))) {
                 throw new Error('Cliente no encontrado en la base de datos. Verifique que el cliente exista.');
             } else if (errorMessage === 'VENDEDOR_NOT_FOUND' || (errorMessage.includes('Vendedor') && errorMessage.includes('no encontrado'))) {
                 throw new Error('Vendedor no encontrado en la base de datos. Verifique que el vendedor exista.');
             } else if (errorMessage === 'CLIENTE_REQUERIDO') {
                 throw new Error('El código del cliente es requerido para crear la factura.');
+            } else if (errorMessage.includes('productoId inválido') || errorMessage.includes('productoId')) {
+                throw new Error(`Error en items: ${errorMessage}. Verifique que todos los items tengan productos válidos configurados.`);
+            } else if (errorMessage.includes('cantidad inválida') || errorMessage.includes('cantidad')) {
+                throw new Error(`Error en items: ${errorMessage}. Verifique que todos los items tengan cantidades válidas.`);
+            } else if (errorMessage.includes('precioUnitario inválido') || errorMessage.includes('precio')) {
+                throw new Error(`Error en items: ${errorMessage}. Verifique que todos los items tengan precios válidos configurados.`);
+            } else if (errorDetails && errorDetails.sqlMessage) {
+                throw new Error(`Error del servidor: ${errorDetails.sqlMessage}`);
             }
             
             throw new Error(errorMessage);
@@ -2572,31 +3124,32 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             if (resp.success && resp.data) {
                 // Procesar remisionesIds de la respuesta
                 let remisionesIds: string[] = factura.remisionesIds || [];
-                if (resp.data.remisionesIds) {
-                    if (Array.isArray(resp.data.remisionesIds)) {
-                        remisionesIds = resp.data.remisionesIds.map((id: any) => String(id));
-                    } else if (typeof resp.data.remisionesIds === 'string' && resp.data.remisionesIds.trim()) {
-                        remisionesIds = resp.data.remisionesIds.split(',').map((id: string) => id.trim()).filter((id: string) => id.length > 0);
+                const responseData = resp.data as any;
+                if (responseData.remisionesIds) {
+                    if (Array.isArray(responseData.remisionesIds)) {
+                        remisionesIds = responseData.remisionesIds.map((id: any) => String(id));
+                    } else if (typeof responseData.remisionesIds === 'string' && responseData.remisionesIds.trim()) {
+                        remisionesIds = responseData.remisionesIds.split(',').map((id: string) => id.trim()).filter((id: string) => id.length > 0);
                     }
                 }
                 // Si no hay remisionesIds pero hay remisionId (singular), usarlo
-                if (remisionesIds.length === 0 && resp.data.remisionId) {
-                    remisionesIds = [String(resp.data.remisionId)];
+                if (remisionesIds.length === 0 && responseData.remisionId) {
+                    remisionesIds = [String(responseData.remisionId)];
                 }
                 
                 // Determinar el estado final basado en la respuesta
-                const estadoFinal = resp.data.estado || (resp.data.cufe ? 'ENVIADA' : factura.estado);
+                const estadoFinal = (responseData.estado || (responseData.cufe ? 'ENVIADA' : factura.estado)) as Factura['estado'];
                 
                 const facturaTimbrada: Factura = {
                     ...factura,
-                    estado: estadoFinal as any,
-                    ...resp.data,
+                    estado: estadoFinal,
+                    ...responseData,
                     remisionesIds: remisionesIds,
                     // Asegurar que items esté presente
-                    items: resp.data.items || factura.items || [],
+                    items: (Array.isArray(responseData.items) ? responseData.items : factura.items || []) as DocumentItem[],
                     // Asegurar que CUFE y fechaTimbrado estén presentes si vienen en la respuesta
-                    cufe: resp.data.cufe || factura.cufe,
-                    fechaTimbrado: resp.data.fechaTimbrado || factura.fechaTimbrado
+                    cufe: responseData.cufe || factura.cufe,
+                    fechaTimbrado: responseData.fechaTimbrado || factura.fechaTimbrado
                 };
                 // Actualizar factura en el estado usando comparación flexible de IDs
                 setFacturas(prev => prev.map(f => {
@@ -2692,7 +3245,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         crearFactura,
         crearNotaCredito,
         crearFacturaDesdeRemisiones,
-        timbrarFactura
+        timbrarFactura,
+        refreshFacturasYRemisiones
     }), [
         isLoading,
         isMainDataLoaded,
@@ -2739,7 +3293,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         crearFactura,
         crearNotaCredito,
         crearFacturaDesdeRemisiones,
-        timbrarFactura
+        timbrarFactura,
+        refreshFacturasYRemisiones
     ]);
 
     return (

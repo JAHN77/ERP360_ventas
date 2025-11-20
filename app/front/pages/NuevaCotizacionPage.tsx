@@ -9,6 +9,8 @@ import CotizacionPDF from '../components/comercial/CotizacionPDF';
 import { useNotifications } from '../hooks/useNotifications';
 import ApprovalSuccessModal from '../components/ui/ApprovalSuccessModal';
 import { useData } from '../hooks/useData';
+import { findClienteByIdentifier } from '../utils/clientes';
+import { formatDateOnly } from '../utils/formatters';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -25,6 +27,9 @@ interface CotizacionFormData {
     domicilios?: number;
     cliente?: Cliente | null;
     vendedor?: Vendedor | null;
+    formaPago?: string;
+    valorAnticipo?: number;
+    numOrdenCompra?: string;
 }
 
 const NuevaCotizacionPage: React.FC = () => {
@@ -43,6 +48,7 @@ const NuevaCotizacionPage: React.FC = () => {
     const [isSending, setIsSending] = useState(false);
     const [isApproving, setIsApproving] = useState(false);
     const [approvalResult, setApprovalResult] = useState<{ cotizacion: Cotizacion, pedido: Pedido } | null>(null);
+    const [savedCotizacion, setSavedCotizacion] = useState<Cotizacion | null>(null);
 
     useEffect(() => {
         if (isEditing && params.id) {
@@ -62,8 +68,17 @@ const NuevaCotizacionPage: React.FC = () => {
     const handleFormSubmit = async (formData: CotizacionFormData) => {
         if (isEditing && initialData) {
             const updatedQuote = await actualizarCotizacion(initialData.id, {
-                ...formData,
-            });
+                clienteId: formData.clienteId,
+                vendedorId: formData.vendedorId,
+                items: formData.items,
+                subtotal: formData.subtotal,
+                ivaValor: formData.ivaValor,
+                total: formData.total,
+                observacionesInternas: formData.observacionesInternas,
+                formaPago: formData.formaPago,
+                valorAnticipo: formData.valorAnticipo,
+                numOrdenCompra: formData.numOrdenCompra ? parseInt(formData.numOrdenCompra, 10) : undefined,
+            } as Partial<Cotizacion>);
             if (updatedQuote) {
                 addNotification({ 
                     message: `Cotización ${updatedQuote.numeroCotizacion} enviada a supervisión.`, 
@@ -136,9 +151,10 @@ const NuevaCotizacionPage: React.FC = () => {
                 ...quoteToPreview,
                 estado: 'ENVIADA'
             };
-            const nuevaCotizacion = await crearCotizacion(payload);
+            const nuevaCotizacion = await crearCotizacion(payload as Cotizacion);
+            setSavedCotizacion(nuevaCotizacion);
             addNotification({ 
-                message: `Cotización ${nuevaCotizacion.numeroCotizacion} enviada para aprobación.`, 
+                message: 'Cotización guardada exitosamente', 
                 type: 'success',
                 link: { page: 'cotizaciones', params: { focusId: nuevaCotizacion.id, highlightId: nuevaCotizacion.id } }
             });
@@ -177,6 +193,12 @@ const NuevaCotizacionPage: React.FC = () => {
             }
             const { cotizacion, pedido } = resultadoAprobacion as { cotizacion: Cotizacion; pedido: Pedido };
             setApprovalResult({ cotizacion, pedido });
+            // Mostrar mensaje de aprobación
+            addNotification({ 
+                message: 'Aprobado', 
+                type: 'success',
+                link: { page: 'cotizaciones', params: { focusId: cotizacion.id, highlightId: cotizacion.id } }
+            });
         } catch (error) {
             addNotification({ message: (error as Error).message, type: 'warning' });
         } finally {
@@ -251,7 +273,7 @@ const NuevaCotizacionPage: React.FC = () => {
                             setPreviewCliente(null);
                             setPreviewVendedor(null);
                         }}
-                        confirmLabel="Aprobar Directo"
+                        confirmLabel="Aprobar y Crear Pedido"
                         isConfirming={isApproving}
                         onSaveAndSend={handleCreateAndSend}
                         isSaving={isSending}
@@ -282,7 +304,10 @@ const NuevaCotizacionPage: React.FC = () => {
                 return (
                     <ApprovalSuccessModal
                         isOpen={!!approvalResult}
-                        onClose={() => setApprovalResult(null)}
+                        onClose={() => { 
+                            setApprovalResult(null); 
+                            setPage('cotizaciones', { focusId: cotizacion.id }); 
+                        }}
                         title="¡Aprobación Exitosa!"
                         message={
                             <>
@@ -303,9 +328,76 @@ const NuevaCotizacionPage: React.FC = () => {
                             { label: 'Total Pedido', value: formatCurrency(pedido.total), isTotal: true },
                         ]}
                         primaryAction={{
-                            label: 'Ir a Pedidos',
-                            onClick: () => { setApprovalResult(null); setPage('pedidos'); },
+                            label: 'Ir a Cotizaciones',
+                            onClick: () => { 
+                                setApprovalResult(null); 
+                                setPage('cotizaciones', { focusId: cotizacion.id }); 
+                            },
                         }}
+                    />
+                );
+            })()}
+
+            {savedCotizacion && (() => {
+                const cotizacion = savedCotizacion;
+                const cliente = findClienteByIdentifier(clientes, cotizacion.clienteId) || previewCliente;
+                const vendedor = previewVendedor || vendedores.find(v => v.id === cotizacion.vendedorId);
+                
+                if (!cliente) return null;
+
+                const subtotalBruto = cotizacion.items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
+                const descuentoTotal = cotizacion.descuentoValor || cotizacion.items.reduce((acc, item) => {
+                    const itemTotalBruto = item.precioUnitario * item.cantidad;
+                    return acc + (itemTotalBruto * (item.descuentoPorcentaje / 100));
+                }, 0);
+
+                return (
+                    <ApprovalSuccessModal
+                        isOpen={!!savedCotizacion}
+                        onClose={() => { 
+                            setSavedCotizacion(null); 
+                            setPage('cotizaciones', { focusId: cotizacion.id }); 
+                        }}
+                        title="¡Cotización Guardada!"
+                        message={
+                            <>
+                                La cotización <strong>{cotizacion.numeroCotizacion}</strong> ha sido guardada y enviada a aprobación.
+                            </>
+                        }
+                        summaryTitle="Resumen de la Cotización"
+                        summaryDetails={[
+                            { label: 'Número', value: cotizacion.numeroCotizacion },
+                            { label: 'Fecha', value: formatDateOnly(cotizacion.fechaCotizacion) },
+                            { label: 'Válida hasta', value: formatDateOnly(cotizacion.fechaVencimiento) },
+                            { label: 'Cliente', value: cliente.nombreCompleto || cliente.razonSocial || 'N/A' },
+                            { label: 'Vendedor', value: vendedor ? `${vendedor.primerNombre} ${vendedor.primerApellido}`.trim() : 'N/A' },
+                            { label: 'Estado', value: cotizacion.estado === 'ENVIADA' ? 'Enviada a Aprobación' : cotizacion.estado },
+                            { label: 'Items', value: cotizacion.items.length },
+                            { label: 'sep1', value: '', isSeparator: true },
+                            { label: 'Subtotal Bruto', value: formatCurrency(subtotalBruto) },
+                            { label: 'Descuento Total', value: `-${formatCurrency(descuentoTotal)}`, isDiscount: true },
+                            { label: 'Subtotal Neto', value: formatCurrency(cotizacion.subtotal) },
+                            { label: 'IVA (19%)', value: formatCurrency(cotizacion.ivaValor) },
+                            { label: 'Total Cotización', value: formatCurrency(cotizacion.total), isTotal: true },
+                        ]}
+                        primaryAction={{
+                            label: 'Ir a Cotizaciones',
+                            onClick: () => { 
+                                setSavedCotizacion(null); 
+                                setPage('cotizaciones', { focusId: cotizacion.id }); 
+                            },
+                            icon: 'fa-list'
+                        }}
+                        secondaryActions={[
+                            {
+                                label: 'Ver Detalles',
+                                onClick: () => {
+                                    setSavedCotizacion(null);
+                                    setPage('cotizaciones', { focusId: cotizacion.id });
+                                },
+                                icon: 'fa-eye'
+                            }
+                        ]}
                     />
                 );
             })()}

@@ -22,6 +22,8 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
     const componentRef = useRef<HTMLDivElement>(null);
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('factura');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [isPrinting, setIsPrinting] = useState(false);
     
     const cliente = useMemo(() => {
         if (!factura) return null;
@@ -32,11 +34,14 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
     }, [factura, clientes]);
 
     const handlePrint = async () => {
-        if (!factura || !cliente || !componentRef.current) {
-            addNotification({ message: 'No hay contenido para imprimir. Por favor, intenta nuevamente.', type: 'warning' });
+        if (!factura || !cliente || !componentRef.current || isPrinting) {
+            if (!isPrinting) {
+                addNotification({ message: 'No hay contenido para imprimir. Por favor, intenta nuevamente.', type: 'warning' });
+            }
             return;
         }
     
+        setIsPrinting(true);
         addNotification({ message: `Preparando impresión para ${factura.numeroFactura}...`, type: 'info' });
     
         try {
@@ -52,15 +57,20 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
         } catch (error) {
             console.error('Error al generar el PDF para impresión:', error);
             addNotification({ message: 'No se pudo generar el documento para imprimir.', type: 'warning' });
+        } finally {
+            setIsPrinting(false);
         }
     };
 
     const handleDownload = async () => {
-        if (!factura || !cliente || !componentRef.current) {
-            addNotification({ message: 'No hay contenido para descargar. Por favor, intenta nuevamente.', type: 'warning' });
+        if (!factura || !cliente || !componentRef.current || isDownloading) {
+            if (!isDownloading) {
+                addNotification({ message: 'No hay contenido para descargar. Por favor, intenta nuevamente.', type: 'warning' });
+            }
             return;
         }
 
+        setIsDownloading(true);
         addNotification({ message: `Generando PDF para ${factura.numeroFactura}...`, type: 'info' });
 
         try {
@@ -72,12 +82,18 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
         } catch (error) {
             console.error('Error al generar el PDF:', error);
             addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });
+        } finally {
+            setIsDownloading(false);
         }
     };
 
     const handleSendEmail = async () => {
+        if (isDownloading || isPrinting) return;
         await handleDownload(); // Primero descarga el archivo
-        setIsEmailModalOpen(true); // Luego abre el modal
+        // Esperar a que termine la descarga antes de abrir el modal
+        setTimeout(() => {
+            setIsEmailModalOpen(true); // Luego abre el modal
+        }, 100);
     };
 
     const handleConfirmSendEmail = (emailData: { to: string; }) => {
@@ -133,18 +149,20 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
                         <div className="flex items-center space-x-1 bg-slate-200/50 dark:bg-slate-800/50 p-1 rounded-lg">
                             <button 
                                 onClick={handleDownload}
-                                title="Descargar Borrador PDF"
-                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors"
+                                disabled={isDownloading || isPrinting}
+                                title={isDownloading ? "Generando PDF..." : "Descargar Borrador PDF"}
+                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <i className="fas fa-download"></i>
+                                <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
                             </button>
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
                              <button 
                                 onClick={handleSendEmail}
-                                title="Enviar por Correo"
-                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors"
+                                disabled={isDownloading || isPrinting}
+                                title={isDownloading ? "Generando PDF..." : "Enviar por Correo"}
+                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <i className="fas fa-paper-plane"></i>
+                                <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
                             </button>
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
                             <button 

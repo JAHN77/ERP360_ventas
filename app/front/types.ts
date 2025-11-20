@@ -177,6 +177,7 @@ export interface Categoria {
 
 export interface DocumentoDetalle {
   id?: string; // uuid
+  detaPedidoId?: number; // ID del detalle del pedido en ven_detapedidos (para remisiones)
   productoId: number;
   codProducto?: string; // Código de producto (CHAR(8))
   cantidad: number;
@@ -239,6 +240,7 @@ export interface Pedido {
   clienteId: string;
   vendedorId?: string;
   cotizacionId?: string;
+  numeroCotizacionOrigen?: string; // Número de cotización obtenido desde el JOIN
   subtotal: number;
   descuentoValor: number;
   ivaValor: number;
@@ -258,27 +260,36 @@ export interface Pedido {
 
 
 export interface Remision {
-  id: string; // uuid
-  numeroRemision: string;
-  fechaRemision: string; // date
-  pedidoId?: string;
+  id: string; // id de ven_recibos (int convertido a string)
+  numeroRemision: string; // Formato: REM-0001
+  fechaRemision: string; // date (fecrec)
+  pedidoId?: string; // numped (relación con ven_pedidos)
   facturaId?: string;
-  clienteId: string;
-  vendedorId?: string;
-  subtotal: number;
-  descuentoValor: number;
-  ivaValor: number;
-  total: number;
-  observaciones?: string;
-  estado: 'BORRADOR' | 'EN_TRANSITO' | 'ENTREGADO' | 'CANCELADO';
-  empresaId: number;
+  clienteId: string; // codter
+  codter?: string; // Código de tercero/cliente
+  vendedorId?: string; // CODVEN o codVendedor
+  codVendedor?: string; // Código del vendedor (CODVEN)
+  subtotal: number; // netrec
+  descuentoValor: number; // desrec
+  ivaValor: number; // Calculado: valrec - netrec - desrec
+  total: number; // valrec
+  observaciones?: string; // observa
+  estado: 'BORRADOR' | 'EN_TRANSITO' | 'ENTREGADO' | 'CANCELADO'; // Mapeado desde estrec
+  empresaId: number | string; // codalm
+  codalm?: string; // Código de almacén
   items: DocumentoDetalle[];
-  estadoEnvio: 'Total' | 'Parcial';
-  metodoEnvio?: 'transportadoraExterna' | 'transportePropio' | 'recogeCliente';
-  transportadoraId?: string;
-  transportadora?: string;
-  numeroGuia?: string;
-  fechaDespacho?: string;
+  estadoEnvio?: 'Total' | 'Parcial'; // Opcional, no existe en BD real
+  metodoEnvio?: 'transportadoraExterna' | 'transportePropio' | 'recogeCliente'; // Opcional
+  transportadoraId?: string; // Opcional
+  transportadora?: string; // Opcional
+  numeroGuia?: string; // Opcional
+  fechaDespacho?: string; // Opcional
+  // Campos adicionales de la BD real
+  numrec?: number; // Número de recibo
+  tipdoc?: string; // Tipo de documento
+  fechaCreacion?: string; // fecsys
+  codUsuario?: string; // codusu
+  estadoOriginal?: string; // estrec (estado original de la BD)
 }
 
 
@@ -303,6 +314,7 @@ export interface Factura {
   remisionesIds: string[];
   estadoDevolucion?: 'DEVOLUCION_PARCIAL' | 'DEVOLUCION_TOTAL';
   fechaTimbrado?: string;
+  motivoRechazo?: string; // Motivo del rechazo cuando la factura es rechazada
 }
 
 

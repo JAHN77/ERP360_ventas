@@ -5,6 +5,7 @@ import { useNavigation } from '../hooks/useNavigation';
 import { DocumentItem } from '../types';
 import Modal from '../components/ui/Modal';
 import { useData } from '../hooks/useData';
+import { useNotifications } from '../hooks/useNotifications';
 
 interface FacturaFormData {
     clienteId: string;
@@ -17,22 +18,34 @@ interface FacturaFormData {
 const NuevaFacturaPage: React.FC = () => {
     const { setPage } = useNavigation();
     const { crearFactura } = useData();
+    const { addNotification } = useNotifications();
     const [isCancelConfirmOpen, setCancelConfirmOpen] = useState(false);
     const [isFormDirty, setFormDirty] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
 
-    const handleCreateFactura = (formData: FacturaFormData) => {
-        const { clienteId, items, subtotal, iva, total } = formData;
-        
-        crearFactura({
-            clienteId,
-            items,
-            subtotal,
-            ivaValor: iva,
-            total,
-        });
+    const handleCreateFactura = async (formData: FacturaFormData) => {
+        if (isCreating) return;
+        setIsCreating(true);
+        try {
+            const { clienteId, items, subtotal, iva, total } = formData;
+            addNotification({ message: 'Creando factura...', type: 'info' });
+            
+            await crearFactura({
+                clienteId,
+                items,
+                subtotal,
+                ivaValor: iva,
+                total,
+            });
 
-        alert('Factura creada exitosamente como borrador.');
-        setPage('facturacion_electronica');
+            addNotification({ message: 'Factura creada exitosamente como borrador.', type: 'success' });
+            setPage('facturacion_electronica');
+        } catch (error) {
+            console.error('Error al crear factura:', error);
+            addNotification({ message: 'No se pudo crear la factura. Intenta nuevamente.', type: 'warning' });
+        } finally {
+            setIsCreating(false);
+        }
     };
     
     const handleCancel = () => {
@@ -58,7 +71,8 @@ const NuevaFacturaPage: React.FC = () => {
                     <FacturaForm 
                         onSubmit={handleCreateFactura} 
                         onCancel={handleCancel}
-                        onDirtyChange={setFormDirty} 
+                        onDirtyChange={setFormDirty}
+                        isSubmitting={isCreating}
                     />
                 </CardContent>
             </Card>

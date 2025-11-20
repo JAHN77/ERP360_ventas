@@ -52,10 +52,13 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
     const documentRef = useRef<HTMLDivElement>(null);
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences(documentType);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
 
     const handleDownload = async () => {
-        if (!documentRef.current) {
-            addNotification({ message: 'No hay contenido para descargar. Por favor, intenta nuevamente.', type: 'warning' });
+        if (!documentRef.current || isDownloading) {
+            if (!isDownloading) {
+                addNotification({ message: 'No hay contenido para descargar. Por favor, intenta nuevamente.', type: 'warning' });
+            }
             return;
         }
 
@@ -79,6 +82,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
             return;
         }
 
+        setIsDownloading(true);
         addNotification({ message: 'Iniciando descarga de previsualización...', type: 'info' });
 
         try {
@@ -115,9 +119,12 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
             
             pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
             pdf.save(`Previsualizacion-${title.replace(/ /g, '_')}.pdf`);
+            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
         } catch (error) {
             console.error('Error al generar el PDF:', error);
             addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });
+        } finally {
+            setIsDownloading(false);
         }
     };
 
@@ -177,22 +184,25 @@ El equipo de ${datosEmpresa.nombre}`;
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 px-2 truncate">{title}</h3>
                         <div className="flex items-center space-x-1 bg-slate-200/50 dark:bg-slate-800/50 p-1 rounded-lg">
                             {/* Group 1: Edit/Export */}
-                            <button onClick={onEdit} title="Editar" className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-yellow-500 transition-colors">
+                            <button onClick={onEdit} disabled={isDownloading} title="Editar" className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                 <i className="fas fa-pencil-alt"></i>
                             </button>
-                            <button onClick={handleDownload} title="Descargar Borrador PDF" className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors">
-                                <i className="fas fa-download"></i>
+                            <button onClick={handleDownload} disabled={isDownloading} title={isDownloading ? "Generando PDF..." : "Descargar Borrador PDF"} className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
                             </button>
                              {clientEmail && (
                                 <button
                                     onClick={async () => {
                                         await handleDownload();
-                                        setIsEmailModalOpen(true);
+                                        if (!isDownloading) {
+                                            setIsEmailModalOpen(true);
+                                        }
                                     }}
-                                    title="Enviar por Correo"
-                                    className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors"
+                                    disabled={isDownloading}
+                                    title={isDownloading ? "Generando PDF..." : "Enviar por Correo"}
+                                    className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <i className="fas fa-paper-plane"></i>
+                                    <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
                                 </button>
                             )}
                             {/* Divider */}
@@ -209,14 +219,16 @@ El equipo de ${datosEmpresa.nombre}`;
                                         <span className="hidden sm:inline">{saveAndSendLabel}</span>
                                 </button>
                             )}
-                            <button 
-                                onClick={onConfirm}
-                                disabled={isConfirming || isSaving}
-                                    className="px-3 py-1.5 text-sm font-semibold text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-slate-400 flex items-center gap-2"
-                            >
-                                    {isConfirming ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check"></i>}
-                                    <span className="hidden sm:inline">{confirmLabel}</span>
-                            </button>
+                            {onConfirm && (
+                                <button 
+                                    onClick={onConfirm}
+                                    disabled={isConfirming || isSaving}
+                                        className="px-3 py-1.5 text-sm font-semibold text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-slate-400 flex items-center gap-2"
+                                >
+                                        {isConfirming ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check"></i>}
+                                        <span>{confirmLabel}</span>
+                                </button>
+                            )}
                             </div>
                             {/* Divider */}
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>

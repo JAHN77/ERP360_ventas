@@ -1,15 +1,17 @@
 const sql = require('mssql');
 require('dotenv').config();
 
-// Validar variables de entorno requeridas
+// Validar variables de entorno requeridas (pero no hacer exit, solo advertir)
+// El servidor puede iniciar sin conexión a BD y manejar errores en tiempo de ejecución
 const requiredEnvVars = ['DB_SERVER', 'DB_DATABASE', 'DB_USER', 'DB_PASSWORD'];
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
-  console.error('❌ Error: Faltan variables de entorno requeridas:', missingVars.join(', '));
-  console.error('💡 Por favor, crea un archivo .env con las variables necesarias.');
-  console.error('💡 Puedes usar .env.example como referencia.');
-  process.exit(1);
+  console.warn('⚠️  Advertencia: Faltan variables de entorno requeridas:', missingVars.join(', '));
+  console.warn('💡 Por favor, crea un archivo .env con las variables necesarias.');
+  console.warn('💡 Puedes usar .env.example como referencia.');
+  console.warn('💡 El servidor iniciará, pero las operaciones de BD fallarán hasta que se configuren las variables.');
+  // NO hacer process.exit(1) - permitir que el servidor inicie
 }
 
 // Configuración de conexión SQL Server desde variables de entorno
@@ -39,6 +41,12 @@ let pool = null;
 // Función para obtener la conexión
 const getConnection = async () => {
   try {
+    // Verificar que las variables de entorno estén configuradas
+    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+    if (missingVars.length > 0) {
+      throw new Error(`Variables de entorno faltantes: ${missingVars.join(', ')}. Por favor, configura el archivo .env`);
+    }
+    
     if (!pool) {
       console.log('🔄 Conectando a SQL Server...');
       pool = new sql.ConnectionPool(config);
@@ -47,7 +55,8 @@ const getConnection = async () => {
     }
     return pool;
   } catch (error) {
-    console.error('❌ Error conectando a SQL Server:', error);
+    console.error('❌ Error conectando a SQL Server:', error.message || error);
+    // No hacer throw si es un error de configuración, solo loguear
     throw error;
   }
 };

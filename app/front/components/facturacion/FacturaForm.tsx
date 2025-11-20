@@ -21,9 +21,10 @@ interface FacturaFormProps {
   onSubmit: (data: FacturaFormData) => void;
   onCancel: () => void;
   onDirtyChange?: (isDirty: boolean) => void;
+  isSubmitting?: boolean;
 }
 
-const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyChange }) => {
+const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyChange, isSubmitting = false }) => {
     const { clientes, productos } = useData();
     const [clienteId, setClienteId] = useState('');
     const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
@@ -320,10 +321,19 @@ const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyCh
             </div>
             
             <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-4">
-                <button type="button" onClick={onCancel} className="px-6 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">Cancelar</button>
-                <button type="submit" disabled={!canSubmit} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed">
-                    <i className="fas fa-save mr-2"></i>
-                    Crear Factura
+                <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-6 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Cancelar</button>
+                <button type="submit" disabled={!canSubmit || isSubmitting} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center">
+                    {isSubmitting ? (
+                        <>
+                            <i className="fas fa-spinner fa-spin mr-2"></i>
+                            Creando Factura...
+                        </>
+                    ) : (
+                        <>
+                            <i className="fas fa-save mr-2"></i>
+                            Crear Factura
+                        </>
+                    )}
                 </button>
             </div>
         </form>
