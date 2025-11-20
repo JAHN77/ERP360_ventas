@@ -559,76 +559,159 @@ class DIANService {
     console.log('📋 [DIAN] PASO 5: Enviando factura a DIAN');
     console.log('='.repeat(80));
     try {
+      // Construir URL completa del endpoint
       const url = `${baseUrl}/api/ubl2.1/invoice/${testSetID}`;
       
-      console.log('📤 [DIAN] Preparando envío a DIAN:');
-      console.log('   - URL:', url);
+      // Preparar headers
+      const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      };
+      
+      // Preparar body como JSON string
+      const bodyString = JSON.stringify(invoiceJson);
+      
+      console.log('\n🔗 [DIAN] ========== INFORMACIÓN DE LA PETICIÓN ==========');
+      console.log('📡 [DIAN] URL BASE:', baseUrl);
+      console.log('🔗 [DIAN] ENDPOINT:', `/api/ubl2.1/invoice/${testSetID}`);
+      console.log('🌐 [DIAN] URL COMPLETA:', url);
+      console.log('📝 [DIAN] MÉTODO HTTP: POST');
+      console.log('📋 [DIAN] TEST SET ID:', testSetID);
+      
+      console.log('\n📤 [DIAN] ========== HEADERS ENVIADOS ==========');
+      console.log(JSON.stringify(headers, null, 2));
+      
+      console.log('\n📦 [DIAN] ========== BODY ENVIADO (JSON) ==========');
+      console.log('📏 [DIAN] Tamaño del body:', bodyString.length, 'caracteres');
+      console.log('📋 [DIAN] Body completo:');
+      console.log(bodyString);
+      
+      console.log('\n📊 [DIAN] ========== RESUMEN DEL BODY ==========');
       console.log('   - Número Factura:', invoiceJson.number);
-      console.log('   - Test Set ID:', testSetID);
       console.log('   - Tipo Documento:', invoiceJson.type_document_id);
+      console.log('   - Fecha Emisión:', invoiceJson.issue_date);
+      console.log('   - Fecha Vencimiento:', invoiceJson.due_date);
+      console.log('   - Perfil:', invoiceJson.profile_id, '(1=Producción, 2=Prueba)');
+      console.log('   - Sync:', invoiceJson.sync);
+      console.log('   - Resolución ID:', invoiceJson.resolution_id);
       console.log('   - Total a Pagar:', invoiceJson.legal_monetary_totals?.payable_amount);
-      console.log('   - Cliente:', invoiceJson.customer.name);
+      console.log('   - Subtotal:', invoiceJson.legal_monetary_totals?.line_extension_amount);
+      console.log('   - IVA Total:', invoiceJson.tax_totals?.[0]?.tax_amount || 0);
+      console.log('   - Total Líneas:', invoiceJson.invoice_lines?.length || 0);
+      
+      console.log('\n👤 [DIAN] ========== DATOS DEL CLIENTE ==========');
+      console.log('   - Cliente Nombre:', invoiceJson.customer.name);
       console.log('   - Cliente ID:', invoiceJson.customer.identification_number);
       console.log('   - Cliente Teléfono:', invoiceJson.customer.phone);
-      console.log('   - Perfil:', invoiceJson.profile_id, '(1=Producción, 2=Prueba)');
-      console.log('📋 [DIAN] JSON completo a enviar:');
-      console.log(JSON.stringify(invoiceJson, null, 2));
+      console.log('   - Cliente Email:', invoiceJson.customer.email);
+      console.log('   - Cliente Dirección:', invoiceJson.customer.address || 'N/A');
       
-      console.log('🌐 [DIAN] Realizando petición HTTP POST...');
+      console.log('\n🏢 [DIAN] ========== DATOS DE LA EMPRESA ==========');
+      console.log('   - Empresa NIT:', invoiceJson.company.identification_number);
+      console.log('   - Empresa Nombre:', invoiceJson.company.name);
+      console.log('   - Empresa Dirección:', invoiceJson.company.address);
+      console.log('   - Empresa Teléfono:', invoiceJson.company.phone);
+      console.log('   - Empresa Email:', invoiceJson.company.email);
+      
+      console.log('\n📦 [DIAN] ========== LÍNEAS DE FACTURA ==========');
+      if (invoiceJson.invoice_lines && invoiceJson.invoice_lines.length > 0) {
+        invoiceJson.invoice_lines.forEach((line, index) => {
+          console.log(`\n   Línea ${index + 1}:`);
+          console.log('     - Código:', line.code);
+          console.log('     - Descripción:', line.description);
+          console.log('     - Cantidad:', line.invoiced_quantity);
+          console.log('     - Precio Unitario:', line.price_amount);
+          console.log('     - Subtotal:', line.line_extension_amount);
+          console.log('     - IVA:', line.tax_totals?.[0]?.tax_amount || 0);
+          console.log('     - IVA %:', line.tax_totals?.[0]?.percent || 0);
+        });
+      } else {
+        console.log('   ⚠️ No hay líneas de factura');
+      }
+      
+      console.log('\n🌐 [DIAN] ========== ENVIANDO PETICIÓN HTTP POST ==========');
       const requestStartTime = Date.now();
+      console.log('⏱️ [DIAN] Iniciando petición a las:', new Date().toISOString());
+      
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(invoiceJson)
+        headers: headers,
+        body: bodyString
       });
+      
       const requestDuration = Date.now() - requestStartTime;
+      console.log('⏱️ [DIAN] Petición completada en:', requestDuration, 'ms');
+      console.log('⏱️ [DIAN] Finalizada a las:', new Date().toISOString());
       
-      console.log('⏱️ [DIAN] Tiempo de respuesta:', requestDuration, 'ms');
+      console.log('\n📥 [DIAN] ========== RESPUESTA RECIBIDA ==========');
       console.log('📊 [DIAN] Status HTTP:', response.status, response.statusText);
-      console.log('📋 [DIAN] Headers de respuesta:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+      console.log('📋 [DIAN] Headers de respuesta:');
+      const responseHeaders = Object.fromEntries(response.headers.entries());
+      console.log(JSON.stringify(responseHeaders, null, 2));
       
+      // Obtener respuesta como texto primero
       const responseText = await response.text();
-      console.log('📄 [DIAN] Respuesta recibida (texto):', responseText.substring(0, 500), responseText.length > 500 ? '...' : '');
+      console.log('\n📄 [DIAN] ========== BODY DE RESPUESTA (TEXTO) ==========');
+      console.log('📏 [DIAN] Tamaño de la respuesta:', responseText.length, 'caracteres');
+      console.log('📋 [DIAN] Respuesta completa (texto):');
+      console.log(responseText);
       
       if (!response.ok) {
-        console.error('❌ [DIAN] Error en respuesta HTTP:');
-        console.error('   - Status:', response.status);
+        console.error('\n❌ [DIAN] ========== ERROR EN RESPUESTA HTTP ==========');
+        console.error('🚨 [DIAN] La respuesta HTTP indica un error');
+        console.error('   - Status Code:', response.status);
         console.error('   - Status Text:', response.statusText);
-        console.error('   - Headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
-        console.error('   - Body completo:', responseText);
+        console.error('   - URL:', url);
+        console.error('   - Test Set ID:', testSetID);
+        
+        console.error('\n📋 [DIAN] Headers de respuesta (error):');
+        console.error(JSON.stringify(responseHeaders, null, 2));
+        
+        console.error('\n📄 [DIAN] Body de respuesta (error):');
+        console.error('   Tamaño:', responseText.length, 'caracteres');
+        console.error('   Contenido completo:');
+        console.error(responseText);
         
         // Intentar parsear como JSON si es posible
         let errorData = null;
         try {
           errorData = JSON.parse(responseText);
-          console.error('   - Error parseado (JSON):', JSON.stringify(errorData, null, 2));
+          console.error('\n✅ [DIAN] Error parseado como JSON:');
+          console.error(JSON.stringify(errorData, null, 2));
         } catch (e) {
           // Si no es JSON, usar el texto directamente
           errorData = responseText;
-          console.error('   - Error (texto plano):', errorData);
+          console.error('\n⚠️ [DIAN] Error no es JSON válido:');
+          console.error('   - Error de parseo:', e.message);
+          console.error('   - Respuesta (texto plano):', errorData);
         }
         
-        console.log('='.repeat(80) + '\n');
+        console.error('\n📋 [DIAN] ========== RESUMEN DEL ERROR ==========');
+        console.error('   Status:', response.status, response.statusText);
+        console.error('   Error Data:', JSON.stringify(errorData));
+        console.error('='.repeat(80) + '\n');
         throw new Error(`DIAN API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
       }
       
       // Intentar parsear respuesta como JSON
+      console.log('\n🔍 [DIAN] ========== PROCESANDO RESPUESTA ==========');
       console.log('🔍 [DIAN] Intentando parsear respuesta como JSON...');
       let responseData = null;
       try {
         responseData = JSON.parse(responseText);
         console.log('✅ [DIAN] Respuesta parseada exitosamente como JSON');
-        console.log('📋 [DIAN] Estructura de respuesta:', Object.keys(responseData));
+        console.log('📋 [DIAN] Claves principales en la respuesta:', Object.keys(responseData));
       } catch (parseError) {
-        console.warn('⚠️ [DIAN] Respuesta de DIAN no es JSON válido');
+        console.warn('\n⚠️ [DIAN] ========== RESPUESTA NO ES JSON VÁLIDO ==========');
         console.warn('   - Error de parseo:', parseError.message);
-        console.warn('   - Respuesta recibida:', responseText.substring(0, 500));
+        console.warn('   - Stack:', parseError.stack);
+        console.warn('   - Respuesta recibida (primeros 500 caracteres):');
+        console.warn(responseText.substring(0, 500));
+        console.warn('   - Respuesta completa:');
+        console.warn(responseText);
         
         // Si no es JSON, intentar extraer CUFE del texto si es posible
-        console.log('🔍 [DIAN] Intentando extraer CUFE del texto...');
+        console.log('\n🔍 [DIAN] Intentando extraer CUFE del texto...');
         const cufeMatch = responseText.match(/CUFE[:\s]+([A-Z0-9-]+)/i) || 
                          responseText.match(/"cufe"\s*:\s*"([^"]+)"/i) ||
                          responseText.match(/"CUFE"\s*:\s*"([^"]+)"/i);
@@ -638,6 +721,7 @@ class DIANService {
           responseData = { cufe: cufeMatch[1] };
         } else {
           console.error('❌ [DIAN] No se pudo extraer CUFE del texto');
+          console.error('   Respuesta completa:', responseText);
           throw new Error(`Respuesta de DIAN no es JSON válido: ${responseText.substring(0, 200)}`);
         }
       }
@@ -646,15 +730,25 @@ class DIANService {
       console.log('\n' + '='.repeat(80));
       console.log('📋 [DIAN] PASO 6: Procesando respuesta de DIAN');
       console.log('='.repeat(80));
-      console.log('✅ [DIAN] RESPUESTA COMPLETA DE DIAN:');
-      console.log('📋 [DIAN] Status HTTP:', response.status, response.statusText);
-      console.log('📋 [DIAN] Headers de respuesta:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
-      console.log('📋 [DIAN] Response Data (raw):', JSON.stringify(responseData, null, 2));
+      
+      console.log('\n✅ [DIAN] ========== RESPUESTA COMPLETA DE DIAN (JSON) ==========');
+      console.log('📋 [DIAN] Response Data (raw - JSON completo):');
+      console.log(JSON.stringify(responseData, null, 2));
       console.log('📋 [DIAN] Todas las claves en response:', Object.keys(responseData || {}));
       
       // Verificar si la respuesta tiene estructura anidada (response.response)
       const dianResponse = responseData.response || responseData;
-      console.log('📋 [DIAN] DianResponse (anidado o directo):', JSON.stringify(dianResponse, null, 2));
+      console.log('\n📋 [DIAN] ========== ESTRUCTURA DE RESPUESTA ==========');
+      console.log('📋 [DIAN] Verificando estructura anidada (response.response)...');
+      if (responseData.response) {
+        console.log('✅ [DIAN] Estructura anidada encontrada: response.response');
+        console.log('📋 [DIAN] DianResponse (anidado):');
+        console.log(JSON.stringify(dianResponse, null, 2));
+      } else {
+        console.log('✅ [DIAN] Estructura directa (sin anidación)');
+        console.log('📋 [DIAN] DianResponse (directo):');
+        console.log(JSON.stringify(dianResponse, null, 2));
+      }
       console.log('📋 [DIAN] Claves en dianResponse:', dianResponse ? Object.keys(dianResponse) : 'null');
       
       // Verificar statusCode de DIAN (CRÍTICO)

@@ -7220,6 +7220,9 @@ app.post('/api/facturas', async (req, res) => {
 // Registrar el endpoint PUT antes de definirlo
 console.log(`📝 Registrando endpoint: PUT /api/facturas/:id`);
 app.put('/api/facturas/:id', async (req, res) => {
+  console.log('\n' + '='.repeat(80));
+  console.log('🚀 [PUT /api/facturas/:id] ========== INICIO DE PETICIÓN ==========');
+  console.log('='.repeat(80));
   console.log(`✅ Endpoint PUT /api/facturas/:id alcanzado`);
   console.log(`   Params:`, req.params);
   console.log(`   Method:`, req.method);
@@ -7229,7 +7232,12 @@ app.put('/api/facturas/:id', async (req, res) => {
   const { id } = req.params;
   const body = req.body || {};
   
-  console.log(`🔍 ID recibido: "${id}" (tipo: ${typeof id})`);
+  console.log(`\n📥 [PUT /api/facturas/:id] DATOS RECIBIDOS:`);
+  console.log(`   - ID recibido: "${id}" (tipo: ${typeof id})`);
+  console.log(`   - Body completo:`, JSON.stringify(body, null, 2));
+  console.log(`   - Body.estado: "${body.estado}" (tipo: ${typeof body.estado})`);
+  console.log(`   - Body.estado === "ENVIADA":`, body.estado === 'ENVIADA');
+  console.log(`   - Todas las claves en body:`, Object.keys(body));
   
   // Intentar convertir a número
   const idNum = parseInt(id, 10);
@@ -7247,9 +7255,7 @@ app.put('/api/facturas/:id', async (req, res) => {
     });
   }
   
-  console.log(`✅ ID convertido a número: ${idNum}`);
-  
-  console.log(`📥 Recibida solicitud PUT /api/facturas/${idNum} con body:`, JSON.stringify(body, null, 2));
+  console.log(`✅ [PUT /api/facturas/:id] ID convertido a número: ${idNum}`);
   
   try {
     const pool = await getConnection();
@@ -7277,10 +7283,36 @@ app.put('/api/facturas/:id', async (req, res) => {
       
       const facturaExistente = checkResult.recordset[0];
       const estadoActualMapeado = mapEstadoFromDb(facturaExistente.estfac);
-      console.log(`✅ Factura encontrada: ${facturaExistente.numfact} (estado: ${facturaExistente.estfac} -> ${estadoActualMapeado})`);
+      
+      console.log('\n' + '='.repeat(80));
+      console.log('📋 [TIMBRADO] ========== VERIFICANDO CONDICIONES PARA TIMBRADO ==========');
+      console.log('='.repeat(80));
+      console.log('✅ Factura encontrada:');
+      console.log('   - ID:', facturaExistente.ID);
+      console.log('   - Número:', facturaExistente.numfact);
+      console.log('   - Estado en BD (estfac):', facturaExistente.estfac);
+      console.log('   - Estado mapeado:', estadoActualMapeado);
+      console.log('   - Estado desde body (body.estado):', body.estado);
+      console.log('   - Tipo de body.estado:', typeof body.estado);
+      console.log('   - facturaExistente.estado:', facturaExistente.estado);
+      console.log('   - facturaExistente tiene campo estado?:', 'estado' in facturaExistente);
+      console.log('   - Todos los campos de facturaExistente:', Object.keys(facturaExistente));
       
       // Mapear estado del frontend al backend si es necesario
       const estadoDb = body.estado ? mapEstadoToDb(body.estado) : facturaExistente.estfac;
+      console.log('   - Estado mapeado a BD (estadoDb):', estadoDb);
+      
+      // Verificar condiciones para timbrado
+      const condicion1 = body.estado === 'ENVIADA';
+      const condicion2 = facturaExistente.estfac !== 'E';
+      const condicion3 = estadoActualMapeado !== 'ENVIADA';
+      
+      console.log('\n🔍 [TIMBRADO] CONDICIONES PARA TIMBRADO:');
+      console.log('   1. body.estado === "ENVIADA":', condicion1, `(body.estado="${body.estado}")`);
+      console.log('   2. facturaExistente.estfac !== "E":', condicion2, `(estfac="${facturaExistente.estfac}")`);
+      console.log('   3. estadoActualMapeado !== "ENVIADA":', condicion3, `(estadoActualMapeado="${estadoActualMapeado}")`);
+      console.log('   - Condición combinada (1 && 2):', condicion1 && condicion2);
+      console.log('   - Condición combinada (1 && 3):', condicion1 && condicion3);
       
       // Construir la consulta de actualización dinámicamente
       const updates = [];
@@ -7291,7 +7323,11 @@ app.put('/api/facturas/:id', async (req, res) => {
       let cufeGenerado = null;
       let fechaTimbradoGenerada = null;
       let estadoFinal = estadoDb;
-      if (body.estado === 'ENVIADA' && facturaExistente.estado !== 'E') {
+      
+      // CORREGIR: Usar estfac en lugar de estado
+      if (body.estado === 'ENVIADA' && facturaExistente.estfac !== 'E') {
+        console.log('\n✅ [TIMBRADO] CONDICIÓN CUMPLIDA - INICIANDO PROCESO DE TIMBRADO');
+        console.log('='.repeat(80));
         // Proceso de timbrado real con DIAN
         console.log(`🔄 Iniciando proceso de timbrado con DIAN para factura ${facturaExistente.numero_factura}...`);
         
@@ -7370,6 +7406,18 @@ app.put('/api/facturas/:id', async (req, res) => {
           // Loggear error detallado pero continuar con la actualización
           // El estado RECHAZADA quedará guardado en la base de datos
         }
+      } else {
+        console.log('\n⚠️ [TIMBRADO] CONDICIÓN NO CUMPLIDA - NO SE TIMBRARÁ LA FACTURA');
+        console.log('='.repeat(80));
+        console.log('   Razones por las que NO se timbrará:');
+        if (body.estado !== 'ENVIADA') {
+          console.log('   ❌ body.estado no es "ENVIADA":', body.estado);
+        }
+        if (facturaExistente.estfac === 'E') {
+          console.log('   ❌ La factura ya está timbrada (estfac = "E")');
+        }
+        console.log('   ℹ️ La factura se actualizará normalmente sin timbrar');
+        console.log('='.repeat(80) + '\n');
       }
       
       // Construir actualizaciones dinámicamente usando las columnas reales
