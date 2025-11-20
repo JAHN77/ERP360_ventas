@@ -3315,47 +3315,82 @@ app.post('/api/pedidos', async (req, res) => {
       console.log(`✅ Cliente encontrado: codter="${clienteIdStr}" (${clienteResult.recordset[0].nomter})`);
       
       // Validar que el almacén existe (empresaId debe corresponder a un almacén activo)
+      // Formatear el código del almacén con padStart(3, '0') para asegurar formato "001", "002", etc.
       const empresaIdStr = String(empresaId || '001').trim();
-      console.log(`🔍 Validando almacén: "${empresaIdStr}"`);
+      const codalmFormatted = empresaIdStr.padStart(3, '0');
+      console.log(`🔍 Validando almacén: "${empresaIdStr}" -> formateado: "${codalmFormatted}"`);
       
+      // Buscar almacén de manera flexible: primero con formato "001", luego sin formato "1", y también por valor numérico
       const reqCheckAlmacen = new sql.Request(tx);
-      reqCheckAlmacen.input('codalm', sql.VarChar(10), empresaIdStr);
-      const almacenResult = await reqCheckAlmacen.query(`
+      reqCheckAlmacen.input('codalmFormatted', sql.VarChar(3), codalmFormatted);
+      reqCheckAlmacen.input('codalmOriginal', sql.VarChar(10), empresaIdStr);
+      
+      // Intentar convertir a número para búsqueda numérica
+      let empresaIdNum = null;
+      try {
+        const num = parseInt(empresaIdStr, 10);
+        if (!isNaN(num)) {
+          empresaIdNum = num;
+          reqCheckAlmacen.input('codalmNum', sql.Int, empresaIdNum);
+        }
+      } catch (e) {
+        // No es numérico, continuar sin búsqueda numérica
+      }
+      
+      // Construir query flexible que busque por código formateado, original, o numérico
+      let almacenQuery = `
         SELECT codalm, nomalm, activo
         FROM inv_almacen
-        WHERE codalm = @codalm AND activo = 1
-      `);
+        WHERE activo = 1 AND (
+          LTRIM(RTRIM(codalm)) = LTRIM(RTRIM(@codalmFormatted))
+          OR LTRIM(RTRIM(codalm)) = LTRIM(RTRIM(@codalmOriginal))
+      `;
+      
+      if (empresaIdNum !== null) {
+        almacenQuery += `
+          OR (ISNUMERIC(LTRIM(RTRIM(codalm))) = 1 AND CAST(LTRIM(RTRIM(codalm)) AS INT) = @codalmNum)
+        `;
+      }
+      
+      almacenQuery += `)`;
+      
+      const almacenResult = await reqCheckAlmacen.query(almacenQuery);
       
       if (almacenResult.recordset.length === 0) {
         await tx.rollback();
-        console.error(`❌ Almacén NO encontrado o inactivo: codalm="${empresaIdStr}"`);
+        console.error(`❌ Almacén NO encontrado o inactivo: codalm="${codalmFormatted}" (original: "${empresaIdStr}")`);
         
-        // Obtener ejemplos de almacenes disponibles
+        // Obtener ejemplos de almacenes disponibles (todos, no solo activos)
         let ejemplosAlmacenes = [];
         try {
           const reqEjemplos = new sql.Request(tx);
           const ejemplosResult = await reqEjemplos.query(`
-            SELECT TOP 5 codalm, nomalm, activo
+            SELECT TOP 10 codalm, nomalm, activo
             FROM inv_almacen
             ORDER BY codalm
           `);
           ejemplosAlmacenes = ejemplosResult.recordset;
+          console.log(`   📋 Almacenes disponibles en BD:`, ejemplosAlmacenes);
         } catch (err) {
           console.error('Error obteniendo ejemplos de almacenes:', err);
         }
         
         return res.status(400).json({ 
           success: false, 
-          message: `Almacén/Bodega con código '${empresaIdStr}' no encontrado o inactivo. Verifique que el código de almacén exista en la base de datos.`, 
+          message: `Almacén/Bodega con código '${codalmFormatted}' no encontrado o inactivo. Verifique que el código de almacén exista en la base de datos.`, 
           error: 'ALMACEN_NOT_FOUND',
           debug: {
             empresaIdRecibido: empresaIdStr,
+            codalmFormateado: codalmFormatted,
+            empresaIdNumerico: empresaIdNum,
             ejemplosAlmacenes: ejemplosAlmacenes
           }
         });
       }
       
-      console.log(`✅ Almacén encontrado: codalm="${empresaIdStr}" (${almacenResult.recordset[0].nomalm})`);
+      // Usar el código real encontrado en la BD (puede ser diferente al formateado)
+      const codalmReal = almacenResult.recordset[0].codalm.trim();
+      console.log(`✅ Almacén encontrado: codalm="${codalmReal}" (${almacenResult.recordset[0].nomalm})`);
       
       // Validar que el vendedor existe si se proporciona
       let vendedorIdFinal = null;
@@ -3534,7 +3569,7 @@ app.post('/api/pedidos', async (req, res) => {
       }
       
       // Validar que sean números finitos y limitar a rango válido para DECIMAL(18,2)
-      const maxDecimal18_2 = 9999999999999999.99;
+      const maxDecimal18_2 = 9999999999999999.99; // Máximo para DECIMAL(18,2)
       const subtotalFinal = Math.max(0, Math.min(Math.abs(subtotalNum), maxDecimal18_2));
       const descuentoValorFinal = Math.max(0, Math.min(Math.abs(descuentoValorNum || 0), maxDecimal18_2));
       const ivaValorFinal = Math.max(0, Math.min(Math.abs(ivaValorNum || 0), maxDecimal18_2));
@@ -3630,11 +3665,11 @@ app.post('/api/pedidos', async (req, res) => {
       }
       // Validar empresa_id (INT: -2,147,483,648 a 2,147,483,647)
       // empresaId puede venir como string (codalm) o como número
-      // Intentar convertir codalm a número, si no es posible, usar 1
+      // Usar el código real encontrado en la BD (codalmReal) para convertir a número
       let empresaIdValid = 1;
       try {
-        // Intentar convertir el codalm a número
-        const empresaIdNum = parseInt(empresaIdStr, 10);
+        // Intentar convertir el codalm real a número (ej: "001" -> 1, "1" -> 1, "002" -> 2)
+        const empresaIdNum = parseInt(codalmReal, 10);
         if (!isNaN(empresaIdNum) && empresaIdNum >= -2147483648 && empresaIdNum <= 2147483647) {
           empresaIdValid = empresaIdNum;
         } else {
@@ -3660,18 +3695,105 @@ app.post('/api/pedidos', async (req, res) => {
       req1.input('codtar', sql.VarChar(20), null); // No se proporciona en el request
       req1.input('codusu', sql.VarChar(20), null); // No se proporciona en el request
       req1.input('cotizacion_id', sql.Int, cotizacionIdValid);
-      req1.input('subtotal', sql.Decimal(18, 2), subtotalFinalLimited);
-      req1.input('descuento_valor', sql.Decimal(18, 2), descuentoValorFinalLimited);
-      req1.input('descuento_porcentaje', sql.Decimal(5, 2), descuentoPorcentajeFinal);
-      req1.input('iva_valor', sql.Decimal(18, 2), ivaValorFinalLimited);
-      req1.input('iva_porcentaje', sql.Decimal(5, 2), ivaPorcentajeFinal);
-      req1.input('impoconsumo_valor', sql.Decimal(18, 2), impoconsumoValorFinalLimited);
-      req1.input('total', sql.Decimal(18, 2), totalFinalLimited);
+      
+      // Redondear todos los valores DECIMAL a 2 decimales para evitar overflow
+      // SQL Server requiere exactamente el número de decimales especificado
+      // maxDecimal18_2 ya está definido arriba
+      const maxDecimal5_2 = 999.99; // Máximo para DECIMAL(5,2)
+      
+      const roundTo2Decimals = (value) => {
+        if (!isFinite(value) || isNaN(value)) return 0;
+        // Limitar al rango máximo antes de redondear
+        const limited = Math.max(-maxDecimal18_2, Math.min(maxDecimal18_2, value));
+        // Usar toFixed(2) para asegurar exactamente 2 decimales y evitar problemas de precisión
+        return parseFloat(limited.toFixed(2));
+      };
+      const roundTo2DecimalsPercent = (value) => {
+        if (!isFinite(value) || isNaN(value)) return 0;
+        // Limitar al rango máximo de porcentaje antes de redondear
+        const limited = Math.max(0, Math.min(maxDecimal5_2, value));
+        // Usar toFixed(2) para asegurar exactamente 2 decimales y evitar problemas de precisión
+        return parseFloat(limited.toFixed(2));
+      };
+      
+      // Calcular valores redondeados
+      const subtotalRounded = roundTo2Decimals(subtotalFinalLimited);
+      const descuentoValorRounded = roundTo2Decimals(descuentoValorFinalLimited);
+      const descuentoPorcentajeRounded = roundTo2DecimalsPercent(descuentoPorcentajeFinal);
+      const ivaValorRounded = roundTo2Decimals(ivaValorFinalLimited);
+      const ivaPorcentajeRounded = roundTo2DecimalsPercent(ivaPorcentajeFinal);
+      const impoconsumoValorRounded = roundTo2Decimals(impoconsumoValorFinalLimited);
+      const totalRounded = roundTo2Decimals(totalFinalLimited);
+      
+      // Validación final: asegurar que todos los valores estén dentro del rango
+      if (Math.abs(subtotalRounded) > maxDecimal18_2) {
+        throw new Error(`subtotal excede el rango máximo: ${subtotalRounded}`);
+      }
+      if (Math.abs(descuentoValorRounded) > maxDecimal18_2) {
+        throw new Error(`descuentoValor excede el rango máximo: ${descuentoValorRounded}`);
+      }
+      if (Math.abs(ivaValorRounded) > maxDecimal18_2) {
+        throw new Error(`ivaValor excede el rango máximo: ${ivaValorRounded}`);
+      }
+      if (Math.abs(impoconsumoValorRounded) > maxDecimal18_2) {
+        throw new Error(`impoconsumoValor excede el rango máximo: ${impoconsumoValorRounded}`);
+      }
+      if (Math.abs(totalRounded) > maxDecimal18_2) {
+        throw new Error(`total excede el rango máximo: ${totalRounded}`);
+      }
+      if (descuentoPorcentajeRounded > maxDecimal5_2 || descuentoPorcentajeRounded < 0) {
+        throw new Error(`descuentoPorcentaje fuera de rango: ${descuentoPorcentajeRounded}`);
+      }
+      if (ivaPorcentajeRounded > maxDecimal5_2 || ivaPorcentajeRounded < 0) {
+        throw new Error(`ivaPorcentaje fuera de rango: ${ivaPorcentajeRounded}`);
+      }
+      
+      // Log de valores antes de insertar
+      console.log('📊 Valores redondeados para inserción en ven_pedidos:', {
+        subtotal: subtotalRounded,
+        descuentoValor: descuentoValorRounded,
+        descuentoPorcentaje: descuentoPorcentajeRounded,
+        ivaValor: ivaValorRounded,
+        ivaPorcentaje: ivaPorcentajeRounded,
+        impoconsumoValor: impoconsumoValorRounded,
+        total: totalRounded
+      });
+      
+      req1.input('subtotal', sql.Decimal(18, 2), subtotalRounded);
+      req1.input('descuento_valor', sql.Decimal(18, 2), descuentoValorRounded);
+      req1.input('descuento_porcentaje', sql.Decimal(5, 2), descuentoPorcentajeRounded);
+      req1.input('iva_valor', sql.Decimal(18, 2), ivaValorRounded);
+      req1.input('iva_porcentaje', sql.Decimal(5, 2), ivaPorcentajeRounded);
+      req1.input('impoconsumo_valor', sql.Decimal(18, 2), impoconsumoValorRounded);
+      req1.input('total', sql.Decimal(18, 2), totalRounded);
       req1.input('observaciones', sql.VarChar(500), observaciones || '');
       req1.input('instrucciones_entrega', sql.VarChar(500), instruccionesEntrega || '');
       req1.input('estado', sql.VarChar(20), estadoMapeado);
       req1.input('fec_creacion', sql.DateTime, new Date());
       req1.input('fec_modificacion', sql.DateTime, new Date());
+      
+      // Log final de todos los parámetros antes de insertar
+      console.log('📋 Parámetros finales para INSERT en ven_pedidos:', {
+        numero_pedido: numeroPedidoFinal,
+        fecha_pedido: fechaPedidoFinal,
+        fecha_entrega_estimada: fechaEntregaEstimada || null,
+        codter: clienteIdStr,
+        codven: codVendedorFinal,
+        empresa_id: empresaIdValid,
+        codtar: null,
+        codusu: null,
+        cotizacion_id: cotizacionIdValid,
+        subtotal: subtotalRounded,
+        descuento_valor: descuentoValorRounded,
+        descuento_porcentaje: descuentoPorcentajeRounded,
+        iva_valor: ivaValorRounded,
+        iva_porcentaje: ivaPorcentajeRounded,
+        impoconsumo_valor: impoconsumoValorRounded,
+        total: totalRounded,
+        observaciones: observaciones || '',
+        instrucciones_entrega: instruccionesEntrega || '',
+        estado: estadoMapeado
+      });
       
       const insertHeader = await req1.query(`
           INSERT INTO ven_pedidos (
@@ -3807,15 +3929,36 @@ app.post('/api/pedidos', async (req, res) => {
         });
         
         // Formatear codalm correctamente (CHAR(3))
-        // Usar el codalm del almacén validado arriba
-        const codalmFormatted = empresaIdStr.substring(0, 3).padStart(3, '0');
+        // Usar el codalm real del almacén validado arriba (codalmReal)
+        const codalmFormatted = codalmReal.substring(0, 3).padStart(3, '0');
+        
+        // Redondear todos los valores DECIMAL a 2 decimales para evitar overflow
+        const roundTo2Decimals = (value) => {
+          if (!isFinite(value) || isNaN(value)) return 0;
+          // Usar toFixed(2) para asegurar exactamente 2 decimales y evitar problemas de precisión
+          return parseFloat(value.toFixed(2));
+        };
+        
+        // Calcular valores redondeados
+        const valinsRounded = roundTo2Decimals(valinsFinalValid);
+        const canpedRounded = roundTo2Decimals(cantidadFinalValid);
+        const ivapedRounded = roundTo2Decimals(ivapedFinalValid);
+        const dctpedRounded = roundTo2Decimals(dctpedFinalValid);
+        
+        // Log de valores antes de insertar item
+        console.log(`📦 Item ${idx + 1} - Valores redondeados para inserción:`, {
+          valins: valinsRounded,
+          canped: canpedRounded,
+          ivaped: ivapedRounded,
+          dctped: dctpedRounded
+        });
         
         reqDet.input('numped', sql.Char(8), numped.substring(0, 8).padStart(8, '0'));
         reqDet.input('codins', sql.Char(8), codins.substring(0, 8).padStart(8, '0'));
-        reqDet.input('valins', sql.Decimal(18, 2), valinsFinalValid);
-        reqDet.input('canped', sql.Decimal(18, 2), cantidadFinalValid);
-        reqDet.input('ivaped', sql.Decimal(18, 2), ivapedFinalValid);
-        reqDet.input('dctped', sql.Decimal(18, 2), dctpedFinalValid);
+        reqDet.input('valins', sql.Decimal(18, 2), valinsRounded);
+        reqDet.input('canped', sql.Decimal(18, 2), canpedRounded);
+        reqDet.input('ivaped', sql.Decimal(18, 2), ivapedRounded);
+        reqDet.input('dctped', sql.Decimal(18, 2), dctpedRounded);
         reqDet.input('estped', sql.Char(1), 'B'); // B=BORRADOR
         reqDet.input('codalm', sql.Char(3), codalmFormatted);
         reqDet.input('pedido_id', sql.Int, newId); // Relación con ven_pedidos.id (ya validado arriba)

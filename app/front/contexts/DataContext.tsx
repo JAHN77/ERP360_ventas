@@ -1695,14 +1695,22 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             const fechaPedido = data.fechaPedido || new Date().toISOString().split('T')[0];
             
             // Obtener código de bodega desde la bodega seleccionada en el header
-            const bodegaCodigo = selectedSede?.codigo 
-              ? String(selectedSede.codigo).padStart(3, '0')
-              : '001'; // Fallback si no hay bodega seleccionada
+            let bodegaCodigo: string | undefined;
             
-            if (!selectedSede) {
-                logger.warn({ prefix: 'crearPedido' }, 'No hay bodega seleccionada, usando fallback:', bodegaCodigo);
-            } else {
+            if (selectedSede?.codigo) {
+                bodegaCodigo = String(selectedSede.codigo).padStart(3, '0');
                 logger.log({ prefix: 'crearPedido', level: 'debug' }, 'Usando bodega seleccionada:', selectedSede.nombre, 'Código:', bodegaCodigo);
+            } else {
+                // Si no hay bodega seleccionada, intentar obtener la primera bodega disponible
+                // o usar el valor que viene en data.empresaId
+                if (data.empresaId) {
+                    bodegaCodigo = String(data.empresaId).padStart(3, '0');
+                    logger.warn({ prefix: 'crearPedido' }, 'No hay bodega seleccionada, usando empresaId del data:', bodegaCodigo);
+                } else {
+                    // Si tampoco hay empresaId, lanzar error más descriptivo
+                    logger.error({ prefix: 'crearPedido' }, 'No hay bodega seleccionada ni empresaId proporcionado');
+                    throw new Error('No hay bodega seleccionada. Por favor, seleccione una bodega antes de crear el pedido.');
+                }
             }
             
             const payload = {
@@ -1743,12 +1751,27 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             }
             
             // Mostrar más detalles del error
-            const errorMessage = resp.message || resp.error || 'No se pudo crear el pedido';
+            let errorMessage = resp.message || resp.error || 'No se pudo crear el pedido';
+            
+            // Si hay información de debug (almacenes disponibles), incluirla en el mensaje
+            if (resp.debug && resp.debug.ejemplosAlmacenes) {
+                const almacenes = resp.debug.ejemplosAlmacenes;
+                if (almacenes.length > 0) {
+                    const almacenesList = almacenes.map((a: any) => 
+                        `"${a.codalm}" (${a.nomalm || 'Sin nombre'}, activo: ${a.activo ? 'Sí' : 'No'})`
+                    ).join(', ');
+                    errorMessage += `\n\nAlmacenes disponibles en la base de datos: ${almacenesList}`;
+                } else {
+                    errorMessage += '\n\n⚠️ No hay almacenes registrados en la base de datos. Por favor, cree al menos un almacén antes de crear pedidos.';
+                }
+            }
+            
             logger.error({ prefix: 'crearPedido' }, 'Error en respuesta:', {
                 message: errorMessage,
                 success: resp.success,
                 data: resp.data,
-                error: resp.error
+                error: resp.error,
+                debug: resp.debug
             });
             throw new Error(errorMessage);
         } catch (e) {
