@@ -367,11 +367,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     let activoNormalizado = 0;
                     const activoValor = c.activo;
                     if (
-                        activoValor === true || activoValor === 1 || String(activoValor) === 'true' || String(activoValor) === '1'
+                        (typeof activoValor === 'boolean' && activoValor === true) || activoValor === 1 || String(activoValor) === 'true' || String(activoValor) === '1'
                     ) {
                         activoNormalizado = 1;
                     } else if (
-                        activoValor === false || activoValor === 0 || String(activoValor) === 'false' || String(activoValor) === '0'
+                        (typeof activoValor === 'boolean' && activoValor === false) || activoValor === 0 || String(activoValor) === 'false' || String(activoValor) === '0'
                     ) {
                         activoNormalizado = 0;
                     } else {
@@ -1484,7 +1484,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             
             // Buscar el cliente para obtener su codter (numeroDocumento)
             const cliente = clientes.find(c => c.id === data.clienteId || String(c.id) === String(data.clienteId));
-            const clienteCodter = cliente?.numeroDocumento || cliente?.codter || data.clienteId;
+            const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || data.clienteId;
             
             logger.log({ prefix: 'crearCotizacion', level: 'debug' }, 'Datos del cliente:', {
                 clienteIdRecibido: data.clienteId,
@@ -1596,7 +1596,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             });
             
             if (resp.success && resp.data) {
-                const updatedQuote = { ...currentQuote, ...data, ...resp.data } as Cotizacion;
+                const updatedQuote = { ...currentQuote, ...data, ...(resp.data as any) } as Cotizacion;
                 
                 setCotizaciones(prev => {
                     const exists = prev.some(c => String(c.id) === idStr);
@@ -1645,17 +1645,17 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const cliente = clientes.find(c => 
                     String(c.id) === String(data.clienteId) ||
                     c.numeroDocumento === data.clienteId ||
-                    c.codter === data.clienteId
+                    (c as any).codter === data.clienteId
                 );
                 
                 if (cliente) {
                     // Usar numeroDocumento o codter, priorizando numeroDocumento
-                    clienteCodter = cliente.numeroDocumento || cliente.codter || data.clienteId;
+                    clienteCodter = cliente.numeroDocumento || (cliente as any).codter || data.clienteId;
                     logger.log({ prefix: 'crearPedido', level: 'debug' }, 'Cliente encontrado:', {
                         id: cliente.id,
                         nombre: cliente.nombreCompleto || cliente.razonSocial,
                         numeroDocumento: cliente.numeroDocumento,
-                        codter: cliente.codter,
+                        codter: (cliente as any).codter,
                         clienteIdOriginal: data.clienteId,
                         clienteCodterFinal: clienteCodter
                     });
@@ -1750,8 +1750,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             let errorMessage = resp.message || resp.error || 'No se pudo crear el pedido';
             
             // Si hay información de debug (almacenes disponibles), incluirla en el mensaje
-            if (resp.debug && resp.debug.ejemplosAlmacenes) {
-                const almacenes = resp.debug.ejemplosAlmacenes;
+            const debugInfo = (resp as any).debug;
+            if (debugInfo && debugInfo.ejemplosAlmacenes) {
+                const almacenes = debugInfo.ejemplosAlmacenes;
                 if (almacenes.length > 0) {
                     const almacenesList = almacenes.map((a: any) => 
                         `"${a.codalm}" (${a.nomalm || 'Sin nombre'}, activo: ${a.activo ? 'Sí' : 'No'})`
@@ -1924,9 +1925,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const cliente = clientes.find(c => 
                     String(c.id) === String(cotizacion.clienteId) ||
                     c.numeroDocumento === cotizacion.clienteId ||
-                    c.codter === cotizacion.clienteId
+                    (c as any).codter === cotizacion.clienteId
                 );
-                const clienteCodter = cliente?.numeroDocumento || cliente?.codter || cotizacion.clienteId;
+                const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || cotizacion.clienteId;
                 
                 // El vendedorId de la cotización ya debería ser el codi_emple, pero verificamos
                 const vendedorCodiEmple = cotizacion.vendedorId || '';
@@ -2088,8 +2089,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Construir la remisión entregada desde la respuesta de la API
             const remisionEntregada: Remision = remision ? {
                 ...remision, 
-                estado: resp.data.estado || 'ENTREGADO',
-                ...resp.data
+                estado: ((resp.data as any).estado || 'ENTREGADO') as Remision['estado'],
+                ...(resp.data as any)
             } : {
                 id: (resp.data as any).id,
                 numeroRemision: (resp.data as any).numeroRemision || `REM-${idNum}`,
@@ -2142,7 +2143,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         pedidoOrData: Pedido | Remision,
         items?: Array<{ productoId: number; cantidad: number }>,
         logisticData?: any
-    ): Promise<Remision | { nuevaRemision: Remision; mensaje: string }> => {
+    ): Promise<any> => {
         try {
             const { apiCreateRemision } = await import('../services/apiClient');
             
@@ -2169,9 +2170,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const cliente = clientes.find(c => 
                     String(c.id) === String(pedido.clienteId) ||
                     c.numeroDocumento === pedido.clienteId ||
-                    c.codter === pedido.clienteId
+                    (c as any).codter === pedido.clienteId
                 );
-                const clienteCodter = cliente?.numeroDocumento || cliente?.codter || pedido.clienteId;
+                const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || pedido.clienteId;
                 
                 // Construir items con información completa del producto
                 const itemsCompletos = items.map(item => {
@@ -2392,7 +2393,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             const cliente = clientes.find(c => 
                 String(c.id) === String(primerClienteId) ||
                 c.numeroDocumento === primerClienteId ||
-                c.codter === primerClienteId
+                (c as any).codter === primerClienteId
             );
 
             if (!cliente) {
@@ -2402,7 +2403,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
             // Validar que el cliente esté activo
             // Normalizar activo para comparación segura (puede ser number o boolean)
-            const activoValue = cliente.activo === true || cliente.activo === 1 || Number(cliente.activo) === 1 ? 1 : 0;
+            const activoValue = (typeof cliente.activo === 'boolean' && cliente.activo === true) || cliente.activo === 1 || Number(cliente.activo) === 1 ? 1 : 0;
             
             if (activoValue !== 1) {
                 logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Cliente inactivo:', {
@@ -2417,13 +2418,13 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
             // Obtener el codter del cliente, asegurándose de usar el valor correcto
             // Priorizar numeroDocumento (que mapea a codter), luego codter, luego el ID original
-            const clienteCodter = String(cliente.numeroDocumento || cliente.codter || primerClienteId).trim();
+            const clienteCodter = String(cliente.numeroDocumento || (cliente as any).codter || primerClienteId).trim();
             
             logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Cliente encontrado para facturación:', {
                 clienteId: primerClienteId,
                 clienteNombre: cliente.nombreCompleto,
                 numeroDocumento: cliente.numeroDocumento,
-                codter: cliente.codter,
+                codter: (cliente as any).codter,
                 clienteCodterFinal: clienteCodter,
                 activo: cliente.activo
             });
