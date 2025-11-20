@@ -1896,6 +1896,7 @@ app.get('/api/remisiones', async (req, res) => {
 });
 
 // Detalle de items de una remisión específica (ven_remiciones_det)
+// IMPORTANTE: Usa GET_REMISIONES_DETALLE que obtiene precios desde el pedido relacionado
 app.get('/api/remisiones/:id/detalle', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1904,37 +1905,29 @@ app.get('/api/remisiones/:id/detalle', async (req, res) => {
       return res.status(400).json({ success: false, message: 'ID de remisión inválido' });
     }
     
-    const sqlQuery = `
-      SELECT
-        rd.id,
-        CAST(COALESCE(rd.remision_id, 0) AS INT) as remisionId,
-        CAST(COALESCE(rd.deta_pedido_id, NULL) AS INT) as detaPedidoId,
-        LTRIM(RTRIM(COALESCE(rd.codins, ''))) as codProducto,
-        -- Obtener el ID del producto desde inv_insumos usando codins
-        COALESCE(
-          (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
-          NULL
-        ) as productoId,
-        -- Obtener descripción del producto
-        COALESCE(
-          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
-          LTRIM(RTRIM(COALESCE(rd.codins, '')))
-        ) as descripcion,
-        COALESCE(rd.cantidad_enviada, 0) as cantidadEnviada,
-        COALESCE(rd.cantidad_facturada, 0) as cantidadFacturada,
-        COALESCE(rd.cantidad_devuelta, 0) as cantidadDevuelta,
-        -- Campos calculados/compatibilidad
-        COALESCE(rd.cantidad_enviada, 0) as cantidad,
-        NULL as precioUnitario,
-        NULL as descuentoPorcentaje,
-        NULL as ivaPorcentaje,
-        NULL as subtotal,
-        NULL as valorIva,
-        NULL as total
-      FROM ${TABLE_NAMES.remisiones_detalle} rd
-      WHERE rd.remision_id = ${remisionIdNum}
-    `;
-    const data = await executeQuery(sqlQuery);
+    console.log(`📦 [Backend] Obteniendo detalles de remisión ID: ${remisionIdNum}`);
+    
+    // Usar GET_REMISIONES_DETALLE que obtiene precios desde el pedido relacionado
+    // Filtrar por remision_id específico usando parámetros para evitar SQL injection
+    const sqlQuery = QUERIES.GET_REMISIONES_DETALLE.replace(
+      'WHERE rd.remision_id IS NOT NULL',
+      'WHERE rd.remision_id = @remisionId'
+    );
+    
+    const data = await executeQueryWithParams(sqlQuery, { remisionId: remisionIdNum });
+    console.log(`✅ [Backend] Detalles de remisión ${remisionIdNum}: ${data.length} items cargados con precios`);
+    
+    // Log de precios para debugging
+    if (data.length > 0 && process.env.NODE_ENV === 'development') {
+      console.log(`📊 [Backend] Primer item de remisión ${remisionIdNum}:`, {
+        productoId: data[0].productoId,
+        precioUnitario: data[0].precioUnitario,
+        cantidad: data[0].cantidad,
+        subtotal: data[0].subtotal,
+        total: data[0].total
+      });
+    }
+    
     res.json({ success: true, data });
   } catch (error) {
     console.error('❌ Error obteniendo detalle de remisión:', error);
@@ -1952,49 +1945,32 @@ app.get('/api/remisiones-detalle', async (req, res) => {
     
     console.log('📦 [Backend] Obteniendo detalles de remisiones (items de productos)...', remisionId ? `Filtrado por remisionId: ${remisionId}` : 'Todos');
     
-    // Si se especifica remisionId, filtrar solo esos detalles (optimización importante)
-    let whereClause = 'WHERE rd.remision_id IS NOT NULL';
+    // CRÍTICO: Usar GET_REMISIONES_DETALLE que obtiene precios desde el pedido relacionado
+    // Si se especifica remisionId, usar GET_REMISIONES_DETALLE completo. Si no, usar con paginación.
     const params = {};
+    let sqlQuery;
     
     if (remisionId) {
+      // Usar GET_REMISIONES_DETALLE completo pero filtrado por remisionId (obtiene precios desde pedido)
       const remisionIdNum = parseInt(remisionId, 10);
       if (isFinite(remisionIdNum)) {
-        whereClause = 'WHERE rd.remision_id = @remisionId';
+        sqlQuery = QUERIES.GET_REMISIONES_DETALLE.replace(
+          'WHERE rd.remision_id IS NOT NULL',
+          'WHERE rd.remision_id = @remisionId'
+        );
         params.remisionId = remisionIdNum;
+        console.log(`✅ [Backend] Usando GET_REMISIONES_DETALLE para obtener precios desde pedido relacionado para remisionId: ${remisionIdNum}`);
+      } else {
+        return res.status(400).json({ success: false, message: 'remisionId inválido' });
       }
-    }
-    
-    // Query optimizado con JOIN para evitar subconsultas múltiples
-    const sqlQuery = `
-      SELECT 
-        rd.id,
-        CAST(COALESCE(rd.remision_id, 0) AS INT) as remisionId,
-        CAST(COALESCE(rd.deta_pedido_id, NULL) AS INT) as detaPedidoId,
-        LTRIM(RTRIM(COALESCE(rd.codins, ''))) as codProducto,
-        COALESCE(p.id, NULL) as productoId,
-        COALESCE(LTRIM(RTRIM(p.nomins)), LTRIM(RTRIM(COALESCE(rd.codins, '')))) as descripcion,
-        COALESCE(rd.cantidad_enviada, 0) as cantidadEnviada,
-        COALESCE(rd.cantidad_facturada, 0) as cantidadFacturada,
-        COALESCE(rd.cantidad_devuelta, 0) as cantidadDevuelta,
-        COALESCE(rd.cantidad_enviada, 0) as cantidad,
-        NULL as precioUnitario,
-        NULL as descuentoPorcentaje,
-        NULL as ivaPorcentaje,
-        NULL as subtotal,
-        NULL as valorIva,
-        NULL as total
-      FROM ${TABLE_NAMES.remisiones_detalle} rd
-      LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(rd.codins))
-      ${whereClause}
-      ORDER BY rd.remision_id DESC, rd.id
-      ${remisionId ? '' : `OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`}
-    `;
-    
-    if (!remisionId) {
+    } else {
+      // Usar GET_REMISIONES_DETALLE completo con paginación
+      sqlQuery = QUERIES.GET_REMISIONES_DETALLE + `
+        ORDER BY rd.remision_id DESC, rd.id
+        OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+      `;
       params.offset = offset;
       params.pageSize = pageSizeNum;
-    } else {
-      params.pageSize = 1000; // Si hay filtro, permitir más resultados
     }
     
     const items = await executeQueryWithParams(sqlQuery, params);
@@ -6246,14 +6222,153 @@ app.post('/api/facturas', async (req, res) => {
       observaciones = '', estado = 'BORRADOR', empresaId, items = []
     } = body;
 
-    if (!clienteId || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, message: 'Datos incompletos para crear factura' });
+    // Validar clienteId
+    if (!clienteId) {
+      return res.status(400).json({ success: false, message: 'Datos incompletos para crear factura: clienteId es requerido' });
     }
 
     const pool = await getConnection();
     const tx = new sql.Transaction(pool);
     await tx.begin();
     try {
+      // Si no vienen items pero hay remisionId, obtener items desde la remisión
+      let itemsFinales = Array.isArray(items) ? items : [];
+      
+      if (itemsFinales.length === 0 && remisionId) {
+        console.log(`📦 No se proporcionaron items, obteniendo desde remisión ID: ${remisionId}...`);
+        
+        const remisionIdStr = String(remisionId).trim();
+        const remisionIdNum = parseInt(remisionIdStr, 10);
+        
+        if (!isNaN(remisionIdNum)) {
+          // Obtener items de la remisión con precios desde el pedido relacionado
+          const reqRemisionItems = new sql.Request(tx);
+          reqRemisionItems.input('remisionId', sql.Int, remisionIdNum);
+          
+          const remisionItemsResult = await reqRemisionItems.query(`
+            SELECT 
+              rd.codins as codProducto,
+              rd.cantidad_enviada as cantidad,
+              rd.cantidad_facturada,
+              -- Obtener el ID del producto desde inv_insumos usando codins
+              COALESCE(
+                (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+                NULL
+              ) as productoId,
+              -- Obtener descripción del producto
+              COALESCE(
+                (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+                LTRIM(RTRIM(COALESCE(rd.codins, '')))
+              ) as descripcion,
+              -- Obtener precios desde el pedido relacionado
+              COALESCE(
+                (SELECT TOP 1 pd.valins 
+                 FROM ven_detapedidos pd
+                 INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+                 WHERE re.id = rd.remision_id 
+                   AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+                 ORDER BY pd.pedido_id DESC),
+                0
+              ) as precioUnitario,
+              -- Obtener descuento desde el pedido
+              COALESCE(
+                (SELECT TOP 1 pd.dctped 
+                 FROM ven_detapedidos pd
+                 INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+                 WHERE re.id = rd.remision_id 
+                   AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+                 ORDER BY pd.pedido_id DESC),
+                0
+              ) as descuentoValor,
+              -- Obtener IVA desde el pedido
+              COALESCE(
+                (SELECT TOP 1 pd.ivaped 
+                 FROM ven_detapedidos pd
+                 INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
+                 WHERE re.id = rd.remision_id 
+                   AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+                 ORDER BY pd.pedido_id DESC),
+                0
+              ) as valorIva,
+              -- Obtener tasa de IVA del producto
+              COALESCE(
+                (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+                0
+              ) as ivaPorcentaje
+            FROM ${TABLE_NAMES.remisiones_detalle} rd
+            WHERE rd.remision_id = @remisionId
+              AND rd.cantidad_enviada > 0
+          `);
+          
+          if (remisionItemsResult.recordset.length === 0) {
+            await tx.rollback();
+            return res.status(400).json({ 
+              success: false, 
+              message: `La remisión con ID ${remisionIdNum} no tiene items para facturar. Verifique que la remisión tenga productos con cantidad enviada mayor a cero.`,
+              error: 'REMISION_SIN_ITEMS'
+            });
+          }
+          
+          // Transformar items de la remisión al formato esperado para la factura
+          itemsFinales = remisionItemsResult.recordset.map(item => {
+            const cantidad = Number(item.cantidad) || 0;
+            const precioUnitario = Number(item.precioUnitario) || 0;
+            const descuentoValorItem = Number(item.descuentoValor) || 0;
+            const valorIvaItem = Number(item.valorIva) || 0;
+            const ivaPorcentajeItem = Number(item.ivaPorcentaje) || 0;
+            
+            // Calcular subtotal, IVA y total
+            const subtotalItem = (precioUnitario * cantidad) - descuentoValorItem;
+            const ivaItem = valorIvaItem || (subtotalItem * (ivaPorcentajeItem / 100));
+            const totalItem = subtotalItem + ivaItem;
+            
+            // Calcular descuento porcentaje
+            const descuentoPorcentajeItem = (precioUnitario * cantidad) > 0 
+              ? (descuentoValorItem / (precioUnitario * cantidad)) * 100 
+              : 0;
+            
+            return {
+              productoId: item.productoId,
+              codProducto: item.codProducto,
+              cantidad: cantidad,
+              precioUnitario: precioUnitario,
+              descuentoPorcentaje: descuentoPorcentajeItem,
+              descuentoValor: descuentoValorItem,
+              ivaPorcentaje: ivaPorcentajeItem,
+              valorIva: ivaItem,
+              subtotal: subtotalItem,
+              total: totalItem,
+              descripcion: item.descripcion || item.codProducto
+            };
+          });
+          
+          console.log(`✅ Se obtuvieron ${itemsFinales.length} items desde la remisión ${remisionIdNum}`);
+          
+          // Si no venían subtotal/total en el body, calcularlos desde los items
+          if (!subtotal || subtotal === 0) {
+            const subtotalCalculado = itemsFinales.reduce((sum, item) => sum + (item.subtotal || 0), 0);
+            const ivaCalculado = itemsFinales.reduce((sum, item) => sum + (item.valorIva || 0), 0);
+            const totalCalculado = itemsFinales.reduce((sum, item) => sum + (item.total || 0), 0);
+            
+            // Actualizar valores en el body para que se usen más adelante
+            body.subtotal = subtotalCalculado;
+            body.ivaValor = ivaCalculado;
+            body.total = totalCalculado;
+            
+            console.log(`✅ Valores calculados desde items de remisión: subtotal=${subtotalCalculado}, iva=${ivaCalculado}, total=${totalCalculado}`);
+          }
+        }
+      }
+      
+      // Validar que finalmente tengamos items
+      if (!Array.isArray(itemsFinales) || itemsFinales.length === 0) {
+        await tx.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: 'No se pueden crear facturas sin items. Proporcione items en el body o una remisionId válida con items.',
+          error: 'SIN_ITEMS'
+        });
+      }
       // ========== VALIDACIONES ==========
       
       // 1. Validar clienteId (codter)
@@ -6681,11 +6796,12 @@ app.post('/api/facturas', async (req, res) => {
       const estadoMapeado = mapEstadoToDb(estado);
       
       // Validar y normalizar valores numéricos
+      // Usar valores del body actualizados (pueden haber sido calculados desde items de remisión)
       const maxDecimal18_2 = 9999999999999999.99;
-      const subtotalFinal = Math.max(0, Math.min(Math.abs(parseFloat(subtotal) || 0), maxDecimal18_2));
+      const subtotalFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.subtotal || subtotal) || 0), maxDecimal18_2));
       const descuentoValorFinal = Math.max(0, Math.min(Math.abs(parseFloat(descuentoValor) || 0), maxDecimal18_2));
-      const ivaValorFinal = Math.max(0, Math.min(Math.abs(parseFloat(ivaValor) || 0), maxDecimal18_2));
-      const totalFinal = Math.max(0, Math.min(Math.abs(parseFloat(total) || 0), maxDecimal18_2));
+      const ivaValorFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.ivaValor || ivaValor) || 0), maxDecimal18_2));
+      const totalFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.total || total) || 0), maxDecimal18_2));
       
       // Validar y truncar todos los campos VARCHAR antes de insertar
       // IMPORTANTE: Los límites deben coincidir EXACTAMENTE con los definidos en la tabla ven_facturas
@@ -6887,8 +7003,8 @@ app.post('/api/facturas', async (req, res) => {
         throw new Error(`Error insertando factura: ${insertError.message}. Verifique que todos los campos estén dentro de los límites permitidos.`);
       }
 
-      console.log(`📦 Guardando ${items.length} items de factura...`);
-      console.log(`📋 Items recibidos:`, JSON.stringify(items.map(it => ({
+      console.log(`📦 Guardando ${itemsFinales.length} items de factura...`);
+      console.log(`📋 Items a guardar:`, JSON.stringify(itemsFinales.map(it => ({
         productoId: it.productoId,
         cantidad: it.cantidad,
         precioUnitario: it.precioUnitario,
@@ -6899,8 +7015,8 @@ app.post('/api/facturas', async (req, res) => {
         total: it.total
       })), null, 2));
       
-      for (let idx = 0; idx < items.length; idx++) {
-        const it = items[idx];
+      for (let idx = 0; idx < itemsFinales.length; idx++) {
+        const it = itemsFinales[idx];
         const reqDet = new sql.Request(tx);
         
         // Validar que el productoId sea numérico
@@ -6964,7 +7080,7 @@ app.post('/api/facturas', async (req, res) => {
         // cosins (costo) - usar 0 si no se proporciona
         const cosinsFinal = 0;
         
-        console.log(`➕ Insertando item ${idx + 1}/${items.length}:`, { 
+        console.log(`➕ Insertando item ${idx + 1}/${itemsFinales.length}:`, { 
           productoId: productoIdNum,
           codins: codins,
           qtyins: qtyinsFinal,
@@ -7031,7 +7147,7 @@ app.post('/api/facturas', async (req, res) => {
           throw new Error(`Error insertando item ${idx + 1}: ${itemError.message}`);
         }
       }
-      console.log(`✅ Todos los ${items.length} items de factura guardados`);
+      console.log(`✅ Todos los ${itemsFinales.length} items de factura guardados`);
 
       // Actualizar factura_id en las remisiones relacionadas
       // Puede venir como remisionId (singular) o remisionesIds (array)

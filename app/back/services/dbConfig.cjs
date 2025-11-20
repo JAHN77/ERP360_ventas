@@ -436,10 +436,10 @@ const QUERIES = {
       -- IMPORTANTE: ven_detapedidos tiene pedido_id (INT) que se relaciona con ven_pedidos.id
       COALESCE(
         (SELECT TOP 1 pd.valins 
-         FROM ven_detapedidos pd
-         INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+         FROM ven_remiciones_enc re
+         INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
          WHERE re.id = rd.remision_id 
-           AND pd.pedido_id = re.pedido_id
+           AND re.pedido_id IS NOT NULL
            AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
          ORDER BY pd.pedido_id DESC),
         0
@@ -449,34 +449,34 @@ const QUERIES = {
         WHEN COALESCE(rd.cantidad_enviada, 0) > 0 
           AND (
             SELECT TOP 1 pd.valins 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
           ) > 0
           AND (
             SELECT TOP 1 pd.canped 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
           ) > 0
         THEN (
           (SELECT TOP 1 COALESCE(pd.dctped, 0) 
-           FROM ven_detapedidos pd
-           INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+           FROM ven_remiciones_enc re
+           INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
            WHERE re.id = rd.remision_id 
-             AND pd.pedido_id = re.pedido_id 
+             AND re.pedido_id IS NOT NULL
              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))) 
           / 
           (rd.cantidad_enviada * 
            (SELECT TOP 1 pd.valins 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
         ) * 100
         ELSE 0
@@ -486,57 +486,57 @@ const QUERIES = {
         WHEN COALESCE(rd.cantidad_enviada, 0) > 0 
           AND (
             SELECT TOP 1 pd.valins 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
           ) > 0
           AND (
             SELECT TOP 1 pd.canped 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
           ) > 0
           AND (
             (rd.cantidad_enviada * 
              (SELECT TOP 1 pd.valins 
-              FROM ven_detapedidos pd
-              INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+              FROM ven_remiciones_enc re
+              INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))) 
              - 
              (SELECT TOP 1 COALESCE(pd.dctped, 0) 
-              FROM ven_detapedidos pd
-              INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+              FROM ven_remiciones_enc re
+              INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins)))) > 0
           )
         THEN (
           (SELECT TOP 1 COALESCE(pd.ivaped, 0) 
-           FROM ven_detapedidos pd
-           INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+           FROM ven_remiciones_enc re
+           INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
            WHERE re.id = rd.remision_id 
-             AND pd.pedido_id = re.pedido_id 
+             AND re.pedido_id IS NOT NULL
              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))) 
           / 
           (rd.cantidad_enviada * 
            (SELECT TOP 1 pd.valins 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))) 
            - 
            (SELECT TOP 1 COALESCE(pd.dctped, 0) 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
         ) * 100
         ELSE 0
@@ -545,39 +545,39 @@ const QUERIES = {
       CASE 
         WHEN (
           SELECT TOP 1 pd.canped 
-          FROM ven_detapedidos pd
-          INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+          FROM ven_remiciones_enc re
+          INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
           WHERE re.id = rd.remision_id 
-            AND pd.pedido_id = re.pedido_id
+            AND re.pedido_id IS NOT NULL
             AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
         ) > 0
         THEN (
           (rd.cantidad_enviada * 
            COALESCE(
              (SELECT TOP 1 pd.valins 
-              FROM ven_detapedidos pd
-              INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+              FROM ven_remiciones_enc re
+              INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
              0
            )) 
           - 
           (COALESCE(
              (SELECT TOP 1 COALESCE(pd.dctped, 0) 
-              FROM ven_detapedidos pd
-              INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+              FROM ven_remiciones_enc re
+              INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
              0
            ) * 
            (rd.cantidad_enviada / 
             (SELECT TOP 1 pd.canped 
-             FROM ven_detapedidos pd
-             INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+             FROM ven_remiciones_enc re
+             INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
           )
         )
@@ -585,10 +585,10 @@ const QUERIES = {
           rd.cantidad_enviada * 
           COALESCE(
             (SELECT TOP 1 pd.valins 
-             FROM ven_detapedidos pd
-             INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+             FROM ven_remiciones_enc re
+             INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
             0
           )
@@ -598,28 +598,28 @@ const QUERIES = {
       CASE 
         WHEN (
           SELECT TOP 1 pd.canped 
-          FROM ven_detapedidos pd
-          INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+          FROM ven_remiciones_enc re
+          INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
           WHERE re.id = rd.remision_id 
-            AND pd.pedido_id = re.pedido_id
+            AND re.pedido_id IS NOT NULL
             AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
         ) > 0 
         THEN (
           COALESCE(
             (SELECT TOP 1 COALESCE(pd.ivaped, 0) 
-             FROM ven_detapedidos pd
-             INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+             FROM ven_remiciones_enc re
+             INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
             0
           ) * 
           (rd.cantidad_enviada / 
            (SELECT TOP 1 pd.canped 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
         )
         ELSE 0
@@ -629,39 +629,39 @@ const QUERIES = {
         CASE 
           WHEN (
             SELECT TOP 1 pd.canped 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
           ) > 0
           THEN (
             (rd.cantidad_enviada * 
              COALESCE(
                (SELECT TOP 1 pd.valins 
-                FROM ven_detapedidos pd
-                INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+                FROM ven_remiciones_enc re
+                INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
                0
              )) 
             - 
             (COALESCE(
                (SELECT TOP 1 COALESCE(pd.dctped, 0) 
-                FROM ven_detapedidos pd
-                INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+                FROM ven_remiciones_enc re
+                INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
                0
              ) * 
              (rd.cantidad_enviada / 
               (SELECT TOP 1 pd.canped 
-               FROM ven_detapedidos pd
-               INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+               FROM ven_remiciones_enc re
+               INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
             )
           )
@@ -669,10 +669,10 @@ const QUERIES = {
             rd.cantidad_enviada * 
             COALESCE(
               (SELECT TOP 1 pd.valins 
-               FROM ven_detapedidos pd
-               INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+               FROM ven_remiciones_enc re
+               INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
               0
             )
@@ -682,28 +682,28 @@ const QUERIES = {
         CASE 
           WHEN (
             SELECT TOP 1 pd.canped 
-            FROM ven_detapedidos pd
-            INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+            FROM ven_remiciones_enc re
+            INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
             WHERE re.id = rd.remision_id 
-              AND pd.pedido_id = re.pedido_id
+              AND re.pedido_id IS NOT NULL
               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
           ) > 0 
           THEN (
             COALESCE(
               (SELECT TOP 1 COALESCE(pd.ivaped, 0) 
-               FROM ven_detapedidos pd
-               INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+               FROM ven_remiciones_enc re
+               INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
               0
             ) * 
             (rd.cantidad_enviada / 
              (SELECT TOP 1 pd.canped 
-              FROM ven_detapedidos pd
-              INNER JOIN ven_remiciones_enc re ON re.pedido_id IS NOT NULL
+              FROM ven_remiciones_enc re
+              INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
               WHERE re.id = rd.remision_id 
-                AND pd.pedido_id = re.pedido_id
+                AND re.pedido_id IS NOT NULL
                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
           )
           ELSE 0
