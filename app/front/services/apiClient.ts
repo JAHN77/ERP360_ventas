@@ -185,16 +185,22 @@ class ApiClient {
     return this.request('/facturas');
   }
 
-  async getFacturasDetalle() {
-    return this.request('/facturas-detalle');
+  async getFacturasDetalle(facturaId?: string | number) {
+    const queryParams = new URLSearchParams();
+    if (facturaId) queryParams.append('facturaId', String(facturaId));
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/facturas-detalle${params}`);
   }
 
   async getCotizaciones() {
     return this.request('/cotizaciones');
   }
 
-  async getCotizacionesDetalle() {
-    return this.request('/cotizaciones-detalle');
+  async getCotizacionesDetalle(cotizacionId?: string | number) {
+    const queryParams = new URLSearchParams();
+    if (cotizacionId) queryParams.append('cotizacionId', String(cotizacionId));
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/cotizaciones-detalle${params}`);
   }
 
   async getPedidos(page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) {
@@ -208,8 +214,11 @@ class ApiClient {
     return this.request(`/pedidos${params}`);
   }
 
-  async getPedidosDetalle() {
-    return this.request('/pedidos-detalle');
+  async getPedidosDetalle(pedidoId?: string) {
+    const queryParams = new URLSearchParams();
+    if (pedidoId) queryParams.append('pedidoId', pedidoId);
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/pedidos-detalle${params}`);
   }
 
   async getRemisiones(page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) {
@@ -408,12 +417,12 @@ export const apiClient = new ApiClient();
 export const fetchClientes = () => apiClient.getClientes();
 export const fetchProductos = (codalm?: string) => apiClient.getProductos(codalm);
 export const fetchFacturas = () => apiClient.getFacturas();
-export const fetchFacturasDetalle = () => apiClient.getFacturasDetalle();
+export const fetchFacturasDetalle = (facturaId?: string | number) => apiClient.getFacturasDetalle(facturaId);
 export const fetchCotizaciones = () => apiClient.getCotizaciones();
-export const fetchCotizacionesDetalle = () => apiClient.getCotizacionesDetalle();
+export const fetchCotizacionesDetalle = (cotizacionId?: string | number) => apiClient.getCotizacionesDetalle(cotizacionId);
 export const fetchPedidos = (page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) => 
   apiClient.getPedidos(page, pageSize, search, estado, codter);
-export const fetchPedidosDetalle = () => apiClient.getPedidosDetalle();
+export const fetchPedidosDetalle = (pedidoId?: string) => apiClient.getPedidosDetalle(pedidoId);
 export const fetchRemisiones = (page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) => 
   apiClient.getRemisiones(page, pageSize, search, codter, codalm, estrec);
 export const fetchRemisionesDetalle = () => apiClient.getRemisionesDetalle();

@@ -19,7 +19,7 @@ import { useAuth } from '../hooks/useAuth';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { logger } from '../utils/logger';
-import { apiClient } from '../services/apiClient';
+import { apiClient, fetchPedidosDetalle } from '../services/apiClient';
 import { formatDateOnly } from '../utils/formatters';
 
 const formatCurrency = (value: number) => {
@@ -84,23 +84,57 @@ const PedidosPage: React.FC = () => {
         );
         if (pedidosRes.success) {
           // Obtener detalles de pedidos para los items
-          const pedidosDetalleRes = await apiClient.getPedidosDetalle();
-          const detallesData = pedidosDetalleRes.success && Array.isArray(pedidosDetalleRes.data) 
-            ? pedidosDetalleRes.data 
-            : [];
+          // Cargar detalles para los pedidos de la página actual
+          const pedidosData = (pedidosRes.data as any[]) || [];
+          const pedidosIds = pedidosData.map(p => String(p.id || '')).filter(id => id);
+          
+          // Cargar detalles para cada pedido de forma eficiente
+          const detallesPromises = pedidosIds.map(async (pedidoId) => {
+            try {
+              console.log(`🔄 Cargando detalles para pedido ${pedidoId}...`);
+              const pedidosDetalleRes = await apiClient.getPedidosDetalle(pedidoId);
+              if (pedidosDetalleRes.success && Array.isArray(pedidosDetalleRes.data)) {
+                console.log(`✅ Detalles cargados para pedido ${pedidoId}:`, pedidosDetalleRes.data.length, 'items');
+                // Verificar que los items tengan el pedidoId correcto
+                const itemsFiltrados = pedidosDetalleRes.data.filter((d: any) => {
+                  const detallePedidoId = String(d.pedidoId || d.pedido_id || '');
+                  const match = detallePedidoId === pedidoId ||
+                               String(d.pedidoId) === String(pedidoId) ||
+                               Number(d.pedidoId) === Number(pedidoId);
+                  return match;
+                });
+                console.log(`✅ Items filtrados para pedido ${pedidoId}:`, itemsFiltrados.length);
+                return { pedidoId, items: itemsFiltrados };
+              }
+              console.warn(`⚠️ No se encontraron detalles para pedido ${pedidoId}`);
+              return { pedidoId, items: [] };
+            } catch (error) {
+              console.error(`❌ Error cargando detalles del pedido ${pedidoId}:`, error);
+              return { pedidoId, items: [] };
+            }
+          });
+          
+          const detallesResults = await Promise.all(detallesPromises);
+          
+          // Crear un mapa de pedidoId -> items para acceso rápido
+          const detallesMap = new Map<string, any[]>();
+          detallesResults.forEach(({ pedidoId, items }) => {
+            detallesMap.set(pedidoId, items);
+            console.log(`📦 Mapa: pedido ${pedidoId} tiene ${items.length} items`);
+          });
           
           // Mapear pedidos con sus items
-          const pedidosData = (pedidosRes.data as any[]) || [];
           const pedidosConDetalles = pedidosData.map(p => {
             const pedidoIdStr = String(p.id || '');
-            const items = detallesData.filter((d: any) => {
-              const detallePedidoId = String(d.pedidoId || '');
-              return detallePedidoId === pedidoIdStr;
-            });
+            const items = detallesMap.get(pedidoIdStr) || [];
+            
+            if (items.length > 0) {
+              console.log(`✅ Pedido ${pedidoIdStr} tiene ${items.length} items asignados`);
+            }
             
             return {
               ...p,
-              items: items.length > 0 ? items : []
+              items: items.length > 0 ? items : (p.items || [])
             } as Pedido;
           });
           
@@ -170,9 +204,83 @@ const PedidosPage: React.FC = () => {
   }, [selectedPedido]);
 
 
-  const handleOpenDetailModal = (pedido: Pedido) => {
+  const handleOpenDetailModal = async (pedido: Pedido) => {
+    // Primero establecer el pedido para mostrar el modal inmediatamente
     setSelectedPedido(pedido);
     setDetailModalOpen(true);
+    
+    // SIEMPRE intentar cargar los detalles, incluso si ya tiene items
+    // Esto asegura que siempre tengamos los datos más actualizados
+    try {
+      console.log('🔄 Cargando detalles del pedido:', pedido.id, 'Tipo:', typeof pedido.id);
+      
+      // Usar fetchPedidosDetalle desde apiClient
+      const pedidosDetalleRes = await fetchPedidosDetalle(String(pedido.id));
+      console.log('📦 Respuesta completa de detalles:', pedidosDetalleRes);
+      console.log('📦 success:', pedidosDetalleRes.success);
+      console.log('📦 data:', pedidosDetalleRes.data);
+      console.log('📦 data es Array?:', Array.isArray(pedidosDetalleRes.data));
+      
+      if (pedidosDetalleRes.success && Array.isArray(pedidosDetalleRes.data)) {
+        console.log('📦 Total de items recibidos:', pedidosDetalleRes.data.length);
+        console.log('📦 Primer item (si existe):', pedidosDetalleRes.data[0]);
+        console.log('📦 IDs de pedido en los items:', pedidosDetalleRes.data.map((d: any) => ({
+          pedidoId: d.pedidoId,
+          tipoPedidoId: typeof d.pedidoId,
+          pedidoIdOriginal: pedido.id,
+          tipoPedidoIdOriginal: typeof pedido.id
+        })));
+        
+        // Filtrar items que pertenecen a este pedido
+        // Comparar de múltiples formas para asegurar que coincida
+        const items = pedidosDetalleRes.data.filter((d: any) => {
+          const detallePedidoId = d.pedidoId !== null && d.pedidoId !== undefined ? String(d.pedidoId).trim() : '';
+          const pedidoIdStr = pedido.id !== null && pedido.id !== undefined ? String(pedido.id).trim() : '';
+          
+          // Múltiples formas de comparar
+          const match = detallePedidoId === pedidoIdStr || 
+                       String(pedido.id) === String(d.pedidoId) ||
+                       Number(pedido.id) === Number(d.pedidoId) ||
+                       parseInt(String(pedido.id), 10) === parseInt(String(d.pedidoId), 10);
+          
+          if (match) {
+            console.log('✅ Item coincidente encontrado:', {
+              detallePedidoId,
+              pedidoIdStr,
+              item: d
+            });
+          }
+          
+          return match;
+        });
+        
+        console.log('✅ Items encontrados para el pedido después del filtro:', items.length);
+        console.log('✅ Items encontrados:', items);
+        
+        // Actualizar el pedido con los items cargados
+        const pedidoConItems = {
+          ...pedido,
+          items: items.length > 0 ? items : []
+        };
+        setSelectedPedido(pedidoConItems);
+      } else {
+        console.warn('⚠️ No se encontraron items o respuesta inválida');
+        console.warn('⚠️ Respuesta:', pedidosDetalleRes);
+        // Asegurar que items sea un array vacío si no hay datos
+        setSelectedPedido({
+          ...pedido,
+          items: []
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error cargando detalles del pedido:', error);
+      console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+      // Asegurar que items sea un array vacío en caso de error
+      setSelectedPedido({
+        ...pedido,
+        items: []
+      });
+    }
   };
 
   useEffect(() => {
@@ -473,7 +581,8 @@ const PedidosPage: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
-                                {selectedPedido.items.map((item: DocumentItem, index: number) => {
+                                {selectedPedido.items && Array.isArray(selectedPedido.items) && selectedPedido.items.length > 0 ? (
+                                  selectedPedido.items.map((item: DocumentItem, index: number) => {
                                     // Buscar producto por ID (puede ser numérico o string)
                                     const product = productos.find(p => 
                                         String(p.id) === String(item.productoId) ||
@@ -513,7 +622,21 @@ const PedidosPage: React.FC = () => {
                                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{formatCurrency(itemIva)}</td>
                                         </tr>
                                     );
-                                })}
+                                  })
+                                ) : (
+                                    <tr>
+                                        <td colSpan={8} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                                            {selectedPedido.items === undefined ? (
+                                                <div className="flex flex-col items-center justify-center">
+                                                    <i className="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                                                    <span>Cargando productos...</span>
+                                                </div>
+                                            ) : (
+                                                <span>No hay productos en este pedido</span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
                     </div>

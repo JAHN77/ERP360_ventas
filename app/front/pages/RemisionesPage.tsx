@@ -14,7 +14,7 @@ import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
-import { apiClient } from '../services/apiClient';
+import { apiClient, fetchPedidosDetalle } from '../services/apiClient';
 import { formatDateOnly } from '../utils/formatters';
 // Supabase eliminado: descarga de adjuntos se implementará vía backend
 
@@ -511,6 +511,39 @@ const RemisionesPage: React.FC = () => {
 
   useEffect(() => {
     if (pedidoToRemisionar) {
+        console.log('🔄 Procesando items para remisión. Pedido ID:', pedidoToRemisionar.id);
+        console.log('📦 Items del pedido:', pedidoToRemisionar.items?.length || 0);
+        console.log('📦 Items del pedido (array):', pedidoToRemisionar.items);
+        
+        // Verificar si el pedido tiene items
+        if (!pedidoToRemisionar.items || pedidoToRemisionar.items.length === 0) {
+          console.warn('⚠️ El pedido no tiene items cargados. Intentando cargar...');
+          // Intentar cargar items del pedido
+          fetchPedidosDetalle(String(pedidoToRemisionar.id)).then(pedidosDetalleRes => {
+            if (pedidosDetalleRes.success && Array.isArray(pedidosDetalleRes.data)) {
+              const items = pedidosDetalleRes.data.filter((d: any) => {
+                const detallePedidoId = String(d.pedidoId || d.pedido_id || '');
+                const pedidoIdStr = String(pedidoToRemisionar.id || '');
+                return detallePedidoId === pedidoIdStr ||
+                       String(d.pedidoId) === String(pedidoToRemisionar.id) ||
+                       Number(d.pedidoId) === Number(pedidoToRemisionar.id);
+              });
+              
+              console.log('✅ Items cargados dinámicamente:', items.length);
+              if (items.length > 0) {
+                const pedidoConItems = {
+                  ...pedidoToRemisionar,
+                  items: items
+                };
+                setPedidoToRemisionar(pedidoConItems);
+              }
+            }
+          }).catch(error => {
+            console.error('❌ Error cargando items del pedido:', error);
+          });
+          return; // Salir temprano si no hay items
+        }
+        
         const pedidoIdStr = String(pedidoToRemisionar.id);
         // OPTIMIZACIÓN: Filtrar una sola vez usando comparación directa
         const remisionesPrevias = remisiones.filter(r => {
@@ -696,8 +729,36 @@ const RemisionesPage: React.FC = () => {
     }
   }, [addNotification]);
   
-  const handleOpenCreateModal = useCallback((pedido: Pedido) => {
-    setPedidoToRemisionar(pedido);
+  const handleOpenCreateModal = useCallback(async (pedido: Pedido) => {
+    // Cargar items del pedido si no están presentes
+    let pedidoConItems = pedido;
+    if (!pedido.items || pedido.items.length === 0) {
+      console.log('🔄 Cargando items del pedido para remisión:', pedido.id);
+      try {
+        const pedidosDetalleRes = await fetchPedidosDetalle(String(pedido.id));
+        if (pedidosDetalleRes.success && Array.isArray(pedidosDetalleRes.data)) {
+          // Filtrar items que pertenecen a este pedido
+          const items = pedidosDetalleRes.data.filter((d: any) => {
+            const detallePedidoId = String(d.pedidoId || d.pedido_id || '');
+            const pedidoIdStr = String(pedido.id || '');
+            return detallePedidoId === pedidoIdStr ||
+                   String(d.pedidoId) === String(pedido.id) ||
+                   Number(d.pedidoId) === Number(pedido.id);
+          });
+          
+          console.log('✅ Items cargados para el pedido:', items.length);
+          pedidoConItems = {
+            ...pedido,
+            items: items.length > 0 ? items : []
+          };
+        }
+      } catch (error) {
+        console.error('❌ Error cargando detalles del pedido:', error);
+        // Continuar con el pedido sin items si hay error
+      }
+    }
+    
+    setPedidoToRemisionar(pedidoConItems);
     setCreateModalOpen(true);
     // Reset logistic form fields
     setFechaDespacho(new Date().toISOString().split('T')[0]);
@@ -904,6 +965,7 @@ const RemisionesPage: React.FC = () => {
 
   // OPTIMIZACIÓN: Memoizar columnas para evitar recrearlas en cada render
   const remisionesGroupColumns: Column<RemisionGroup>[] = useMemo(() => [
+    { header: 'ID Pedido', accessor: 'pedido', cell: ({ pedido }) => <span className="font-mono text-sm">{pedido.id}</span> },
     { header: 'Pedido Origen', accessor: 'pedido', cell: ({ pedido }) => <span className="font-semibold">{pedido.numeroPedido}</span> },
     { header: 'Cliente', accessor: 'cliente', cell: ({ cliente }) => cliente?.nombreCompleto || 'N/A' },
     { header: 'Nº Entregas', accessor: 'remisiones', cell: ({ remisiones }) => (
@@ -1088,6 +1150,8 @@ const RemisionesPage: React.FC = () => {
         >
              <div className="space-y-4 text-sm">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">ID Pedido:</p><p className="font-mono">{selectedGroup.pedido.id}</p></div>
+                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Número Pedido:</p><p>{selectedGroup.pedido.numeroPedido}</p></div>
                     <div><p className="font-semibold text-slate-600 dark:text-slate-400">Cliente:</p><p>{selectedGroup.cliente?.nombreCompleto}</p></div>
                     <div><p className="font-semibold text-slate-600 dark:text-slate-400">Estado del Pedido:</p><p><StatusBadge status={selectedGroup.pedido.estado as any} /></p></div>
                 </div>
@@ -1264,6 +1328,10 @@ const RemisionesPage: React.FC = () => {
                     </CardHeader>
                     <CardContent>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <div className="flex items-start gap-2">
+                                <i className="fas fa-hashtag text-slate-400 mt-1"></i>
+                                <div><p className="font-semibold text-slate-500 dark:text-slate-400">ID Pedido</p><p className="font-mono">{pedidoToRemisionar.id}</p></div>
+                            </div>
                             <div className="flex items-start gap-2">
                                 <i className="fas fa-hashtag text-slate-400 mt-1"></i>
                                 <div><p className="font-semibold text-slate-500 dark:text-slate-400">Nº Pedido</p><p>{pedidoToRemisionar.numeroPedido}</p></div>

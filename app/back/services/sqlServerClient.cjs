@@ -29,9 +29,10 @@ const config = {
     connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || '30000', 10),
   },
   pool: {
-    max: parseInt(process.env.DB_POOL_MAX || '10', 10),
-    min: parseInt(process.env.DB_POOL_MIN || '0', 10),
-    idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000', 10),
+    max: parseInt(process.env.DB_POOL_MAX || '50', 10), // Aumentado de 10 a 50 para mayor concurrencia
+    min: parseInt(process.env.DB_POOL_MIN || '5', 10), // Mantener al menos 5 conexiones activas
+    idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '300000', 10), // 5 minutos
+    acquireTimeoutMillis: parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '60000', 10), // 1 minuto
   },
 };
 
@@ -119,15 +120,40 @@ const executeProcedure = async (procedureName, params) => {
   }
 };
 
-// Función para cerrar la conexión
+// Función para cerrar la conexión con timeout
 const closeConnection = async () => {
-  if (pool) {
+  if (!pool) {
+    return;
+  }
+  
+  const currentPool = pool;
+  pool = null; // Limpiar la referencia inmediatamente para evitar nuevas conexiones
+  
+  try {
+    // Crear una promesa con timeout para forzar el cierre si tarda demasiado
+    const closePromise = currentPool.close();
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Timeout cerrando pool de conexiones')), 2000);
+    });
+    
+    await Promise.race([closePromise, timeoutPromise]);
+    console.log('🔌 Conexión SQL Server cerrada');
+  } catch (error) {
+    // Si hay un timeout o error, simplemente loguear y continuar
+    // El pool ya se limpió de la referencia, así que no se pueden crear nuevas conexiones
+    if (error.message && error.message.includes('Timeout')) {
+      console.log('⚠️ Timeout cerrando pool de conexiones (forzando cierre)');
+    } else {
+      console.error('❌ Error cerrando conexión:', error.message || error);
+    }
+    
+    // Intentar destruir el pool de forma forzada
     try {
-      await pool.close();
-      pool = null;
-      console.log('🔌 Conexión SQL Server cerrada');
-    } catch (error) {
-      console.error('❌ Error cerrando conexión:', error);
+      if (currentPool && typeof currentPool.close === 'function') {
+        currentPool.close().catch(() => {}); // Ignorar errores al cerrar forzadamente
+      }
+    } catch (forceError) {
+      // Ignorar errores al forzar cierre
     }
   }
 };

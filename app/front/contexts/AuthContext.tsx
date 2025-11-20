@@ -1,4 +1,4 @@
-import React, { createContext, useState, ReactNode, useMemo, useEffect } from 'react';
+import React, { createContext, useState, ReactNode, useMemo, useEffect, useCallback } from 'react';
 import { Usuario, Empresa, Sede } from '../types';
 // FIX: Imported all necessary mock data for user session creation.
 import { usuarios, empresas as allEmpresas, sedes as allSedes } from '../data/mockData';
@@ -16,7 +16,7 @@ interface AuthContextType {
   login: (email: string, role: Role) => boolean;
   logout: () => void;
   switchCompany: (companyId: number) => void;
-  switchSede: (sedeId: number, sedeData?: { codigo?: string; nombre?: string }) => void;
+  switchSede: (sedeId: number | string, sedeData?: { codigo?: string; nombre?: string }) => void;
   hasPermission: (permission: Permission) => boolean;
 }
 
@@ -211,6 +211,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       };
       setUser(userWithRole);
       
+      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas asignadas a empresas:', empresasWithSedes.map(e => ({
+        empresa: e.razonSocial,
+        sedes: e.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
+      })));
+      
       const userPermissions = rolesConfig[role]?.can || [];
       const isAdmin = userPermissions.includes('*');
       
@@ -223,6 +228,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
       if (userWithRole.empresas.length > 0) {
         const firstCompany = userWithRole.empresas[0];
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - primera empresa seleccionada:', {
+          empresa: firstCompany.razonSocial,
+          sedes: firstCompany.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
+        });
         setSelectedCompany(firstCompany);
         
         // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
@@ -266,22 +275,97 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  const switchSede = (sedeId: number, sedeData?: { codigo?: string; nombre?: string }) => {
-    logger.log({ prefix: 'AuthContext', level: 'debug' }, 'switchSede llamado con ID:', sedeId, 'Datos adicionales:', sedeData);
+  const switchSede = useCallback((sedeId: number | string, sedeData?: { codigo?: string; nombre?: string }) => {
+    logger.log({ prefix: 'AuthContext', level: 'debug' }, 'switchSede llamado con ID:', sedeId, 'Tipo:', typeof sedeId, 'Datos adicionales:', sedeData);
+    logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sedes disponibles:', selectedCompany?.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre })));
+    
     if (selectedCompany) {
-      // 1. Buscar la sede por ID exacto (más confiable)
-      let sede = selectedCompany.sedes?.find(s => s.id === sedeId);
+      // Normalizar el ID a número si es posible, o mantener como string
+      const sedeIdNum = typeof sedeId === 'string' ? (isNaN(Number(sedeId)) ? null : Number(sedeId)) : sedeId;
+      const sedeIdStr = String(sedeId).trim();
       
-      // 2. Si no se encuentra por ID, buscar por código si está disponible
-      if (!sede && sedeData?.codigo) {
-        const codigoBuscado = String(sedeData.codigo).trim().toUpperCase();
+      let sede: Sede | undefined;
+      
+      // PRIORIDAD 1: Buscar por código si está disponible (más confiable que el ID)
+      if (sedeData?.codigo) {
+        const codigoBuscado = String(sedeData.codigo).trim();
+        // Normalizar código para comparación flexible - múltiples formatos
+        const codigoBuscadoNormalizado = codigoBuscado.replace(/^0+/, '') || '0';
+        const codigoBuscadoFormateado = /^\d+$/.test(codigoBuscadoNormalizado) ? codigoBuscadoNormalizado.padStart(3, '0') : codigoBuscado;
+        
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔍 Buscando por código:', {
+          codigoBuscado,
+          codigoBuscadoNormalizado,
+          codigoBuscadoFormateado,
+          sedesDisponibles: selectedCompany.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
+        });
+        
         sede = selectedCompany.sedes?.find(s => {
           if (!s?.codigo) return false;
-          const codigoSede = String(s.codigo).trim().toUpperCase();
-          return codigoSede === codigoBuscado;
+          const codigoSede = String(s.codigo).trim();
+          const codigoSedeNormalizado = codigoSede.replace(/^0+/, '') || '0';
+          const codigoSedeFormateado = /^\d+$/.test(codigoSedeNormalizado) ? codigoSedeNormalizado.padStart(3, '0') : codigoSede;
+          
+          // Comparar códigos de múltiples formas
+          const match = codigoSede === codigoBuscado || 
+                 codigoSede === codigoBuscadoFormateado ||
+                 codigoSedeFormateado === codigoBuscadoFormateado ||
+                 codigoSedeNormalizado === codigoBuscadoNormalizado ||
+                 codigoSede.toUpperCase() === codigoBuscado.toUpperCase() ||
+                 String(codigoSede).padStart(3, '0') === String(codigoBuscado).padStart(3, '0');
+          
+          if (match) {
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, `✅ Coincidencia de código encontrada:`, {
+              codigoSede,
+              codigoBuscado,
+              sede: { id: s.id, codigo: s.codigo, nombre: s.nombre }
+            });
+          }
+          
+          return match;
         });
         if (sede) {
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede encontrada por código:', sede);
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por código:', sede);
+        } else {
+          logger.warn({ prefix: 'AuthContext' }, '⚠️ No se encontró sede por código:', codigoBuscado);
+        }
+      }
+      
+      // PRIORIDAD 2: Si no se encuentra por código, buscar por ID (numérico o string)
+      if (!sede) {
+        sede = selectedCompany.sedes?.find(s => {
+          // Comparar como número si ambos son números
+          if (sedeIdNum !== null && typeof s.id === 'number') {
+            const found = s.id === sedeIdNum;
+            if (found) {
+              logger.log({ prefix: 'AuthContext', level: 'debug' }, `✅ Coincidencia numérica: s.id (${s.id}) === sedeIdNum (${sedeIdNum})`);
+            }
+            return found;
+          }
+          // Comparar como string
+          const found = String(s.id) === sedeIdStr || String(s.id).trim() === sedeIdStr;
+          if (found) {
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, `✅ Coincidencia string: s.id (${String(s.id)}) === sedeIdStr (${sedeIdStr})`);
+          }
+          return found;
+        });
+        if (sede) {
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por ID:', sede);
+        }
+      }
+      
+      // PRIORIDAD 3: Si aún no se encuentra y el ID es numérico, intentar buscar por código formateado del ID
+      if (!sede && sedeIdNum !== null) {
+        const codigoFormateado = String(sedeIdNum).padStart(3, '0');
+        sede = selectedCompany.sedes?.find(s => {
+          if (!s?.codigo) return false;
+          const codigoSede = String(s.codigo).trim();
+          const codigoSedeNormalizado = codigoSede.replace(/^0+/, '') || '0';
+          return codigoSede === codigoFormateado || 
+                 codigoSedeNormalizado === String(sedeIdNum);
+        });
+        if (sede) {
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por código formateado del ID:', sede);
         }
       }
       
@@ -324,13 +408,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         }
       }
       
-      // 5. Si aún no se encuentra, intentar por índice (último recurso)
-      if (!sede && sedeId > 0 && sedeId <= (selectedCompany.sedes?.length || 0)) {
-        const sedeByIndex = selectedCompany.sedes?.[sedeId - 1];
-        if (sedeByIndex && sedeByIndex.id === sedeId) {
-          // Solo usar si el ID coincide con el índice (caso especial)
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede encontrada por índice coincidente:', sedeByIndex);
-          sede = sedeByIndex;
+      // PRIORIDAD 4: Si aún no se encuentra, intentar por índice (último recurso)
+      if (!sede && sedeIdNum !== null && sedeIdNum > 0 && sedeIdNum <= (selectedCompany.sedes?.length || 0)) {
+        const sedeByIndex = selectedCompany.sedes?.[sedeIdNum - 1];
+        // Verificar tanto por ID numérico como por código formateado
+        if (sedeByIndex) {
+          const codigoFormateado = String(sedeIdNum).padStart(3, '0');
+          if (sedeByIndex.id === sedeIdNum || String(sedeByIndex.codigo).trim() === codigoFormateado) {
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por índice:', sedeByIndex);
+            sede = sedeByIndex;
+          }
         }
       }
       
@@ -406,7 +493,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       logger.warn({ prefix: 'AuthContext' }, 'No hay empresa seleccionada');
       setSelectedSede(null);
     }
-  };
+  }, [selectedCompany, bodegas]);
 
   const hasPermission = (permission: Permission): boolean => {
       if (permissions.includes('*')) return true;

@@ -146,39 +146,9 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
   // ✅ Eliminados todos los useEffect de posicionamiento manual
   // Ahora usamos CSS puro con position: relative/absolute
 
-  // Verificar que solo una bodega esté seleccionada (sincronización)
-  useEffect(() => {
-    if (selectedSede && selectedCompany) {
-      // Log para depuración: mostrar qué bodega está seleccionada
-      logger.log({ prefix: 'Header', level: 'debug' }, 'Bodega actualmente seleccionada:', {
-        id: selectedSede.id,
-        nombre: selectedSede.nombre,
-        codigo: selectedSede.codigo
-      });
-      
-      // Verificar que la bodega seleccionada existe en las sedes de la empresa
-      const sedeExists = selectedCompany.sedes?.some(s => 
-        s.id === selectedSede.id || 
-        (s.codigo && selectedSede.codigo && String(s.codigo).trim() === String(selectedSede.codigo).trim())
-      );
-      
-      if (!sedeExists) {
-        logger.warn({ prefix: 'Header' }, 'La bodega seleccionada no existe en las sedes de la empresa, limpiando selección');
-        // La bodega seleccionada no existe, limpiar
-        if (selectedCompany.sedes && selectedCompany.sedes.length > 0) {
-          // Seleccionar la primera disponible
-          const primeraSede = selectedCompany.sedes[0];
-          logger.log({ prefix: 'Header', level: 'debug' }, 'Seleccionando primera bodega disponible:', primeraSede);
-          switchSede(primeraSede.id, {
-            codigo: primeraSede.codigo,
-            nombre: primeraSede.nombre
-          });
-        }
-      }
-    } else if (!selectedSede) {
-      logger.log({ prefix: 'Header', level: 'debug' }, 'No hay bodega seleccionada');
-    }
-  }, [selectedSede, selectedCompany, switchSede]);
+  // ✅ ELIMINADO: useEffect que verificaba la bodega y causaba bucles infinitos
+  // La verificación de bodega se hace ahora solo en AuthContext al seleccionar
+  // No necesitamos verificar aquí porque switchSede ya maneja la validación
 
   // ✅ Eliminado el useEffect monstruo
   // Ahora usamos los custom hooks useClickOutside y useEscapeKey (ver arriba)
@@ -458,17 +428,33 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                             // Cerrar el dropdown inmediatamente
                             setIsSedePopoverOpen(false);
                             
-                            // ✅ SOLUCIÓN: Pasar directamente el objeto 'sede' de esta iteración del map
-                            // switchSede espera el ID y datos opcionales (codigo, nombre)
-                            if (sede?.id && typeof sede.id === 'number') {
-                              logger.log({ prefix: 'Header', level: 'debug' }, 'Cambiando bodega a:', sede.nombre, 'ID:', sede.id, 'Código:', sede.codigo);
-                              switchSede(sede.id, {
-                                codigo: sede.codigo,
-                                nombre: sede.nombre
-                              });
-                            } else {
-                              logger.error({ prefix: 'Header' }, 'La bodega no tiene un ID válido:', sede);
+                            // ✅ SOLUCIÓN: Siempre pasar código y nombre, usar código como ID si es necesario
+                            // Priorizar código sobre ID para la búsqueda
+                            const sedeId = sede?.id !== undefined ? sede.id : (sede?.codigo || '');
+                            
+                            // Solo cambiar si es diferente a la bodega actualmente seleccionada
+                            if (selectedSede && 
+                                (selectedSede.id === sedeId || 
+                                 (selectedSede.codigo && sede.codigo && String(selectedSede.codigo).trim() === String(sede.codigo).trim()))) {
+                              logger.log({ prefix: 'Header', level: 'debug' }, 'Bodega ya seleccionada, omitiendo cambio:', sede.nombre);
+                              setIsSedePopoverOpen(false);
+                              return; // Ya está seleccionada, no hacer nada
                             }
+                            
+                            logger.log({ prefix: 'Header', level: 'debug' }, 'Cambiando bodega:', {
+                              nombre: sede.nombre,
+                              id: sedeId,
+                              codigo: sede.codigo,
+                              tipoId: typeof sedeId
+                            });
+                            
+                            // Siempre pasar código y nombre para asegurar búsqueda exitosa
+                            switchSede(sedeId, {
+                              codigo: sede.codigo || String(sede.id).padStart(3, '0'),
+                              nombre: sede.nombre
+                            });
+                            
+                            // El popover ya se cierra arriba con setIsSedePopoverOpen(false)
                           }}
                         >
                           <i className={`fas fa-warehouse text-xs ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400'}`}></i>

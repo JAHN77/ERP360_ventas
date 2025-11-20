@@ -11,6 +11,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import NotaCreditoPreviewModal from '../components/devoluciones/NotaCreditoPreviewModal';
 import { useData } from '../hooks/useData';
+import { fetchFacturasDetalle } from '../services/apiClient';
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 2 }).format(value);
 
@@ -69,6 +70,8 @@ const DevolucionesPage: React.FC = () => {
     const [transmisionDian, setTransmisionDian] = useState(false);
     const [devolucionItems, setDevolucionItems] = useState<DevolucionItem[]>([]);
     const [cantidadesYaDevueltas, setCantidadesYaDevueltas] = useState<Map<number, number>>(new Map());
+    // Estado local para items de factura cargados dinámicamente (cuando no están en el DataContext)
+    const [facturaItemsCargados, setFacturaItemsCargados] = useState<DocumentItem[]>([]);
     
     // UI State
     const [isSaving, setIsSaving] = useState(false); // UPDATE: Add saving state for UX
@@ -85,74 +88,149 @@ const DevolucionesPage: React.FC = () => {
     const isFormDisabled = !!savedNota || isSaving;
     
     // Memoized derived data
-    // Filtrar clientes que tienen remisiones que ya fueron facturadas (tienen facturaId)
-    const clientesConRemisionesFacturadas = useMemo(() => {
-        // Obtener remisiones que ya fueron facturadas (tienen facturaId)
-        const remisionesFacturadas = remisiones.filter(r => 
-            r.facturaId && 
-            r.facturaId !== null && 
-            r.facturaId !== '' &&
-            String(r.facturaId).trim() !== ''
-        );
+    // Filtrar clientes que tienen facturas timbradas a la DIAN (ya facturadas)
+    const clientesConFacturasTimbradas = useMemo(() => {
+        // Filtrar facturas que están timbradas (tienen cufe o estado ENVIADA/ACEPTADA)
+        const facturasTimbradas = facturas.filter(f => {
+            // Excluir facturas anuladas o rechazadas
+            if (f.estado === 'ANULADA' || f.estado === 'RECHAZADA') {
+                return false;
+            }
+            
+            // Una factura está timbrada si:
+            // 1. Tiene CUFE (código único de factura electrónica)
+            // 2. Tiene fechaTimbrado
+            // 3. O está en estado ENVIADA/ACEPTADA (estados que indican factura aprobada)
+            const tieneCufe = !!(f.cufe && String(f.cufe).trim() !== '');
+            const tieneFechaTimbrado = !!(f.fechaTimbrado);
+            const estaEnviadaOAceptada = f.estado === 'ENVIADA' || f.estado === 'ACEPTADA';
+            
+            return tieneCufe || tieneFechaTimbrado || estaEnviadaOAceptada;
+        });
         
-        // Obtener los IDs de clientes únicos de esas remisiones
-        const clientesIdsConRemisionesFacturadas = new Set<string>();
+        // Obtener los IDs de clientes únicos de esas facturas timbradas
+        const clientesIdsConFacturasTimbradas = new Set<string>();
         
-        remisionesFacturadas.forEach(remision => {
+        facturasTimbradas.forEach(factura => {
             // Buscar cliente de forma flexible (por id, numeroDocumento o codter)
             const cliente = clientes.find(c => 
-                String(c.id) === String(remision.clienteId) ||
-                c.numeroDocumento === remision.clienteId ||
-                c.codter === remision.clienteId
+                String(c.id) === String(factura.clienteId) ||
+                c.numeroDocumento === factura.clienteId ||
+                c.codter === factura.clienteId
             );
             
             if (cliente) {
-                clientesIdsConRemisionesFacturadas.add(String(cliente.id));
+                clientesIdsConFacturasTimbradas.add(String(cliente.id));
             }
         });
         
-        // Filtrar clientes que están en la lista de clientes con remisiones facturadas
-        return clientes.filter(c => clientesIdsConRemisionesFacturadas.has(String(c.id)));
-    }, [remisiones, clientes]);
+        // Filtrar clientes que están en la lista de clientes con facturas timbradas
+        return clientes.filter(c => clientesIdsConFacturasTimbradas.has(String(c.id)));
+    }, [facturas, clientes]);
 
 
-    // Filtrar facturas del cliente seleccionado
+    // Filtrar facturas del cliente seleccionado que estén timbradas a la DIAN
     const facturasFiltradas = useMemo(() => {
-        if (!clienteId) return [];
+        // Debug: verificar estado de clienteId
+        if (process.env.NODE_ENV === 'development') {
+            console.log('[Devoluciones] Estado del filtro:', {
+                clienteId,
+                tipoClienteId: typeof clienteId,
+                clienteIdLength: clienteId ? String(clienteId).length : 0,
+                totalFacturas: facturas.length,
+                totalClientes: clientes.length
+            });
+        }
         
-        // Buscar el cliente seleccionado para obtener su ID interno
+        if (!clienteId || clienteId === '' || clienteId === 'undefined' || clienteId === 'null') {
+            if (process.env.NODE_ENV === 'development') {
+                console.log('[Devoluciones] No hay clienteId seleccionado o está vacío');
+            }
+            return [];
+        }
+        
+        // Buscar el cliente seleccionado para obtener su ID interno y códigos relacionados
         const clienteSeleccionado = clientes.find(c => 
             String(c.id) === String(clienteId) ||
             c.numeroDocumento === clienteId ||
             c.codter === clienteId
         );
         
-        if (!clienteSeleccionado) return [];
+        if (!clienteSeleccionado) {
+            if (process.env.NODE_ENV === 'development') {
+                console.log('[Devoluciones] Cliente seleccionado no encontrado en la lista de clientes');
+            }
+            return [];
+        }
         
-        const returnableStatuses: Factura['estado'][] = ['ENVIADA', 'ACEPTADA'];
         const TOLERANCIA = 0.0001;
         
-        return facturas.filter(f => {
-            // Buscar cliente de la factura de forma flexible
-            const clienteFactura = clientes.find(c => 
-                String(c.id) === String(f.clienteId) ||
-                c.numeroDocumento === f.clienteId ||
-                c.codter === f.clienteId
-            );
+        // Obtener todos los identificadores posibles del cliente (normalizados)
+        const clienteIdsNormalizados = new Set<string>();
+        [clienteSeleccionado.id, clienteSeleccionado.numeroDocumento, clienteSeleccionado.codter]
+            .filter(id => id != null && id !== undefined && String(id).trim() !== '')
+            .forEach(id => {
+                const idStr = String(id).trim();
+                clienteIdsNormalizados.add(idStr);
+                // También agregar versiones sin espacios al inicio/final
+                clienteIdsNormalizados.add(idStr.trim());
+            });
+        
+        if (process.env.NODE_ENV === 'development') {
+            console.log('[Devoluciones] IDs del cliente para comparar:', Array.from(clienteIdsNormalizados));
+        }
+        
+        const facturasFiltradasResult = facturas.filter(f => {
+            // Comparar clienteId de la factura con todos los identificadores posibles del cliente
+            // Las facturas pueden tener clienteId como codter, numeroDocumento o id interno
+            const facturaClienteId = String(f.clienteId || '').trim();
             
-            // Comparar por ID interno del cliente
-            if (!clienteFactura || clienteFactura.id !== clienteSeleccionado.id) {
+            // Comparación flexible: verificar si el clienteId de la factura coincide con cualquier identificador del cliente
+            const coincideCliente = clienteIdsNormalizados.has(facturaClienteId) ||
+                facturaClienteId === String(clienteSeleccionado.id).trim() ||
+                facturaClienteId === String(clienteSeleccionado.numeroDocumento || '').trim() ||
+                facturaClienteId === String(clienteSeleccionado.codter || '').trim();
+            
+            if (!coincideCliente) {
                 return false;
+            }
+            
+            if (process.env.NODE_ENV === 'development' && facturas.indexOf(f) < 3) {
+                console.log('[Devoluciones] Factura coincide con cliente:', {
+                    facturaId: f.id,
+                    numeroFactura: f.numeroFactura,
+                    facturaClienteId: facturaClienteId,
+                    clienteIdSeleccionado: String(clienteSeleccionado.id),
+                    coincide: coincideCliente
+                });
             }
             
             // Si una factura ya está seleccionada, mantenerla en la lista independientemente del estado
-            if (f.id === facturaId) return true;
+            if (f.id === facturaId) {
+                return true;
+            }
 
-            // Excluir facturas anuladas
-            if (f.estado === 'ANULADA' || f.estado === 'RECHAZADA') {
+            // Excluir facturas anuladas, rechazadas o en borrador
+            if (f.estado === 'ANULADA' || f.estado === 'RECHAZADA' || f.estado === 'BORRADOR') {
                 return false;
             }
 
+            // SOLO mostrar facturas timbradas a la DIAN
+            // Una factura está timbrada si:
+            // 1. Tiene CUFE (código único de factura electrónica)
+            // 2. Tiene fechaTimbrado
+            // 3. O está en estado ENVIADA/ACEPTADA (estados que indican factura aprobada por DIAN)
+            const tieneCufe = !!(f.cufe && String(f.cufe).trim() !== '' && String(f.cufe).trim() !== 'null');
+            const tieneFechaTimbrado = !!(f.fechaTimbrado && String(f.fechaTimbrado).trim() !== '' && String(f.fechaTimbrado).trim() !== 'null');
+            const estaEnviadaOAceptada = f.estado === 'ENVIADA' || f.estado === 'ACEPTADA';
+            
+            const estaTimbrada = tieneCufe || tieneFechaTimbrado || estaEnviadaOAceptada;
+            
+            if (!estaTimbrada) {
+                return false;
+            }
+
+            // Verificar que no tenga devolución total
             const estadoDevolucionFactura = String(
                 (f as any).estadoDevolucion ||
                 (f as any).estado_devolucion ||
@@ -163,9 +241,16 @@ const DevolucionesPage: React.FC = () => {
                 return false;
             }
 
+            // Verificar que haya cantidad pendiente para devolver
+            // Si la factura no tiene items cargados, asumir que tiene cantidad pendiente
             const notasDeFactura = Array.isArray(notasCredito)
                 ? notasCredito.filter(nc => String(nc.facturaId) === String(f.id))
                 : [];
+
+            // Si no hay items cargados, aún así mostrar la factura (puede que los items se carguen después)
+            if (!f.items || !Array.isArray(f.items) || f.items.length === 0) {
+                return true; // Mostrar aunque no tenga items (se cargarán después)
+            }
 
             const hayCantidadPendiente = (f.items || []).some(factItem => {
                 const cantidadDevuelta = notasDeFactura.reduce((acc, nota) => {
@@ -182,17 +267,26 @@ const DevolucionesPage: React.FC = () => {
                 return false;
             }
             
-            // Mostrar facturas que:
-            // 1. Están en estados que permiten devolución (ENVIADA, ACEPTADA)
-            // 2. O están timbradas/aprobadas (tienen fechaTimbrado o cufe) - estas son las facturas aprobadas en facturación
-            const estaTimbrada = !!(f.fechaTimbrado || f.cufe);
-            const estadoPermiteDevolucion = returnableStatuses.includes(f.estado);
-            
-            return estadoPermiteDevolucion || estaTimbrada;
+            return true;
         });
+        
+        if (process.env.NODE_ENV === 'development' && facturasFiltradasResult.length === 0 && clienteId) {
+            console.warn('[Devoluciones] No se encontraron facturas para el cliente:', {
+                clienteId,
+                clienteNombre: clienteSeleccionado.nombreCompleto,
+                clienteCodter: clienteSeleccionado.codter,
+                clienteNumeroDoc: clienteSeleccionado.numeroDocumento,
+                totalFacturas: facturas.length,
+                facturasConEstadoEnviada: facturas.filter(f => f.estado === 'ENVIADA' || f.estado === 'ACEPTADA').length,
+                facturasConCufe: facturas.filter(f => f.cufe && String(f.cufe).trim() !== '').length
+            });
+        }
+        
+        return facturasFiltradasResult;
     }, [clienteId, facturaId, facturas, clientes, notasCredito]);
     
     // Buscar factura de forma flexible: primero en facturasFiltradas, luego en todas las facturas
+    // Si la factura tiene items cargados localmente, usarlos
     const selectedFactura = useMemo(() => {
         if (!facturaId) return undefined;
         
@@ -212,8 +306,16 @@ const DevolucionesPage: React.FC = () => {
             });
         }
         
+        // Si la factura existe pero no tiene items, y hay items cargados localmente, usarlos
+        if (factura && (!factura.items || !Array.isArray(factura.items) || factura.items.length === 0) && facturaItemsCargados.length > 0) {
+            factura = {
+                ...factura,
+                items: facturaItemsCargados
+            };
+        }
+        
         return factura;
-    }, [facturaId, facturasFiltradas, facturas]);
+    }, [facturaId, facturasFiltradas, facturas, facturaItemsCargados]);
     
     const selectedCliente = useMemo(() => {
         if (!clienteId) return undefined;
@@ -225,6 +327,83 @@ const DevolucionesPage: React.FC = () => {
             c.codter === clienteId
         );
     }, [clienteId, clientes]);
+
+    // Cargar items de la factura cuando se selecciona una factura y no tiene items cargados
+    useEffect(() => {
+        const cargarItemsFactura = async () => {
+            if (!facturaId || !selectedFactura) {
+                return;
+            }
+            
+            // Si la factura ya tiene items cargados, no hacer nada
+            if (selectedFactura.items && Array.isArray(selectedFactura.items) && selectedFactura.items.length > 0) {
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('[Devoluciones] Factura ya tiene items cargados:', selectedFactura.items.length);
+                }
+                return;
+            }
+            
+            // Si la factura no tiene items, intentar cargarlos desde el backend
+            try {
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('[Devoluciones] Cargando items de la factura desde el backend:', facturaId);
+                }
+                
+                // Cargar detalles de facturas filtrando por facturaId
+                const detallesResponse = await fetchFacturasDetalle({ facturaId });
+                if (detallesResponse.success && detallesResponse.data) {
+                    const itemsFactura = Array.isArray(detallesResponse.data) 
+                        ? detallesResponse.data.filter(d => String(d.facturaId || d.id_factura || '') === String(facturaId))
+                        : [];
+                    
+                    if (itemsFactura.length > 0) {
+                        // Mapear items del backend a la estructura esperada
+                        const itemsMapeados = itemsFactura.map((d: any) => ({
+                            productoId: d.productoId || null,
+                            cantidad: Number(d.cantidad || d.qtyins || 0),
+                            precioUnitario: Number(d.precioUnitario || d.valins || 0),
+                            descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
+                            ivaPorcentaje: Number(d.ivaPorcentaje || 0),
+                            descripcion: d.descripcion || d.observa || '',
+                            subtotal: Number(d.subtotal || 0),
+                            valorIva: Number(d.valorIva || d.ivains || 0),
+                            total: Number(d.total || 0),
+                            codProducto: d.codProducto || d.codins || ''
+                        })).filter(item => item.productoId != null);
+                        
+                        // Guardar items en estado local para usar en selectedFactura
+                        setFacturaItemsCargados(itemsMapeados);
+                        
+                        if (process.env.NODE_ENV === 'development') {
+                            console.log('[Devoluciones] Items de factura cargados desde el backend y guardados en estado local:', itemsMapeados.length);
+                        }
+                    } else {
+                        if (process.env.NODE_ENV === 'development') {
+                            console.warn('[Devoluciones] No se encontraron items para la factura en el backend:', facturaId);
+                        }
+                        addNotification({
+                            message: 'La factura seleccionada no tiene productos asociados.',
+                            type: 'warning'
+                        });
+                    }
+                } else {
+                    console.error('[Devoluciones] Error en respuesta del backend al cargar items:', detallesResponse);
+                    addNotification({
+                        message: 'Error al cargar los productos de la factura. Por favor, intente nuevamente.',
+                        type: 'error'
+                    });
+                }
+            } catch (error) {
+                console.error('[Devoluciones] Error cargando items de la factura:', error);
+                addNotification({
+                    message: 'Error al cargar los productos de la factura. Por favor, recargue la página.',
+                    type: 'error'
+                });
+            }
+        };
+        
+        cargarItemsFactura();
+    }, [facturaId, selectedFactura, addNotification]);
 
     useEffect(() => {
         if (selectedFactura && Array.isArray(notasCredito)) {
@@ -251,13 +430,29 @@ const DevolucionesPage: React.FC = () => {
     };
     
     const handleClienteChange = (id: string) => {
-        setClienteId(id);
+        if (process.env.NODE_ENV === 'development') {
+            console.log('[Devoluciones] handleClienteChange llamado con:', {
+                id,
+                tipo: typeof id,
+                idLength: id ? String(id).length : 0
+            });
+        }
+        
+        // Asegurar que el ID se guarda correctamente
+        const clienteIdValue = id && id.trim() !== '' && id !== 'undefined' && id !== 'null' ? id.trim() : '';
+        setClienteId(clienteIdValue);
         setFacturaId('');
+        setFacturaItemsCargados([]); // Limpiar items cargados al cambiar cliente
         resetFormPartially();
+        
+        if (process.env.NODE_ENV === 'development') {
+            console.log('[Devoluciones] clienteId actualizado a:', clienteIdValue);
+        }
     };
-
+    
     const handleFacturaChange = (id: string) => {
         setFacturaId(id);
+        setFacturaItemsCargados([]); // Limpiar items cargados al cambiar factura
         resetFormPartially();
     };
     
@@ -331,22 +526,134 @@ const DevolucionesPage: React.FC = () => {
         } : i));
     };
 
-    const handleTotalDevolucionToggle = (isTotal: boolean) => {
+    const handleTotalDevolucionToggle = async (isTotal: boolean) => {
         if (isFormDisabled) return;
         setIsTotalDevolucion(isTotal);
         if (isTotal && selectedFactura) {
-            const allItems = selectedFactura.items.map(item => {
-                const yaDevueltos = cantidadesYaDevueltas.get(item.productoId) || 0;
-                const cantidadADevolver = item.cantidad - yaDevueltos;
-                const motivoSeleccion = getMotivoDefault();
-                return {
-                    productoId: item.productoId,
-                    cantidadDevuelta: cantidadADevolver,
-                    motivoSeleccion,
-                    motivo: motivoSeleccion === 'Otro' ? '' : motivoSeleccion, 
-                };
-            }).filter(item => item.cantidadDevuelta > 0);
+            // Verificar que la factura tenga items cargados
+            if (!selectedFactura.items || !Array.isArray(selectedFactura.items) || selectedFactura.items.length === 0) {
+                console.error('[Devoluciones] La factura seleccionada no tiene items cargados. Intentando cargar desde el backend...', {
+                    facturaId: selectedFactura.id,
+                    numeroFactura: selectedFactura.numeroFactura
+                });
+                
+                // Intentar cargar los items desde el backend
+                try {
+                    addNotification({
+                        message: 'Cargando productos de la factura...',
+                        type: 'info'
+                    });
+                    
+                    const detallesResponse = await fetchFacturasDetalle({ facturaId: selectedFactura.id });
+                    if (detallesResponse.success && detallesResponse.data) {
+                        const itemsFactura = Array.isArray(detallesResponse.data) 
+                            ? detallesResponse.data.filter(d => String(d.facturaId || d.id_factura || '') === String(selectedFactura.id))
+                            : [];
+                        
+                        if (itemsFactura.length === 0) {
+                            addNotification({
+                                message: 'La factura seleccionada no tiene productos asociados. Por favor, seleccione otra factura.',
+                                type: 'error'
+                            });
+                            setIsTotalDevolucion(false);
+                            return;
+                        }
+                        
+                        // Mapear items del backend a la estructura esperada
+                        const itemsMapeados = itemsFactura.map((d: any) => ({
+                            productoId: d.productoId || null,
+                            cantidad: Number(d.cantidad || d.qtyins || 0),
+                            precioUnitario: Number(d.precioUnitario || d.valins || 0),
+                            descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
+                            ivaPorcentaje: Number(d.ivaPorcentaje || 0),
+                            descripcion: d.descripcion || d.observa || '',
+                            subtotal: Number(d.subtotal || 0),
+                            valorIva: Number(d.valorIva || d.ivains || 0),
+                            total: Number(d.total || 0),
+                            codProducto: d.codProducto || d.codins || ''
+                        })).filter(item => item.productoId != null);
+                        
+                        // Guardar items en estado local para que selectedFactura los use
+                        setFacturaItemsCargados(itemsMapeados);
+                        
+                        // Esperar un momento para que el estado se actualice y luego configurar la devolución total
+                        // Usar setTimeout para que el useMemo de selectedFactura se ejecute con los nuevos items
+                        setTimeout(() => {
+                            // Usar los items cargados para la devolución total
+                            const allItems = itemsMapeados
+                                .map(item => {
+                                    const yaDevueltos = cantidadesYaDevueltas.get(item.productoId!) || 0;
+                                    const cantidadADevolver = Math.max(0, (item.cantidad || 0) - yaDevueltos);
+                                    const motivoSeleccion = getMotivoDefault();
+                                    return {
+                                        productoId: item.productoId!,
+                                        cantidadDevuelta: cantidadADevolver,
+                                        motivoSeleccion,
+                                        motivo: motivoSeleccion === 'Otro' ? '' : motivoSeleccion, 
+                                    };
+                                })
+                                .filter(item => item.cantidadDevuelta > 0);
+                            
+                            if (allItems.length === 0) {
+                                addNotification({
+                                    message: 'No hay cantidades disponibles para devolver en esta factura. Puede que todos los items ya hayan sido devueltos.',
+                                    type: 'warning'
+                                });
+                                setIsTotalDevolucion(false);
+                                return;
+                            }
+                            
+                            setDevolucionItems(allItems);
+                            addNotification({
+                                message: `Devolución total configurada: ${allItems.length} producto(s) para devolver.`,
+                                type: 'success'
+                            });
+                        }, 100);
+                        return;
+                    } else {
+                        throw new Error('No se pudieron cargar los items de la factura');
+                    }
+                } catch (error) {
+                    console.error('[Devoluciones] Error cargando items de la factura:', error);
+                    addNotification({
+                        message: 'Error al cargar los productos de la factura. Por favor, recargue la página o seleccione otra factura.',
+                        type: 'error'
+                    });
+                    setIsTotalDevolucion(false);
+                    return;
+                }
+            }
+            
+            // Si la factura ya tiene items cargados, proceder normalmente
+            const allItems = selectedFactura.items
+                .filter(item => item && item.productoId) // Filtrar items válidos
+                .map(item => {
+                    const yaDevueltos = cantidadesYaDevueltas.get(item.productoId) || 0;
+                    const cantidadADevolver = Math.max(0, (item.cantidad || 0) - yaDevueltos);
+                    const motivoSeleccion = getMotivoDefault();
+                    return {
+                        productoId: item.productoId,
+                        cantidadDevuelta: cantidadADevolver,
+                        motivoSeleccion,
+                        motivo: motivoSeleccion === 'Otro' ? '' : motivoSeleccion, 
+                    };
+                })
+                .filter(item => item.cantidadDevuelta > 0);
+            
+            if (allItems.length === 0) {
+                addNotification({
+                    message: 'No hay cantidades disponibles para devolver en esta factura. Puede que todos los items ya hayan sido devueltos.',
+                    type: 'warning'
+                });
+                setIsTotalDevolucion(false);
+                return;
+            }
+            
             setDevolucionItems(allItems);
+            addNotification({
+                message: `Devolución total configurada: ${allItems.length} producto(s) para devolver.`,
+                type: 'success'
+            });
         } else {
             setDevolucionItems([]);
         }
@@ -393,7 +700,47 @@ const DevolucionesPage: React.FC = () => {
     }, [devolucionItems, productos]);
 
     const handleSave = async () => {
-        if (!selectedFactura || !selectedCliente || !selectedFactura.items || devolucionItems.length === 0 || isFormDisabled) return;
+        // Validaciones iniciales
+        if (!selectedFactura) {
+            addNotification({
+                message: 'Por favor, seleccione una factura para realizar la devolución.',
+                type: 'error'
+            });
+            return;
+        }
+
+        if (!selectedCliente) {
+            addNotification({
+                message: 'Por favor, seleccione un cliente para realizar la devolución.',
+                type: 'error'
+            });
+            return;
+        }
+
+        if (!selectedFactura.items || !Array.isArray(selectedFactura.items) || selectedFactura.items.length === 0) {
+            console.error('[Devoluciones] Error: La factura no tiene items cargados:', {
+                facturaId: selectedFactura.id,
+                numeroFactura: selectedFactura.numeroFactura,
+                items: selectedFactura.items
+            });
+            addNotification({
+                message: 'La factura seleccionada no tiene productos cargados. Por favor, recargue la página o seleccione otra factura.',
+                type: 'error'
+            });
+            return;
+        }
+
+        if (devolucionItems.length === 0) {
+            addNotification({
+                message: 'Debe seleccionar al menos un producto para devolver.',
+                type: 'warning'
+            });
+            return;
+        }
+
+        if (isFormDisabled) {
+            return;
+        }
 
         const motivosPendientes = devolucionItems.filter(item => {
             if (item.motivoSeleccion === 'Otro') {
@@ -411,7 +758,14 @@ const DevolucionesPage: React.FC = () => {
         }
 
         setIsSaving(true);
+        
         try {
+            console.log('[Devoluciones] Iniciando guardado de nota de crédito:', {
+                facturaId: selectedFactura.id,
+                clienteId: selectedCliente.id,
+                itemsCount: devolucionItems.length,
+                isTotalDevolucion
+            });
             const itemsParaNota = devolucionItems.map(devItem => {
                 const factItem = (selectedFactura.items || []).find(i => i.productoId === devItem.productoId);
                 if (!factItem) throw new Error(`Item de factura no encontrado para producto ${devItem.productoId}`);
@@ -431,8 +785,19 @@ const DevolucionesPage: React.FC = () => {
             
             const nuevaNota = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal);
             
+            if (!nuevaNota) {
+                throw new Error('No se recibió respuesta del servidor al crear la nota de crédito');
+            }
+            
             setSavedNota(nuevaNota);
-            addNotification({ message: `Nota de Crédito ${nuevaNota.numero} guardada con éxito.`, type: 'success' });
+            addNotification({ 
+                message: `Nota de Crédito ${nuevaNota.numero || nuevaNota.id} guardada con éxito.`, 
+                type: 'success' 
+            });
+            
+            // Limpiar formulario después de guardar exitosamente
+            resetFormPartially();
+            setFacturaId('');
             
             // Generate accounting note after successful save
             setAccountingNote({ loading: true, text: '', error: false });
@@ -461,8 +826,12 @@ const DevolucionesPage: React.FC = () => {
             }
 
         } catch (error) {
-            console.error('Error al guardar nota de crédito:', error);
-            addNotification({ message: `Error al guardar la nota de crédito: ${(error as Error).message}`, type: 'warning' });
+            console.error('[Devoluciones] Error al guardar nota de crédito:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Error desconocido al guardar la nota de crédito';
+            addNotification({ 
+                message: `Error al guardar la nota de crédito: ${errorMessage}. Por favor, verifique la consola para más detalles.`, 
+                type: 'error' 
+            });
         } finally {
             setIsSaving(false);
         }
@@ -553,12 +922,31 @@ const DevolucionesPage: React.FC = () => {
                                 </div>
                                 <div>
                                     <label htmlFor="cliente-select" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cliente</label>
-                                    <select id="cliente-select" value={clienteId} onChange={e => handleClienteChange(e.target.value)} disabled={isFormDisabled} className="w-full px-3 py-2.5 text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed">
+                                    <select 
+                                        id="cliente-select" 
+                                        value={clienteId || ''} 
+                                        onChange={e => {
+                                            const selectedValue = e.target.value;
+                                            if (process.env.NODE_ENV === 'development') {
+                                                console.log('[Devoluciones] Select onChange - valor seleccionado:', selectedValue);
+                                            }
+                                            handleClienteChange(selectedValue);
+                                        }} 
+                                        disabled={isFormDisabled} 
+                                        className="w-full px-3 py-2.5 text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed"
+                                    >
                                         <option value="">Seleccione un cliente...</option>
-                                        {clientesConRemisionesFacturadas.length > 0 ? (
-                                            clientesConRemisionesFacturadas.map(c => <option key={c.id} value={c.id}>{c.nombreCompleto}</option>)
+                                        {clientesConFacturasTimbradas.length > 0 ? (
+                                            clientesConFacturasTimbradas.map(c => {
+                                                const clienteValue = String(c.id || '');
+                                                return (
+                                                    <option key={c.id} value={clienteValue}>
+                                                        {c.nombreCompleto || c.razonSocial || 'Sin nombre'}
+                                                    </option>
+                                                );
+                                            })
                                         ) : (
-                                            <option value="" disabled>No hay clientes con remisiones facturadas</option>
+                                            <option value="" disabled>No hay clientes con facturas timbradas a la DIAN</option>
                                         )}
                                     </select>
                                 </div>

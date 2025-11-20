@@ -2,6 +2,14 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const os = require('os');
+// Compresión de respuestas HTTP (opcional - instalar con: npm install compression)
+let compression = null;
+try {
+  compression = require('compression');
+} catch (error) {
+  console.warn('⚠️  Módulo compression no instalado. Para habilitar compresión de respuestas, ejecuta: npm install compression');
+}
+
 const { executeQuery, executeQueryWithParams, testConnection } = require('./services/sqlServerClient.cjs');
 const { QUERIES, TABLE_NAMES } = require('./services/dbConfig.cjs');
 const { getConnection } = require('./services/sqlServerClient.cjs');
@@ -117,6 +125,22 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   next();
 });
+
+// Middleware de compresión de respuestas (optimización: reduce el tamaño de las respuestas HTTP)
+if (compression) {
+  app.use(compression({
+    filter: (req, res) => {
+      // Comprimir todas las respuestas excepto imágenes y PDFs (ya están comprimidos)
+      if (req.headers['x-no-compression']) {
+        return false;
+      }
+      return compression.filter(req, res);
+    },
+    level: 6, // Nivel de compresión (1-9, 6 es un buen equilibrio)
+    threshold: 1024 // Solo comprimir respuestas mayores a 1KB
+  }));
+  console.log('✅ Compresión de respuestas HTTP habilitada');
+}
 
 app.use(express.json({ limit: '5mb' }));
 
@@ -381,11 +405,87 @@ app.get('/api/buscar/productos', async (req, res) => {
   }
 });
 
-// Ruta para obtener clientes
+// Ruta para obtener clientes (con paginación para optimización)
 app.get('/api/clientes', async (req, res) => {
   try {
-    const clientes = await executeQuery(QUERIES.GET_CLIENTES);
-    res.json({ success: true, data: clientes });
+    const { page = '1', pageSize = '100', search } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSizeNum = Math.min(500, Math.max(10, parseInt(String(pageSize), 10) || 100)); // Máximo 500, mínimo 10
+    const offset = (pageNum - 1) * pageSizeNum;
+    
+    // Normalizar búsqueda
+    let searchTerm = null;
+    if (search && typeof search === 'string' && search.trim() && search !== '[object Object]') {
+      searchTerm = String(search).trim();
+    }
+    
+    // Construir query base
+    let whereClause = 'WHERE activo = 1';
+    const params = { offset, pageSize: pageSizeNum };
+    
+    if (searchTerm) {
+      whereClause += ` AND (nomter LIKE @search OR codter LIKE @search OR EMAIL LIKE @search)`;
+      params.search = `%${searchTerm}%`;
+    }
+    
+    // Query principal con paginación
+    const query = `
+      SELECT 
+        id,
+        codter as numeroDocumento,
+        nomter as razonSocial,
+        apl1 as primerApellido,
+        apl2 as segundoApellido,
+        nom1 as primerNombre,
+        nom2 as segundoNombre,
+        dirter as direccion,
+        TELTER as telefono,
+        CELTER as celular,
+        EMAIL as email,
+        ciudad,
+        ciudad as ciudadId,
+        codven as vendedorId,
+        COALESCE(cupo_credito, 0) as limiteCredito,
+        COALESCE(plazo, 0) as diasCredito,
+        COALESCE(tasa_descuento, 0) as tasaDescuento,
+        Forma_pago as formaPago,
+        regimen_tributario as regimenTributario,
+        CAST(activo AS INT) as activo,
+        contacto,
+        FECING as fechaIngreso
+      FROM ${TABLE_NAMES.clientes}
+      ${whereClause}
+      ORDER BY nomter
+      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+    `;
+    
+    // Query para contar total
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM ${TABLE_NAMES.clientes}
+      ${whereClause}
+    `;
+    
+    const [clientes, countResult] = await Promise.all([
+      executeQueryWithParams(query, params),
+      executeQueryWithParams(countQuery, searchTerm ? { search: params.search } : {})
+    ]);
+    
+    const total = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(total / pageSizeNum);
+    
+    res.json({ 
+      success: true, 
+      data: clientes,
+      pagination: {
+        page: pageNum,
+        pageSize: pageSizeNum,
+        total: total,
+        totalPages: totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
   } catch (error) {
     console.error('Error fetching clientes:', error);
     res.status(500).json({ 
@@ -822,15 +922,124 @@ app.post('/api/inventario/entradas', async (req, res) => {
   }
 });
 
-// Ruta para obtener facturas
+// Ruta para obtener facturas (con paginación para optimización)
 app.get('/api/facturas', async (req, res) => {
   try {
-    const facturas = await executeQuery(QUERIES.GET_FACTURAS);
+    const { page = '1', pageSize = '100', search, estado } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSizeNum = Math.min(500, Math.max(10, parseInt(String(pageSize), 10) || 100)); // Máximo 500, mínimo 10
+    const offset = (pageNum - 1) * pageSizeNum;
+    
+    // Normalizar búsqueda y estado
+    let searchTerm = null;
+    if (search && typeof search === 'string' && search.trim() && search !== '[object Object]') {
+      searchTerm = String(search).trim();
+    }
+    
+    let estadoDb = null;
+    if (estado && typeof estado === 'string' && estado.trim()) {
+      estadoDb = mapEstadoToDb(estado.trim());
+    }
+    
+    // Construir WHERE
+    let whereClauses = [];
+    const params = { offset, pageSize: pageSizeNum };
+    
+    if (estadoDb) {
+      whereClauses.push('f.estfac = @estado');
+      params.estado = estadoDb;
+    }
+    
+    if (searchTerm) {
+      whereClauses.push('(f.numfact LIKE @search OR f.codter LIKE @search OR f.Observa LIKE @search)');
+      params.search = `%${searchTerm}%`;
+    }
+    
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    
+    // Query principal con paginación
+    const query = `
+      SELECT 
+        f.ID as id,
+        f.numfact as numeroFactura,
+        f.codalm as empresaId,
+        f.tipfac as tipoFactura,
+        f.codter as clienteId,
+        f.doccoc as documentoContable,
+        f.fecfac as fechaFactura,
+        f.venfac as fechaVencimiento,
+        f.codven as vendedorId,
+        f.valvta as subtotal,
+        f.valiva as ivaValor,
+        f.valotr as otrosValores,
+        f.valant as anticipos,
+        f.valdev as devoluciones,
+        f.abofac as abonos,
+        f.valdcto as descuentoValor,
+        f.valret as retenciones,
+        f.valrica as retencionICA,
+        f.valriva as retencionIVA,
+        f.netfac as total,
+        f.valcosto as costo,
+        f.codcue as cuenta,
+        f.efectivo,
+        f.cheques,
+        f.credito,
+        f.tarjetacr as tarjetaCredito,
+        f.TarjetaDB as tarjetaDebito,
+        f.Transferencia,
+        f.valpagado as valorPagado,
+        f.resolucion_dian as resolucionDian,
+        f.Observa as observaciones,
+        f.TARIFA_CREE as tarifaCREE,
+        f.RETECREE as retencionCREE,
+        f.codusu as usuarioId,
+        f.fecsys as fechaSistema,
+        f.estfac as estado,
+        f.VALDOMICILIO as valorDomicilio,
+        f.estado_envio as estadoEnvio,
+        f.sey_key as seyKey,
+        f.CUFE as cufe,
+        f.IdCaja as cajaId,
+        f.Valnotas as valorNotas
+      FROM ${TABLE_NAMES.facturas} f
+      ${whereClause}
+      ORDER BY f.fecfac DESC
+      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+    `;
+    
+    // Query para contar total
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM ${TABLE_NAMES.facturas} f
+      ${whereClause}
+    `;
+    
+    const [facturas, countResult] = await Promise.all([
+      executeQueryWithParams(query, params),
+      executeQueryWithParams(countQuery, estadoDb || searchTerm ? { ...(estadoDb && { estado: estadoDb }), ...(searchTerm && { search: `%${searchTerm}%` }) } : {})
+    ]);
+    
     const facturasMapeadas = facturas.map(f => ({
       ...f,
       estado: mapEstadoFromDb(f.estado)
     }));
-    res.json({ success: true, data: facturasMapeadas });
+    
+    const total = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(total / pageSizeNum);
+    
+    res.json({ 
+      success: true, 
+      data: facturasMapeadas,
+      pagination: {
+        page: pageNum,
+        pageSize: pageSizeNum,
+        total: total,
+        totalPages: totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
   } catch (error) {
     console.error('❌ Error obteniendo facturas:', error);
     console.error('❌ Stack trace:', error.stack);
@@ -853,11 +1062,71 @@ app.get('/api/facturas', async (req, res) => {
   }
 });
 
-// Ruta para obtener detalles de facturas
+// Ruta para obtener detalles de facturas (optimizado con paginación y filtrado por facturaId)
 app.get('/api/facturas-detalle', async (req, res) => {
   try {
-    const detalles = await executeQuery(QUERIES.GET_FACTURAS_DETALLE);
-    res.json({ success: true, data: detalles });
+    const { facturaId, page = '1', pageSize = '500' } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSizeNum = Math.min(1000, Math.max(50, parseInt(String(pageSize), 10) || 500)); // Máximo 1000
+    const offset = (pageNum - 1) * pageSizeNum;
+    
+    const params = { offset, pageSize: pageSizeNum };
+    let whereClause = '';
+    
+    // Si se especifica facturaId, filtrar solo esos detalles (optimización importante)
+    if (facturaId) {
+      whereClause = 'WHERE fd.id_factura = @facturaId';
+      params.facturaId = parseInt(facturaId, 10);
+    }
+    
+    // Query optimizado - solo obtener detalles necesarios
+    const query = `
+      SELECT 
+        fd.ID as id,
+        fd.id_factura as facturaId,
+        COALESCE(
+          (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+          NULL
+        ) as productoId,
+        COALESCE(
+          (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+          0
+        ) as tasaIvaProducto,
+        fd.qtyins as cantidad,
+        fd.valins as precioUnitario,
+        fd.desins as descuentoPorcentaje,
+        COALESCE(
+          (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+          CASE 
+            WHEN fd.valins > 0 AND fd.qtyins > 0 THEN 
+              (fd.ivains / ((fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0))) * 100
+            ELSE 0
+          END
+        ) as ivaPorcentaje,
+        fd.observa as descripcion,
+        (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) as subtotal,
+        fd.ivains as valorIva,
+        (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) + COALESCE(fd.ivains, 0) as total,
+        fd.codins as codProducto
+      FROM ${TABLE_NAMES.facturas_detalle} fd
+      ${whereClause}
+      ORDER BY fd.ID
+      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+    `;
+    
+    const detalles = await executeQueryWithParams(query, params);
+    
+    res.json({ 
+      success: true, 
+      data: detalles,
+      ...(facturaId ? {} : {
+        pagination: {
+          page: pageNum,
+          pageSize: pageSizeNum,
+          hasNextPage: detalles.length === pageSizeNum
+        }
+      })
+    });
   } catch (error) {
     console.error('❌ Error obteniendo detalles de facturas:', error);
     console.error('❌ Stack trace:', error.stack);
@@ -880,16 +1149,117 @@ app.get('/api/facturas-detalle', async (req, res) => {
   }
 });
 
-// Ruta para obtener cotizaciones
+// Ruta para obtener cotizaciones (con paginación para optimización)
 app.get('/api/cotizaciones', async (req, res) => {
   try {
-    const cotizaciones = await executeQuery(QUERIES.GET_COTIZACIONES);
+    const { page = '1', pageSize = '100', search, estado } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSizeNum = Math.min(500, Math.max(10, parseInt(String(pageSize), 10) || 100)); // Máximo 500, mínimo 10
+    const offset = (pageNum - 1) * pageSizeNum;
+    
+    // Normalizar búsqueda y estado
+    let searchTerm = null;
+    if (search && typeof search === 'string' && search.trim() && search !== '[object Object]') {
+      searchTerm = String(search).trim();
+    }
+    
+    let estadoDb = null;
+    if (estado && typeof estado === 'string' && estado.trim()) {
+      estadoDb = mapEstadoToDb(estado.trim());
+    }
+    
+    // Construir WHERE
+    let whereClauses = [];
+    const params = { offset, pageSize: pageSizeNum };
+    
+    if (estadoDb) {
+      whereClauses.push('c.estado = @estado');
+      params.estado = estadoDb;
+    }
+    
+    if (searchTerm) {
+      whereClauses.push('(c.numcot LIKE @search OR c.codter LIKE @search OR c.observa LIKE @search)');
+      params.search = `%${searchTerm}%`;
+    }
+    
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    
+    // Query principal con paginación
+    const query = `
+      SELECT 
+        c.id,
+        c.numcot               AS numeroCotizacion,
+        c.fecha                AS fechaCotizacion,
+        c.fecha_vence          AS fechaVencimiento,
+        c.codter               AS codter,
+        COALESCE(cli.id, NULL) AS clienteId,
+        CAST(COALESCE(v.ideven, NULL) AS VARCHAR(20)) AS vendedorId,
+        LTRIM(RTRIM(c.cod_vendedor)) AS codVendedor,
+        c.codalm               AS codalm,
+        c.codalm               AS empresaId,
+        COALESCE(c.subtotal, 0) AS subtotal,
+        COALESCE(c.val_descuento, 0) AS descuentoValor,
+        COALESCE(c.val_iva, 0) AS ivaValor,
+        COALESCE(c.subtotal,0) - COALESCE(c.val_descuento,0) + COALESCE(c.val_iva,0) AS total,
+        c.observa              AS observaciones,
+        c.estado,
+        c.formapago            AS formaPago,
+        COALESCE(c.valor_anticipo, 0) AS valorAnticipo,
+        c.num_orden_compra     AS numOrdenCompra,
+        c.fecha_aprobacion     AS fechaAprobacion,
+        c.cod_usuario          AS codUsuario,
+        c.id_usuario           AS idUsuario,
+        c.COD_TARIFA           AS codTarifa,
+        c.fecsys               AS fechaCreacion,
+        NULL                   AS observacionesInternas,
+        NULL                   AS listaPrecioId,
+        NULL                   AS descuentoPorcentaje,
+        NULL                   AS ivaPorcentaje,
+        NULL                   AS domicilios,
+        NULL                   AS approvedItems
+      FROM ${TABLE_NAMES.cotizaciones} c
+      LEFT JOIN ${TABLE_NAMES.clientes} cli ON LTRIM(RTRIM(cli.codter)) = LTRIM(RTRIM(c.codter)) AND cli.activo = 1
+      LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, ''))) AND v.Activo = 1
+      ${whereClause}
+      ORDER BY c.fecha DESC
+      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+    `;
+    
+    // Query para contar total
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM ${TABLE_NAMES.cotizaciones} c
+      LEFT JOIN ${TABLE_NAMES.clientes} cli ON LTRIM(RTRIM(cli.codter)) = LTRIM(RTRIM(c.codter)) AND cli.activo = 1
+      LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, ''))) AND v.Activo = 1
+      ${whereClause}
+    `;
+    
+    const [cotizaciones, countResult] = await Promise.all([
+      executeQueryWithParams(query, params),
+      executeQueryWithParams(countQuery, estadoDb || searchTerm ? { ...(estadoDb && { estado: estadoDb }), ...(searchTerm && { search: `%${searchTerm}%` }) } : {})
+    ]);
+    
     // Mapear estados de BD a frontend
     const cotizacionesMapeadas = cotizaciones.map(c => ({
       ...c,
       estado: mapEstadoFromDb(c.estado)
     }));
-    res.json({ success: true, data: cotizacionesMapeadas });
+    
+    const total = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(total / pageSizeNum);
+    
+    res.json({ 
+      success: true, 
+      data: cotizacionesMapeadas,
+      pagination: {
+        page: pageNum,
+        pageSize: pageSizeNum,
+        total: total,
+        totalPages: totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
   } catch (error) {
     console.error('Error fetching cotizaciones:', error);
     res.status(500).json({ 
@@ -900,11 +1270,71 @@ app.get('/api/cotizaciones', async (req, res) => {
   }
 });
 
-// Ruta para obtener detalles de cotizaciones
+// Ruta para obtener detalles de cotizaciones (optimizado con filtrado por cotizacionId)
 app.get('/api/cotizaciones-detalle', async (req, res) => {
   try {
-    const detalles = await executeQuery(QUERIES.GET_COTIZACIONES_DETALLE);
-    res.json({ success: true, data: detalles });
+    const { cotizacionId, page = '1', pageSize = '500' } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSizeNum = Math.min(1000, Math.max(50, parseInt(String(pageSize), 10) || 500));
+    const offset = (pageNum - 1) * pageSizeNum;
+    
+    const params = { offset, pageSize: pageSizeNum };
+    let whereClause = '';
+    
+    // Si se especifica cotizacionId, filtrar solo esos detalles (optimización importante)
+    if (cotizacionId) {
+      whereClause = 'WHERE d.id_cotizacion = @cotizacionId';
+      // id_cotizacion es BIGINT en ven_detacotizacion, asegurar conversión correcta
+      const cotizacionIdNum = typeof cotizacionId === 'number' ? cotizacionId : parseInt(String(cotizacionId).trim(), 10);
+      if (isNaN(cotizacionIdNum)) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'cotizacionId inválido' 
+        });
+      }
+      params.cotizacionId = cotizacionIdNum;
+    }
+    
+    // Query optimizado
+    const query = `
+      SELECT 
+        d.id,
+        d.id_cotizacion           AS cotizacionId,
+        COALESCE(p.id, NULL)      AS productoId,
+        LTRIM(RTRIM(d.cod_producto)) AS codProducto,
+        d.cantidad,
+        COALESCE(d.cant_facturada, 0) AS cantFacturada,
+        COALESCE(d.qtycot, 0)     AS qtycot,
+        COALESCE(d.preciound, 0)  AS precioUnitario,
+        COALESCE(d.tasa_descuento, 0) AS descuentoPorcentaje,
+        COALESCE(d.tasa_iva, 0)   AS ivaPorcentaje,
+        d.codigo_medida           AS codigoMedida,
+        d.estado                  AS estado,
+        d.num_factura             AS numFactura,
+        CASE WHEN d.valor IS NOT NULL AND d.tasa_iva IS NOT NULL THEN d.valor - (d.valor * (d.tasa_iva/100.0)) ELSE COALESCE(d.valor,0) END AS subtotal,
+        CASE WHEN d.valor IS NOT NULL AND d.tasa_iva IS NOT NULL THEN (d.valor * (d.tasa_iva/100.0)) ELSE 0 END AS valorIva,
+        COALESCE(d.valor, 0)      AS total,
+        COALESCE(p.nomins, '')    AS descripcion
+      FROM ${TABLE_NAMES.cotizaciones_detalle} d
+      LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(d.cod_producto))
+      ${whereClause}
+      ORDER BY d.id_cotizacion, d.id
+      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+    `;
+    
+    const detalles = await executeQueryWithParams(query, params);
+    
+    res.json({ 
+      success: true, 
+      data: detalles,
+      ...(cotizacionId ? {} : {
+        pagination: {
+          page: pageNum,
+          pageSize: pageSizeNum,
+          hasNextPage: detalles.length === pageSizeNum
+        }
+      })
+    });
   } catch (error) {
     console.error('Error fetching cotizaciones detalle:', error);
     res.status(500).json({ 
@@ -1199,11 +1629,101 @@ app.get('/api/pedidos', async (req, res) => {
   }
 });
 
-// Ruta para obtener detalles de pedidos
+// Ruta para obtener detalles de pedidos (optimizado con filtrado por pedidoId)
 app.get('/api/pedidos-detalle', async (req, res) => {
   try {
-    const detalles = await executeQuery(QUERIES.GET_PEDIDOS_DETALLE);
-    res.json({ success: true, data: detalles });
+    const { pedidoId, page = '1', pageSize = '500' } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSizeNum = Math.min(1000, Math.max(50, parseInt(String(pageSize), 10) || 500)); // Máximo 1000
+    const offset = (pageNum - 1) * pageSizeNum;
+    
+    // Si se especifica pedidoId, filtrar solo esos detalles (optimización importante)
+    let whereClause = "WHERE pd.pedido_id IS NOT NULL OR (pd.numped IS NOT NULL AND LTRIM(RTRIM(pd.numped)) <> '')";
+    const params = {};
+    
+    // Siempre establecer pageSize primero
+    params.pageSize = pedidoId ? 1000 : pageSizeNum;
+    
+    if (pedidoId) {
+      const pedidoIdNum = parseInt(pedidoId, 10);
+      if (isFinite(pedidoIdNum)) {
+        whereClause = "WHERE pd.pedido_id = @pedidoId";
+        params.pedidoId = pedidoIdNum;
+        console.log('🔍 [Backend] Filtrando detalles por pedidoId:', pedidoIdNum);
+      } else {
+        console.warn('⚠️ [Backend] pedidoId no es un número válido:', pedidoId);
+      }
+    }
+    
+    // Query optimizado - solo obtener detalles necesarios
+    const query = `
+      SELECT TOP (@pageSize)
+        NULL as detaPedidoId,
+        CAST(COALESCE(pd.pedido_id, p.id) AS INT) as pedidoId,
+        pd.numped,
+        COALESCE(
+          (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+          NULL
+        ) as productoId,
+        LTRIM(RTRIM(COALESCE(pd.codins, ''))) as codProducto,
+        COALESCE(pd.canped, 0) as cantidad,
+        COALESCE(pd.valins, 0) as precioUnitario,
+        CASE 
+          WHEN COALESCE(pd.canped, 0) > 0 AND COALESCE(pd.valins, 0) > 0 
+          THEN (COALESCE(pd.dctped, 0) / (pd.canped * pd.valins)) * 100
+          ELSE 0
+        END as descuentoPorcentaje,
+        CASE 
+          WHEN COALESCE(pd.canped, 0) > 0 AND COALESCE(pd.valins, 0) > 0 
+            AND (pd.canped * pd.valins - COALESCE(pd.dctped, 0)) > 0
+          THEN (COALESCE(pd.ivaped, 0) / (pd.canped * pd.valins - COALESCE(pd.dctped, 0))) * 100
+          ELSE 0
+        END as ivaPorcentaje,
+        COALESCE(
+          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+          LTRIM(RTRIM(COALESCE(pd.codins, '')))
+        ) as descripcion,
+        ((COALESCE(pd.canped, 0) * COALESCE(pd.valins, 0)) - COALESCE(pd.dctped, 0)) as subtotal,
+        COALESCE(pd.ivaped, 0) as valorIva,
+        ((COALESCE(pd.canped, 0) * COALESCE(pd.valins, 0)) - COALESCE(pd.dctped, 0) + COALESCE(pd.ivaped, 0)) as total,
+        pd.estped as estadoItem,
+        pd.codalm,
+        pd.serial,
+        pd.numfac as numFactura,
+        pd.DiasGar as diasGarantia,
+        pd.Numord as numOrden,
+        COALESCE(pd.Fecsys, GETDATE()) as fechaCreacion
+      FROM ${TABLE_NAMES.pedidos_detalle} pd
+      LEFT JOIN ${TABLE_NAMES.pedidos} p ON p.id = pd.pedido_id
+      ${whereClause}
+      ORDER BY pd.pedido_id DESC, pd.codins
+      ${pedidoId ? '' : `OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`}
+    `;
+    
+    if (!pedidoId) {
+      params.offset = offset;
+    }
+    
+    console.log('🔍 [Backend] Ejecutando query de pedidos-detalle con parámetros:', params);
+    console.log('🔍 [Backend] WHERE clause:', whereClause);
+    const detalles = await executeQueryWithParams(query, params);
+    console.log('✅ [Backend] Detalles encontrados:', detalles.length);
+    if (detalles.length > 0) {
+      console.log('📦 [Backend] Primer detalle:', detalles[0]);
+      console.log('📦 [Backend] pedidoId del primer detalle:', detalles[0].pedidoId, 'tipo:', typeof detalles[0].pedidoId);
+    }
+    
+    res.json({ 
+      success: true, 
+      data: detalles,
+      ...(pedidoId ? {} : {
+        pagination: {
+          page: pageNum,
+          pageSize: pageSizeNum,
+          hasNextPage: detalles.length === pageSizeNum
+        }
+      })
+    });
   } catch (error) {
     console.error('Error fetching pedidos detalle:', error);
     res.status(500).json({ 
@@ -1422,32 +1942,40 @@ app.get('/api/remisiones/:id/detalle', async (req, res) => {
   }
 });
 
-// Endpoint para obtener items de productos de todas las remisiones (desde ven_remiciones_det)
+// Endpoint para obtener items de productos de remisiones (optimizado con filtrado por remisionId)
 app.get('/api/remisiones-detalle', async (req, res) => {
   try {
-    console.log('📦 [Backend] Obteniendo detalles de remisiones (items de productos)...');
+    const { remisionId, page = '1', pageSize = '500' } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSizeNum = Math.min(1000, Math.max(50, parseInt(String(pageSize), 10) || 500)); // Máximo 1000
+    const offset = (pageNum - 1) * pageSizeNum;
     
-    // Obtener todos los items de remisiones desde ven_remiciones_det
+    console.log('📦 [Backend] Obteniendo detalles de remisiones (items de productos)...', remisionId ? `Filtrado por remisionId: ${remisionId}` : 'Todos');
+    
+    // Si se especifica remisionId, filtrar solo esos detalles (optimización importante)
+    let whereClause = 'WHERE rd.remision_id IS NOT NULL';
+    const params = {};
+    
+    if (remisionId) {
+      const remisionIdNum = parseInt(remisionId, 10);
+      if (isFinite(remisionIdNum)) {
+        whereClause = 'WHERE rd.remision_id = @remisionId';
+        params.remisionId = remisionIdNum;
+      }
+    }
+    
+    // Query optimizado con JOIN para evitar subconsultas múltiples
     const sqlQuery = `
-        SELECT 
+      SELECT 
         rd.id,
         CAST(COALESCE(rd.remision_id, 0) AS INT) as remisionId,
         CAST(COALESCE(rd.deta_pedido_id, NULL) AS INT) as detaPedidoId,
         LTRIM(RTRIM(COALESCE(rd.codins, ''))) as codProducto,
-        -- Obtener el ID del producto desde inv_insumos usando codins
-        COALESCE(
-          (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
-          NULL
-        ) as productoId,
-          -- Obtener descripción del producto
-        COALESCE(
-          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
-          LTRIM(RTRIM(COALESCE(rd.codins, '')))
-        ) as descripcion,
+        COALESCE(p.id, NULL) as productoId,
+        COALESCE(LTRIM(RTRIM(p.nomins)), LTRIM(RTRIM(COALESCE(rd.codins, '')))) as descripcion,
         COALESCE(rd.cantidad_enviada, 0) as cantidadEnviada,
         COALESCE(rd.cantidad_facturada, 0) as cantidadFacturada,
         COALESCE(rd.cantidad_devuelta, 0) as cantidadDevuelta,
-        -- Campos calculados/compatibilidad
         COALESCE(rd.cantidad_enviada, 0) as cantidad,
         NULL as precioUnitario,
         NULL as descuentoPorcentaje,
@@ -1456,14 +1984,33 @@ app.get('/api/remisiones-detalle', async (req, res) => {
         NULL as valorIva,
         NULL as total
       FROM ${TABLE_NAMES.remisiones_detalle} rd
-      WHERE rd.remision_id IS NOT NULL
-      ORDER BY rd.remision_id, rd.id
+      LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(rd.codins))
+      ${whereClause}
+      ORDER BY rd.remision_id DESC, rd.id
+      ${remisionId ? '' : `OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`}
     `;
     
-    const items = await executeQuery(sqlQuery);
+    if (!remisionId) {
+      params.offset = offset;
+      params.pageSize = pageSizeNum;
+    } else {
+      params.pageSize = 1000; // Si hay filtro, permitir más resultados
+    }
+    
+    const items = await executeQueryWithParams(sqlQuery, params);
     
     console.log(`✅ [Backend] Items de remisiones encontrados: ${items.length}`);
-    res.json({ success: true, data: items });
+    res.json({ 
+      success: true, 
+      data: items,
+      ...(remisionId ? {} : {
+        pagination: {
+          page: pageNum,
+          pageSize: pageSizeNum,
+          hasNextPage: items.length === pageSizeNum
+        }
+      })
+    });
   } catch (error) {
     console.error('❌ Error obteniendo detalles de remisiones:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -1549,12 +2096,34 @@ const fetchNotaCreditoById = async (connection, notaId, transaction = null) => {
   };
 };
 
-// Ruta para obtener notas de crédito
+// Ruta para obtener notas de crédito (optimizado con paginación)
 app.get('/api/notas-credito', async (req, res) => {
   try {
+    const { page = '1', pageSize = '100', facturaId, clienteId } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSizeNum = Math.min(500, Math.max(10, parseInt(String(pageSize), 10) || 100)); // Máximo 500
+    const offset = (pageNum - 1) * pageSizeNum;
+    
     const pool = await getConnection();
-    const request = pool.request();
-    const notasResult = await request.query(`
+    
+    // Construir WHERE
+    let whereClauses = [];
+    const params = { offset, pageSize: pageSizeNum };
+    
+    if (facturaId) {
+      whereClauses.push('factura_id = @facturaId');
+      params.facturaId = parseInt(facturaId, 10);
+    }
+    
+    if (clienteId) {
+      whereClauses.push('cliente_id = @clienteId');
+      params.clienteId = parseInt(clienteId, 10) || String(clienteId).trim();
+    }
+    
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    
+    // Query principal con paginación
+    const query = `
       SELECT 
         id,
         numero,
@@ -1569,40 +2138,67 @@ app.get('/api/notas-credito', async (req, res) => {
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM ${TABLE_NAMES.notas_credito}
+      ${whereClause}
       ORDER BY fecha_emision DESC, id DESC
-    `);
+      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+    `;
+    
+    // Query para contar total
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM ${TABLE_NAMES.notas_credito}
+      ${whereClause}
+    `;
+    
+    const [notasResult, countResult] = await Promise.all([
+      executeQueryWithParams(query, params),
+      executeQueryWithParams(countQuery, facturaId || clienteId ? { ...(facturaId && { facturaId: params.facturaId }), ...(clienteId && { clienteId: params.clienteId }) } : {})
+    ]);
 
-    const notas = notasResult.recordset || [];
+    const notas = notasResult || [];
+    const total = countResult[0]?.total || 0;
+    const totalPages = Math.ceil(total / pageSizeNum);
+    
     let detalleMap = new Map();
 
-    if (notas.length > 0) {
-      const idsList = notas.map((nota) => nota.id).join(',');
-      const detallesQuery = `
-        SELECT 
-          id,
-          nota_id AS notaId,
-          producto_id AS productoId,
-          cantidad,
-          precio_unitario AS precioUnitario,
-          descuento_porcentaje AS descuentoPorcentaje,
-          iva_porcentaje AS ivaPorcentaje,
-          subtotal,
-          valor_iva AS valorIva,
-          total,
-          created_at AS createdAt
-        FROM ven_detanotas
-        ${idsList ? `WHERE nota_id IN (${idsList})` : ''}
-        ORDER BY id ASC
-      `;
-      const detallesResult = await pool.request().query(detallesQuery);
-      detalleMap = (detallesResult.recordset || []).reduce((acc, detalle) => {
-        const key = detalle.notaId;
-        if (!acc.has(key)) {
-          acc.set(key, []);
-        }
-        acc.get(key).push(mapNotaCreditoDetalle(detalle));
-        return acc;
-      }, new Map());
+    // Solo cargar detalles si hay notas (optimización: cargar detalles solo cuando sea necesario)
+    if (notas.length > 0 && notas.length <= 100) { // Limitar carga de detalles a lotes pequeños
+      const idsList = notas.map((nota) => nota.id).filter(Boolean);
+      if (idsList.length > 0) {
+        const request = pool.request();
+        // Usar parámetros nombrados en lugar de concatenación de strings (más seguro)
+        const placeholders = idsList.map((_, i) => `@id${i}`).join(',');
+        idsList.forEach((id, i) => {
+          request.input(`id${i}`, sql.Int, id);
+        });
+        
+        const detallesQuery = `
+          SELECT 
+            id,
+            nota_id AS notaId,
+            producto_id AS productoId,
+            cantidad,
+            precio_unitario AS precioUnitario,
+            descuento_porcentaje AS descuentoPorcentaje,
+            iva_porcentaje AS ivaPorcentaje,
+            subtotal,
+            valor_iva AS valorIva,
+            total,
+            created_at AS createdAt
+          FROM ven_detanotas
+          WHERE nota_id IN (${placeholders})
+          ORDER BY id ASC
+        `;
+        const detallesResult = await request.query(detallesQuery);
+        detalleMap = (detallesResult.recordset || []).reduce((acc, detalle) => {
+          const key = detalle.notaId;
+          if (!acc.has(key)) {
+            acc.set(key, []);
+          }
+          acc.get(key).push(mapNotaCreditoDetalle(detalle));
+          return acc;
+        }, new Map());
+      }
     }
 
     const data = notas.map((nota) => ({
@@ -1610,7 +2206,18 @@ app.get('/api/notas-credito', async (req, res) => {
       itemsDevueltos: detalleMap.get(nota.id) || []
     }));
 
-    res.json({ success: true, data });
+    res.json({ 
+      success: true, 
+      data,
+      pagination: {
+        page: pageNum,
+        pageSize: pageSizeNum,
+        total: total,
+        totalPages: totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
   } catch (error) {
     console.error('❌ Error obteniendo notas de crédito:', error);
     console.error('❌ Stack trace:', error.stack);
@@ -1785,10 +2392,13 @@ app.post('/api/notas-credito', async (req, res) => {
         const facturaResult = await facturaRequest.query(`
           SELECT 
             id,
-            numero_factura AS numeroFactura,
-            cliente_id AS clienteId,
-            subtotal,
-            total
+            numfact AS numeroFactura,
+            codter AS clienteId,
+            valvta AS subtotal,
+            netfac AS total,
+            CUFE,
+            estado_envio,
+            estfac AS estado
           FROM ven_facturas
           WHERE id = @facturaId
         `);
@@ -1816,12 +2426,15 @@ app.post('/api/notas-credito', async (req, res) => {
         const facturaResult = await facturaNumeroRequest.query(`
           SELECT 
             id,
-            numero_factura AS numeroFactura,
-            cliente_id AS clienteId,
-            subtotal,
-            total
+            numfact AS numeroFactura,
+            codter AS clienteId,
+            valvta AS subtotal,
+            netfac AS total,
+            CUFE,
+            estado_envio,
+            estfac AS estado
           FROM ven_facturas
-          WHERE numero_factura = @numeroFactura
+          WHERE numfact = @numeroFactura
         `);
 
         if (facturaResult.recordset.length === 0) {
@@ -1833,6 +2446,25 @@ app.post('/api/notas-credito', async (req, res) => {
         }
         factura = facturaResult.recordset[0];
       }
+      
+      // Validar que la factura esté timbrada en la DIAN antes de crear devolución
+      // Una factura está timbrada si tiene CUFE (Código Único de Factura Electrónica)
+      const cufe = factura.CUFE ? String(factura.CUFE).trim() : null;
+      if (!cufe || cufe === '' || cufe === 'null' || cufe === 'undefined') {
+        await tx.rollback();
+        console.error(`❌ Factura no está timbrada en la DIAN: facturaId="${factura.id}", numeroFactura="${factura.numeroFactura}"`);
+        
+        return res.status(400).json({
+          success: false,
+          message: `No se puede crear una devolución desde una factura que no está timbrada en la DIAN. La factura ${factura.numeroFactura} no tiene CUFE (Código Único de Factura Electrónica).`,
+          error: 'FACTURA_NO_TIMBRADA',
+          facturaId: factura.id,
+          numeroFactura: factura.numeroFactura,
+          cufe: cufe
+        });
+      }
+      
+      console.log(`✅ Factura validada y timbrada en DIAN: ID=${factura.id}, numeroFactura=${factura.numeroFactura}, CUFE=${cufe}`);
 
       const clienteFacturaId = String(factura.clienteId || '').trim();
       const clienteFinal = clienteFacturaId || String(clienteId || '').trim();
@@ -2730,7 +3362,7 @@ app.post('/api/cotizaciones', async (req, res) => {
           // Obtener todas las cotizaciones que empiezan con COT- y filtrar en JavaScript
           const ultimaCotResult = await reqUltimaCot.query(`
             SELECT numcot 
-            FROM ven_cotizacion 
+            FROM ${TABLE_NAMES.cotizaciones}
             WHERE numcot LIKE 'COT-%'
             ORDER BY numcot DESC
           `);
@@ -2773,7 +3405,7 @@ app.post('/api/cotizaciones', async (req, res) => {
           // Regenerar si el formato no es válido
           const reqUltimaCot = new sql.Request(tx);
           const ultimaCotResult = await reqUltimaCot.query(`
-            SELECT numcot FROM ven_cotizacion WHERE numcot LIKE 'COT-%' ORDER BY numcot DESC
+            SELECT numcot FROM ${TABLE_NAMES.cotizaciones} WHERE numcot LIKE 'COT-%' ORDER BY numcot DESC
           `);
           let siguienteNumero = 1;
           if (ultimaCotResult.recordset.length > 0) {
@@ -2811,7 +3443,7 @@ app.post('/api/cotizaciones', async (req, res) => {
         const reqUltimaCot = new sql.Request(tx);
         try {
           const ultimaCotResult = await reqUltimaCot.query(`
-            SELECT numcot FROM ven_cotizacion WHERE numcot LIKE 'COT-%' ORDER BY numcot DESC
+            SELECT numcot FROM ${TABLE_NAMES.cotizaciones} WHERE numcot LIKE 'COT-%' ORDER BY numcot DESC
           `);
           let siguienteNumero = 1;
           if (ultimaCotResult.recordset.length > 0) {
@@ -2879,7 +3511,7 @@ app.post('/api/cotizaciones', async (req, res) => {
       req1.input('num_orden_compra', sql.Int, numOrdenCompra ? parseInt(numOrdenCompra, 10) : null);
 
       const insertHeader = await req1.query(`
-        INSERT INTO ven_cotizacion (
+        INSERT INTO ${TABLE_NAMES.cotizaciones} (
           numcot, fecha, fecha_vence,
           codter, cod_vendedor, subtotal, val_descuento, val_iva,
           observa, estado, codalm, cod_usuario, COD_TARIFA, fecsys,
@@ -2945,7 +3577,7 @@ app.post('/api/cotizaciones', async (req, res) => {
         reqDet.input('codigo_medida', sql.Char(3), codigoMedida);
         
         await reqDet.query(`
-          INSERT INTO ven_detacotizacion (
+          INSERT INTO ${TABLE_NAMES.cotizaciones_detalle} (
             id_cotizacion, cod_producto, cantidad, preciound,
             tasa_descuento, tasa_iva, valor, codigo_medida
           ) VALUES (
@@ -3041,11 +3673,38 @@ app.put('/api/cotizaciones/:id', async (req, res) => {
       const updates = [];
       const params = { cotizacionId: id };
       
+      // Verificar estado actual de la cotización antes de actualizar
+      const reqCheckEstado = new sql.Request(tx);
+      reqCheckEstado.input('cotizacionId', sql.Int, idNum);
+      const estadoActualResult = await reqCheckEstado.query(`
+        SELECT id, numcot, estado, codter, cod_vendedor, codalm, subtotal, val_descuento, val_iva, observa
+        FROM ${TABLE_NAMES.cotizaciones}
+        WHERE id = @cotizacionId
+      `);
+      
+      if (estadoActualResult.recordset.length === 0) {
+        await tx.rollback();
+        return res.status(404).json({ 
+          success: false, 
+          message: `Cotización con ID ${idNum} no existe en la base de datos` 
+        });
+      }
+      
+      const cotizacionActual = estadoActualResult.recordset[0];
+      const estadoActualMapeado = mapEstadoFromDb(cotizacionActual.estado);
+      const estaAprobando = body.estado === 'APROBADA' && estadoActualMapeado !== 'APROBADA';
+      
       if (body.estado !== undefined) {
         const estadoMapeado = mapEstadoToDb(body.estado);
         updates.push('estado = @estado');
         reqUpdate.input('estado', sql.VarChar(10), estadoMapeado);
         console.log(`🔄 Actualizando estado: ${body.estado} -> ${estadoMapeado}`);
+        
+        // Si se está aprobando, actualizar fecha_aprobacion
+        if (estaAprobando) {
+          updates.push('fecha_aprobacion = GETDATE()');
+          console.log(`📅 Estableciendo fecha_aprobacion para cotización aprobada`);
+        }
       }
       
       if (body.fechaCotizacion !== undefined) {
@@ -3071,10 +3730,10 @@ app.put('/api/cotizaciones/:id', async (req, res) => {
       reqUpdate.input('cotizacionId', sql.Int, idNum);
       
       const updateQuery = `
-        UPDATE ven_cotizacion 
+        UPDATE ${TABLE_NAMES.cotizaciones}
         SET ${updates.join(', ')}
         WHERE id = @cotizacionId;
-        SELECT * FROM ven_cotizacion WHERE id = @cotizacionId;
+        SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE id = @cotizacionId;
       `;
       
       console.log(`🔍 Ejecutando query de actualización para cotización ID: ${idNum}`);
@@ -3093,7 +3752,7 @@ app.put('/api/cotizaciones/:id', async (req, res) => {
         // Verificar si la cotización existe antes de actualizar
         const reqCheck = new sql.Request(tx);
         reqCheck.input('cotizacionId', sql.Int, idNum);
-        const checkResult = await reqCheck.query('SELECT id, numcot, estado FROM ven_cotizacion WHERE id = @cotizacionId');
+        const checkResult = await reqCheck.query(`SELECT id, numcot, estado FROM ${TABLE_NAMES.cotizaciones} WHERE id = @cotizacionId`);
         
         if (checkResult.recordset.length === 0) {
           return res.status(404).json({ 
@@ -3108,26 +3767,241 @@ app.put('/api/cotizaciones/:id', async (req, res) => {
         }
       }
       
+      const updatedCotizacion = result.recordset[0];
+      const nuevoEstadoMapeado = mapEstadoFromDb(updatedCotizacion.estado);
+      
+      // NOTA: La creación automática de pedidos al aprobar una cotización está desactivada
+      // El frontend maneja la creación del pedido manualmente con los items seleccionados
+      // Esto permite más control sobre qué items incluir en el pedido
+      let pedidoCreado = null;
+      if (false && estaAprobando && nuevoEstadoMapeado === 'APROBADA') {
+        // CÓDIGO DESACTIVADO: El frontend crea el pedido manualmente
+        console.log(`🔄 Cotización aprobada, creando pedido automáticamente...`);
+        
+        try {
+          // Obtener detalles de la cotización para crear el pedido
+          const reqDetalles = new sql.Request(tx);
+          reqDetalles.input('cotizacionId', sql.Int, idNum);
+          const detallesResult = await reqDetalles.query(`
+            SELECT 
+              d.cod_producto,
+              d.cantidad,
+              d.preciound,
+              d.tasa_descuento,
+              d.tasa_iva,
+              d.valor,
+              d.codigo_medida,
+              p.id as productoId
+            FROM ${TABLE_NAMES.cotizaciones_detalle} d
+            LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(d.cod_producto))
+            WHERE d.id_cotizacion = @cotizacionId
+          `);
+          
+          if (detallesResult.recordset.length === 0) {
+            console.warn(`⚠️ Cotización ${idNum} no tiene items, no se puede crear pedido`);
+          } else {
+            // Construir items del pedido
+            const itemsPedido = detallesResult.recordset.map(det => {
+              const subtotalItem = (det.cantidad * det.preciound) - ((det.cantidad * det.preciound) * (det.tasa_descuento || 0) / 100);
+              const valorIvaItem = subtotalItem * ((det.tasa_iva || 0) / 100);
+              const totalItem = subtotalItem + valorIvaItem;
+              
+              return {
+                productoId: det.productoId,
+                cantidad: det.cantidad,
+                precioUnitario: det.preciound,
+                descuentoPorcentaje: det.tasa_descuento || 0,
+                ivaPorcentaje: det.tasa_iva || 0,
+                subtotal: subtotalItem,
+                valorIva: valorIvaItem,
+                total: totalItem,
+                codProducto: det.cod_producto
+              };
+            });
+            
+            // Calcular totales
+            const subtotalPedido = itemsPedido.reduce((sum, item) => sum + item.subtotal, 0);
+            const descuentoValorPedido = itemsPedido.reduce((sum, item) => sum + (item.subtotal * item.descuentoPorcentaje / 100), 0);
+            const ivaValorPedido = itemsPedido.reduce((sum, item) => sum + item.valorIva, 0);
+            const totalPedido = itemsPedido.reduce((sum, item) => sum + item.total, 0);
+            
+            // Generar número de pedido
+            const reqUltimoPed = new sql.Request(tx);
+            let siguienteNumero = 1;
+            try {
+              const ultimoPedResult = await reqUltimoPed.query(`
+                SELECT numero_pedido 
+                FROM ven_pedidos 
+                WHERE numero_pedido LIKE 'PED-%'
+                ORDER BY numero_pedido DESC
+              `);
+              
+              if (ultimoPedResult.recordset.length > 0) {
+                const numeros = ultimoPedResult.recordset
+                  .map(row => row.numero_pedido)
+                  .filter(num => num && /^PED-\d+$/.test(String(num).trim()))
+                  .map(num => {
+                    const match = String(num).trim().match(/^PED-(\d+)$/);
+                    return match ? parseInt(match[1], 10) : 0;
+                  })
+                  .filter(num => num > 0 && !isNaN(num));
+                
+                if (numeros.length > 0) {
+                  siguienteNumero = Math.max(...numeros) + 1;
+                }
+              }
+            } catch (error) {
+              console.error('⚠️ Error al obtener último número de pedido:', error);
+            }
+            
+            const numeroPedidoFinal = `PED-${String(siguienteNumero).padStart(3, '0')}`;
+            const fechaPedidoFinal = new Date().toISOString().split('T')[0];
+            const fechaEntregaEstimada = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            
+            // Obtener codalm del almacén
+            let codalmFinal = cotizacionActual.codalm || '001';
+            const reqAlmacen = new sql.Request(tx);
+            reqAlmacen.input('codalm', sql.VarChar(10), codalmFinal);
+            const almacenResult = await reqAlmacen.query(`
+              SELECT codalm, nomalm, activo
+              FROM inv_almacen
+              WHERE codalm = @codalm AND activo = 1
+            `);
+            
+            if (almacenResult.recordset.length === 0) {
+              // Intentar con '001' como fallback
+              reqAlmacen.input('codalm', sql.VarChar(10), '001');
+              const almacenFallback = await reqAlmacen.query(`
+                SELECT codalm, nomalm, activo
+                FROM inv_almacen
+                WHERE codalm = @codalm AND activo = 1
+              `);
+              if (almacenFallback.recordset.length > 0) {
+                codalmFinal = '001';
+              }
+            }
+            
+            // Obtener empresa_id desde codalm
+            let empresaIdFinal = 1;
+            try {
+              const empresaIdNum = parseInt(codalmFinal, 10);
+              if (!isNaN(empresaIdNum)) {
+                empresaIdFinal = empresaIdNum;
+              }
+            } catch (e) {
+              empresaIdFinal = 1;
+            }
+            
+            // Crear pedido
+            const reqCrearPedido = new sql.Request(tx);
+            reqCrearPedido.input('numero_pedido', sql.VarChar(50), numeroPedidoFinal);
+            reqCrearPedido.input('fecha_pedido', sql.Date, fechaPedidoFinal);
+            reqCrearPedido.input('fecha_entrega_estimada', sql.Date, fechaEntregaEstimada);
+            reqCrearPedido.input('codter', sql.VarChar(20), cotizacionActual.codter);
+            reqCrearPedido.input('codven', sql.VarChar(20), cotizacionActual.cod_vendedor || null);
+            reqCrearPedido.input('empresa_id', sql.Int, empresaIdFinal);
+            reqCrearPedido.input('cotizacion_id', sql.Int, idNum);
+            reqCrearPedido.input('subtotal', sql.Decimal(18, 2), subtotalPedido);
+            reqCrearPedido.input('descuento_valor', sql.Decimal(18, 2), descuentoValorPedido);
+            reqCrearPedido.input('descuento_porcentaje', sql.Decimal(5, 2), subtotalPedido > 0 ? (descuentoValorPedido / subtotalPedido) * 100 : 0);
+            reqCrearPedido.input('iva_valor', sql.Decimal(18, 2), ivaValorPedido);
+            reqCrearPedido.input('iva_porcentaje', sql.Decimal(5, 2), (subtotalPedido - descuentoValorPedido) > 0 ? (ivaValorPedido / (subtotalPedido - descuentoValorPedido)) * 100 : 0);
+            reqCrearPedido.input('total', sql.Decimal(18, 2), totalPedido);
+            reqCrearPedido.input('observaciones', sql.VarChar(500), `Pedido creado automáticamente desde cotización ${cotizacionActual.numcot}`);
+            reqCrearPedido.input('estado', sql.VarChar(20), mapEstadoToDb('BORRADOR'));
+            
+            const insertPedidoResult = await reqCrearPedido.query(`
+              INSERT INTO ven_pedidos (
+                numero_pedido, fecha_pedido, fecha_entrega_estimada,
+                codter, codven, empresa_id, cotizacion_id,
+                subtotal, descuento_valor, descuento_porcentaje, iva_valor, iva_porcentaje, total,
+                observaciones, estado, fec_creacion, fec_modificacion
+              ) VALUES (
+                @numero_pedido, @fecha_pedido, @fecha_entrega_estimada,
+                @codter, @codven, @empresa_id, @cotizacion_id,
+                @subtotal, @descuento_valor, @descuento_porcentaje, @iva_valor, @iva_porcentaje, @total,
+                @observaciones, @estado, GETDATE(), GETDATE()
+              );
+              SELECT SCOPE_IDENTITY() AS id;
+            `);
+            
+            const pedidoId = insertPedidoResult.recordset[0].id;
+            console.log(`✅ Pedido creado automáticamente con ID: ${pedidoId}, número: ${numeroPedidoFinal}`);
+            
+            // Crear items del pedido
+            const numped = 'PED' + String(siguienteNumero).padStart(5, '0');
+            for (const item of itemsPedido) {
+              if (!item.productoId) {
+                console.warn(`⚠️ Item sin productoId, saltando:`, item);
+                continue;
+              }
+              
+              const reqItem = new sql.Request(tx);
+              reqItem.input('numped', sql.Char(8), numped.substring(0, 8).padStart(8, '0'));
+              reqItem.input('codins', sql.Char(8), (item.codProducto || '').substring(0, 8).padStart(8, '0'));
+              reqItem.input('valins', sql.Decimal(18, 2), item.precioUnitario);
+              reqItem.input('canped', sql.Decimal(18, 2), item.cantidad);
+              reqItem.input('ivaped', sql.Decimal(18, 2), item.valorIva);
+              reqItem.input('dctped', sql.Decimal(18, 2), item.subtotal * (item.descuentoPorcentaje / 100));
+              reqItem.input('estped', sql.Char(1), 'B');
+              reqItem.input('codalm', sql.Char(3), codalmFinal.substring(0, 3).padStart(3, '0'));
+              reqItem.input('pedido_id', sql.Int, pedidoId);
+              reqItem.input('feccargo', sql.Date, fechaPedidoFinal);
+              reqItem.input('codtec', sql.VarChar(20), '');
+              
+              await reqItem.query(`
+                INSERT INTO ven_detapedidos (
+                  numped, codins, valins, canped, ivaped, dctped,
+                  estped, codalm, pedido_id, feccargo, codtec, Fecsys
+                ) VALUES (
+                  @numped, @codins, @valins, @canped, @ivaped, @dctped,
+                  @estped, @codalm, @pedido_id, @feccargo, @codtec, GETDATE()
+                );
+              `);
+            }
+            
+            pedidoCreado = {
+              id: pedidoId,
+              numeroPedido: numeroPedidoFinal,
+              estado: 'BORRADOR'
+            };
+            
+            console.log(`✅ Pedido creado exitosamente desde cotización aprobada`);
+          }
+        } catch (errorCrearPedido) {
+          console.error(`❌ Error al crear pedido automáticamente desde cotización:`, errorCrearPedido);
+          // No hacer rollback aquí, solo loguear el error
+          // El pedido se puede crear manualmente después
+        }
+      }
+      
       await tx.commit();
       
-      const updatedCotizacion = result.recordset[0];
       console.log('✅ Cotización actualizada exitosamente:', {
         id: updatedCotizacion.id,
         numcot: updatedCotizacion.numcot,
         estado: updatedCotizacion.estado,
-        estadoMapeado: mapEstadoFromDb(updatedCotizacion.estado)
+        estadoMapeado: nuevoEstadoMapeado,
+        pedidoCreado: pedidoCreado ? pedidoCreado.numeroPedido : null
       });
+      
+      const responseData = {
+        id: updatedCotizacion.id,
+        numeroCotizacion: updatedCotizacion.numcot,
+        estado: nuevoEstadoMapeado,
+        fechaCotizacion: updatedCotizacion.fecha,
+        fechaVencimiento: updatedCotizacion.fecha_vence,
+        observaciones: updatedCotizacion.observa
+      };
+      
+      // Si se creó un pedido, incluirlo en la respuesta
+      if (pedidoCreado) {
+        responseData.pedido = pedidoCreado;
+      }
       
       res.json({ 
         success: true, 
-        data: {
-          id: updatedCotizacion.id,
-          numeroCotizacion: updatedCotizacion.numcot,
-          estado: mapEstadoFromDb(updatedCotizacion.estado),
-          fechaCotizacion: updatedCotizacion.fecha,
-          fechaVencimiento: updatedCotizacion.fecha_vence,
-          observaciones: updatedCotizacion.observa
-        }
+        data: responseData
       });
     } catch (inner) {
       await tx.rollback();
@@ -3240,7 +4114,7 @@ app.post('/api/pedidos', async (req, res) => {
           reqCheckCot.input('cotizacionId', sql.Int, cotizacionIdNum);
           cotizacionResult = await reqCheckCot.query(`
             SELECT id, numcot, estado 
-            FROM ven_cotizacion 
+            FROM ${TABLE_NAMES.cotizaciones}
             WHERE id = @cotizacionId
           `);
           console.log(`   → Buscando por ID numérico: ${cotizacionIdNum}`);
@@ -3249,7 +4123,7 @@ app.post('/api/pedidos', async (req, res) => {
           reqCheckCot.input('numcot', sql.VarChar(50), cotizacionIdStr);
           cotizacionResult = await reqCheckCot.query(`
             SELECT id, numcot, estado 
-            FROM ven_cotizacion 
+            FROM ${TABLE_NAMES.cotizaciones}
             WHERE numcot = @numcot
           `);
           console.log(`   → Buscando por numcot: "${cotizacionIdStr}"`);
@@ -3262,7 +4136,7 @@ app.post('/api/pedidos', async (req, res) => {
           try {
             debugCotResult = await reqDebugCot.query(`
               SELECT TOP 5 id, numcot, estado 
-              FROM ven_cotizacion 
+              FROM ${TABLE_NAMES.cotizaciones}
               ORDER BY id DESC
             `);
             console.log(`   📋 Ejemplos de cotizaciones en BD:`, debugCotResult.recordset);
@@ -3933,17 +4807,39 @@ app.post('/api/pedidos', async (req, res) => {
         const codalmFormatted = codalmReal.substring(0, 3).padStart(3, '0');
         
         // Redondear todos los valores DECIMAL a 2 decimales para evitar overflow
+        // CRÍTICO: Asegurar que los valores estén dentro del rango de DECIMAL(18,2)
+        // DECIMAL(18,2) puede almacenar: -9999999999999999.99 a 9999999999999999.99
+        // Usar la misma constante definida arriba en el contexto del header del pedido
+        const maxDecimal18_2Items = 9999999999999999.99;
+        
         const roundTo2Decimals = (value) => {
           if (!isFinite(value) || isNaN(value)) return 0;
-          // Usar toFixed(2) para asegurar exactamente 2 decimales y evitar problemas de precisión
-          return parseFloat(value.toFixed(2));
+          // Limitar al rango máximo primero (solo positivos para cantidades y valores)
+          const limited = Math.max(0, Math.min(maxDecimal18_2Items, Math.abs(Number(value))));
+          // Usar toFixed(2) para asegurar exactamente 2 decimales
+          // Usar Number() para convertir a número limpio sin notación científica
+          const rounded = Number(limited.toFixed(2));
+          // Validación final: asegurar que no exceda el máximo y sea un número válido
+          const final = Math.max(0, Math.min(maxDecimal18_2Items, rounded));
+          // Asegurar que sea un número finito
+          return isFinite(final) && !isNaN(final) ? final : 0;
         };
         
-        // Calcular valores redondeados
-        const valinsRounded = roundTo2Decimals(valinsFinalValid);
-        const canpedRounded = roundTo2Decimals(cantidadFinalValid);
-        const ivapedRounded = roundTo2Decimals(ivapedFinalValid);
-        const dctpedRounded = roundTo2Decimals(dctpedFinalValid);
+        // Calcular valores redondeados con validación estricta
+        // Asegurar que todos los valores sean positivos (no pueden ser negativos)
+        const valinsRounded = roundTo2Decimals(Math.abs(valinsFinalValid));
+        // canped puede tener más decimales en la tabla real, pero redondeamos a 2 para consistencia
+        const canpedRounded = roundTo2Decimals(Math.abs(cantidadFinalValid));
+        const ivapedRounded = roundTo2Decimals(Math.abs(ivapedFinalValid));
+        const dctpedRounded = roundTo2Decimals(Math.abs(dctpedFinalValid));
+        
+        // Validación final antes de insertar
+        if (valinsRounded > maxDecimal18_2Items || 
+            canpedRounded > maxDecimal18_2Items || 
+            ivapedRounded > maxDecimal18_2Items || 
+            dctpedRounded > maxDecimal18_2Items) {
+          throw new Error(`Item ${idx + 1}: Valores exceden el rango máximo de DECIMAL(18,2). valins=${valinsRounded}, canped=${canpedRounded}, ivaped=${ivapedRounded}, dctped=${dctpedRounded}`);
+        }
         
         // Log de valores antes de insertar item
         console.log(`📦 Item ${idx + 1} - Valores redondeados para inserción:`, {
@@ -3955,10 +4851,47 @@ app.post('/api/pedidos', async (req, res) => {
         
         reqDet.input('numped', sql.Char(8), numped.substring(0, 8).padStart(8, '0'));
         reqDet.input('codins', sql.Char(8), codins.substring(0, 8).padStart(8, '0'));
-        reqDet.input('valins', sql.Decimal(18, 2), valinsRounded);
-        reqDet.input('canped', sql.Decimal(18, 2), canpedRounded);
-        reqDet.input('ivaped', sql.Decimal(18, 2), ivapedRounded);
-        reqDet.input('dctped', sql.Decimal(18, 2), dctpedRounded);
+        
+        // CRÍTICO: Asegurar que todos los valores DECIMAL estén exactamente en el formato correcto
+        // Usar Number() con toFixed(2) para asegurar exactamente 2 decimales sin exceder el rango
+        // Los valores ya están validados arriba, solo necesitamos formatearlos correctamente
+        const valinsDecimal = Number(valinsRounded.toFixed(2));
+        const canpedDecimal = Number(canpedRounded.toFixed(2));
+        const ivapedDecimal = Number(ivapedRounded.toFixed(2));
+        const dctpedDecimal = Number(dctpedRounded.toFixed(2));
+        
+        // Validación final: asegurar que no sean NaN, Infinity o excedan el rango
+        if (!isFinite(valinsDecimal) || !isFinite(canpedDecimal) || 
+            !isFinite(ivapedDecimal) || !isFinite(dctpedDecimal)) {
+          throw new Error(`Item ${idx + 1}: Valores numéricos inválidos (NaN o Infinity). Valores: valins=${valinsDecimal}, canped=${canpedDecimal}, ivaped=${ivapedDecimal}, dctped=${dctpedDecimal}`);
+        }
+        
+        // Validar que los valores no excedan el rango permitido (doble verificación)
+        if (valinsDecimal > maxDecimal18_2Items || 
+            canpedDecimal > maxDecimal18_2Items || 
+            ivapedDecimal > maxDecimal18_2Items || 
+            dctpedDecimal > maxDecimal18_2Items) {
+          throw new Error(`Item ${idx + 1}: Valores exceden el rango máximo de DECIMAL(18,2). Valores: valins=${valinsDecimal}, canped=${canpedDecimal}, ivaped=${ivapedDecimal}, dctped=${dctpedDecimal}`);
+        }
+        
+        console.log(`📦 Item ${idx + 1} - Valores finales validados para inserción:`, {
+          valins: valinsDecimal,
+          canped: canpedDecimal,
+          ivaped: ivapedDecimal,
+          dctped: dctpedDecimal,
+          tipos: {
+            valins: typeof valinsDecimal,
+            canped: typeof canpedDecimal,
+            ivaped: typeof ivapedDecimal,
+            dctped: typeof dctpedDecimal
+          }
+        });
+        
+        // Usar sql.Decimal(18, 2) para asegurar que SQL Server entienda el tipo correcto
+        reqDet.input('valins', sql.Decimal(18, 2), valinsDecimal);
+        reqDet.input('canped', sql.Decimal(18, 2), canpedDecimal);
+        reqDet.input('ivaped', sql.Decimal(18, 2), ivapedDecimal);
+        reqDet.input('dctped', sql.Decimal(18, 2), dctpedDecimal);
         reqDet.input('estped', sql.Char(1), 'B'); // B=BORRADOR
         reqDet.input('codalm', sql.Char(3), codalmFormatted);
         reqDet.input('pedido_id', sql.Int, newId); // Relación con ven_pedidos.id (ya validado arriba)
@@ -4480,8 +5413,27 @@ app.post('/api/remisiones', async (req, res) => {
             });
           }
           
-          pedidoIdFinal = pedidoResult.recordset[0].id;
-          console.log(`✅ Pedido encontrado: id=${pedidoIdFinal}, numero_pedido=${pedidoResult.recordset[0].numero_pedido}`);
+          const pedido = pedidoResult.recordset[0];
+          const estadoPedido = mapEstadoFromDb(pedido.estado);
+          
+          // Validar que el pedido esté aprobado (CONFIRMADO) antes de crear remisión
+          // Solo se pueden crear remisiones desde pedidos en estado CONFIRMADO, EN_PROCESO, PARCIALMENTE_REMITIDO o REMITIDO
+          const estadosValidosParaRemision = ['CONFIRMADO', 'EN_PROCESO', 'PARCIALMENTE_REMITIDO', 'REMITIDO'];
+          if (!estadosValidosParaRemision.includes(estadoPedido)) {
+            await tx.rollback();
+            console.error(`❌ Pedido no está aprobado: pedidoId="${pedidoIdNum}", estado="${estadoPedido}"`);
+            
+            return res.status(400).json({ 
+              success: false, 
+              message: `No se puede crear una remisión desde un pedido en estado '${estadoPedido}'. El pedido debe estar aprobado (CONFIRMADO) para poder crear remisiones.`, 
+              error: 'PEDIDO_NO_APROBADO',
+              estadoActual: estadoPedido,
+              estadosValidos: estadosValidosParaRemision
+            });
+          }
+          
+          pedidoIdFinal = pedido.id;
+          console.log(`✅ Pedido encontrado y aprobado: id=${pedidoIdFinal}, numero_pedido=${pedido.numero_pedido}, estado=${estadoPedido}`);
         } else {
           await tx.rollback();
           return res.status(400).json({ 
@@ -5626,8 +6578,27 @@ app.post('/api/facturas', async (req, res) => {
           });
         }
         
-        remisionIdFinal = remisionResult.recordset[0].id;
-        console.log(`✅ Remisión validada: ID=${remisionIdFinal}, numero_remision=${remisionResult.recordset[0].numero_remision}`);
+        const remision = remisionResult.recordset[0];
+        const estadoRemision = mapEstadoFromDb(remision.estado);
+        
+        // Validar que la remisión esté entregada antes de crear factura
+        // Solo se pueden crear facturas desde remisiones en estado ENTREGADO
+        if (estadoRemision !== 'ENTREGADO' && estadoRemision !== 'ENTREGADA') {
+          await tx.rollback();
+          console.error(`❌ Remisión no está entregada: remisionId="${remision.id}", estado="${estadoRemision}"`);
+          
+          return res.status(400).json({ 
+            success: false, 
+            message: `No se puede crear una factura desde una remisión en estado '${estadoRemision}'. La remisión debe estar entregada (ENTREGADO) para poder crear facturas.`, 
+            error: 'REMISION_NO_ENTREGADA',
+            estadoActual: estadoRemision,
+            remisionId: remision.id,
+            numeroRemision: remision.numero_remision
+          });
+        }
+        
+        remisionIdFinal = remision.id;
+        console.log(`✅ Remisión validada y entregada: ID=${remisionIdFinal}, numero_remision=${remision.numero_remision}, estado=${estadoRemision}`);
       }
       
       // 5. Validar y generar numeroFactura
@@ -6517,28 +7488,59 @@ process.on('unhandledRejection', (reason, promise) => {
   // Solo loguear el error para debugging
 });
 
-// Manejo de señales de terminación para cerrar conexiones correctamente
-process.on('SIGTERM', async () => {
-  console.log('📡 Señal SIGTERM recibida, cerrando servidor...');
-  try {
-    const { closeConnection } = require('./services/sqlServerClient.cjs');
-    await closeConnection();
-  } catch (error) {
-    console.error('Error cerrando conexión:', error);
-  }
-  process.exit(0);
-});
+// Variable global para almacenar la referencia del servidor
+let httpServer = null;
 
-process.on('SIGINT', async () => {
-  console.log('\n📡 Señal SIGINT recibida (Ctrl+C), cerrando servidor...');
+// Función para cerrar el servidor de forma graceful
+const gracefulShutdown = async (signal) => {
+  console.log(`\n📡 Señal ${signal} recibida, cerrando servidor gracefully...`);
+  
+  // Timeout para forzar el cierre si tarda demasiado (5 segundos)
+  const forceExitTimeout = setTimeout(() => {
+    console.error('⚠️ Timeout alcanzado, forzando cierre...');
+    process.exit(1);
+  }, 5000);
+  
   try {
+    // 1. Cerrar el servidor HTTP (no aceptar nuevas conexiones)
+    if (httpServer) {
+      console.log('🔄 Cerrando servidor HTTP...');
+      await new Promise((resolve, reject) => {
+        httpServer.close((err) => {
+          if (err) {
+            console.error('❌ Error cerrando servidor HTTP:', err);
+            reject(err);
+          } else {
+            console.log('✅ Servidor HTTP cerrado');
+            resolve();
+          }
+        });
+      });
+    }
+    
+    // 2. Esperar un poco para que las conexiones actuales terminen (2 segundos)
+    console.log('⏳ Esperando que las conexiones actuales terminen...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // 3. Cerrar conexión a la base de datos
     const { closeConnection } = require('./services/sqlServerClient.cjs');
     await closeConnection();
+    
+    // Limpiar timeout
+    clearTimeout(forceExitTimeout);
+    
+    console.log('✅ Cierre graceful completado');
+    process.exit(0);
   } catch (error) {
-    console.error('Error cerrando conexión:', error);
+    console.error('❌ Error durante el cierre graceful:', error);
+    clearTimeout(forceExitTimeout);
+    process.exit(1);
   }
-  process.exit(0);
-});
+};
+
+// Manejo de señales de terminación
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Iniciar servidor solo si no estamos en Vercel (serverless)
 // En Vercel, el servidor se ejecuta como función serverless
@@ -6548,7 +7550,7 @@ if (!process.env.VERCEL) {
   
   // Intentar iniciar el servidor con manejo de errores
   try {
-    const server = app.listen(PORT, HOST, () => {
+    httpServer = app.listen(PORT, HOST, () => {
       console.log('\n' + '='.repeat(60));
       console.log(`🚀 Servidor API ejecutándose en puerto ${PORT}`);
       console.log('='.repeat(60));
@@ -6571,7 +7573,7 @@ if (!process.env.VERCEL) {
     });
     
     // Manejar errores del servidor
-    server.on('error', (error) => {
+    httpServer.on('error', (error) => {
       if (error.code === 'EADDRINUSE') {
         console.error(`❌ Error: El puerto ${PORT} ya está en uso.`);
         console.error('💡 Intenta usar otro puerto o detén el proceso que está usando este puerto.');

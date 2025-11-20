@@ -73,9 +73,57 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     useEffect(() => {
         if (initialData) {
             setClienteId(initialData.clienteId);
-            setSelectedCliente(clientes.find(c => c.id === initialData.clienteId) || null);
-            setVendedorId(initialData.vendedorId || '');
-            setSelectedVendedor(vendedores.find(v => v.id === initialData.vendedorId) || null);
+            const cliente = clientes.find(c => 
+                String(c.id) === String(initialData.clienteId) ||
+                c.numeroDocumento === initialData.clienteId ||
+                (c as any).codter === initialData.clienteId
+            );
+            setSelectedCliente(cliente || null);
+            
+            // Buscar vendedor de manera más robusta (por ID, código o codVendedor)
+            let vendedorEncontrado: Vendedor | null = null;
+            if (initialData.vendedorId) {
+                // Buscar por ID primero
+                vendedorEncontrado = vendedores.find(v => 
+                    String(v.id) === String(initialData.vendedorId) ||
+                    String(v.codiEmple) === String(initialData.vendedorId)
+                ) || null;
+                
+                // Si no se encuentra por ID, buscar por código de vendedor
+                if (!vendedorEncontrado && initialData.codVendedor) {
+                    const codVendedor = String(initialData.codVendedor).trim();
+                    vendedorEncontrado = vendedores.find(v => {
+                        if (v.codigoVendedor && String(v.codigoVendedor).trim() === codVendedor) return true;
+                        if ((v as any).codigo && String((v as any).codigo).trim() === codVendedor) return true;
+                        return false;
+                    }) || null;
+                }
+                
+                // Si aún no se encuentra, intentar vendedorId como código
+                if (!vendedorEncontrado) {
+                    const codBuscado = String(initialData.vendedorId).trim();
+                    vendedorEncontrado = vendedores.find(v => {
+                        if (v.codigoVendedor && String(v.codigoVendedor).trim() === codBuscado) return true;
+                        if ((v as any).codigo && String((v as any).codigo).trim() === codBuscado) return true;
+                        if (String(v.codiEmple).trim() === codBuscado) return true;
+                        return false;
+                    }) || null;
+                }
+            }
+            
+            if (vendedorEncontrado) {
+                setVendedorId(vendedorEncontrado.id || vendedorEncontrado.codiEmple || initialData.vendedorId || '');
+                setSelectedVendedor(vendedorEncontrado);
+                // Establecer el texto de búsqueda con el nombre del vendedor
+                const nombreVendedor = `${vendedorEncontrado.primerNombre || ''} ${vendedorEncontrado.primerApellido || ''}`.trim() || 
+                                      vendedorEncontrado.nombreCompleto || '';
+                setVendedorSearch(nombreVendedor);
+            } else {
+                setVendedorId(initialData.vendedorId || '');
+                setSelectedVendedor(null);
+                setVendedorSearch(initialData.vendedorId || '');
+            }
+            
             setItems(initialData.items);
             setObservacionesInternas(initialData.observacionesInternas || '');
             setFormaPago(initialData.formaPago || '01');
@@ -289,9 +337,15 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     //     }
     // };
     const pickVendedor = (v: Vendedor) => {
-        setVendedorId(v.id);
+        // Usar el ID o codiEmple como vendedorId
+        const vendedorIdToUse = v.id || v.codiEmple || '';
+        setVendedorId(vendedorIdToUse);
         setSelectedVendedor(v);
-        setVendedorSearch(`${v.primerNombre || ''} ${v.primerApellido || ''}`.trim());
+        // Establecer el nombre completo en el campo de búsqueda
+        const nombreCompleto = `${v.primerNombre || ''} ${v.primerApellido || ''}`.trim() || 
+                              v.nombreCompleto || 
+                              `${v.codigoVendedor || ''}`.trim();
+        setVendedorSearch(nombreCompleto);
         setIsVendedorOpen(false);
     };
     

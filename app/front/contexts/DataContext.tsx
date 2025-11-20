@@ -1,4 +1,4 @@
-import React, { createContext, useState, ReactNode, useMemo, useCallback, useEffect } from 'react';
+import React, { createContext, useState, ReactNode, useMemo, useCallback, useEffect, useRef } from 'react';
 import { initialActivityLog } from '../data/activityLog';
 import {
     Cliente, InvProducto, Factura, Pedido, Cotizacion, Remision, NotaCredito, Vendedor, DocumentItem,
@@ -410,25 +410,36 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
         const loadTransactionalData = async (productosConMedida: InvProducto[]) => {
             try {
+                // OPTIMIZACIÓN: Cargar datos transaccionales con paginación y lazy loading
+                // No cargar todos los datos al inicio, solo cargar cuando sea necesario
                 const [
-                    facturasResponse, facturasDetalleResponse, cotizacionesResponse, 
-                    cotizacionesDetalleResponse, pedidosResponse, pedidosDetalleResponse, 
-                    remisionesResponse, remisionesDetalleResponse, notasCreditoResponse
+                    facturasResponse, cotizacionesResponse, 
+                    pedidosResponse, notasCreditoResponse
                 ] = await Promise.all([
-                    fetchFacturas(),
-                    fetchFacturasDetalle(),
-                    fetchCotizaciones(),
-                    fetchCotizacionesDetalle(),
-                    // Cargar pedidos inicialmente (con pageSize alto para obtener todos los pedidos disponibles)
-                    fetchPedidos(1, 10000), // Solicitar página 1 con 10000 items para obtener todos
-                    fetchPedidosDetalle(),
-                    // Remisiones ahora se cargan con paginación desde RemisionesPage
-                    // fetchRemisiones(),
-                    // fetchRemisionesDetalle(),
-                    Promise.resolve({ success: true, data: [] }),
-                    Promise.resolve({ success: true, data: [] }),
-                    fetchNotasCredito()
+                    // Cargar solo primera página de facturas (optimización: no cargar todos)
+                    fetchFacturas().catch(() => ({ success: false, data: [] })),
+                    // Cargar solo primera página de cotizaciones
+                    fetchCotizaciones().catch(() => ({ success: false, data: [] })),
+                    // Cargar pedidos con paginación razonable (100 items en lugar de 10000)
+                    fetchPedidos(1, 100).catch(() => ({ success: false, data: [], pagination: {} })),
+                    // Cargar notas de crédito con paginación
+                    fetchNotasCredito().catch(() => ({ success: false, data: [] }))
                 ]);
+                
+                // Cargar detalles de cotizaciones y pedidos para que los items se muestren correctamente
+                // Los detalles de facturas y remisiones se pueden cargar bajo demanda
+                const [
+                    cotizacionesDetalleResponse,
+                    pedidosDetalleResponse
+                ] = await Promise.all([
+                    fetchCotizacionesDetalle().catch(() => ({ success: false, data: [] })),
+                    fetchPedidosDetalle().catch(() => ({ success: false, data: [] }))
+                ]);
+                
+                // Facturas y remisiones detalles se cargan bajo demanda
+                const facturasDetalleResponse = { success: true, data: [] };
+                const remisionesResponse = { success: true, data: [] };
+                const remisionesDetalleResponse = { success: true, data: [] };
                 
                 if (!pedidosResponse.success) {
                     logger.error({ prefix: 'DataContext' }, 'Error en pedidos:', pedidosResponse);
@@ -577,11 +588,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         cufe: f.cufe || f.CUFE || undefined,
                         cajaId: f.cajaId || f.IdCaja || undefined,
                         // Extraer motivo de rechazo de observaciones si existe
-                        motivoRechazo: (() => {
-                            const obs = f.observaciones || f.Observa || '';
-                            const match = obs.match(/MOTIVO RECHAZO:\s*(.+?)(?:\s*\||$)/i);
-                            return match ? match[1].trim() : undefined;
-                        })(),
+                        motivoRechazo: f.motivoRechazo || (f.estado === 'RECHAZADA' ? (f.observaciones || f.Observa || null) : null),
                         // Items y relaciones
                         items: items,
                         remisionesIds: remisionesIds,
@@ -601,10 +608,37 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 setFacturas(facturasConDetalles);
 
                 // Process cotizaciones with detalles
-                const cotizacionesConDetalles = (cotizacionesData as any[]).map(c => ({
-                    ...c,
-                    items: (cotizacionesDetalleData as any[]).filter(d => d.cotizacionId === c.id)
-                }));
+                // CRÍTICO: Comparar IDs como strings para evitar problemas de tipo
+                const cotizacionesConDetalles = (cotizacionesData as any[]).map(c => {
+                    const cotizacionIdStr = String(c.id || '').trim();
+                    const items = (cotizacionesDetalleData as any[]).filter(d => {
+                        const detalleCotizacionIdStr = String(d.cotizacionId || '').trim();
+                        // Comparar como strings para evitar problemas de tipo
+                        const match = cotizacionIdStr === detalleCotizacionIdStr || 
+                                     String(c.id) === String(d.cotizacionId) ||
+                                     Number(c.id) === Number(d.cotizacionId);
+                        return match;
+                    });
+                    
+                    logger.log({ prefix: 'DataContext', level: 'debug' }, `Cotización ${cotizacionIdStr} - Items encontrados: ${items.length}`, {
+                        cotizacionId: cotizacionIdStr,
+                        itemsCount: items.length,
+                        totalDetalles: cotizacionesDetalleData.length,
+                        itemsIds: items.map(i => i.id).slice(0, 5)
+                    });
+                    
+                    return {
+                        ...c,
+                        items: items
+                    };
+                });
+                
+                logger.log({ prefix: 'DataContext', level: 'debug' }, 'Cotizaciones procesadas con detalles:', {
+                    cotizacionesCount: cotizacionesConDetalles.length,
+                    cotizacionesConItems: cotizacionesConDetalles.filter(c => c.items && c.items.length > 0).length,
+                    totalItems: cotizacionesConDetalles.reduce((sum, c) => sum + (c.items?.length || 0), 0)
+                });
+                
                 setCotizaciones(cotizacionesConDetalles);
 
                 // Process pedidos with detalles
@@ -722,12 +756,44 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     }, [isLoading, isMainDataLoaded, medidas, selectedSede?.codigo]);
 
     // Recargar productos cuando cambie la bodega seleccionada (useEffect independiente)
+    // IMPORTANTE: Usar useRef para evitar recargas múltiples de la misma bodega
+    const lastLoadedSedeRef = useRef<string | null>(null);
+    const isLoadingProductsRef = useRef<boolean>(false);
+    
     useEffect(() => {
-        if (!isMainDataLoaded) return; // Esperar a que se carguen los datos iniciales
+        // Solo proceder si hay una bodega seleccionada y tenemos las medidas cargadas
+        if (!selectedSede?.codigo || !medidas || medidas.length === 0) {
+            // Si no hay bodega seleccionada, limpiar productos o mantener los actuales
+            lastLoadedSedeRef.current = null; // Reset cuando no hay bodega
+            return;
+        }
         
-        const codalm = selectedSede?.codigo ? String(selectedSede.codigo).padStart(3, '0') : undefined;
+        const codalm = String(selectedSede.codigo).padStart(3, '0');
+        const sedeKey = `${selectedSede.id}-${codalm}`;
+        
+        // Evitar recargar si ya cargamos esta bodega O si ya estamos cargando
+        if (lastLoadedSedeRef.current === sedeKey || isLoadingProductsRef.current) {
+            logger.log({ prefix: 'DataContext', level: 'debug' }, 'Productos ya cargados o cargando para esta bodega, omitiendo recarga:', {
+                codalm,
+                nombre: selectedSede.nombre,
+                yaCargado: lastLoadedSedeRef.current === sedeKey,
+                cargando: isLoadingProductsRef.current
+            });
+            return;
+        }
+        
+        // Marcar que estamos cargando esta bodega
+        lastLoadedSedeRef.current = sedeKey;
+        isLoadingProductsRef.current = true;
+        
+        logger.log({ prefix: 'DataContext', level: 'debug' }, 'Recargando productos para bodega:', {
+            codalm,
+            nombre: selectedSede.nombre,
+            id: selectedSede.id
+        });
         
         fetchProductos(codalm).then(productosResponse => {
+            isLoadingProductsRef.current = false;
             if (productosResponse.success) {
                 // Helper para extraer datos de estructura anidada
                 const extractArrayData = (response: any): any[] => {
@@ -759,11 +825,88 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 });
                 productosConMedida.sort((a: InvProducto, b: InvProducto) => (a.nombre || '').trim().localeCompare((b.nombre || '').trim()));
                 setProductos(productosConMedida);
+                logger.log({ prefix: 'DataContext', level: 'debug' }, 'Productos recargados para bodega:', {
+                    codalm,
+                    cantidad: productosConMedida.length
+                });
+            } else {
+                logger.warn({ prefix: 'DataContext' }, 'No se pudieron cargar productos para la bodega:', codalm);
             }
         }).catch(error => {
+            isLoadingProductsRef.current = false;
             logger.error({ prefix: 'DataContext' }, 'Error actualizando productos por bodega:', error);
+            // Si hay error, resetear la referencia para permitir reintento
+            if (lastLoadedSedeRef.current === sedeKey) {
+                lastLoadedSedeRef.current = null;
+            }
         });
-    }, [selectedSede?.codigo, isMainDataLoaded, medidas]);
+    }, [selectedSede?.codigo, selectedSede?.id, medidas]);
+
+    // Definir refreshData ANTES del useEffect que lo usa
+    // IMPORTANTE: refreshData NO debe depender de selectedSede para evitar bucles
+    const refreshData = useCallback(async (codalmOverride?: string) => {
+        setIsMainDataLoaded(false);
+        setIsLoading(true);
+        
+        // Helper para extraer datos de estructura anidada
+        const extractArrayData = (response: any): any[] => {
+            if (!response.success) return [];
+            const raw = response.data;
+            if (Array.isArray(raw)) return raw;
+            if (raw && typeof raw === 'object' && 'data' in raw && Array.isArray((raw as any).data)) {
+                return (raw as any).data;
+            }
+            return [];
+        };
+        
+        // Reload essential catalogs
+        try {
+            const medidasResponse = await fetchMedidas();
+            if (medidasResponse.success) {
+                const medidasData = extractArrayData(medidasResponse);
+                if (medidasData.length > 0) {
+                    setMedidas(medidasData);
+                }
+            }
+            
+            const categoriasResponse = await fetchCategorias();
+            if (categoriasResponse.success) {
+                const categoriasData = extractArrayData(categoriasResponse);
+                if (categoriasData.length > 0) {
+                    setCategorias(categoriasData);
+                }
+            }
+            
+            // Recargar productos con filtro de bodega actual o el override
+            // Usar codalmOverride si está disponible, sino usar selectedSede?.codigo
+            const codalm = codalmOverride || (selectedSede?.codigo ? String(selectedSede.codigo).padStart(3, '0') : undefined);
+            const productosResponse = await fetchProductos(codalm);
+            if (productosResponse.success) {
+                const productosData = extractArrayData(productosResponse);
+                const productosConMedida = (productosData as any[]).map((p: InvProducto) => ({ 
+                    ...p, 
+                    unidadMedida: medidas.find((m) => m.id === p.idMedida)?.nombre || 'Unidad',
+                    stock: p.stock ?? 0,
+                    controlaExistencia: p.stock ?? p.controlaExistencia ?? 0
+                }));
+                productosConMedida.sort((a: InvProducto, b: InvProducto) => (a.nombre || '').trim().localeCompare((b.nombre || '').trim()));
+                setProductos(productosConMedida);
+            }
+
+            setIsLoading(false);
+        } catch (error) {
+            logger.error({ prefix: 'refreshData' }, 'Error refreshing data:', error);
+            setIsLoading(false);
+        }
+    }, [medidas]); // Removido selectedSede?.codigo para evitar bucle
+
+    // ✅ ELIMINADO: useEffect que recargaba todos los datos al cambiar bodega
+    // Esto causaba un bucle infinito porque:
+    // 1. selectedSede cambia -> useEffect se dispara
+    // 2. refreshData() se llama -> actualiza productos
+    // 3. Esto causa re-render -> useEffect se dispara de nuevo
+    // Los productos ya se recargan automáticamente en el useEffect independiente más abajo
+    // cuando cambia selectedSede?.codigo, así que no necesitamos este efecto redundante
 
     // --- COMPUTED DATA FUNCTIONS ---
 
@@ -1124,61 +1267,6 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
         return productoNormalizado;
     }, [selectedSede?.codigo, productos, medidas, addActivityLog]);
-
-    const refreshData = useCallback(async () => {
-        setIsMainDataLoaded(false);
-        setIsLoading(true);
-        
-        // Helper para extraer datos de estructura anidada
-        const extractArrayData = (response: any): any[] => {
-            if (!response.success) return [];
-            const raw = response.data;
-            if (Array.isArray(raw)) return raw;
-            if (raw && typeof raw === 'object' && 'data' in raw && Array.isArray((raw as any).data)) {
-                return (raw as any).data;
-            }
-            return [];
-        };
-        
-        // Reload essential catalogs
-        try {
-            const medidasResponse = await fetchMedidas();
-            if (medidasResponse.success) {
-                const medidasData = extractArrayData(medidasResponse);
-                if (medidasData.length > 0) {
-                    setMedidas(medidasData);
-                }
-            }
-            
-            const categoriasResponse = await fetchCategorias();
-            if (categoriasResponse.success) {
-                const categoriasData = extractArrayData(categoriasResponse);
-                if (categoriasData.length > 0) {
-                    setCategorias(categoriasData);
-                }
-            }
-            
-            // Recargar productos con filtro de bodega actual
-            const codalm = selectedSede?.codigo ? String(selectedSede.codigo).padStart(3, '0') : undefined;
-            const productosResponse = await fetchProductos(codalm);
-            if (productosResponse.success) {
-                const productosData = extractArrayData(productosResponse);
-                const productosConMedida = (productosData as any[]).map((p: InvProducto) => ({ 
-                    ...p, 
-                    unidadMedida: medidas.find((m) => m.id === p.idMedida)?.nombre || 'Unidad',
-                    stock: p.stock ?? 0,
-                    controlaExistencia: p.stock ?? p.controlaExistencia ?? 0
-                }));
-                productosConMedida.sort((a: InvProducto, b: InvProducto) => (a.nombre || '').trim().localeCompare((b.nombre || '').trim()));
-                setProductos(productosConMedida);
-            }
-
-            setIsLoading(false);
-        } catch (error) {
-            logger.error({ prefix: 'refreshData' }, 'Error refreshing data:', error);
-            setIsLoading(false);
-        }
-    }, [selectedSede?.codigo, medidas]);
 
     // Función específica para recargar facturas y remisiones después de timbrar una factura
     const refreshFacturasYRemisiones = useCallback(async () => {
@@ -1973,7 +2061,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     }, 0),
                     ivaValor: itemsParaPedido.reduce((sum, item) => sum + ((item as any).ivaValor || item.valorIva || 0), 0),
                     total: itemsParaPedido.reduce((sum, item) => sum + (item.total || 0), 0),
-                    estado: 'ENVIADA', // Estado inicial: pedido creado desde cotización aprobada, necesita aprobación
+                    estado: 'BORRADOR', // Estado inicial: pedido creado desde cotización aprobada, necesita aprobación
                     observaciones: `Pedido creado desde cotización ${cotizacion.numeroCotizacion}`,
                     items: itemsMapeados,
                     fechaEntregaEstimada: cotizacion.fechaVencimiento,
@@ -2004,8 +2092,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     );
                 }
                 
-                // Recargar datos para asegurar sincronización
-                await refreshData();
+                // NO recargar todos los datos automáticamente para evitar bucles
+                // Solo recargar pedidos y cotizaciones específicamente si es necesario
+                // await refreshData(); // Comentado para evitar bucles
                 
                 return { cotizacion: cotizacionAprobada, pedido: pedidoCreado };
             }
@@ -2373,12 +2462,71 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             }
 
             // Obtener todas las remisiones seleccionadas
-            const remisionesSeleccionadas = remisiones.filter(r => remisionIds.includes(r.id));
+            let remisionesSeleccionadas = remisiones.filter(r => remisionIds.includes(r.id));
             
             if (remisionesSeleccionadas.length === 0) {
                 logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'No se encontraron remisiones con los IDs proporcionados');
                 return null;
             }
+            
+            // CRÍTICO: Cargar detalles de remisiones si no tienen items o items sin precios
+            logger.log({ prefix: 'crearFacturaDesdeRemisiones' }, `Verificando items de ${remisionesSeleccionadas.length} remisiones...`);
+            
+            // Importar apiClient dinámicamente para evitar dependencias circulares
+            const { apiClient } = await import('../services/apiClient');
+            
+            const remisionesConItemsCargados = await Promise.all(remisionesSeleccionadas.map(async (remision) => {
+                // Verificar si la remisión ya tiene items con precios válidos
+                const tieneItemsConPrecios = remision.items && remision.items.length > 0 && 
+                    remision.items.some(item => item.precioUnitario && Number(item.precioUnitario) > 0);
+                
+                if (tieneItemsConPrecios) {
+                    logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 
+                        `Remisión ${remision.numeroRemision} ya tiene ${remision.items.length} items con precios, no se recarga`);
+                    return remision;
+                }
+                
+                // Cargar detalles desde el backend
+                try {
+                    logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 
+                        `Cargando detalles de remisión ${remision.numeroRemision} (ID: ${remision.id})...`);
+                    // Importar apiClient dinámicamente para evitar dependencias circulares
+                    const { apiClient } = await import('../services/apiClient');
+                    const detallesRes = await apiClient.getRemisionDetalleById(remision.id);
+                    if (detallesRes.success && Array.isArray(detallesRes.data) && detallesRes.data.length > 0) {
+                        logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 
+                            `✅ Detalles cargados para remisión ${remision.numeroRemision}: ${detallesRes.data.length} items`);
+                        // Mapear los detalles a items con precios
+                        const itemsMapeados = detallesRes.data.map((d: any) => ({
+                            productoId: d.productoId,
+                            cantidad: Number(d.cantidad || d.cantidadEnviada || 0),
+                            precioUnitario: Number(d.precioUnitario || 0),
+                            descuentoPorcentaje: Number(d.descuentoPorcentaje || 0),
+                            ivaPorcentaje: Number(d.ivaPorcentaje || 0),
+                            descripcion: d.descripcion || '',
+                            subtotal: Number(d.subtotal || 0),
+                            valorIva: Number(d.valorIva || 0),
+                            total: Number(d.total || 0),
+                            codProducto: d.codProducto || d.codins || ''
+                        }));
+                        return {
+                            ...remision,
+                            items: itemsMapeados
+                        };
+                    } else {
+                        logger.warn({ prefix: 'crearFacturaDesdeRemisiones' }, 
+                            `⚠️ No se pudieron cargar detalles para remisión ${remision.numeroRemision}`, detallesRes);
+                        return remision;
+                    }
+                } catch (error) {
+                    logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 
+                        `Error cargando detalles de remisión ${remision.numeroRemision}:`, error);
+                    return remision;
+                }
+            }));
+            
+            // Actualizar remisionesSeleccionadas con los items cargados
+            remisionesSeleccionadas = remisionesConItemsCargados;
 
             // Validar que todas las remisiones sean del mismo cliente
             const primerClienteId = remisionesSeleccionadas[0].clienteId;

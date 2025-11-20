@@ -18,6 +18,7 @@ import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { findClienteByIdentifier } from '../utils/clientes';
 import { formatDateOnly } from '../utils/formatters';
+import { fetchCotizacionesDetalle } from '../services/apiClient';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -146,12 +147,36 @@ const CotizacionesPage: React.FC = () => {
     ],
   });
 
-  const handleOpenModal = useCallback((cotizacion: Cotizacion) => {
-    setSelectedCotizacion(cotizacion);
-    if (cotizacion.estado === 'ENVIADA') {
-        setApprovedItems(new Set(cotizacion.items.map(item => item.productoId)));
-    } else if (cotizacion.estado === 'APROBADA') {
-        setApprovedItems(new Set(cotizacion.approvedItems || []));
+  const handleOpenModal = useCallback(async (cotizacion: Cotizacion) => {
+    // Si la cotización no tiene items o tiene items vacíos, cargar los detalles
+    let cotizacionConItems = cotizacion;
+    if (!cotizacion.items || cotizacion.items.length === 0) {
+      try {
+        const cotizacionesDetalleRes = await fetchCotizacionesDetalle(String(cotizacion.id));
+        if (cotizacionesDetalleRes.success && Array.isArray(cotizacionesDetalleRes.data)) {
+          const items = cotizacionesDetalleRes.data.filter((d: any) => {
+            const detalleCotizacionId = String(d.cotizacionId || '');
+            const cotizacionIdStr = String(cotizacion.id || '');
+            return detalleCotizacionId === cotizacionIdStr || 
+                   String(cotizacion.id) === String(d.cotizacionId) ||
+                   Number(cotizacion.id) === Number(d.cotizacionId);
+          });
+          
+          cotizacionConItems = {
+            ...cotizacion,
+            items: items.length > 0 ? items : []
+          };
+        }
+      } catch (error) {
+        console.error('Error cargando detalles de cotización:', error);
+      }
+    }
+    
+    setSelectedCotizacion(cotizacionConItems);
+    if (cotizacionConItems.estado === 'ENVIADA') {
+        setApprovedItems(new Set(cotizacionConItems.items.map(item => item.productoId)));
+    } else if (cotizacionConItems.estado === 'APROBADA') {
+        setApprovedItems(new Set(cotizacionConItems.approvedItems || []));
     } else {
         setApprovedItems(new Set());
     }

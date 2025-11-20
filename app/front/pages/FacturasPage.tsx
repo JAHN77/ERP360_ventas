@@ -15,6 +15,7 @@ import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { useNavigation } from '../hooks/useNavigation';
 import { formatDateOnly } from '../utils/formatters';
+import { fetchFacturasDetalle, apiClient } from '../services/apiClient';
 // Supabase eliminado: descargas de adjuntos se implementarán vía backend
 
 const formatCurrency = (value: number) => {
@@ -73,18 +74,28 @@ const FacturasPage: React.FC = () => {
 
   // Filtrar remisiones que están listas para facturar:
   // - Estado ENTREGADO (o 'D' en BD que se mapea a ENTREGADO)
-  // - Sin facturaId (no han sido facturadas aún)
-  // NOTA: Si la tabla ven_remiciones_enc no tiene campo factura_id, todas las remisiones ENTREGADO aparecerán
+  // - Sin facturaId (no han sido facturadas aún, sin importar el estado de la factura)
+  // CRÍTICO: Si una remisión tiene facturaId asociado (aunque sea borrador), NO debe aparecer aquí
   const remisionesPorFacturar = useMemo(() => {
     const filtradas = remisiones.filter(r => {
       // Verificar que el estado sea ENTREGADO (puede venir como 'ENTREGADO' o 'D')
       const estadoStr = String(r.estado || '').trim().toUpperCase();
       const estadoCorrecto = estadoStr === 'ENTREGADO' || estadoStr === 'D';
       
-      // Verificar que no tenga facturaId (no haya sido facturada)
+      // Verificar que no tenga facturaId (no haya sido facturada, sin importar el estado de la factura)
       // Si facturaId es null, undefined, o string vacío, se considera sin factura
       const facturaIdStr = r.facturaId ? String(r.facturaId).trim() : '';
       const sinFactura = !facturaIdStr || facturaIdStr === '' || facturaIdStr === 'null' || facturaIdStr === 'undefined';
+      
+      // ADICIONAL: Verificar que no haya una factura relacionada en el historial
+      // Buscar en facturas si alguna tiene esta remisión en remisionesIds
+      const tieneFacturaRelacionada = facturas.some(f => {
+        const remisionesIds = Array.isArray(f.remisionesIds) ? f.remisionesIds : [];
+        return remisionesIds.includes(r.id) || f.remisionId === r.id;
+      });
+      
+      // La remisión pasa el filtro si: está entregada Y no tiene facturaId Y no tiene factura relacionada
+      const pasaFiltro = estadoCorrecto && sinFactura && !tieneFacturaRelacionada;
       
       // Log para depuración (solo en desarrollo)
       if (process.env.NODE_ENV === 'development' && estadoCorrecto) {
@@ -95,11 +106,12 @@ const FacturasPage: React.FC = () => {
           facturaId: r.facturaId,
           facturaIdStr: facturaIdStr,
           sinFactura: sinFactura,
-          pasaFiltro: estadoCorrecto && sinFactura
+          tieneFacturaRelacionada: tieneFacturaRelacionada,
+          pasaFiltro: pasaFiltro
         });
       }
       
-      return estadoCorrecto && sinFactura;
+      return pasaFiltro;
     });
     
     // Log para depuración
@@ -117,7 +129,7 @@ const FacturasPage: React.FC = () => {
     }
     
     return filtradas;
-  }, [remisiones]);
+  }, [remisiones, facturas]); // Agregar facturas como dependencia para detectar cambios
 
   const selectedClientId = useMemo(() => {
     if (selectedRemisiones.size === 0) return null;
@@ -133,11 +145,16 @@ const FacturasPage: React.FC = () => {
     return cliente?.id || null;
   }, [selectedRemisiones, remisionesPorFacturar, clientes]);
 
+  // CRÍTICO: Mostrar TODAS las facturas en el historial sin importar su estado
+  // El filtro de estado es solo para ayudar a encontrar facturas específicas
   const filteredInvoices = useMemo(() => {
     let sortedInvoices = [...facturas].sort((a, b) => new Date(b.fechaFactura).getTime() - new Date(a.fechaFactura).getTime());
+    // Si se selecciona un estado específico, filtrar por ese estado
+    // Si se selecciona 'Todos', mostrar todas las facturas sin importar el estado
     if (statusFilter !== 'Todos') {
         sortedInvoices = sortedInvoices.filter(f => f.estado === statusFilter);
     }
+    // SIEMPRE retornar todas las facturas (filtradas o no) para que aparezcan en el historial
     return sortedInvoices;
   }, [facturas, statusFilter]);
 
@@ -316,7 +333,54 @@ const FacturasPage: React.FC = () => {
     
     try {
         const remisionIds = [...selectedRemisiones];
-        const firstRemision = remisiones.find(r => r.id === remisionIds[0]);
+        
+        // CRÍTICO: Cargar detalles de remisiones seleccionadas antes de facturar
+        // Esto asegura que los items tengan precios desde el backend
+        console.log('🔄 Cargando detalles de remisiones seleccionadas antes de facturar...');
+        const remisionesConItems = await Promise.all(remisionIds.map(async (remisionId) => {
+            const remisionExistente = remisiones.find(r => r.id === remisionId);
+            if (!remisionExistente) {
+                console.error(`❌ Remisión ${remisionId} no encontrada en estado local`);
+                return null;
+            }
+            
+            // Si la remisión ya tiene items cargados con precios, usarla tal cual
+            if (remisionExistente.items && remisionExistente.items.length > 0) {
+                const tienePrecios = remisionExistente.items.some(item => 
+                    item.precioUnitario && Number(item.precioUnitario) > 0
+                );
+                if (tienePrecios) {
+                    console.log(`✅ Remisión ${remisionId} ya tiene items con precios, no se recarga`);
+                    return remisionExistente;
+                }
+            }
+            
+            // Cargar detalles desde el backend
+            try {
+                const detallesRes = await apiClient.getRemisionDetalleById(remisionId);
+                if (detallesRes.success && Array.isArray(detallesRes.data) && detallesRes.data.length > 0) {
+                    console.log(`✅ Detalles cargados para remisión ${remisionId}: ${detallesRes.data.length} items`);
+                    return {
+                        ...remisionExistente,
+                        items: detallesRes.data
+                    };
+                } else {
+                    console.warn(`⚠️ No se pudieron cargar detalles para remisión ${remisionId}`);
+                    return remisionExistente;
+                }
+            } catch (error) {
+                console.error(`❌ Error cargando detalles de remisión ${remisionId}:`, error);
+                return remisionExistente;
+            }
+        }));
+        
+        // Filtrar remisiones nulas
+        const remisionesValidas = remisionesConItems.filter(r => r !== null) as typeof remisiones;
+        if (remisionesValidas.length === 0) {
+            throw new Error('No se pudieron cargar las remisiones seleccionadas');
+        }
+        
+        const firstRemision = remisionesValidas[0];
         // Buscar cliente de forma flexible
         const cliente = firstRemision ? clientes.find(c => 
           String(c.id) === String(firstRemision.clienteId) ||
@@ -471,8 +535,32 @@ const FacturasPage: React.FC = () => {
     }
   }
   
-  const handleOpenDetailModal = (factura: Factura) => {
-    setSelectedFactura(factura);
+  const handleOpenDetailModal = async (factura: Factura) => {
+    // Si la factura no tiene items o tiene items vacíos, cargar los detalles
+    let facturaConItems = factura;
+    if (!factura.items || factura.items.length === 0) {
+      try {
+        const facturasDetalleRes = await fetchFacturasDetalle(String(factura.id));
+        if (facturasDetalleRes.success && Array.isArray(facturasDetalleRes.data)) {
+          const items = facturasDetalleRes.data.filter((d: any) => {
+            const detalleFacturaId = String(d.facturaId || '');
+            const facturaIdStr = String(factura.id || '');
+            return detalleFacturaId === facturaIdStr || 
+                   String(factura.id) === String(d.facturaId) ||
+                   Number(factura.id) === Number(d.facturaId);
+          });
+          
+          facturaConItems = {
+            ...factura,
+            items: items.length > 0 ? items : []
+          };
+        }
+      } catch (error) {
+        console.error('Error cargando detalles de factura:', error);
+      }
+    }
+    
+    setSelectedFactura(facturaConItems);
     setIsDetailModalOpen(true);
   };
   
@@ -615,6 +703,20 @@ const FacturasPage: React.FC = () => {
     }},
     { header: 'Fecha Emisión', accessor: 'fechaFactura', cell: (item) => formatDateOnly(item.fechaFactura) },
     { header: 'Total', accessor: 'total', cell: (item) => formatCurrency(item.total) },
+    { header: 'Motivo Rechazo', accessor: 'estado', cell: (item) => {
+      // Mostrar motivo de rechazo solo si la factura está rechazada
+      if (item.estado === 'RECHAZADA' && item.motivoRechazo) {
+        return (
+          <div className="flex items-center gap-2">
+            <i className="fas fa-exclamation-triangle text-red-500"></i>
+            <span className="text-red-600 dark:text-red-400 text-sm" title={item.motivoRechazo}>
+              {item.motivoRechazo.length > 50 ? `${item.motivoRechazo.substring(0, 50)}...` : item.motivoRechazo}
+            </span>
+          </div>
+        );
+      }
+      return <span className="text-slate-400 dark:text-slate-500">—</span>;
+    }},
     { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
     { header: 'Acciones', accessor: 'id', cell: (item) => (
       <button onClick={() => handleOpenDetailModal(item)} className="text-sky-500 hover:underline text-sm font-medium">Ver</button>
