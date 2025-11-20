@@ -148,6 +148,11 @@ const DevolucionesPage: React.FC = () => {
             // Si una factura ya está seleccionada, mantenerla en la lista independientemente del estado
             if (f.id === facturaId) return true;
 
+            // Excluir facturas anuladas
+            if (f.estado === 'ANULADA' || f.estado === 'RECHAZADA') {
+                return false;
+            }
+
             const estadoDevolucionFactura = String(
                 (f as any).estadoDevolucion ||
                 (f as any).estado_devolucion ||
@@ -177,8 +182,13 @@ const DevolucionesPage: React.FC = () => {
                 return false;
             }
             
-            // De lo contrario, solo mostrar facturas con estados que permiten devolución
-            return returnableStatuses.includes(f.estado);
+            // Mostrar facturas que:
+            // 1. Están en estados que permiten devolución (ENVIADA, ACEPTADA)
+            // 2. O están timbradas/aprobadas (tienen fechaTimbrado o cufe) - estas son las facturas aprobadas en facturación
+            const estaTimbrada = !!(f.fechaTimbrado || f.cufe);
+            const estadoPermiteDevolucion = returnableStatuses.includes(f.estado);
+            
+            return estadoPermiteDevolucion || estaTimbrada;
         });
     }, [clienteId, facturaId, facturas, clientes, notasCredito]);
     
