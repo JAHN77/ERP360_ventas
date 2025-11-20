@@ -3,12 +3,7 @@ import { initialActivityLog } from '../data/activityLog';
 import {
     Cliente, InvProducto, Factura, Pedido, Cotizacion, Remision, NotaCredito, Vendedor, DocumentItem,
     Departamento, Ciudad, TipoDocumento, TipoPersona, RegimenFiscal, Usuario, Producto, Medida,
-    ActivityLog,
-    Categoria,
-    DocumentoDetalle,
-    GlobalSearchResults,
-    Transportadora,
-    ArchivoAdjunto
+    ActivityLog,Categoria,DocumentoDetalle,GlobalSearchResults,Transportadora,ArchivoAdjunto
 } from '../types';
 import { Role } from '../config/rolesConfig';
 import { 
@@ -368,15 +363,20 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // Process clientes
                 // Normalizar el campo activo: convertir boolean a number (true -> 1, false -> 0)
                 const processedClientes = (clientesData as any[]).map((c: Cliente) => {
-                    // Normalizar activo: puede venir como boolean (true/false) o number (1/0)
+                    // Normalizar activo: puede venir como boolean (true/false), number (1/0), string ('1'/'0'/'true'/'false')
                     let activoNormalizado = 0;
-                    if (c.activo === true || c.activo === 1 || c.activo === '1' || String(c.activo) === 'true') {
+                    const activoValor = c.activo;
+                    if (
+                        activoValor === true || activoValor === 1 || String(activoValor) === 'true' || String(activoValor) === '1'
+                    ) {
                         activoNormalizado = 1;
-                    } else if (c.activo === false || c.activo === 0 || c.activo === '0' || String(c.activo) === 'false') {
+                    } else if (
+                        activoValor === false || activoValor === 0 || String(activoValor) === 'false' || String(activoValor) === '0'
+                    ) {
                         activoNormalizado = 0;
                     } else {
                         // Intentar convertir a número
-                        activoNormalizado = Number(c.activo) || 0;
+                        activoNormalizado = Number(activoValor) || 0;
                     }
                     
                     return {
@@ -823,7 +823,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const codter = String((c as any).codter ?? '').trim();
                 return clientId === idStr || clientId === numeroDocumento || clientId === codter;
             });
-            return cliente?.nombreCompleto || cliente?.razonSocial || cliente?.nombre || 'Desconocido';
+            return cliente?.nombreCompleto || cliente?.razonSocial || (cliente as any)?.nombre || 'Desconocido';
         };
 
         return Array.from(salesMap.entries())
@@ -936,35 +936,35 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 if (!c) return false;
                 // Intentar múltiples nombres de propiedad para compatibilidad
                 const numeroCotizacion = getNumeroDocumento(c, 'numeroCotizacion', 'numcot', 'numero_cotizacion');
-                const clienteNombre = findClienteNombre(c.clienteId || c.codter || c.cliente_id);
+                const clienteNombre = findClienteNombre(c.clienteId || (c as any).codter || (c as any).cliente_id);
                 return numeroCotizacion.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
             
             pedidos: (Array.isArray(pedidos) ? pedidos : []).filter(p => {
                 if (!p) return false;
                 const numeroPedido = getNumeroDocumento(p, 'numeroPedido', 'numero_pedido', 'numeroPedido');
-                const clienteNombre = findClienteNombre(p.clienteId || p.cliente_id);
+                const clienteNombre = findClienteNombre(p.clienteId || (p as any).cliente_id);
                 return numeroPedido.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
             
             facturas: (Array.isArray(facturas) ? facturas : []).filter(f => {
                 if (!f) return false;
                 const numeroFactura = getNumeroDocumento(f, 'numeroFactura', 'numero_factura', 'numeroFactura');
-                const clienteNombre = findClienteNombre(f.clienteId || f.cliente_id);
+                const clienteNombre = findClienteNombre(f.clienteId || (f as any).cliente_id);
                 return numeroFactura.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
             
             remisiones: (Array.isArray(remisiones) ? remisiones : []).filter(r => {
                 if (!r) return false;
                 const numeroRemision = getNumeroDocumento(r, 'numeroRemision', 'numero_remision', 'numeroRemision');
-                const clienteNombre = findClienteNombre(r.clienteId || r.cliente_id);
+                const clienteNombre = findClienteNombre(r.clienteId || (r as any).cliente_id);
                 return numeroRemision.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
             
             productos: (Array.isArray(productos) ? productos : []).filter(p => {
                 if (!p) return false;
                 const nombre = safeToLowerCase(p.nombre || p.nomins);
-                const codigo = safeToLowerCase(p.codigo || p.codins);
+                const codigo = safeToLowerCase((p as any).codigo || p.codins);
                 const referencia = safeToLowerCase(p.referencia);
                 return nombre.includes(searchTerm) || 
                        codigo.includes(searchTerm) || 
@@ -974,7 +974,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             clientes: (Array.isArray(clientes) ? clientes : []).filter(c => {
                 if (!c) return false;
                 const nombreCompleto = safeToLowerCase(c.nombreCompleto || c.razonSocial || c.nomter);
-                const numeroDocumento = safeToLowerCase(c.numeroDocumento || c.codter || c.numero_documento);
+                const numeroDocumento = safeToLowerCase(c.numeroDocumento || (c as any).codter || (c as any).numero_documento);
                 return nombreCompleto.includes(searchTerm) || numeroDocumento.includes(searchTerm);
             }).slice(0, 5)
         };
@@ -1054,8 +1054,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             throw new Error(response.message || response.error || 'No se pudo registrar la entrada de inventario.');
         }
 
-        const movimiento = response.data?.movimiento ?? null;
-        const productoRespuesta = response.data?.producto ?? response.data;
+        const movimiento = (response.data as any)?.movimiento ?? null;
+        const productoRespuesta = (response.data as any)?.producto ?? response.data;
         if (!productoRespuesta) {
             throw new Error('La respuesta del servidor no contiene la información del producto actualizado.');
         }
@@ -1075,8 +1075,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             ...(productoExistente || {} as InvProducto),
             ...productoCamel,
             id: Number(productoCamel.id ?? productoId),
-            codins: productoCamel.codins || productoCamel.codigo || productoExistente?.codins || productoExistente?.codigo || '',
-            codigo: productoCamel.codigo || productoExistente?.codigo,
+            codins: productoCamel.codins || (productoCamel as any).codigo || productoExistente?.codins || (productoExistente as any)?.codigo || '',
             nombre: productoCamel.nombre || productoCamel.nomins || productoExistente?.nombre || '',
             nomins: productoCamel.nomins || productoCamel.nombre || productoExistente?.nomins || productoCamel.nombre || '',
             unidadMedida: unidadMedidaNombre,
@@ -1084,9 +1083,6 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             controlaExistencia: productoCamel.stock ?? productoExistente?.controlaExistencia ?? 0,
             precioInventario: productoCamel.precioInventario ?? productoExistente?.precioInventario ?? 0,
             precio: precioVentaActualizado,
-            precioPublico: Number((productoCamel as any).precioPublico ?? productoExistente?.precioPublico ?? precioVentaActualizado),
-            precioMayorista: Number((productoCamel as any).precioMayorista ?? productoExistente?.precioMayorista ?? 0),
-            precioMinorista: Number((productoCamel as any).precioMinorista ?? productoExistente?.precioMinorista ?? 0),
             ultimoCosto: Number((productoCamel as any).ultimoCosto ?? productoExistente?.ultimoCosto ?? 0)
         };
 
@@ -1495,7 +1491,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 clienteEncontrado: cliente ? {
                     id: cliente.id,
                     numeroDocumento: cliente.numeroDocumento,
-                    codter: cliente.codter,
+                    codter: (cliente as any).codter,
                     nombreCompleto: cliente.nombreCompleto
                 } : 'NO ENCONTRADO',
                 codterAUsar: clienteCodter
@@ -1771,7 +1767,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 success: resp.success,
                 data: resp.data,
                 error: resp.error,
-                debug: resp.debug
+                debug: (resp as any).debug
             });
             throw new Error(errorMessage);
         } catch (e) {
@@ -1839,8 +1835,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Actualizar el estado local con los datos de la respuesta
             const pedidoAprobado: Pedido = { 
                 ...pedido, 
-                estado: resp.data.estado || 'CONFIRMADO',
-                ...resp.data
+                estado: ((resp.data as any)?.estado || 'CONFIRMADO') as Pedido['estado'],
+                ...(resp.data as any)
             };
             setPedidos(prev => prev.map(p => (p.id === id ? pedidoAprobado : p)));
             
@@ -1956,9 +1952,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         ...item,
                         pedidoId: '',
                         // Asegurar que la descripción tenga el nombre del producto si está disponible
-                        descripcion: item.descripcion || producto?.nombre || item.nombre || `Producto ${item.productoId}`,
+                        descripcion: item.descripcion || producto?.nombre || (item as any).nombre || `Producto ${item.productoId}`,
                         // Asegurar que la unidad de medida esté disponible
-                        unidadMedida: item.unidadMedida || producto?.unidadMedida || 'Unidad'
+                        unidadMedida: (item as any).unidadMedida || producto?.unidadMedida || 'Unidad'
                     };
                 });
                 
@@ -1974,7 +1970,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         const itemTotal = (item.precioUnitario || 0) * (item.cantidad || 0);
                         return sum + (itemTotal * ((item.descuentoPorcentaje || 0) / 100));
                     }, 0),
-                    ivaValor: itemsParaPedido.reduce((sum, item) => sum + (item.ivaValor || item.valorIva || 0), 0),
+                    ivaValor: itemsParaPedido.reduce((sum, item) => sum + ((item as any).ivaValor || item.valorIva || 0), 0),
                     total: itemsParaPedido.reduce((sum, item) => sum + (item.total || 0), 0),
                     estado: 'ENVIADA', // Estado inicial: pedido creado desde cotización aprobada, necesita aprobación
                     observaciones: `Pedido creado desde cotización ${cotizacion.numeroCotizacion}`,
@@ -2095,16 +2091,16 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 estado: resp.data.estado || 'ENTREGADO',
                 ...resp.data
             } : {
-                id: resp.data.id,
-                numeroRemision: resp.data.numeroRemision || `REM-${idNum}`,
-                estado: resp.data.estado || 'ENTREGADO',
-                fechaRemision: resp.data.fechaRemision || new Date().toISOString().split('T')[0],
-                pedidoId: resp.data.pedidoId || null,
-                clienteId: resp.data.clienteId || '',
+                id: (resp.data as any).id,
+                numeroRemision: (resp.data as any).numeroRemision || `REM-${idNum}`,
+                estado: ((resp.data as any).estado || 'ENTREGADO') as Remision['estado'],
+                fechaRemision: (resp.data as any).fechaRemision || new Date().toISOString().split('T')[0],
+                pedidoId: (resp.data as any).pedidoId || null,
+                clienteId: (resp.data as any).clienteId || '',
                 items: [],
-                observaciones: resp.data.observaciones || '',
-                codalm: resp.data.codalm || '',
-                codven: resp.data.codven || null
+                observaciones: (resp.data as any).observaciones || '',
+                codalm: (resp.data as any).codalm || '',
+                codven: (resp.data as any).codven || null
             };
             
             // Actualizar el estado local solo si hay remisiones cargadas
@@ -2455,7 +2451,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         // Intentar obtener productoId desde codProducto si está disponible
                         if (item.codProducto) {
                             const productoDesdeCod = productos.find(p => 
-                                String(p.codigoInsumo) === String(item.codProducto) ||
+                                String((p as any).codigoInsumo) === String(item.codProducto) ||
                                 String(p.codins) === String(item.codProducto) ||
                                 String(p.id) === String(item.codProducto)
                             );
@@ -2519,7 +2515,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     // Asegurar que todos los campos numéricos estén presentes
                     const itemCompleto: DocumentItem = {
                         productoId: productoId,
-                        cantidad: Number(item.cantidad) || Number(item.cantidadEnviada) || 0,
+                        cantidad: Number(item.cantidad) || Number((item as any).cantidadEnviada) || 0,
                         precioUnitario: precioUnitario,
                         descuentoPorcentaje: descuentoPorcentaje,
                         ivaPorcentaje: ivaPorcentaje,
@@ -3127,31 +3123,32 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             if (resp.success && resp.data) {
                 // Procesar remisionesIds de la respuesta
                 let remisionesIds: string[] = factura.remisionesIds || [];
-                if (resp.data.remisionesIds) {
-                    if (Array.isArray(resp.data.remisionesIds)) {
-                        remisionesIds = resp.data.remisionesIds.map((id: any) => String(id));
-                    } else if (typeof resp.data.remisionesIds === 'string' && resp.data.remisionesIds.trim()) {
-                        remisionesIds = resp.data.remisionesIds.split(',').map((id: string) => id.trim()).filter((id: string) => id.length > 0);
+                const responseData = resp.data as any;
+                if (responseData.remisionesIds) {
+                    if (Array.isArray(responseData.remisionesIds)) {
+                        remisionesIds = responseData.remisionesIds.map((id: any) => String(id));
+                    } else if (typeof responseData.remisionesIds === 'string' && responseData.remisionesIds.trim()) {
+                        remisionesIds = responseData.remisionesIds.split(',').map((id: string) => id.trim()).filter((id: string) => id.length > 0);
                     }
                 }
                 // Si no hay remisionesIds pero hay remisionId (singular), usarlo
-                if (remisionesIds.length === 0 && resp.data.remisionId) {
-                    remisionesIds = [String(resp.data.remisionId)];
+                if (remisionesIds.length === 0 && responseData.remisionId) {
+                    remisionesIds = [String(responseData.remisionId)];
                 }
                 
                 // Determinar el estado final basado en la respuesta
-                const estadoFinal = resp.data.estado || (resp.data.cufe ? 'ENVIADA' : factura.estado);
+                const estadoFinal = (responseData.estado || (responseData.cufe ? 'ENVIADA' : factura.estado)) as Factura['estado'];
                 
                 const facturaTimbrada: Factura = {
                     ...factura,
-                    estado: estadoFinal as any,
-                    ...resp.data,
+                    estado: estadoFinal,
+                    ...responseData,
                     remisionesIds: remisionesIds,
                     // Asegurar que items esté presente
-                    items: resp.data.items || factura.items || [],
+                    items: (Array.isArray(responseData.items) ? responseData.items : factura.items || []) as DocumentItem[],
                     // Asegurar que CUFE y fechaTimbrado estén presentes si vienen en la respuesta
-                    cufe: resp.data.cufe || factura.cufe,
-                    fechaTimbrado: resp.data.fechaTimbrado || factura.fechaTimbrado
+                    cufe: responseData.cufe || factura.cufe,
+                    fechaTimbrado: responseData.fechaTimbrado || factura.fechaTimbrado
                 };
                 // Actualizar factura en el estado usando comparación flexible de IDs
                 setFacturas(prev => prev.map(f => {
