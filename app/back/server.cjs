@@ -145,13 +145,21 @@ if (compression) {
 
 app.use(express.json({ limit: '5mb' }));
 
-// Middleware de logging mejorado
+// Middleware de logging mejorado - CAPTURAR TODAS LAS PETICIONES
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
-  console.log(`\n📥 [${timestamp}] ${req.method} ${req.path}`);
+  // FORZAR LOGS - Incluso si hay problemas con el body parser
+  const logMessage = `\n📥 [${timestamp}] ${req.method} ${req.path}`;
+  console.log(logMessage);
+  console.error(logMessage); // También a stderr para asegurar visibilidad
+  
   if (req.method === 'PUT' && req.path.includes('/facturas/')) {
+    console.log(`   🔍 [MIDDLEWARE] PUT /facturas/ detectada`);
+    console.error(`   🔍 [MIDDLEWARE] PUT /facturas/ detectada`); // También a stderr
     console.log(`   🔍 Body recibido:`, JSON.stringify(req.body, null, 2));
+    console.error(`   🔍 Body recibido:`, JSON.stringify(req.body, null, 2)); // También a stderr
     console.log(`   🔍 Params:`, req.params);
+    console.error(`   🔍 Params:`, req.params); // También a stderr
   }
   next();
 });
@@ -4407,12 +4415,40 @@ app.post('/api/pedidos', async (req, res) => {
         impoconsumoValor: impoconsumoValorRaw
       });
       
-      // Convertir a número y validar
-      const subtotalNum = typeof subtotalRaw === 'number' ? subtotalRaw : parseFloat(subtotalRaw);
-      const descuentoValorNum = typeof descuentoValorRaw === 'number' ? descuentoValorRaw : parseFloat(descuentoValorRaw);
-      const ivaValorNum = typeof ivaValorRaw === 'number' ? ivaValorRaw : parseFloat(ivaValorRaw);
-      const totalNum = typeof totalRaw === 'number' ? totalRaw : parseFloat(totalRaw);
-      const impoconsumoValorNum = typeof impoconsumoValorRaw === 'number' ? impoconsumoValorRaw : parseFloat(impoconsumoValorRaw);
+      // Función para normalizar valores numéricos que pueden venir como strings con formato
+      const normalizeNumericValue = (value) => {
+        if (value === null || value === undefined) return 0;
+        if (typeof value === 'number') {
+          return isFinite(value) && !isNaN(value) ? value : 0;
+        }
+        // Si es string, limpiar formato (quitar puntos de miles, convertir comas a puntos decimales)
+        const str = String(value).trim();
+        if (str === '' || str === '-') return 0;
+        // Remover símbolos de moneda y espacios
+        let cleaned = str.replace(/[$\s]/g, '');
+        // Si tiene coma y punto, la coma es decimal (formato europeo: 1.234,56)
+        if (cleaned.includes(',') && cleaned.includes('.')) {
+          cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+        } else if (cleaned.includes(',')) {
+          // Solo coma, puede ser decimal o separador de miles
+          // Si hay más de 3 dígitos después de la coma, es separador de miles
+          const parts = cleaned.split(',');
+          if (parts.length === 2 && parts[1].length <= 2) {
+            cleaned = cleaned.replace(',', '.'); // Es decimal
+          } else {
+            cleaned = cleaned.replace(/,/g, ''); // Es separador de miles
+          }
+        }
+        const num = parseFloat(cleaned);
+        return isFinite(num) && !isNaN(num) ? num : 0;
+      };
+      
+      // Convertir a número y validar usando la función de normalización
+      const subtotalNum = normalizeNumericValue(subtotalRaw);
+      const descuentoValorNum = normalizeNumericValue(descuentoValorRaw);
+      const ivaValorNum = normalizeNumericValue(ivaValorRaw);
+      const totalNum = normalizeNumericValue(totalRaw);
+      const impoconsumoValorNum = normalizeNumericValue(impoconsumoValorRaw);
       
       // Validar que sean números finitos y no NaN
       if (!isFinite(subtotalNum) || isNaN(subtotalNum)) {
@@ -4615,13 +4651,26 @@ app.post('/api/pedidos', async (req, res) => {
         total: totalRounded
       });
       
-      req1.input('subtotal', sql.Decimal(18, 2), subtotalRounded);
-      req1.input('descuento_valor', sql.Decimal(18, 2), descuentoValorRounded);
-      req1.input('descuento_porcentaje', sql.Decimal(5, 2), descuentoPorcentajeRounded);
-      req1.input('iva_valor', sql.Decimal(18, 2), ivaValorRounded);
-      req1.input('iva_porcentaje', sql.Decimal(5, 2), ivaPorcentajeRounded);
-      req1.input('impoconsumo_valor', sql.Decimal(18, 2), impoconsumoValorRounded);
-      req1.input('total', sql.Decimal(18, 2), totalRounded);
+      // CRÍTICO: Asegurar que los valores sean números puros antes de pasarlos a sql.Decimal
+      // Usar Number() explícitamente para asegurar que no sean strings y tengan exactamente 2 decimales
+      req1.input('subtotal', sql.Decimal(18, 2), Number(subtotalRounded.toFixed(2)));
+      req1.input('descuento_valor', sql.Decimal(18, 2), Number(descuentoValorRounded.toFixed(2)));
+      req1.input('descuento_porcentaje', sql.Decimal(5, 2), Number(descuentoPorcentajeRounded.toFixed(2)));
+      req1.input('iva_valor', sql.Decimal(18, 2), Number(ivaValorRounded.toFixed(2)));
+      req1.input('iva_porcentaje', sql.Decimal(5, 2), Number(ivaPorcentajeRounded.toFixed(2)));
+      req1.input('impoconsumo_valor', sql.Decimal(18, 2), Number(impoconsumoValorRounded.toFixed(2)));
+      req1.input('total', sql.Decimal(18, 2), Number(totalRounded.toFixed(2)));
+      
+      // Log de valores finales antes de insertar
+      console.log('📊 Valores finales para INSERT en ven_pedidos (header):', {
+        subtotal: { valor: subtotalRounded, final: Number(subtotalRounded.toFixed(2)), string: subtotalRounded.toFixed(2) },
+        descuentoValor: { valor: descuentoValorRounded, final: Number(descuentoValorRounded.toFixed(2)), string: descuentoValorRounded.toFixed(2) },
+        descuentoPorcentaje: { valor: descuentoPorcentajeRounded, final: Number(descuentoPorcentajeRounded.toFixed(2)), string: descuentoPorcentajeRounded.toFixed(2) },
+        ivaValor: { valor: ivaValorRounded, final: Number(ivaValorRounded.toFixed(2)), string: ivaValorRounded.toFixed(2) },
+        ivaPorcentaje: { valor: ivaPorcentajeRounded, final: Number(ivaPorcentajeRounded.toFixed(2)), string: ivaPorcentajeRounded.toFixed(2) },
+        impoconsumoValor: { valor: impoconsumoValorRounded, final: Number(impoconsumoValorRounded.toFixed(2)), string: impoconsumoValorRounded.toFixed(2) },
+        total: { valor: totalRounded, final: Number(totalRounded.toFixed(2)), string: totalRounded.toFixed(2) }
+      });
       req1.input('observaciones', sql.VarChar(500), observaciones || '');
       req1.input('instrucciones_entrega', sql.VarChar(500), instruccionesEntrega || '');
       req1.input('estado', sql.VarChar(20), estadoMapeado);
@@ -4680,12 +4729,31 @@ app.post('/api/pedidos', async (req, res) => {
       for (let idx = 0; idx < items.length; idx++) {
         const it = items[idx];
         const reqDet = new sql.Request(tx);
+        
+        // Validar y normalizar valores del item antes de procesarlos
+        const cantidadRaw = it.cantidad;
+        const precioUnitarioRaw = it.precioUnitario;
+        const descuentoPorcentajeRaw = it.descuentoPorcentaje || 0;
+        const ivaPorcentajeRaw = it.ivaPorcentaje || 0;
+        const valorIvaRaw = it.valorIva || 0;
+        const descuentoValorRaw = it.descuentoValor || 0;
+        const totalRaw = it.total || 0;
+        
         console.log(`➕ Insertando item ${idx + 1}/${items.length}:`, { 
           productoId: it.productoId, 
-          cantidad: it.cantidad,
-          precioUnitario: it.precioUnitario,
-          descripcion: it.descripcion || '',
-          total: it.total
+          cantidad: cantidadRaw,
+          precioUnitario: precioUnitarioRaw,
+          descuentoPorcentaje: descuentoPorcentajeRaw,
+          ivaPorcentaje: ivaPorcentajeRaw,
+          valorIva: valorIvaRaw,
+          descuentoValor: descuentoValorRaw,
+          total: it.total,
+          tipos: {
+            cantidad: typeof cantidadRaw,
+            precioUnitario: typeof precioUnitarioRaw,
+            valorIva: typeof valorIvaRaw,
+            descuentoValor: typeof descuentoValorRaw
+          }
         });
         
         // Validar que el productoId sea numérico (producto_id es INT)
@@ -4725,26 +4793,67 @@ app.post('/api/pedidos', async (req, res) => {
         
         // Normalizar y validar valores numéricos del item
         // CRÍTICO: Validar todos los valores antes de usar parseFloat para evitar overflow
-        const cantidadRaw = it.cantidad;
-        const precioUnitarioRaw = it.precioUnitario;
-        const descuentoValorRaw = it.descuentoValor || it.descuentoPorcentaje || 0;
-        const valorIvaRaw = it.valorIva || 0;
+        // Usar las variables ya normalizadas arriba
         
-        // Convertir a número y validar
-        const cantidadNum = typeof cantidadRaw === 'number' ? cantidadRaw : parseFloat(cantidadRaw);
-        const precioUnitarioNum = typeof precioUnitarioRaw === 'number' ? precioUnitarioRaw : parseFloat(precioUnitarioRaw);
-        const descuentoValorNum = typeof descuentoValorRaw === 'number' ? descuentoValorRaw : parseFloat(descuentoValorRaw);
-        const valorIvaNum = typeof valorIvaRaw === 'number' ? valorIvaRaw : parseFloat(valorIvaRaw);
+        // Función para normalizar valores numéricos que pueden venir como strings con formato
+        const normalizeNumericValue = (value) => {
+          if (value === null || value === undefined) return 0;
+          if (typeof value === 'number') {
+            return isFinite(value) && !isNaN(value) ? value : 0;
+          }
+          // Si es string, limpiar formato (quitar puntos de miles, convertir comas a puntos decimales)
+          const str = String(value).trim();
+          if (str === '' || str === '-') return 0;
+          // Remover símbolos de moneda y espacios
+          let cleaned = str.replace(/[$\s]/g, '');
+          // Si tiene coma y punto, la coma es decimal (formato europeo: 1.234,56)
+          if (cleaned.includes(',') && cleaned.includes('.')) {
+            cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+          } else if (cleaned.includes(',')) {
+            // Solo coma, puede ser decimal o separador de miles
+            // Si hay más de 3 dígitos después de la coma, es separador de miles
+            const parts = cleaned.split(',');
+            if (parts.length === 2 && parts[1].length <= 2) {
+              cleaned = cleaned.replace(',', '.'); // Es decimal
+            } else {
+              cleaned = cleaned.replace(/,/g, ''); // Es separador de miles
+            }
+          }
+          const num = parseFloat(cleaned);
+          return isFinite(num) && !isNaN(num) ? num : 0;
+        };
+        
+        // Convertir a número y validar usando la función de normalización
+        const cantidadNum = normalizeNumericValue(cantidadRaw);
+        const precioUnitarioNum = normalizeNumericValue(precioUnitarioRaw);
+        const descuentoValorNum = normalizeNumericValue(descuentoValorRaw);
+        const valorIvaNum = normalizeNumericValue(valorIvaRaw);
+        const totalNum = normalizeNumericValue(totalRaw);
+        
+        // Normalizar porcentajes (pueden venir como strings o números)
+        const descuentoPorcentajeNum = normalizeNumericValue(descuentoPorcentajeRaw);
+        const ivaPorcentajeNum = normalizeNumericValue(ivaPorcentajeRaw);
         
         // Validar que sean números finitos y no NaN
-        if (!isFinite(cantidadNum) || isNaN(cantidadNum)) {
+        if (!isFinite(cantidadNum) || isNaN(cantidadNum) || cantidadNum <= 0) {
           console.error(`❌ Item ${idx + 1}: cantidad inválida:`, cantidadRaw, '→', cantidadNum);
           throw new Error(`Item ${idx + 1}: cantidad inválida (${cantidadRaw})`);
         }
-        if (!isFinite(precioUnitarioNum) || isNaN(precioUnitarioNum)) {
+        if (!isFinite(precioUnitarioNum) || isNaN(precioUnitarioNum) || precioUnitarioNum < 0) {
           console.error(`❌ Item ${idx + 1}: precioUnitario inválido:`, precioUnitarioRaw, '→', precioUnitarioNum);
           throw new Error(`Item ${idx + 1}: precioUnitario inválido (${precioUnitarioRaw})`);
         }
+        
+        // Log de valores normalizados para debugging
+        console.log(`📦 Item ${idx + 1} - Valores normalizados:`, {
+          cantidad: { raw: cantidadRaw, normalized: cantidadNum },
+          precioUnitario: { raw: precioUnitarioRaw, normalized: precioUnitarioNum },
+          descuentoValor: { raw: descuentoValorRaw, normalized: descuentoValorNum },
+          valorIva: { raw: valorIvaRaw, normalized: valorIvaNum },
+          total: { raw: totalRaw, normalized: totalNum },
+          descuentoPorcentaje: { raw: descuentoPorcentajeRaw, normalized: descuentoPorcentajeNum },
+          ivaPorcentaje: { raw: ivaPorcentajeRaw, normalized: ivaPorcentajeNum }
+        });
         
         // Validar que sean números finitos y limitar a rango válido para DECIMAL(18,2)
         // DECIMAL(18,2) puede almacenar valores hasta 9999999999999999.99
@@ -4794,86 +4903,104 @@ app.post('/api/pedidos', async (req, res) => {
         // Usar la misma constante definida arriba en el contexto del header del pedido
         const maxDecimal18_2Items = 9999999999999999.99;
         
-        const roundTo2Decimals = (value) => {
+        // Función para convertir valores a formato DECIMAL(18,2) seguro para SQL Server
+        // CRÍTICO: SQL Server requiere que los valores DECIMAL(18,2) tengan exactamente 2 decimales
+        // y estén en el rango: -9999999999999999.99 a 9999999999999999.99
+        const toDecimal18_2 = (value) => {
           if (!isFinite(value) || isNaN(value)) return 0;
-          // Limitar al rango máximo primero (solo positivos para cantidades y valores)
-          const limited = Math.max(0, Math.min(maxDecimal18_2Items, Math.abs(Number(value))));
-          // Usar toFixed(2) para asegurar exactamente 2 decimales
-          // Usar Number() para convertir a número limpio sin notación científica
-          const rounded = Number(limited.toFixed(2));
-          // Validación final: asegurar que no exceda el máximo y sea un número válido
+          
+          // Limitar al rango máximo primero
+          let limited = Math.abs(value);
+          if (limited > maxDecimal18_2Items) {
+            console.warn(`⚠️ Valor ${value} excede el máximo ${maxDecimal18_2Items}, limitando...`);
+            limited = maxDecimal18_2Items;
+          }
+          
+          // Redondear a 2 decimales usando Math.round
+          const rounded = Math.round(limited * 100) / 100;
+          
+          // Asegurar que esté dentro del rango
           const final = Math.max(0, Math.min(maxDecimal18_2Items, rounded));
-          // Asegurar que sea un número finito
-          return isFinite(final) && !isNaN(final) ? final : 0;
+          
+          // CRÍTICO: Convertir a string con toFixed(2) y luego a número para asegurar exactamente 2 decimales
+          // Esto es necesario porque JavaScript puede tener problemas de precisión con números flotantes
+          const asString = final.toFixed(2);
+          const asNumber = parseFloat(asString);
+          
+          // Validación final
+          if (!isFinite(asNumber) || isNaN(asNumber) || asNumber < 0 || asNumber > maxDecimal18_2Items) {
+            console.error(`❌ Error al convertir valor a DECIMAL(18,2): ${value} → ${asNumber}`);
+            return 0;
+          }
+          
+          return asNumber;
         };
         
-        // Calcular valores redondeados con validación estricta
-        // Asegurar que todos los valores sean positivos (no pueden ser negativos)
-        const valinsRounded = roundTo2Decimals(Math.abs(valinsFinalValid));
-        // canped puede tener más decimales en la tabla real, pero redondeamos a 2 para consistencia
-        const canpedRounded = roundTo2Decimals(Math.abs(cantidadFinalValid));
-        const ivapedRounded = roundTo2Decimals(Math.abs(ivapedFinalValid));
-        const dctpedRounded = roundTo2Decimals(Math.abs(dctpedFinalValid));
+        // Convertir valores a formato DECIMAL(18,2) seguro
+        const valinsFinal = toDecimal18_2(valinsFinalValid);
+        const canpedFinal = toDecimal18_2(cantidadFinalValid);
+        const ivapedFinal = toDecimal18_2(ivapedFinalValid);
+        const dctpedFinal = toDecimal18_2(dctpedFinalValid);
         
-        // Validación final antes de insertar
-        if (valinsRounded > maxDecimal18_2Items || 
-            canpedRounded > maxDecimal18_2Items || 
-            ivapedRounded > maxDecimal18_2Items || 
-            dctpedRounded > maxDecimal18_2Items) {
-          throw new Error(`Item ${idx + 1}: Valores exceden el rango máximo de DECIMAL(18,2). valins=${valinsRounded}, canped=${canpedRounded}, ivaped=${ivapedRounded}, dctped=${dctpedRounded}`);
+        // Validación final antes de pasar a SQL Server
+        if (!isFinite(valinsFinal) || isNaN(valinsFinal) || valinsFinal < 0 || valinsFinal > maxDecimal18_2Items) {
+          throw new Error(`Item ${idx + 1}: valins inválido después de formateo: ${valinsFinal} (original: ${valinsFinalValid})`);
+        }
+        if (!isFinite(canpedFinal) || isNaN(canpedFinal) || canpedFinal < 0 || canpedFinal > maxDecimal18_2Items) {
+          throw new Error(`Item ${idx + 1}: canped inválido después de formateo: ${canpedFinal} (original: ${cantidadFinalValid})`);
+        }
+        if (!isFinite(ivapedFinal) || isNaN(ivapedFinal) || ivapedFinal < 0 || ivapedFinal > maxDecimal18_2Items) {
+          throw new Error(`Item ${idx + 1}: ivaped inválido después de formateo: ${ivapedFinal} (original: ${ivapedFinalValid})`);
+        }
+        if (!isFinite(dctpedFinal) || isNaN(dctpedFinal) || dctpedFinal < 0 || dctpedFinal > maxDecimal18_2Items) {
+          throw new Error(`Item ${idx + 1}: dctped inválido después de formateo: ${dctpedFinal} (original: ${dctpedFinalValid})`);
         }
         
-        // Log de valores antes de insertar item
-        console.log(`📦 Item ${idx + 1} - Valores redondeados para inserción:`, {
-          valins: valinsRounded,
-          canped: canpedRounded,
-          ivaped: ivapedRounded,
-          dctped: dctpedRounded
+        // Log detallado de valores antes de insertar
+        console.log(`📦 Item ${idx + 1} - Valores finales para SQL Server (DECIMAL(18,2)):`, {
+          valins: { 
+            original: valinsFinalValid, 
+            final: valinsFinal, 
+            string: valinsFinal.toFixed(2),
+            tipo: typeof valinsFinal, 
+            isFinite: isFinite(valinsFinal),
+            dentroRango: valinsFinal >= 0 && valinsFinal <= maxDecimal18_2Items
+          },
+          canped: { 
+            original: cantidadFinalValid, 
+            final: canpedFinal, 
+            string: canpedFinal.toFixed(2),
+            tipo: typeof canpedFinal, 
+            isFinite: isFinite(canpedFinal),
+            dentroRango: canpedFinal >= 0 && canpedFinal <= maxDecimal18_2Items
+          },
+          ivaped: { 
+            original: ivapedFinalValid, 
+            final: ivapedFinal, 
+            string: ivapedFinal.toFixed(2),
+            tipo: typeof ivapedFinal, 
+            isFinite: isFinite(ivapedFinal),
+            dentroRango: ivapedFinal >= 0 && ivapedFinal <= maxDecimal18_2Items
+          },
+          dctped: { 
+            original: dctpedFinalValid, 
+            final: dctpedFinal, 
+            string: dctpedFinal.toFixed(2),
+            tipo: typeof dctpedFinal, 
+            isFinite: isFinite(dctpedFinal),
+            dentroRango: dctpedFinal >= 0 && dctpedFinal <= maxDecimal18_2Items
+          }
         });
         
         reqDet.input('numped', sql.Char(8), numped.substring(0, 8).padStart(8, '0'));
         reqDet.input('codins', sql.Char(8), codins.substring(0, 8).padStart(8, '0'));
         
-        // CRÍTICO: Asegurar que todos los valores DECIMAL estén exactamente en el formato correcto
-        // Usar Number() con toFixed(2) para asegurar exactamente 2 decimales sin exceder el rango
-        // Los valores ya están validados arriba, solo necesitamos formatearlos correctamente
-        const valinsDecimal = Number(valinsRounded.toFixed(2));
-        const canpedDecimal = Number(canpedRounded.toFixed(2));
-        const ivapedDecimal = Number(ivapedRounded.toFixed(2));
-        const dctpedDecimal = Number(dctpedRounded.toFixed(2));
-        
-        // Validación final: asegurar que no sean NaN, Infinity o excedan el rango
-        if (!isFinite(valinsDecimal) || !isFinite(canpedDecimal) || 
-            !isFinite(ivapedDecimal) || !isFinite(dctpedDecimal)) {
-          throw new Error(`Item ${idx + 1}: Valores numéricos inválidos (NaN o Infinity). Valores: valins=${valinsDecimal}, canped=${canpedDecimal}, ivaped=${ivapedDecimal}, dctped=${dctpedDecimal}`);
-        }
-        
-        // Validar que los valores no excedan el rango permitido (doble verificación)
-        if (valinsDecimal > maxDecimal18_2Items || 
-            canpedDecimal > maxDecimal18_2Items || 
-            ivapedDecimal > maxDecimal18_2Items || 
-            dctpedDecimal > maxDecimal18_2Items) {
-          throw new Error(`Item ${idx + 1}: Valores exceden el rango máximo de DECIMAL(18,2). Valores: valins=${valinsDecimal}, canped=${canpedDecimal}, ivaped=${ivapedDecimal}, dctped=${dctpedDecimal}`);
-        }
-        
-        console.log(`📦 Item ${idx + 1} - Valores finales validados para inserción:`, {
-          valins: valinsDecimal,
-          canped: canpedDecimal,
-          ivaped: ivapedDecimal,
-          dctped: dctpedDecimal,
-          tipos: {
-            valins: typeof valinsDecimal,
-            canped: typeof canpedDecimal,
-            ivaped: typeof ivapedDecimal,
-            dctped: typeof dctpedDecimal
-          }
-        });
-        
-        // Usar sql.Decimal(18, 2) para asegurar que SQL Server entienda el tipo correcto
-        reqDet.input('valins', sql.Decimal(18, 2), valinsDecimal);
-        reqDet.input('canped', sql.Decimal(18, 2), canpedDecimal);
-        reqDet.input('ivaped', sql.Decimal(18, 2), ivapedDecimal);
-        reqDet.input('dctped', sql.Decimal(18, 2), dctpedDecimal);
+        // CRÍTICO: Asegurar que los valores sean números puros antes de pasarlos a sql.Decimal
+        // Usar Number() explícitamente para asegurar que no sean strings
+        reqDet.input('valins', sql.Decimal(18, 2), Number(valinsFinal));
+        reqDet.input('canped', sql.Decimal(18, 2), Number(canpedFinal));
+        reqDet.input('ivaped', sql.Decimal(18, 2), Number(ivapedFinal));
+        reqDet.input('dctped', sql.Decimal(18, 2), Number(dctpedFinal));
         reqDet.input('estped', sql.Char(1), 'B'); // B=BORRADOR
         reqDet.input('codalm', sql.Char(3), codalmFormatted);
         reqDet.input('pedido_id', sql.Int, newId); // Relación con ven_pedidos.id (ya validado arriba)
@@ -4924,12 +5051,24 @@ app.post('/api/pedidos', async (req, res) => {
     console.error('Error completo:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     
     const errorMessage = error.message || 'Error desconocido al crear pedido';
+    const sqlErrorMessage = error.originalError?.info?.message || null;
+    const sqlErrorNumber = error.originalError?.number || null;
     const errorDetails = error.originalError?.info || error.originalError?.message || null;
+    
+    // Mensaje de error más descriptivo
+    let finalErrorMessage = 'Error creando pedido';
+    if (sqlErrorMessage) {
+      finalErrorMessage = sqlErrorMessage;
+    } else if (errorMessage) {
+      finalErrorMessage = errorMessage;
+    }
     
     res.status(500).json({ 
       success: false, 
-      message: 'Error creando pedido', 
+      message: finalErrorMessage, 
       error: errorMessage,
+      sqlError: sqlErrorMessage,
+      sqlNumber: sqlErrorNumber,
       details: errorDetails,
       sqlMessage: process.env.NODE_ENV === 'development' ? error.originalError?.info?.message : undefined,
       originalError: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -7392,40 +7531,109 @@ app.put('/api/facturas/:id', async (req, res) => {
         console.log(`[${requestId}]    Estado temporal: TIMBRANDO (P) - La factura está siendo procesada por DIAN`);
         
         try {
+          // ========== VALIDACIÓN INICIAL ==========
+          console.log(`\n[${requestId}] 🔍 [TIMBRADO] ========== VALIDACIÓN INICIAL ==========`);
+          console.log(`[${requestId}]    - Factura ID: ${idNum}`);
+          console.log(`[${requestId}]    - Número Factura: ${facturaExistente.numfact || 'N/A'}`);
+          console.log(`[${requestId}]    - Estado actual: ${facturaExistente.estfac} (${estadoActualMapeado})`);
+          console.log(`[${requestId}]    - DIANService disponible: ${typeof DIANService !== 'undefined' ? 'Sí' : 'No'}`);
+          console.log(`[${requestId}]    - Métodos disponibles:`, Object.getOwnPropertyNames(DIANService).filter(name => typeof DIANService[name] === 'function'));
+          
           // 1. Obtener resolución DIAN activa
           console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 1: Obteniendo resolución DIAN activa...`);
+          console.log(`[${requestId}]    Llamando a: DIANService.getDIANResolution()`);
           const resolution = await DIANService.getDIANResolution();
-          console.log(`[${requestId}] ✅ Resolución DIAN obtenida: ID=${resolution.id}, Consecutivo=${resolution.consecutivo}`);
+          console.log(`[${requestId}] ✅ Resolución DIAN obtenida exitosamente:`);
+          console.log(`[${requestId}]    - ID: ${resolution.id}`);
+          console.log(`[${requestId}]    - Consecutivo: ${resolution.consecutivo}`);
+          console.log(`[${requestId}]    - Rango Inicial: ${resolution.rango_inicial || 'N/A'}`);
+          console.log(`[${requestId}]    - Rango Final: ${resolution.rango_final || 'N/A'}`);
+          console.log(`[${requestId}]    - ID API: ${resolution.id_api || 'N/A'}`);
           
           // 2. Obtener parámetros DIAN
           console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 2: Obteniendo parámetros DIAN...`);
+          console.log(`[${requestId}]    Llamando a: DIANService.getDIANParameters()`);
           const dianParams = await DIANService.getDIANParameters();
-          console.log(`[${requestId}] ✅ Parámetros DIAN obtenidos: URL=${dianParams.url_base}, TestSetID=${dianParams.testSetID}`);
+          console.log(`[${requestId}] ✅ Parámetros DIAN obtenidos exitosamente:`);
+          console.log(`[${requestId}]    - URL Base: ${dianParams.url_base || 'N/A'}`);
+          console.log(`[${requestId}]    - Test Set ID: ${dianParams.testSetID || 'N/A'}`);
+          console.log(`[${requestId}]    - isPrueba: ${dianParams.isPrueba !== undefined ? dianParams.isPrueba : 'N/A'}`);
+          console.log(`[${requestId}]    - sync: ${dianParams.sync !== undefined ? dianParams.sync : 'N/A'}`);
+          console.log(`[${requestId}]    - URL Completa del Endpoint: ${dianParams.url_base}/api/ubl2.1/invoice/${dianParams.testSetID}`);
+          
+          // Validar que los parámetros estén completos
+          if (!dianParams.url_base || !dianParams.testSetID) {
+            throw new Error(`Parámetros DIAN incompletos: url_base=${dianParams.url_base}, testSetID=${dianParams.testSetID}`);
+          }
           
           // 3. Obtener factura completa con detalles y cliente
           console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 3: Obteniendo factura completa con detalles y cliente...`);
+          console.log(`[${requestId}]    Llamando a: DIANService.getFacturaCompleta(${idNum})`);
           const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
-          console.log(`[${requestId}] ✅ Factura completa obtenida: ${facturaCompleta.factura.numfact}, ${facturaCompleta.detalles?.length || 0} detalles`);
+          console.log(`[${requestId}] ✅ Factura completa obtenida exitosamente:`);
+          console.log(`[${requestId}]    - Número Factura: ${facturaCompleta.factura?.numfact || 'N/A'}`);
+          console.log(`[${requestId}]    - Total Detalles: ${facturaCompleta.detalles?.length || 0}`);
+          console.log(`[${requestId}]    - Cliente: ${facturaCompleta.cliente ? (facturaCompleta.cliente.nomter || facturaCompleta.cliente.nombreCompleto || facturaCompleta.cliente.codter || 'N/A') : 'No encontrado'}`);
+          console.log(`[${requestId}]    - Subtotal: ${facturaCompleta.factura?.valvta || facturaCompleta.factura?.subtotal || 'N/A'}`);
+          console.log(`[${requestId}]    - IVA: ${facturaCompleta.factura?.valiva || facturaCompleta.factura?.iva_valor || 'N/A'}`);
+          console.log(`[${requestId}]    - Total: ${facturaCompleta.factura?.netfac || facturaCompleta.factura?.total || 'N/A'}`);
+          
+          // Validar que la factura tenga detalles
+          if (!facturaCompleta.detalles || facturaCompleta.detalles.length === 0) {
+            console.warn(`[${requestId}] ⚠️ ADVERTENCIA: La factura no tiene detalles. Se creará una línea consolidada.`);
+          }
           
           // 4. Transformar factura al formato JSON requerido por DIAN
           console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 4: Transformando factura al formato JSON requerido por DIAN...`);
+          console.log(`[${requestId}]    Llamando a: DIANService.transformVenFacturaForDIAN(...)`);
+          console.log(`[${requestId}]    Parámetros:`);
+          console.log(`[${requestId}]      - facturaCompleta: ${facturaCompleta ? 'Presente' : 'Ausente'}`);
+          console.log(`[${requestId}]      - resolution: ${resolution ? 'Presente' : 'Ausente'}`);
+          console.log(`[${requestId}]      - dianParams: ${dianParams ? 'Presente' : 'Ausente'}`);
+          console.log(`[${requestId}]      - invoiceData:`, JSON.stringify(body.invoiceData || {}, null, 2));
+          
           const invoiceJson = await DIANService.transformVenFacturaForDIAN(
             facturaCompleta,
             resolution,
             dianParams,
             body.invoiceData || {}
           );
-          console.log(`[${requestId}] ✅ Factura transformada al formato DIAN. Número: ${invoiceJson.number}, Total: ${invoiceJson.legal_monetary_totals?.payable_amount}`);
+          
+          console.log(`[${requestId}] ✅ Factura transformada al formato DIAN exitosamente:`);
+          console.log(`[${requestId}]    - Número: ${invoiceJson.number || 'N/A'}`);
+          console.log(`[${requestId}]    - Tipo Documento: ${invoiceJson.type_document_id || 'N/A'}`);
+          console.log(`[${requestId}]    - Fecha Emisión: ${invoiceJson.issue_date || 'N/A'}`);
+          console.log(`[${requestId}]    - Total a Pagar: ${invoiceJson.legal_monetary_totals?.payable_amount || 'N/A'}`);
+          console.log(`[${requestId}]    - Subtotal: ${invoiceJson.legal_monetary_totals?.line_extension_amount || 'N/A'}`);
+          console.log(`[${requestId}]    - IVA Total: ${invoiceJson.tax_totals?.[0]?.tax_amount || 'N/A'}`);
+          console.log(`[${requestId}]    - Total Líneas: ${invoiceJson.invoice_lines?.length || 0}`);
+          console.log(`[${requestId}]    - Cliente: ${invoiceJson.customer?.name || 'N/A'} (ID: ${invoiceJson.customer?.identification_number || 'N/A'})`);
+          console.log(`[${requestId}]    - Perfil: ${invoiceJson.profile_id || 'N/A'} (${invoiceJson.profile_id === '1' ? 'Producción' : invoiceJson.profile_id === '2' ? 'Prueba' : 'Desconocido'})`);
           
           // 5. Enviar factura a DIAN
           console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 5: ENVIANDO FACTURA A DIAN...`);
-          console.log(`[${requestId}]    URL de DIAN: ${dianParams.url_base}/api/ubl2.1/invoice/${dianParams.testSetID}`);
+          console.log(`[${requestId}]    Llamando a: DIANService.sendInvoiceToDIAN(...)`);
+          console.log(`[${requestId}]    Parámetros:`);
+          console.log(`[${requestId}]      - invoiceJson: ${invoiceJson ? 'Presente' : 'Ausente'}`);
+          console.log(`[${requestId}]      - testSetID: ${dianParams.testSetID}`);
+          console.log(`[${requestId}]      - baseUrl: ${dianParams.url_base}`);
+          console.log(`[${requestId}]    URL Completa: ${dianParams.url_base}/api/ubl2.1/invoice/${dianParams.testSetID}`);
+          console.log(`[${requestId}]    ⏰ Iniciando envío a DIAN a las: ${new Date().toISOString()}`);
+          
           const dianResponse = await DIANService.sendInvoiceToDIAN(
             invoiceJson,
             dianParams.testSetID,
             dianParams.url_base
           );
-          console.log(`[${requestId}] ✅ Respuesta de DIAN recibida`);
+          
+          console.log(`[${requestId}] ✅ Respuesta de DIAN recibida exitosamente:`);
+          console.log(`[${requestId}]    - success: ${dianResponse.success || false}`);
+          console.log(`[${requestId}]    - status: ${dianResponse.status || 'N/A'}`);
+          console.log(`[${requestId}]    - statusCode: ${dianResponse.statusCode || 'N/A'}`);
+          console.log(`[${requestId}]    - CUFE: ${dianResponse.cufe || 'No generado'}`);
+          console.log(`[${requestId}]    - UUID: ${dianResponse.uuid || 'N/A'}`);
+          console.log(`[${requestId}]    - message: ${dianResponse.message || 'N/A'}`);
+          console.log(`[${requestId}]    ⏰ Respuesta recibida a las: ${new Date().toISOString()}`);
           
           // 6. Procesar respuesta de DIAN y actualizar estado según resultado
           console.log(`\n[${requestId}] ` + '='.repeat(80));
@@ -7643,6 +7851,15 @@ app.put('/api/facturas/:id', async (req, res) => {
       const cufeFinal = cufeGenerado || facturaActualizada.cufe;
       const fechaTimbradoFinal = fechaTimbradoGenerada || facturaActualizada.fechaTimbrado;
       
+      const estadoFinalMapeado = mapEstadoFromDb(estadoFinal || facturaActualizada.estado);
+      
+      console.log(`\n[${requestId}] 📊 [PUT /api/facturas/:id] RESUMEN ANTES DE MAPEAR RESPUESTA:`);
+      console.log(`[${requestId}]    - estadoFinal (BD):`, estadoFinal || facturaActualizada.estado);
+      console.log(`[${requestId}]    - estadoFinal mapeado:`, estadoFinalMapeado);
+      console.log(`[${requestId}]    - cufeGenerado:`, cufeGenerado || 'null');
+      console.log(`[${requestId}]    - facturaActualizada.cufe (BD):`, facturaActualizada.cufe || 'null');
+      console.log(`[${requestId}]    - cufeFinal:`, cufeFinal || 'null');
+      
       const facturaMapeada = {
         id: String(facturaActualizada.id),
         numeroFactura: facturaActualizada.numeroFactura,
@@ -7658,9 +7875,9 @@ app.put('/api/facturas/:id', async (req, res) => {
         ivaValor: facturaActualizada.ivaValor,
         total: facturaActualizada.total,
         observaciones: facturaActualizada.observaciones,
-        estado: mapEstadoFromDb(estadoFinal || facturaActualizada.estado),
-        cufe: cufeFinal,
-        fechaTimbrado: fechaTimbradoFinal,
+        estado: estadoFinalMapeado,
+        cufe: cufeFinal || undefined, // No enviar 'No generado', enviar undefined si no hay CUFE
+        fechaTimbrado: fechaTimbradoFinal || undefined,
         remisionesIds: remisionesIds
       };
       
@@ -7668,9 +7885,11 @@ app.put('/api/facturas/:id', async (req, res) => {
       console.log(`[${requestId}] ` + '='.repeat(80));
       console.log(`[${requestId}]    - ID:`, facturaMapeada.id);
       console.log(`[${requestId}]    - Número:`, facturaMapeada.numeroFactura);
-      console.log(`[${requestId}]    - Estado final:`, facturaMapeada.estado);
+      console.log(`[${requestId}]    - Estado final (mapeado):`, facturaMapeada.estado);
+      console.log(`[${requestId}]    - Estado final (BD original):`, estadoFinal || facturaActualizada.estado);
       console.log(`[${requestId}]    - CUFE:`, facturaMapeada.cufe || 'No generado');
       console.log(`[${requestId}]    - Fecha timbrado:`, facturaMapeada.fechaTimbrado || 'N/A');
+      console.log(`[${requestId}]    - Se intentó timbrar:`, debeTimbrar ? 'Sí' : 'No');
       console.log(`[${requestId}] ⏰ Timestamp final:`, new Date().toISOString());
       console.log(`[${requestId}] ` + '='.repeat(80) + '\n');
       

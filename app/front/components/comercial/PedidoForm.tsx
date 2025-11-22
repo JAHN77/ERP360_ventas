@@ -251,7 +251,25 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     setVendedorSearch(`${vendedor.primerNombre || ''} ${vendedor.primerApellido || ''}`.trim());
                 }
             }
-            setItems(cotizacion.items);
+            
+            // Normalizar y redondear valores de items para evitar problemas de overflow
+            const roundTo2 = (value: number) => {
+                if (!isFinite(value) || isNaN(value)) return 0;
+                return Math.round(Number(value) * 100) / 100;
+            };
+            
+            const normalizedItems = cotizacion.items.map(item => ({
+                ...item,
+                cantidad: Number(item.cantidad) || 0,
+                precioUnitario: roundTo2(item.precioUnitario || 0),
+                descuentoPorcentaje: roundTo2(item.descuentoPorcentaje || 0),
+                ivaPorcentaje: roundTo2(item.ivaPorcentaje || 0),
+                subtotal: roundTo2(item.subtotal || 0),
+                valorIva: roundTo2(item.valorIva || 0),
+                total: roundTo2(item.total || 0)
+            }));
+            
+            setItems(normalizedItems);
         } else {
             // Limpiar campos cuando no hay cotización
             setItems([]);
@@ -274,23 +292,34 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
 
         const quantityNum = Number(currentQuantity);
         const discountNum = Number(currentDiscount);
-        const precioUnitario = selectedProduct.ultimoCosto;
+        const precioUnitario = Number(selectedProduct.ultimoCosto) || 0;
         const ivaPorcentaje = selectedProduct.aplicaIva ? 19 : 0;
 
-        const subtotal = (precioUnitario * quantityNum) * (1 - (discountNum / 100));
-        const valorIva = subtotal * (ivaPorcentaje / 100);
-        const total = subtotal + valorIva;
+        // Calcular valores y redondear a 2 decimales para evitar problemas de precisión
+        // IMPORTANTE: Redondear en cada paso para evitar acumulación de errores de precisión
+        const roundTo2 = (value: number) => {
+            if (!isFinite(value) || isNaN(value)) return 0;
+            return Math.round(Number(value) * 100) / 100;
+        };
+        
+        const precioUnitarioRounded = roundTo2(precioUnitario);
+        const subtotalBruto = roundTo2(precioUnitarioRounded * quantityNum);
+        const descuentoValor = roundTo2(subtotalBruto * (discountNum / 100));
+        const subtotal = roundTo2(subtotalBruto - descuentoValor);
+        const valorIva = roundTo2(subtotal * (ivaPorcentaje / 100));
+        const total = roundTo2(subtotal + valorIva);
 
         const newItem: DocumentItem = {
             productoId: selectedProduct.id,
             descripcion: selectedProduct.nombre,
             cantidad: quantityNum,
-            precioUnitario: precioUnitario,
-            ivaPorcentaje: ivaPorcentaje,
-            descuentoPorcentaje: discountNum,
+            precioUnitario: precioUnitarioRounded,
+            ivaPorcentaje: roundTo2(ivaPorcentaje),
+            descuentoPorcentaje: roundTo2(discountNum),
             subtotal: subtotal,
             valorIva: valorIva,
             total: total,
+            descuentoValor: descuentoValor
         };
         setItems([...items, newItem]);
         
@@ -306,6 +335,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     }
 
     const totals = useMemo(() => {
+        const roundTo2 = (value: number) => Math.round(value * 100) / 100;
+        
         const subtotalBruto = items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
         const descuentoTotal = items.reduce((acc, item) => {
             const itemTotalBruto = item.precioUnitario * item.cantidad;
@@ -314,7 +345,15 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         const subtotalNeto = subtotalBruto - descuentoTotal;
         const iva = items.reduce((acc, item) => acc + item.valorIva, 0);
         const total = subtotalNeto + iva;
-        return { subtotalBruto, descuentoTotal, subtotalNeto, iva, total };
+        
+        // Redondear todos los totales a 2 decimales
+        return { 
+            subtotalBruto: roundTo2(subtotalBruto), 
+            descuentoTotal: roundTo2(descuentoTotal), 
+            subtotalNeto: roundTo2(subtotalNeto), 
+            iva: roundTo2(iva), 
+            total: roundTo2(total) 
+        };
     }, [items]);
     
     const handleSubmit = (e: React.FormEvent) => {

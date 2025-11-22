@@ -345,15 +345,24 @@ const DevolucionesPage: React.FC = () => {
             
             // Si la factura no tiene items, intentar cargarlos desde el backend
             try {
+                // Usar el ID de la factura seleccionada directamente para mayor confiabilidad
+                const idFacturaParaBackend = selectedFactura.id;
+                
                 if (process.env.NODE_ENV === 'development') {
-                    console.log('[Devoluciones] Cargando items de la factura desde el backend:', facturaId);
+                    console.log('[Devoluciones] Cargando items de la factura desde el backend:', {
+                        facturaId: facturaId,
+                        selectedFacturaId: idFacturaParaBackend,
+                        numeroFactura: selectedFactura.numeroFactura
+                    });
                 }
                 
                 // Cargar detalles de facturas filtrando por facturaId
-                const detallesResponse = await fetchFacturasDetalle({ facturaId });
+                // Pasar directamente el facturaId como string o number, no como objeto
+                const detallesResponse = await fetchFacturasDetalle(idFacturaParaBackend);
                 if (detallesResponse.success && detallesResponse.data) {
+                    // El backend ya filtra por facturaId, así que usamos directamente los datos
                     const itemsFactura = Array.isArray(detallesResponse.data) 
-                        ? detallesResponse.data.filter(d => String(d.facturaId || d.id_factura || '') === String(facturaId))
+                        ? detallesResponse.data
                         : [];
                     
                     if (itemsFactura.length > 0) {
@@ -379,7 +388,12 @@ const DevolucionesPage: React.FC = () => {
                         }
                     } else {
                         if (process.env.NODE_ENV === 'development') {
-                            console.warn('[Devoluciones] No se encontraron items para la factura en el backend:', facturaId);
+                            console.warn('[Devoluciones] No se encontraron items para la factura en el backend:', {
+                                facturaId: facturaId,
+                                selectedFacturaId: idFacturaParaBackend,
+                                numeroFactura: selectedFactura.numeroFactura,
+                                responseData: detallesResponse.data
+                            });
                         }
                         addNotification({
                             message: 'La factura seleccionada no tiene productos asociados.',
@@ -544,10 +558,12 @@ const DevolucionesPage: React.FC = () => {
                         type: 'info'
                     });
                     
-                    const detallesResponse = await fetchFacturasDetalle({ facturaId: selectedFactura.id });
+                    // Pasar directamente el facturaId como string o number, no como objeto
+                    const detallesResponse = await fetchFacturasDetalle(selectedFactura.id);
                     if (detallesResponse.success && detallesResponse.data) {
+                        // El backend ya filtra por facturaId, así que usamos directamente los datos
                         const itemsFactura = Array.isArray(detallesResponse.data) 
-                            ? detallesResponse.data.filter(d => String(d.facturaId || d.id_factura || '') === String(selectedFactura.id))
+                            ? detallesResponse.data
                             : [];
                         
                         if (itemsFactura.length === 0) {

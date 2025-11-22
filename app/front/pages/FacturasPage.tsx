@@ -459,6 +459,10 @@ const FacturasPage: React.FC = () => {
             const { nuevaFactura } = result;
             // Limpiar selección de remisiones ya que fueron facturadas
             setSelectedRemisiones(new Set());
+            
+            // Refrescar facturas y remisiones para asegurar que las remisiones facturadas desaparezcan de la lista
+            await refreshFacturasYRemisiones();
+            
             addNotification({ 
                 message: `✅ Factura BORRADOR ${nuevaFactura.numeroFactura} generada exitosamente. Las remisiones fueron eliminadas de "Remisiones Entregadas por Facturar" y la factura aparece en el historial. Revise y timbre para finalizar.`, 
                 type: 'success' 
@@ -467,6 +471,7 @@ const FacturasPage: React.FC = () => {
             // Las remisiones ya deberían desaparecer inmediatamente de la lista porque:
             // 1. Se actualizaron en el estado local con facturaId
             // 2. El filtro remisionesPorFacturar excluye remisiones con facturaId
+            // 3. Se refrescó la lista con refreshFacturasYRemisiones()
         } else {
             addNotification({ 
                 message: "❌ Error al crear la factura. Por favor, intente nuevamente.", 
@@ -485,6 +490,12 @@ const FacturasPage: React.FC = () => {
 };
 
   const handleTimbrar = async (facturaId: string) => {
+    console.log('\n' + '='.repeat(80));
+    console.log('🚀 [FRONTEND] ========== INICIO DE TIMBRADO ==========');
+    console.log('='.repeat(80));
+    console.log('📋 [FRONTEND] handleTimbrar llamado con facturaId:', facturaId);
+    console.log('⏰ [FRONTEND] Timestamp:', new Date().toISOString());
+    
     setIsStamping(true);
     try {
         addNotification({ 
@@ -492,8 +503,24 @@ const FacturasPage: React.FC = () => {
             type: 'info' 
         });
         
+        console.log('📤 [FRONTEND] Llamando a timbrarFactura(facturaId)...');
         const facturaTimbrada = await timbrarFactura(facturaId);
+        console.log('📥 [FRONTEND] Respuesta recibida de timbrarFactura:', {
+            success: !!facturaTimbrada,
+            estado: facturaTimbrada?.estado,
+            cufe: facturaTimbrada?.cufe ? `${facturaTimbrada.cufe.substring(0, 20)}...` : 'No generado',
+            numeroFactura: facturaTimbrada?.numeroFactura
+        });
         if (facturaTimbrada) {
+            console.log('✅ [FRONTEND] Factura timbrada exitosamente');
+            console.log('📋 [FRONTEND] Datos de la factura timbrada:', {
+                id: facturaTimbrada.id,
+                numeroFactura: facturaTimbrada.numeroFactura,
+                estado: facturaTimbrada.estado,
+                cufe: facturaTimbrada.cufe || 'No generado',
+                fechaTimbrado: facturaTimbrada.fechaTimbrado || 'N/A'
+            });
+            
             // Actualizar selectedFactura con los datos más recientes de la factura timbrada
             // Esto asegura que el modal muestre los datos actualizados
             setSelectedFactura(facturaTimbrada);
@@ -501,6 +528,11 @@ const FacturasPage: React.FC = () => {
             // Si la factura fue timbrada exitosamente (no rechazada), cerrar el modal
             // para que el usuario vea que la factura pasó al historial y las remisiones desaparecieron
             if (facturaTimbrada.estado === 'ENVIADA' && facturaTimbrada.cufe) {
+                console.log('✅ [FRONTEND] Factura ENVIADA con CUFE - Cerrando modal en 1.5s');
+                
+                // Refrescar facturas y remisiones para asegurar que las remisiones facturadas desaparezcan
+                await refreshFacturasYRemisiones();
+                
                 // Cerrar el modal después de un breve delay para que el usuario vea el mensaje
                 setTimeout(() => {
                     handleCloseModals();
@@ -511,27 +543,39 @@ const FacturasPage: React.FC = () => {
                     type: 'success' 
                 });
             } else if (facturaTimbrada.estado === 'RECHAZADA') {
+                console.log('❌ [FRONTEND] Factura RECHAZADA por DIAN');
                 addNotification({ 
                     message: `❌ Factura ${facturaTimbrada.numeroFactura} fue rechazada en el proceso de timbrado.`, 
                     type: 'error' 
                 });
             } else {
+                console.log('⚠️ [FRONTEND] Factura timbrada pero estado inesperado:', facturaTimbrada.estado);
                 addNotification({ 
                     message: `✅ Factura ${facturaTimbrada.numeroFactura} timbrada con éxito.`, 
                     type: 'success' 
                 });
             }
         } else {
+            console.error('❌ [FRONTEND] facturaTimbrada es null o undefined');
             addNotification({ message: "Error al timbrar la factura.", type: 'warning' });
         }
+        
+        console.log('✅ [FRONTEND] ========== FIN DE TIMBRADO ==========');
+        console.log('='.repeat(80) + '\n');
     } catch (error) {
-        console.error('Error al timbrar:', error);
+        console.error('\n❌ [FRONTEND] ========== ERROR EN TIMBRADO ==========');
+        console.error('❌ [FRONTEND] Error al timbrar:', error);
+        console.error('❌ [FRONTEND] Error message:', (error as Error).message);
+        console.error('❌ [FRONTEND] Error stack:', (error as Error).stack);
+        console.error('='.repeat(80) + '\n');
+        
         addNotification({ 
             message: `Error al timbrar la factura: ${(error as Error).message || 'Error desconocido'}.`, 
             type: 'error' 
         });
     } finally {
         setIsStamping(false);
+        console.log('🔄 [FRONTEND] setIsStamping(false) - Proceso de timbrado finalizado');
     }
   }
   
@@ -572,6 +616,168 @@ const FacturasPage: React.FC = () => {
       setPage('facturacion_electronica', rest);
     }
   }
+
+  // Función para re-facturar una factura rechazada
+  const handleRefacturar = async () => {
+    if (!selectedFactura || selectedFactura.estado !== 'RECHAZADA') {
+      addNotification({
+        message: 'Solo se puede re-facturar facturas rechazadas.',
+        type: 'warning'
+      });
+      return;
+    }
+
+    console.log('[Refacturar] Iniciando proceso de re-facturación para factura:', selectedFactura.id);
+
+    // Buscar remisiones relacionadas usando la misma lógica que remisionesRelacionadas
+    let remisionesParaRefacturar: Remision[] = [];
+    
+    // 1. Intentar con remisionesIds (array de IDs)
+    const remisionesIds = selectedFactura.remisionesIds || [];
+    if (remisionesIds.length > 0) {
+      remisionesParaRefacturar = remisiones.filter(r => 
+        remisionesIds.some(id => String(r.id) === String(id))
+      );
+      console.log('[Refacturar] Remisiones encontradas por remisionesIds:', remisionesParaRefacturar.length);
+    }
+    
+    // 2. Si no se encontraron, intentar con remisionId (singular)
+    if (remisionesParaRefacturar.length === 0 && selectedFactura.remisionId) {
+      const remisionEncontrada = remisiones.find(r => 
+        String(r.id) === String(selectedFactura.remisionId)
+      );
+      if (remisionEncontrada) {
+        remisionesParaRefacturar = [remisionEncontrada];
+        console.log('[Refacturar] Remisión encontrada por remisionId:', remisionEncontrada.id);
+      }
+    }
+    
+    // 3. Si aún no se encontraron, buscar por facturaId en las remisiones (búsqueda inversa)
+    if (remisionesParaRefacturar.length === 0 && selectedFactura.id) {
+      remisionesParaRefacturar = remisiones.filter(r => {
+        const remisionFacturaId = r.facturaId ? String(r.facturaId) : null;
+        const facturaId = String(selectedFactura.id);
+        return remisionFacturaId === facturaId;
+      });
+      console.log('[Refacturar] Remisiones encontradas por facturaId:', remisionesParaRefacturar.length);
+    }
+
+    // Verificar que se encontraron remisiones
+    if (remisionesParaRefacturar.length === 0) {
+      console.error('[Refacturar] No se encontraron remisiones relacionadas:', {
+        facturaId: selectedFactura.id,
+        remisionId: selectedFactura.remisionId,
+        remisionesIds: selectedFactura.remisionesIds,
+        totalRemisiones: remisiones.length
+      });
+      addNotification({
+        message: 'No se encontraron remisiones relacionadas con esta factura rechazada. Por favor, verifique que las remisiones existan.',
+        type: 'error'
+      });
+      return;
+    }
+
+    // Verificar que las remisiones estén en estado ENTREGADO y disponibles
+    const remisionesDisponibles = remisionesParaRefacturar.filter(r => {
+      const estadoStr = String(r.estado || '').trim().toUpperCase();
+      const estadoCorrecto = estadoStr === 'ENTREGADO' || estadoStr === 'D';
+      // Permitir remisiones que tengan facturaId igual a la factura rechazada (para poder re-facturarlas)
+      const facturaIdCorrecto = !r.facturaId || String(r.facturaId) === String(selectedFactura.id);
+      return estadoCorrecto && facturaIdCorrecto;
+    });
+
+    if (remisionesDisponibles.length === 0) {
+      console.error('[Refacturar] No hay remisiones disponibles para re-facturar:', {
+        remisionesEncontradas: remisionesParaRefacturar.length,
+        estados: remisionesParaRefacturar.map(r => r.estado),
+        facturaIds: remisionesParaRefacturar.map(r => r.facturaId)
+      });
+      addNotification({
+        message: 'Las remisiones de esta factura no están disponibles para re-facturar. Verifique que estén en estado ENTREGADO.',
+        type: 'error'
+      });
+      return;
+    }
+
+    console.log('[Refacturar] Remisiones disponibles para re-facturar:', remisionesDisponibles.length);
+
+    setIsFacturando(true);
+    
+    try {
+      addNotification({ 
+        message: `🔄 Creando nueva factura desde ${remisionesDisponibles.length} remisión(es) de la factura rechazada...`, 
+        type: 'info' 
+      });
+
+      // Cargar detalles de remisiones antes de facturar
+      const remisionesConItems = await Promise.all(remisionesDisponibles.map(async (remision) => {
+        if (remision.items && remision.items.length > 0) {
+          const tienePrecios = remision.items.some(item => 
+            item.precioUnitario && Number(item.precioUnitario) > 0
+          );
+          if (tienePrecios) {
+            console.log(`[Refacturar] Remisión ${remision.id} ya tiene items con precios`);
+            return remision;
+          }
+        }
+        
+        try {
+          console.log(`[Refacturar] Cargando detalles de remisión ${remision.id}...`);
+          const detallesRes = await apiClient.getRemisionDetalleById(remision.id);
+          if (detallesRes.success && Array.isArray(detallesRes.data) && detallesRes.data.length > 0) {
+            console.log(`[Refacturar] Detalles cargados para remisión ${remision.id}: ${detallesRes.data.length} items`);
+            return {
+              ...remision,
+              items: detallesRes.data
+            };
+          } else {
+            console.warn(`[Refacturar] No se pudieron cargar detalles para remisión ${remision.id}`);
+          }
+        } catch (error) {
+          console.error(`[Refacturar] Error cargando detalles de remisión ${remision.id}:`, error);
+        }
+        return remision;
+      }));
+
+      console.log('[Refacturar] Creando factura desde remisiones:', remisionesDisponibles.map(r => r.id));
+      const result = await crearFacturaDesdeRemisiones(remisionesDisponibles.map(r => r.id));
+      
+      if (result) {
+        const { nuevaFactura } = result;
+        console.log('[Refacturar] Nueva factura creada:', nuevaFactura.numeroFactura);
+        
+        // Refrescar facturas y remisiones
+        await refreshFacturasYRemisiones();
+        
+        // Cerrar el modal de la factura rechazada
+        handleCloseModals();
+        
+        addNotification({ 
+          message: `✅ Nueva factura BORRADOR ${nuevaFactura.numeroFactura} creada desde la factura rechazada. Revise y timbre para finalizar.`, 
+          type: 'success' 
+        });
+        
+        // Abrir el modal de la nueva factura después de un breve delay
+        setTimeout(() => {
+          handleOpenDetailModal(nuevaFactura);
+        }, 500);
+      } else {
+        console.error('[Refacturar] Error: No se recibió respuesta al crear la factura');
+        addNotification({ 
+          message: "❌ Error al crear la nueva factura. Por favor, intente nuevamente.", 
+          type: 'error' 
+        });
+      }
+    } catch (error) {
+      console.error('[Refacturar] Error al re-facturar:', error);
+      addNotification({ 
+        message: `❌ Error al crear la nueva factura: ${(error as Error).message || 'Error desconocido'}.`, 
+        type: 'error' 
+      });
+    } finally {
+      setIsFacturando(false);
+    }
+  };
 
     const handleDownloadXML = (factura: Factura) => {
         const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
@@ -969,6 +1175,32 @@ const FacturasPage: React.FC = () => {
                             {isStamping ? <><i className="fas fa-spinner fa-spin mr-2"></i>Timbrando...</> : <><i className="fas fa-stamp mr-2"></i>Autorizar y Timbrar Factura</>}
                         </button>
                     </ProtectedComponent>
+                ) : selectedFactura.estado === 'RECHAZADA' ? (
+                    <>
+                        <ProtectedComponent permission="facturacion:create">
+                            <button 
+                                onClick={handleRefacturar} 
+                                disabled={isFacturando} 
+                                className="px-4 py-2 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors disabled:bg-slate-400"
+                            >
+                                {isFacturando ? (
+                                    <><i className="fas fa-spinner fa-spin mr-2"></i>Creando nueva factura...</>
+                                ) : (
+                                    <><i className="fas fa-redo mr-2"></i>Volver a Facturar</>
+                                )}
+                            </button>
+                        </ProtectedComponent>
+                        {archivosAdjuntos.some(a => a.entidadId === selectedFactura.id && a.entidadTipo === 'FACTURA') ? (
+                            <button onClick={() => handleDescargarAdjunto(selectedFactura.id)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
+                                <i className="fas fa-paperclip mr-2"></i>Descargar PDF
+                            </button>
+                        ) : (
+                            <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
+                                <i className="fas fa-file-pdf mr-2"></i>Generar PDF
+                            </button>
+                        )}
+                        <button onClick={() => handleDownloadXML(selectedFactura)} className="px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg hover:bg-slate-700"><i className="fas fa-file-code mr-2"></i>Descargar XML</button>
+                    </>
                 ) : (
                     <>
                         {archivosAdjuntos.some(a => a.entidadId === selectedFactura.id && a.entidadTipo === 'FACTURA') ? (

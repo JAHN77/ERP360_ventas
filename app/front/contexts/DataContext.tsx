@@ -1797,17 +1797,65 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
             }
             
+            // Función para normalizar y redondear valores numéricos a 2 decimales
+            // Asegura que los valores sean números puros, no strings con formato
+            const roundTo2Decimals = (value: number | string | undefined | null): number => {
+                if (value === null || value === undefined) return 0;
+                // Si es string, limpiar formato primero
+                if (typeof value === 'string') {
+                    // Remover símbolos de moneda, espacios y formateo
+                    let cleaned = value.trim().replace(/[$\s]/g, '');
+                    // Si tiene coma y punto, la coma es decimal (formato europeo: 1.234,56)
+                    if (cleaned.includes(',') && cleaned.includes('.')) {
+                        cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+                    } else if (cleaned.includes(',')) {
+                        // Solo coma, verificar si es decimal o separador de miles
+                        const parts = cleaned.split(',');
+                        if (parts.length === 2 && parts[1].length <= 2) {
+                            cleaned = cleaned.replace(',', '.'); // Es decimal
+                        } else {
+                            cleaned = cleaned.replace(/,/g, ''); // Es separador de miles
+                        }
+                    }
+                    value = parseFloat(cleaned);
+                }
+                // Asegurar que sea un número válido
+                const num = Number(value);
+                if (!isFinite(num) || isNaN(num)) return 0;
+                // Redondear a 2 decimales
+                return Math.round(num * 100) / 100;
+            };
+            
+            // Normalizar items para evitar problemas de overflow
+            // Asegurar que todos los valores sean números puros
+            const normalizedItems = data.items?.map(item => ({
+                ...item,
+                productoId: Number(item.productoId) || 0,
+                cantidad: Number(item.cantidad) || 0,
+                precioUnitario: roundTo2Decimals(item.precioUnitario),
+                descuentoPorcentaje: roundTo2Decimals(item.descuentoPorcentaje),
+                ivaPorcentaje: roundTo2Decimals(item.ivaPorcentaje),
+                subtotal: roundTo2Decimals(item.subtotal),
+                valorIva: roundTo2Decimals(item.valorIva),
+                total: roundTo2Decimals(item.total),
+                // Asegurar que descuentoValor también esté normalizado si existe
+                descuentoValor: item.descuentoValor ? roundTo2Decimals(item.descuentoValor) : 0
+            })) || [];
+            
             const payload = {
                 ...data,
+                items: normalizedItems,
                 fechaPedido: fechaPedido, // Asegurar que siempre haya fechaPedido
                 clienteId: clienteCodter, // Usar codter en lugar de ID numérico
                 vendedorId: vendedorCodiEmple, // Usar codi_emple en lugar de ID numérico
                 empresaId: data.empresaId || bodegaCodigo, // Usar bodega seleccionada o la que viene en data
                 estado: data.estado || 'ENVIADA', // Estado por defecto
                 observaciones: data.observaciones || '',
-                descuentoValor: data.descuentoValor || 0,
-                ivaValor: data.ivaValor || 0,
-                impoconsumoValor: data.impoconsumoValor || 0
+                subtotal: roundTo2Decimals(data.subtotal),
+                descuentoValor: roundTo2Decimals(data.descuentoValor),
+                ivaValor: roundTo2Decimals(data.ivaValor),
+                total: roundTo2Decimals(data.total),
+                impoconsumoValor: roundTo2Decimals(data.impoconsumoValor)
             };
             
             logger.log({ prefix: 'crearPedido', level: 'debug' }, 'Enviando payload:', {
@@ -1830,8 +1878,20 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             
             if (resp.success && resp.data) {
                 await refreshData();
-                const responseData = resp.data as { id: string };
-                return { ...data, id: responseData.id } as Pedido;
+                const responseData = resp.data as { id: string | number };
+                // Construir el pedido completo con todos los campos necesarios
+                const pedidoCreado: Pedido = {
+                    ...data,
+                    id: String(responseData.id),
+                    // Asegurar que numeroPedido esté presente
+                    numeroPedido: data.numeroPedido || `PED-${String(responseData.id).padStart(3, '0')}`
+                };
+                logger.log({ prefix: 'crearPedido', level: 'info' }, 'Pedido creado exitosamente:', {
+                    id: pedidoCreado.id,
+                    numeroPedido: pedidoCreado.numeroPedido,
+                    itemsCount: pedidoCreado.items?.length || 0
+                });
+                return pedidoCreado;
             }
             
             // Mostrar más detalles del error
@@ -1982,30 +2042,81 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 return undefined;
             }
             
-            logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Aprobando cotización:', { 
+            // Asegurar que la cotización tenga items
+            if (!cotizacion.items || cotizacion.items.length === 0) {
+                logger.error({ prefix: 'aprobarCotizacion' }, 'La cotización no tiene items');
+                throw new Error('La cotización no tiene items para aprobar');
+            }
+            
+            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Aprobando cotización:', { 
                 id: cotizacion.id, 
                 numero: cotizacion.numeroCotizacion,
-                itemIds: itemIds?.length || 0 
+                itemsCount: cotizacion.items?.length || 0,
+                itemIds: itemIds?.length || 0,
+                itemIdsArray: itemIds
+            });
+            
+            // Guardar los items originales antes de actualizar el estado
+            const itemsOriginales = cotizacion.items || [];
+            logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Items originales guardados:', {
+                count: itemsOriginales.length,
+                productoIds: itemsOriginales.map(i => i.productoId)
             });
             
             // Primero actualizar el estado de la cotización a APROBADA en el backend
+            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Actualizando estado de cotización a APROBADA...');
             const cotizacionActualizada = await actualizarCotizacion(cotizacion.id, { estado: 'APROBADA' }, cotizacion);
             if (!cotizacionActualizada) {
                 logger.error({ prefix: 'aprobarCotizacion' }, 'No se pudo actualizar el estado de la cotización');
                 throw new Error('No se pudo actualizar el estado de la cotización');
             }
+            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Cotización actualizada exitosamente');
             
-            // Actualizar el estado local
-            const cotizacionAprobada: Cotizacion = { ...cotizacionActualizada, estado: 'APROBADA' };
+            // Actualizar el estado local, asegurando que se mantengan los items originales
+            const cotizacionAprobada: Cotizacion = { 
+                ...cotizacionActualizada, 
+                estado: 'APROBADA',
+                items: cotizacionActualizada.items && cotizacionActualizada.items.length > 0 
+                    ? cotizacionActualizada.items 
+                    : itemsOriginales
+            };
+            logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Cotización aprobada preparada:', {
+                id: cotizacionAprobada.id,
+                numero: cotizacionAprobada.numeroCotizacion,
+                itemsCount: cotizacionAprobada.items?.length || 0
+            });
             setCotizaciones(prev => prev.map(c => (c.id === cotizacion.id ? cotizacionAprobada : c)));
             
             // Si se proporcionan itemIds, crear un pedido con esos items
+            // IMPORTANTE: Si se proporcionan itemIds, SIEMPRE debemos crear el pedido
             if (itemIds && itemIds.length > 0) {
-                const itemsParaPedido = cotizacion.items.filter(item => itemIds.includes(item.productoId));
+                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, '🚀 INICIANDO CREACIÓN DE PEDIDO...', {
+                    itemIdsCount: itemIds.length,
+                    itemIds: itemIds,
+                    cotizacionId: cotizacion.id,
+                    numeroCotizacion: cotizacion.numeroCotizacion
+                });
+                
+                // Usar los items de la cotización aprobada (que incluyen los originales si es necesario)
+                const itemsDisponibles = cotizacionAprobada.items || itemsOriginales;
+                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Items disponibles para pedido:', {
+                    count: itemsDisponibles.length,
+                    productoIds: itemsDisponibles.map(i => i.productoId)
+                });
+                
+                const itemsParaPedido = itemsDisponibles.filter(item => itemIds.includes(item.productoId));
+                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Items filtrados para pedido:', {
+                    count: itemsParaPedido.length,
+                    productoIds: itemsParaPedido.map(i => i.productoId)
+                });
                 
                 if (itemsParaPedido.length === 0) {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'No se encontraron items para crear el pedido');
-                    throw new Error('No se encontraron items para crear el pedido');
+                    logger.error({ prefix: 'aprobarCotizacion' }, 'No se encontraron items para crear el pedido', {
+                        itemsDisponibles: itemsDisponibles.length,
+                        itemIdsBuscados: itemIds,
+                        itemsDisponiblesIds: itemsDisponibles.map(i => i.productoId)
+                    });
+                    throw new Error('No se encontraron items para crear el pedido. Verifique que los items de la cotización estén correctamente cargados.');
                 }
                 
                 // Obtener el codter del cliente desde la lista de clientes
@@ -2047,13 +2158,50 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     };
                 });
                 
+                // Asegurar que el cotizacionId sea un número si es posible, o el ID como string
+                let cotizacionIdParaPedido: string | number = cotizacion.id;
+                if (typeof cotizacion.id === 'string') {
+                    const idNum = parseInt(cotizacion.id, 10);
+                    if (!isNaN(idNum)) {
+                        cotizacionIdParaPedido = idNum;
+                    }
+                }
+                
+                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Preparando pedido con cotizacionId:', {
+                    cotizacionIdOriginal: cotizacion.id,
+                    cotizacionIdParaPedido: cotizacionIdParaPedido,
+                    tipo: typeof cotizacionIdParaPedido
+                });
+                
+                // Obtener el código de almacén correcto
+                // Prioridad: 1) selectedSede, 2) codalm de la cotización, 3) empresaId de la cotización
+                let empresaIdParaPedido: string | number;
+                if (selectedSede?.codigo) {
+                    empresaIdParaPedido = String(selectedSede.codigo).padStart(3, '0');
+                    logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Usando almacén de selectedSede:', {
+                        codigo: empresaIdParaPedido,
+                        nombre: selectedSede.nombre
+                    });
+                } else if ((cotizacion as any).codalm) {
+                    empresaIdParaPedido = String((cotizacion as any).codalm).padStart(3, '0');
+                    logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Usando codalm de la cotización:', empresaIdParaPedido);
+                } else if (cotizacion.empresaId) {
+                    empresaIdParaPedido = typeof cotizacion.empresaId === 'string' 
+                        ? String(cotizacion.empresaId).padStart(3, '0')
+                        : String(cotizacion.empresaId).padStart(3, '0');
+                    logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Usando empresaId de la cotización:', empresaIdParaPedido);
+                } else {
+                    logger.error({ prefix: 'aprobarCotizacion' }, 'No se pudo determinar el almacén para el pedido');
+                    throw new Error('No se pudo determinar el almacén para crear el pedido. Por favor, seleccione una bodega en el header.');
+                }
+                
                 const nuevoPedido: Pedido = {
                     id: '', // Se asignará cuando se cree
                     numeroPedido: `PED-${cotizacionAprobada.numeroCotizacion}`,
                     fechaPedido: new Date().toISOString().split('T')[0],
                     clienteId: clienteCodter, // Usar codter en lugar de ID numérico
                     vendedorId: vendedorCodiEmple, // Ya debería ser codi_emple
-                    cotizacionId: cotizacion.id,
+                    cotizacionId: cotizacionIdParaPedido,
                     subtotal: itemsParaPedido.reduce((sum, item) => sum + (item.subtotal || 0), 0),
                     descuentoValor: itemsParaPedido.reduce((sum, item) => {
                         const itemTotal = (item.precioUnitario || 0) * (item.cantidad || 0);
@@ -2065,24 +2213,68 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     observaciones: `Pedido creado desde cotización ${cotizacion.numeroCotizacion}`,
                     items: itemsMapeados,
                     fechaEntregaEstimada: cotizacion.fechaVencimiento,
-                    empresaId: typeof cotizacion.empresaId === 'number' ? cotizacion.empresaId : (typeof cotizacion.empresaId === 'string' ? parseInt(cotizacion.empresaId, 10) || 1 : 1)
+                    empresaId: empresaIdParaPedido
                 };
                 
-                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Creando pedido:', { 
+                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Llamando a crearPedido con:', { 
                     numeroPedido: nuevoPedido.numeroPedido,
                     clienteId: nuevoPedido.clienteId,
+                    vendedorId: nuevoPedido.vendedorId,
+                    cotizacionId: nuevoPedido.cotizacionId,
                     itemsCount: nuevoPedido.items.length,
-                    total: nuevoPedido.total
+                    total: nuevoPedido.total,
+                    empresaId: nuevoPedido.empresaId,
+                    items: nuevoPedido.items.map(i => ({ productoId: i.productoId, cantidad: i.cantidad }))
                 });
                 
-                const pedidoCreado = await crearPedido(nuevoPedido);
-                
-                if (!pedidoCreado) {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'No se pudo crear el pedido');
-                    throw new Error('No se pudo crear el pedido');
+                let pedidoCreado: Pedido | null = null;
+                try {
+                    pedidoCreado = await crearPedido(nuevoPedido);
+                    logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'crearPedido retornó:', {
+                        success: !!pedidoCreado,
+                        pedidoId: pedidoCreado?.id,
+                        numeroPedido: pedidoCreado?.numeroPedido,
+                        tieneItems: !!(pedidoCreado?.items && pedidoCreado.items.length > 0)
+                    });
+                } catch (errorCrearPedido) {
+                    logger.error({ prefix: 'aprobarCotizacion' }, 'Error al crear pedido:', {
+                        error: errorCrearPedido,
+                        message: errorCrearPedido instanceof Error ? errorCrearPedido.message : 'Error desconocido',
+                        stack: errorCrearPedido instanceof Error ? errorCrearPedido.stack : undefined,
+                        nuevoPedido: {
+                            numeroPedido: nuevoPedido.numeroPedido,
+                            clienteId: nuevoPedido.clienteId,
+                            itemsCount: nuevoPedido.items.length
+                        }
+                    });
+                    // IMPORTANTE: Si falla la creación del pedido, revertir el estado de la cotización
+                    // o al menos lanzar un error claro
+                    throw new Error(`Error al crear el pedido: ${errorCrearPedido instanceof Error ? errorCrearPedido.message : 'Error desconocido'}`);
                 }
                 
-                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Pedido creado exitosamente:', pedidoCreado.numeroPedido);
+                if (!pedidoCreado) {
+                    logger.error({ prefix: 'aprobarCotizacion' }, 'crearPedido retornó null o undefined', {
+                        nuevoPedido: {
+                            numeroPedido: nuevoPedido.numeroPedido,
+                            clienteId: nuevoPedido.clienteId,
+                            itemsCount: nuevoPedido.items.length
+                        }
+                    });
+                    throw new Error('No se pudo crear el pedido: crearPedido retornó null o undefined. Verifique los logs del servidor para más detalles.');
+                }
+                
+                if (!pedidoCreado.id) {
+                    logger.error({ prefix: 'aprobarCotizacion' }, 'Pedido creado pero sin ID', {
+                        pedidoCreado: pedidoCreado
+                    });
+                    throw new Error('El pedido se creó pero no tiene ID. Esto indica un problema en el backend.');
+                }
+                
+                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, '✅ Pedido creado exitosamente:', {
+                    id: pedidoCreado.id,
+                    numeroPedido: pedidoCreado.numeroPedido,
+                    itemsCount: pedidoCreado.items?.length || 0
+                });
                 
                 if (user?.nombre) {
                     addActivityLog(
@@ -2096,10 +2288,29 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // Solo recargar pedidos y cotizaciones específicamente si es necesario
                 // await refreshData(); // Comentado para evitar bucles
                 
+                // Validación final antes de retornar
+                if (!pedidoCreado || !pedidoCreado.id) {
+                    logger.error({ prefix: 'aprobarCotizacion' }, 'ERROR CRÍTICO: Intentando retornar pedido sin ID');
+                    throw new Error('Error crítico: El pedido no tiene ID válido');
+                }
+                
+                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, '✅ Retornando resultado con cotización y pedido:', {
+                    cotizacionId: cotizacionAprobada.id,
+                    pedidoId: pedidoCreado.id,
+                    numeroPedido: pedidoCreado.numeroPedido
+                });
+                
                 return { cotizacion: cotizacionAprobada, pedido: pedidoCreado };
             }
             
             // Si no se proporcionan itemIds, solo aprobar la cotización
+            // PERO si se llamó desde handleCreateAndApprove, siempre debería haber itemIds
+            logger.log({ prefix: 'aprobarCotizacion', level: 'warn' }, '⚠️ No se proporcionaron itemIds, solo aprobando cotización sin crear pedido', {
+                itemIds: itemIds,
+                itemIdsLength: itemIds?.length || 0,
+                cotizacionId: cotizacion.id
+            });
+            
             if (user?.nombre) {
                 addActivityLog(
                     'Aprobación Cotización',
@@ -2111,9 +2322,23 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Recargar datos para asegurar sincronización
             await refreshData();
             
+            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Retornando solo cotización (sin pedido)');
             return cotizacionAprobada;
         } catch (e) {
-            logger.error({ prefix: 'aprobarCotizacion' }, 'Error:', e);
+            logger.error({ prefix: 'aprobarCotizacion' }, '❌ ERROR EN aprobarCotizacion:', {
+                error: e,
+                message: e instanceof Error ? e.message : 'Error desconocido',
+                stack: e instanceof Error ? e.stack : undefined,
+                itemIds: itemIds,
+                itemIdsLength: itemIds?.length || 0
+            });
+            
+            // Si se proporcionaron itemIds pero falló, el error debe ser claro
+            if (itemIds && itemIds.length > 0) {
+                const errorMsg = e instanceof Error ? e.message : 'Error desconocido';
+                throw new Error(`Error al aprobar la cotización y crear el pedido: ${errorMsg}`);
+            }
+            
             if (e instanceof Error) {
                 throw e;
             }
@@ -3267,7 +3492,25 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 numeroFactura: factura.numeroFactura
             });
             
+            console.log('\n📤 [DataContext] ========== ENVIANDO PETICIÓN AL BACKEND ==========');
+            console.log('📋 [DataContext] Llamando a apiUpdateFactura con:');
+            console.log('   - ID:', idParaBackend);
+            console.log('   - Body:', JSON.stringify({ estado: 'ENVIADA' }, null, 2));
+            console.log('   - Endpoint: PUT /api/facturas/' + idParaBackend);
+            console.log('⏰ [DataContext] Timestamp:', new Date().toISOString());
+            
             const resp = await apiUpdateFactura(idParaBackend, { estado: 'ENVIADA' });
+            
+            console.log('📥 [DataContext] Respuesta recibida del backend:');
+            console.log('   - success:', resp.success);
+            console.log('   - message:', resp.message || 'N/A');
+            console.log('   - data:', resp.data ? {
+                id: resp.data.id,
+                numeroFactura: resp.data.numeroFactura,
+                estado: resp.data.estado,
+                cufe: resp.data.cufe ? `${resp.data.cufe.substring(0, 20)}...` : 'No generado'
+            } : 'No data');
+            console.log('='.repeat(80) + '\n');
             
             if (resp.success && resp.data) {
                 // Procesar remisionesIds de la respuesta

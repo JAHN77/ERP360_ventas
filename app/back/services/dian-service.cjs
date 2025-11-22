@@ -297,13 +297,39 @@ class DIANService {
     
     const { factura: venFactura, detalles, cliente } = facturaData;
     
+    // VALIDAR invoiceData: Si tiene trackId, verificar que sea válido
+    if (invoiceData && typeof invoiceData === 'object') {
+      if ('trackId' in invoiceData) {
+        const trackIdType = typeof invoiceData.trackId;
+        const isArray = Array.isArray(invoiceData.trackId);
+        const isObject = trackIdType === 'object' && invoiceData.trackId !== null;
+        
+        console.log('🔍 [DIAN] Validando trackId en invoiceData:');
+        console.log('   - trackId presente:', 'trackId' in invoiceData);
+        console.log('   - trackId valor:', invoiceData.trackId);
+        console.log('   - trackId tipo:', trackIdType);
+        console.log('   - trackId es array:', isArray);
+        console.log('   - trackId es object:', isObject);
+        
+        if (isArray || isObject) {
+          console.error('❌ [DIAN] ERROR: trackId en invoiceData es array u objeto!');
+          console.error('   - Eliminando trackId inválido de invoiceData...');
+          delete invoiceData.trackId;
+        } else if (invoiceData.trackId !== null && invoiceData.trackId !== undefined) {
+          // Convertir a string si es válido
+          invoiceData.trackId = String(invoiceData.trackId);
+          console.log('   - trackId convertido a string:', invoiceData.trackId);
+        }
+      }
+    }
+    
     console.log('📊 [DIAN] Datos de entrada:');
     console.log('   - Factura ID:', venFactura.id);
     console.log('   - Número Factura:', venFactura.numfact || venFactura.numero_factura);
     console.log('   - Total detalles:', detalles?.length || 0);
     console.log('   - Cliente:', cliente ? (cliente.nomter || cliente.nombreCompleto || cliente.codter) : 'No encontrado');
     console.log('   - Config:', JSON.stringify(config, null, 2));
-    console.log('   - Invoice Data:', JSON.stringify(invoiceData, null, 2));
+    console.log('   - Invoice Data (validado):', JSON.stringify(invoiceData, null, 2));
     
     // Fechas
     const currentDate = new Date();
@@ -445,12 +471,18 @@ class DIANService {
     ).toUpperCase().trim();
     
     // Construir JSON final
+    // IMPORTANTE: Si sync es false, trackId NO debe incluirse en el JSON (no enviarlo)
+    // Si sync es true, trackId debe ser un string válido
+    // CRÍTICO: NO usar undefined, sino NO incluir el campo en absoluto
+    const syncValue = config?.sync === true; // Asegurar que sea boolean explícito
+    
+    // Construir el objeto base SIN trackId
     const dianJson = {
       number: invoiceNumber,
       type_document_id: 1, // Factura de Venta
       identification_number: this.COMPANY_NIT,
       resolution_id: resolution.id_api || resolution.id || 79,
-      sync: config?.sync ?? false,
+      sync: syncValue, // Boolean explícito
       issue_date: issueDate,
       due_date: dueDate,
       profile_id: config?.isPrueba ? "2" : "1", // 1 = Producción, 2 = Prueba
@@ -526,6 +558,51 @@ class DIANService {
       }]
     };
     
+    // CRÍTICO: Solo agregar trackId si sync es true
+    // NO usar undefined, sino agregar el campo SOLO cuando sea necesario
+    // Si sync es false, trackId NO debe estar presente en absoluto
+    if (syncValue === true) {
+      // Si sync es true, trackId debe ser un string válido
+      let trackIdValue = invoiceData?.trackId;
+      
+      // Si trackId viene en invoiceData, validar que no sea array u objeto
+      if (trackIdValue !== undefined && trackIdValue !== null) {
+        if (Array.isArray(trackIdValue) || (typeof trackIdValue === 'object' && trackIdValue !== null)) {
+          console.warn('⚠️ [DIAN] trackId en invoiceData es array/objeto, generando nuevo trackId');
+          trackIdValue = `track-${invoiceNumber}-${Date.now()}`;
+        } else {
+          trackIdValue = String(trackIdValue);
+        }
+      } else {
+        // Generar un trackId nuevo si no viene
+        trackIdValue = `track-${invoiceNumber}-${Date.now()}`;
+      }
+      
+      // Agregar trackId como string válido
+      dianJson.trackId = trackIdValue;
+      console.log('✅ [DIAN] trackId agregado al JSON (sync: true):', dianJson.trackId, '(tipo:', typeof dianJson.trackId, ')');
+    } else {
+      // Si sync es false, NO agregar trackId en absoluto
+      // Asegurarse de que no exista (por si acaso se agregó antes)
+      if ('trackId' in dianJson) {
+        delete dianJson.trackId;
+        console.log('🔧 [DIAN] trackId eliminado del JSON (sync: false)');
+      }
+      // Verificar que realmente no exista
+      if ('trackId' in dianJson) {
+        console.error('❌ [DIAN] ERROR: trackId aún existe después de delete!');
+      } else {
+        console.log('✅ [DIAN] trackId NO agregado al JSON (sync: false) - Verificado que no existe');
+      }
+    }
+    
+    // VERIFICACIÓN FINAL EN LA CONSTRUCCIÓN: Asegurar que trackId no esté presente si sync es false
+    if (syncValue === false && 'trackId' in dianJson) {
+      console.error('❌❌❌ [DIAN] ERROR CRÍTICO: trackId presente cuando sync es false en construcción del JSON!');
+      delete dianJson.trackId;
+      console.log('   ✅ trackId eliminado en verificación de construcción');
+    }
+    
     console.log('✅ [DIAN] JSON DIAN generado exitosamente');
     console.log('📋 [DIAN] Resumen del JSON:');
     console.log('   - Número:', dianJson.number);
@@ -559,8 +636,45 @@ class DIANService {
     console.log('📋 [DIAN] PASO 5: Enviando factura a DIAN');
     console.log('='.repeat(80));
     try {
+      // Asegurar que testSetID sea string y no array/objeto
+      const testSetIDStr = String(testSetID || '1').trim();
+      
+      // Validar que invoiceJson.sync sea boolean explícito
+      if (invoiceJson.sync !== undefined && typeof invoiceJson.sync !== 'boolean') {
+        console.warn('⚠️ [DIAN] sync no es boolean, convirtiendo...');
+        invoiceJson.sync = Boolean(invoiceJson.sync);
+      }
+      
+      // VALIDACIÓN CRÍTICA: Asegurar que trackId esté correcto según sync
+      // Si sync es false, trackId NO debe estar presente (no debe enviarse)
+      // Si sync es true, trackId debe ser un string (no array ni objeto)
+      if (invoiceJson.sync === false) {
+        // Si sync es false, eliminar trackId completamente del JSON
+        if (invoiceJson.trackId !== undefined) {
+          console.log('🔧 [DIAN] sync es false, removiendo trackId del JSON (no debe estar presente)');
+          delete invoiceJson.trackId;
+        }
+      } else if (invoiceJson.sync === true) {
+        // Si sync es true, trackId debe existir y ser string
+        if (invoiceJson.trackId === undefined || invoiceJson.trackId === null) {
+          // Generar un trackId si no existe
+          invoiceJson.trackId = `track-${invoiceJson.number || Date.now()}-${Date.now()}`;
+          console.log('🔧 [DIAN] sync es true, generando trackId:', invoiceJson.trackId);
+        } else {
+          // Asegurar que trackId sea string (no array ni objeto)
+          const trackIdType = typeof invoiceJson.trackId;
+          if (Array.isArray(invoiceJson.trackId) || (trackIdType === 'object' && invoiceJson.trackId !== null)) {
+            console.error('❌ [DIAN] ERROR: trackId es array u objeto! Convertiendo a string...');
+            invoiceJson.trackId = `track-${invoiceJson.number || Date.now()}-${Date.now()}`;
+          } else {
+            invoiceJson.trackId = String(invoiceJson.trackId);
+          }
+          console.log('🔧 [DIAN] trackId validado y convertido a string:', invoiceJson.trackId);
+        }
+      }
+      
       // Construir URL completa del endpoint
-      const url = `${baseUrl}/api/ubl2.1/invoice/${testSetID}`;
+      const url = `${baseUrl}/api/ubl2.1/invoice/${testSetIDStr}`;
       
       // Preparar headers
       const headers = {
@@ -568,54 +682,237 @@ class DIANService {
         'Accept': 'application/json'
       };
       
-      // Preparar body como JSON string
-      const bodyString = JSON.stringify(invoiceJson);
+      // VALIDACIÓN FINAL: Verificar que trackId no sea array u objeto
+      // Esto es crítico porque la API de DIAN rechaza arrays/objetos en trackId
+      if (invoiceJson.trackId !== undefined && invoiceJson.trackId !== null) {
+        if (Array.isArray(invoiceJson.trackId) || (typeof invoiceJson.trackId === 'object')) {
+          console.error('❌ [DIAN] ERROR CRÍTICO: trackId es array u objeto!');
+          console.error('   - trackId tipo:', typeof invoiceJson.trackId);
+          console.error('   - trackId es array:', Array.isArray(invoiceJson.trackId));
+          console.error('   - trackId valor:', invoiceJson.trackId);
+          
+          // Si sync es false, simplemente eliminar trackId
+          if (invoiceJson.sync === false) {
+            console.log('🔧 [DIAN] sync es false, eliminando trackId inválido');
+            delete invoiceJson.trackId;
+          } else {
+            // Si sync es true, generar un nuevo trackId válido
+            invoiceJson.trackId = `track-${invoiceJson.number || Date.now()}-${Date.now()}`;
+            console.log('🔧 [DIAN] Generando nuevo trackId válido:', invoiceJson.trackId);
+          }
+        } else {
+          // Asegurar que sea string
+          invoiceJson.trackId = String(invoiceJson.trackId);
+        }
+      }
+      
+      // Log final del JSON antes de serializar
+      console.log('\n🔍 [DIAN] VALIDACIÓN FINAL DEL JSON ANTES DE ENVIAR:');
+      console.log('   - sync:', invoiceJson.sync, '(tipo:', typeof invoiceJson.sync, ')');
+      console.log('   - trackId presente:', invoiceJson.trackId !== undefined);
+      console.log('   - trackId en objeto:', 'trackId' in invoiceJson);
+      if (invoiceJson.trackId !== undefined) {
+        console.log('   - trackId:', invoiceJson.trackId, '(tipo:', typeof invoiceJson.trackId, ')');
+        console.log('   - trackId es array:', Array.isArray(invoiceJson.trackId));
+        console.log('   - trackId es object:', typeof invoiceJson.trackId === 'object');
+        console.log('   - trackId es null:', invoiceJson.trackId === null);
+      }
+      
+      // ELIMINAR trackId SI sync es false (ANTES de crear copia limpia)
+      if (invoiceJson.sync === false) {
+        if ('trackId' in invoiceJson) {
+          console.log('🔧 [DIAN] sync es false - Eliminando trackId del objeto antes de enviar');
+          delete invoiceJson.trackId;
+          console.log('   ✅ trackId eliminado del objeto');
+        }
+      }
+      
+      // Crear una copia limpia del JSON para asegurar que no haya propiedades ocultas
+      let cleanJson = JSON.parse(JSON.stringify(invoiceJson));
+      
+      // ELIMINAR trackId de la copia limpia si sync es false
+      if (cleanJson.sync === false) {
+        if ('trackId' in cleanJson) {
+          console.log('🔧 [DIAN] sync es false - Eliminando trackId de la copia limpia');
+          delete cleanJson.trackId;
+          console.log('   ✅ trackId eliminado de la copia limpia');
+        }
+      }
+      
+      console.log('\n🔍 [DIAN] VERIFICACIÓN EN COPIA LIMPIA:');
+      console.log('   - sync:', cleanJson.sync);
+      console.log('   - trackId presente:', 'trackId' in cleanJson);
+      console.log('   - Claves del objeto:', Object.keys(cleanJson).join(', '));
+      
+      // Preparar body como JSON string desde la copia limpia
+      let bodyString = JSON.stringify(cleanJson);
+      
+      // VERIFICACIÓN FINAL ABSOLUTA: Buscar trackId en el string JSON
+      // Si sync es false, trackId NO debe estar en el string
+      if (cleanJson.sync === false) {
+        const bodyStringLower = bodyString.toLowerCase();
+        if (bodyStringLower.includes('trackid')) {
+          console.error('❌ [DIAN] ERROR CRÍTICO: trackId encontrado en string JSON cuando sync es false!');
+          console.error('   - Buscando y eliminando trackId del string...');
+          
+          // Parsear, eliminar trackId, y volver a serializar
+          const tempObj = JSON.parse(bodyString);
+          delete tempObj.trackId;
+          cleanJson = tempObj; // Actualizar la copia limpia
+          bodyString = JSON.stringify(tempObj); // Regenerar el string
+          
+          console.log('   ✅ trackId eliminado del string JSON');
+          console.log('   - Verificación final: trackId en string:', bodyString.toLowerCase().includes('trackid') ? 'AÚN EXISTE ❌' : 'ELIMINADO ✅');
+        } else {
+          console.log('   ✅ Verificación: trackId NO está en el string JSON');
+        }
+      }
+      
+      // USAR LA COPIA LIMPIA para todos los logs y el envío
+      const finalJson = cleanJson;
+      let finalBodyString = bodyString; // let porque puede ser modificado si sync es false
       
       console.log('\n🔗 [DIAN] ========== INFORMACIÓN DE LA PETICIÓN ==========');
       console.log('📡 [DIAN] URL BASE:', baseUrl);
-      console.log('🔗 [DIAN] ENDPOINT:', `/api/ubl2.1/invoice/${testSetID}`);
+      console.log('🔗 [DIAN] ENDPOINT:', `/api/ubl2.1/invoice/${testSetIDStr}`);
       console.log('🌐 [DIAN] URL COMPLETA:', url);
       console.log('📝 [DIAN] MÉTODO HTTP: POST');
-      console.log('📋 [DIAN] TEST SET ID:', testSetID);
+      console.log('📋 [DIAN] TEST SET ID (original):', testSetID);
+      console.log('📋 [DIAN] TEST SET ID (normalizado):', testSetIDStr);
+      console.log('📋 [DIAN] sync en JSON FINAL:', finalJson.sync, '(tipo:', typeof finalJson.sync, ')');
+      console.log('📋 [DIAN] trackId en JSON FINAL:', finalJson.trackId !== undefined ? finalJson.trackId : 'No presente', '(tipo:', finalJson.trackId ? typeof finalJson.trackId : 'N/A', ')');
+      console.log('📋 [DIAN] trackId existe en objeto:', 'trackId' in finalJson);
+      
+      // Sincronizar finalBodyString con bodyString (ya limpiado arriba)
+      finalBodyString = bodyString;
       
       console.log('\n📤 [DIAN] ========== HEADERS ENVIADOS ==========');
       console.log(JSON.stringify(headers, null, 2));
       
       console.log('\n📦 [DIAN] ========== BODY ENVIADO (JSON) ==========');
       console.log('📏 [DIAN] Tamaño del body:', bodyString.length, 'caracteres');
+      
+      // VALIDACIÓN CRÍTICA FINAL: Verificar que NO hay trackId en el string antes de mostrar
+      // Parsear el body para inspeccionarlo
+      let bodyObjForInspection = null;
+      try {
+        bodyObjForInspection = JSON.parse(bodyString);
+        console.log('📋 [DIAN] Body parseado correctamente para inspección');
+        
+        // Verificar trackId en el objeto parseado
+        if (finalJson.sync === false) {
+          if ('trackId' in bodyObjForInspection) {
+            console.error('\n❌❌❌ [DIAN] ERROR CRÍTICO: trackId encontrado en objeto parseado cuando sync es false!');
+            console.error('   - trackId valor:', bodyObjForInspection.trackId);
+            console.error('   - trackId tipo:', typeof bodyObjForInspection.trackId);
+            console.error('   - trackId es array:', Array.isArray(bodyObjForInspection.trackId));
+            console.error('   - trackId es object:', typeof bodyObjForInspection.trackId === 'object');
+            console.error('   - trackId es null:', bodyObjForInspection.trackId === null);
+            
+            // ELIMINAR trackId del objeto
+            delete bodyObjForInspection.trackId;
+            
+            // Regenerar el body string SIN trackId
+            bodyString = JSON.stringify(bodyObjForInspection);
+            finalBodyString = bodyString;
+            bodyObjForInspection = JSON.parse(bodyString); // Re-parsear para verificar
+            
+            console.log('   ✅ trackId eliminado del objeto y body regenerado');
+            
+            // Verificar que realmente se eliminó
+            if ('trackId' in bodyObjForInspection) {
+              console.error('   ❌ ERROR: trackId AÚN existe después de delete!');
+            } else {
+              console.log('   ✅ Verificado: trackId NO existe en el objeto regenerado');
+            }
+          } else {
+            console.log('✅ [DIAN] Verificación: trackId NO está en el objeto parseado');
+          }
+        }
+        
+        // También verificar en el string
+        const trackIdIndex = bodyString.toLowerCase().indexOf('trackid');
+        if (trackIdIndex !== -1 && finalJson.sync === false) {
+          console.error('\n❌❌❌ [DIAN] ERROR: trackId encontrado en string JSON cuando sync es false!');
+          console.error('   - Posición en string:', trackIdIndex);
+          console.error('   - Contexto (100 chars antes y después):');
+          const contextStart = Math.max(0, trackIdIndex - 100);
+          const contextEnd = Math.min(bodyString.length, trackIdIndex + 150);
+          console.error(bodyString.substring(contextStart, contextEnd));
+          
+          // Intentar eliminar usando regex como último recurso
+          const cleanedBody = bodyString.replace(/"trackId"\s*:\s*[^,}\]]+,?/gi, '');
+          const cleanedBody2 = cleanedBody.replace(/'trackId'\s*:\s*[^,}\]]+,?/gi, '');
+          
+          if (cleanedBody2.toLowerCase().includes('trackid')) {
+            console.error('   ❌ ERROR: No se pudo eliminar trackId del string usando regex');
+          } else {
+            console.log('   ✅ trackId eliminado del string usando regex');
+            bodyString = cleanedBody2;
+            finalBodyString = bodyString;
+          }
+        }
+      } catch (e) {
+        console.error('❌ [DIAN] Error parseando body para inspección:', e.message);
+      }
+      
       console.log('📋 [DIAN] Body completo:');
       console.log(bodyString);
       
+      // VERIFICACIÓN FINAL FINAL: Buscar trackId en el body string después de todo
+      if (finalJson.sync === false) {
+        const finalCheck = bodyString.toLowerCase().includes('trackid');
+        if (finalCheck) {
+          console.error('\n❌❌❌ [DIAN] ERROR CRÍTICO: trackId AÚN presente después de TODAS las eliminaciones!');
+          console.error('   Esto NO debería pasar. El body contiene trackId cuando sync es false.');
+          console.error('   Body string (primeros 2000 caracteres):', bodyString.substring(0, 2000));
+          
+          // Último intento: usar un objeto completamente limpio
+          try {
+            const finalCleanObj = JSON.parse(bodyString);
+            delete finalCleanObj.trackId;
+            bodyString = JSON.stringify(finalCleanObj);
+            finalBodyString = bodyString;
+            console.log('   ✅ Último intento: body regenerado completamente sin trackId');
+          } catch (e) {
+            console.error('   ❌ Error en último intento:', e.message);
+          }
+        } else {
+          console.log('\n✅✅✅ [DIAN] VERIFICACIÓN FINAL: trackId NO está en el body string ✅✅✅');
+        }
+      }
+      
       console.log('\n📊 [DIAN] ========== RESUMEN DEL BODY ==========');
-      console.log('   - Número Factura:', invoiceJson.number);
-      console.log('   - Tipo Documento:', invoiceJson.type_document_id);
-      console.log('   - Fecha Emisión:', invoiceJson.issue_date);
-      console.log('   - Fecha Vencimiento:', invoiceJson.due_date);
-      console.log('   - Perfil:', invoiceJson.profile_id, '(1=Producción, 2=Prueba)');
-      console.log('   - Sync:', invoiceJson.sync);
-      console.log('   - Resolución ID:', invoiceJson.resolution_id);
-      console.log('   - Total a Pagar:', invoiceJson.legal_monetary_totals?.payable_amount);
-      console.log('   - Subtotal:', invoiceJson.legal_monetary_totals?.line_extension_amount);
-      console.log('   - IVA Total:', invoiceJson.tax_totals?.[0]?.tax_amount || 0);
-      console.log('   - Total Líneas:', invoiceJson.invoice_lines?.length || 0);
+      console.log('   - Número Factura:', finalJson.number);
+      console.log('   - Tipo Documento:', finalJson.type_document_id);
+      console.log('   - Fecha Emisión:', finalJson.issue_date);
+      console.log('   - Fecha Vencimiento:', finalJson.due_date);
+      console.log('   - Perfil:', finalJson.profile_id, '(1=Producción, 2=Prueba)');
+      console.log('   - Sync:', finalJson.sync);
+      console.log('   - trackId presente:', 'trackId' in finalJson);
+      console.log('   - Resolución ID:', finalJson.resolution_id);
+      console.log('   - Total a Pagar:', finalJson.legal_monetary_totals?.payable_amount);
+      console.log('   - Subtotal:', finalJson.legal_monetary_totals?.line_extension_amount);
+      console.log('   - IVA Total:', finalJson.tax_totals?.[0]?.tax_amount || 0);
+      console.log('   - Total Líneas:', finalJson.invoice_lines?.length || 0);
       
       console.log('\n👤 [DIAN] ========== DATOS DEL CLIENTE ==========');
-      console.log('   - Cliente Nombre:', invoiceJson.customer.name);
-      console.log('   - Cliente ID:', invoiceJson.customer.identification_number);
-      console.log('   - Cliente Teléfono:', invoiceJson.customer.phone);
-      console.log('   - Cliente Email:', invoiceJson.customer.email);
-      console.log('   - Cliente Dirección:', invoiceJson.customer.address || 'N/A');
+      console.log('   - Cliente Nombre:', finalJson.customer.name);
+      console.log('   - Cliente ID:', finalJson.customer.identification_number);
+      console.log('   - Cliente Teléfono:', finalJson.customer.phone);
+      console.log('   - Cliente Email:', finalJson.customer.email);
+      console.log('   - Cliente Dirección:', finalJson.customer.address || 'N/A');
       
       console.log('\n🏢 [DIAN] ========== DATOS DE LA EMPRESA ==========');
-      console.log('   - Empresa NIT:', invoiceJson.company.identification_number);
-      console.log('   - Empresa Nombre:', invoiceJson.company.name);
-      console.log('   - Empresa Dirección:', invoiceJson.company.address);
-      console.log('   - Empresa Teléfono:', invoiceJson.company.phone);
-      console.log('   - Empresa Email:', invoiceJson.company.email);
+      console.log('   - Empresa NIT:', finalJson.company.identification_number);
+      console.log('   - Empresa Nombre:', finalJson.company.name);
+      console.log('   - Empresa Dirección:', finalJson.company.address);
+      console.log('   - Empresa Teléfono:', finalJson.company.phone);
+      console.log('   - Empresa Email:', finalJson.company.email);
       
       console.log('\n📦 [DIAN] ========== LÍNEAS DE FACTURA ==========');
-      if (invoiceJson.invoice_lines && invoiceJson.invoice_lines.length > 0) {
-        invoiceJson.invoice_lines.forEach((line, index) => {
+      if (finalJson.invoice_lines && finalJson.invoice_lines.length > 0) {
+        finalJson.invoice_lines.forEach((line, index) => {
           console.log(`\n   Línea ${index + 1}:`);
           console.log('     - Código:', line.code);
           console.log('     - Descripción:', line.description);
@@ -632,6 +929,31 @@ class DIANService {
       console.log('\n🌐 [DIAN] ========== ENVIANDO PETICIÓN HTTP POST ==========');
       const requestStartTime = Date.now();
       console.log('⏱️ [DIAN] Iniciando petición a las:', new Date().toISOString());
+      
+      // VERIFICACIÓN FINAL ANTES DE ENVIAR: Asegurar que trackId no esté presente si sync es false
+      if (finalJson.sync === false) {
+        // Verificar una última vez en el string final
+        const hasTrackIdInFinalString = bodyString.toLowerCase().includes('trackid');
+        if (hasTrackIdInFinalString) {
+          console.error('❌ [DIAN] ERROR CRÍTICO: trackId aún presente en body string final!');
+          console.error('   - Eliminando trackId una vez más...');
+          try {
+            const finalBodyObj = JSON.parse(bodyString);
+            delete finalBodyObj.trackId;
+            bodyString = JSON.stringify(finalBodyObj);
+            finalBodyString = bodyString;
+            console.log('   ✅ trackId eliminado definitivamente');
+          } catch (e) {
+            console.error('   ❌ Error parseando JSON final:', e.message);
+          }
+        }
+      }
+      
+      console.log('\n📋 [DIAN] VERIFICACIÓN FINAL ANTES DE ENVIAR:');
+      console.log('   - sync:', finalJson.sync);
+      console.log('   - trackId en objeto:', 'trackId' in finalJson);
+      console.log('   - trackId en string FINAL:', bodyString.toLowerCase().includes('trackid') ? 'SÍ ❌' : 'NO ✅');
+      console.log('   - Longitud del body:', bodyString.length, 'caracteres');
       
       const response = await fetch(url, {
         method: 'POST',
