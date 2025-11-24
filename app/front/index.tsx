@@ -5,25 +5,26 @@ import './index.css';
 import App from './App';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
-import { NavigationProvider } from './contexts/NavigationContext';
+import { RouterWrapper } from './components/routing/RouterWrapper';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { DataProvider } from './contexts/DataContext';
 import ErrorBoundary from './components/ErrorBoundary';
 
 // Componente raíz de la aplicación
+// RouterWrapper maneja automáticamente si estamos en Single-SPA o standalone
 const RootComponent = () => {
   return (
     <React.StrictMode>
       <ErrorBoundary>
         <ThemeProvider>
           <AuthProvider>
-            <NavigationProvider>
+            <RouterWrapper>
               <DataProvider>
                 <NotificationProvider>
                   <App />
                 </NotificationProvider>
               </DataProvider>
-            </NavigationProvider>
+            </RouterWrapper>
           </AuthProvider>
         </ThemeProvider>
       </ErrorBoundary>
