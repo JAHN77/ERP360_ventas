@@ -576,9 +576,9 @@ const QUERIES = {
             (SELECT TOP 1 pd.canped 
              FROM ven_remiciones_enc re
              INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
-            WHERE re.id = rd.remision_id 
+             WHERE re.id = rd.remision_id 
               AND re.pedido_id IS NOT NULL
-              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
+               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
           )
         )
         ELSE (
@@ -587,9 +587,9 @@ const QUERIES = {
             (SELECT TOP 1 pd.valins 
              FROM ven_remiciones_enc re
              INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
-            WHERE re.id = rd.remision_id 
+             WHERE re.id = rd.remision_id 
               AND re.pedido_id IS NOT NULL
-              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
             0
           )
         )
@@ -609,9 +609,9 @@ const QUERIES = {
             (SELECT TOP 1 COALESCE(pd.ivaped, 0) 
              FROM ven_remiciones_enc re
              INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
-            WHERE re.id = rd.remision_id 
+             WHERE re.id = rd.remision_id 
               AND re.pedido_id IS NOT NULL
-              AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+               AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
             0
           ) * 
           (rd.cantidad_enviada / 
@@ -641,9 +641,9 @@ const QUERIES = {
                (SELECT TOP 1 pd.valins 
                 FROM ven_remiciones_enc re
                 INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
-              WHERE re.id = rd.remision_id 
+                WHERE re.id = rd.remision_id 
                 AND re.pedido_id IS NOT NULL
-                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+                  AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
                0
              )) 
             - 
@@ -651,18 +651,18 @@ const QUERIES = {
                (SELECT TOP 1 COALESCE(pd.dctped, 0) 
                 FROM ven_remiciones_enc re
                 INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
-              WHERE re.id = rd.remision_id 
+                WHERE re.id = rd.remision_id 
                 AND re.pedido_id IS NOT NULL
-                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+                  AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
                0
              ) * 
              (rd.cantidad_enviada / 
               (SELECT TOP 1 pd.canped 
                FROM ven_remiciones_enc re
                INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
-              WHERE re.id = rd.remision_id 
+               WHERE re.id = rd.remision_id 
                 AND re.pedido_id IS NOT NULL
-                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
+                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))))
             )
           )
           ELSE (
@@ -671,9 +671,9 @@ const QUERIES = {
               (SELECT TOP 1 pd.valins 
                FROM ven_remiciones_enc re
                INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
-              WHERE re.id = rd.remision_id 
+               WHERE re.id = rd.remision_id 
                 AND re.pedido_id IS NOT NULL
-                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
               0
             )
           )
@@ -693,9 +693,9 @@ const QUERIES = {
               (SELECT TOP 1 COALESCE(pd.ivaped, 0) 
                FROM ven_remiciones_enc re
                INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
-              WHERE re.id = rd.remision_id 
+               WHERE re.id = rd.remision_id 
                 AND re.pedido_id IS NOT NULL
-                AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+                 AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
               0
             ) * 
             (rd.cantidad_enviada / 

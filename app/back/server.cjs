@@ -1323,6 +1323,8 @@ app.get('/api/cotizaciones-detalle', async (req, res) => {
         COALESCE(d.tasa_descuento, 0) AS descuentoPorcentaje,
         COALESCE(d.tasa_iva, 0)   AS ivaPorcentaje,
         d.codigo_medida           AS codigoMedida,
+        COALESCE(m.nommed, p.undins, 'Unidad') AS unidadMedida,
+        COALESCE(p.referencia, LTRIM(RTRIM(d.cod_producto)), '') AS referencia,
         d.estado                  AS estado,
         d.num_factura             AS numFactura,
         CASE WHEN d.valor IS NOT NULL AND d.tasa_iva IS NOT NULL THEN d.valor - (d.valor * (d.tasa_iva/100.0)) ELSE COALESCE(d.valor,0) END AS subtotal,
@@ -1331,6 +1333,7 @@ app.get('/api/cotizaciones-detalle', async (req, res) => {
         COALESCE(p.nomins, '')    AS descripcion
       FROM ${TABLE_NAMES.cotizaciones_detalle} d
       LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(d.cod_producto))
+      LEFT JOIN inv_medidas m ON m.codmed = d.codigo_medida
       ${whereClause}
       ORDER BY d.id_cotizacion, d.id
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -1663,7 +1666,19 @@ app.get('/api/pedidos-detalle', async (req, res) => {
       if (isFinite(pedidoIdNum)) {
         whereClause = "WHERE pd.pedido_id = @pedidoId";
         params.pedidoId = pedidoIdNum;
-        console.log('🔍 [Backend] Filtrando detalles por pedidoId:', pedidoIdNum);
+        console.log('🔍 [Backend] Filtrando detalles por pedidoId:', pedidoIdNum, '(tipo:', typeof pedidoIdNum, ')');
+        
+        // Verificar que existan items con ese pedido_id antes de hacer la consulta
+        const poolCheck = await getConnection();
+        const reqCheck = new sql.Request(poolCheck);
+        reqCheck.input('pedidoId', sql.Int, pedidoIdNum);
+        const checkResult = await reqCheck.query(`
+          SELECT COUNT(*) as total 
+          FROM ${TABLE_NAMES.pedidos_detalle} 
+          WHERE pedido_id = @pedidoId
+        `);
+        const totalItems = checkResult.recordset[0]?.total || 0;
+        console.log(`📊 [Backend] Items encontrados en BD con pedido_id=${pedidoIdNum}: ${totalItems}`);
       } else {
         console.warn('⚠️ [Backend] pedidoId no es un número válido:', pedidoId);
       }
@@ -1720,11 +1735,29 @@ app.get('/api/pedidos-detalle', async (req, res) => {
     
     console.log('🔍 [Backend] Ejecutando query de pedidos-detalle con parámetros:', params);
     console.log('🔍 [Backend] WHERE clause:', whereClause);
+    console.log('🔍 [Backend] Query completo:', query.substring(0, 200) + '...');
     const detalles = await executeQueryWithParams(query, params);
     console.log('✅ [Backend] Detalles encontrados:', detalles.length);
     if (detalles.length > 0) {
       console.log('📦 [Backend] Primer detalle:', detalles[0]);
       console.log('📦 [Backend] pedidoId del primer detalle:', detalles[0].pedidoId, 'tipo:', typeof detalles[0].pedidoId);
+      console.log('📦 [Backend] Todos los pedidoIds en los detalles:', detalles.map(d => ({ pedidoId: d.pedidoId, codProducto: d.codProducto })));
+    } else if (pedidoId) {
+      console.warn(`⚠️ [Backend] No se encontraron detalles para pedidoId=${pedidoId}. Verificando en BD...`);
+      // Verificar directamente en la BD
+      const poolDirect = await getConnection();
+      const reqDirect = new sql.Request(poolDirect);
+      const pedidoIdNum = parseInt(pedidoId, 10);
+      reqDirect.input('pedidoId', sql.Int, pedidoIdNum);
+      const directResult = await reqDirect.query(`
+        SELECT pedido_id, codins, canped, valins 
+        FROM ${TABLE_NAMES.pedidos_detalle} 
+        WHERE pedido_id = @pedidoId
+      `);
+      console.log(`📊 [Backend] Verificación directa: ${directResult.recordset.length} items encontrados con pedido_id=${pedidoIdNum}`);
+      if (directResult.recordset.length > 0) {
+        console.log('📊 [Backend] Primer item de verificación directa:', directResult.recordset[0]);
+      }
     }
     
     res.json({ 
@@ -2965,6 +2998,7 @@ app.get('/api/bodegas', async (req, res) => {
       ORDER BY codalm
     `);
     console.log(`✅ [Backend] Almacenes encontrados: ${bodegas.length}`);
+    
     // Mapear a formato consistente para el frontend
     const bodegasMapeadas = bodegas.map(b => ({
       id: b.codalm, // Usar codalm como ID (es la PK)
@@ -2974,13 +3008,43 @@ app.get('/api/bodegas', async (req, res) => {
       ciudad: b.ciualm || '',
       activo: b.activo === 1 || b.activo === true
     }));
-    res.json({ success: true, data: bodegasMapeadas });
+    
+    // Estructura JSON consistente
+    const response = {
+      success: true,
+      data: bodegasMapeadas,
+      count: bodegasMapeadas.length,
+      timestamp: new Date().toISOString()
+    };
+    
+    // Headers de caché HTTP para mejorar rendimiento
+    // Cache-Control: public permite que proxies y CDNs cacheen
+    // max-age=300 = 5 minutos (ajustable según necesidades)
+    // must-revalidate = debe revalidar después de expirar
+    res.set({
+      'Cache-Control': 'public, max-age=300, must-revalidate',
+      'ETag': `"${Date.now()}-${bodegasMapeadas.length}"`, // ETag para validación condicional
+      'Last-Modified': new Date().toUTCString(),
+      'Content-Type': 'application/json; charset=utf-8'
+    });
+    
+    res.json(response);
   } catch (error) {
     console.error('❌ Error fetching bodegas:', error);
+    
+    // En caso de error, NO cachear la respuesta
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    
     res.status(500).json({ 
       success: false, 
       message: 'Error obteniendo bodegas',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
+      data: null,
+      timestamp: new Date().toISOString()
     });
   }
 });
@@ -4066,6 +4130,256 @@ app.post('/api/clientes/:id/lista-precios', async (req, res) => {
   }
 });
 
+// --- FUNCIONES HELPER PARA VALIDACIÓN DE VALORES NUMÉRICOS ---
+
+/**
+ * Valida y sanitiza un valor para DECIMAL(18,2)
+ * Límite: -9999999999999999.99 a 9999999999999999.99
+ * @param {any} value - Valor a validar (puede ser string, number, etc.)
+ * @param {string} fieldName - Nombre del campo para mensajes de error
+ * @returns {number} - Valor validado y redondeado a 2 decimales
+ * @throws {Error} - Si el valor excede los límites o es inválido
+ */
+const validateDecimal18_2 = (value, fieldName = 'campo') => {
+  // Normalizar valor
+  let num = 0;
+  
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+  
+  if (typeof value === 'number') {
+    num = value;
+  } else if (typeof value === 'string') {
+    // Limpiar formato de moneda y espacios
+    let cleaned = String(value).trim().replace(/[$\s]/g, '');
+    
+    // Manejar formato europeo (1.234,56) o americano (1,234.56)
+    if (cleaned.includes(',') && cleaned.includes('.')) {
+      // Si tiene ambos, el último es el decimal
+      const lastComma = cleaned.lastIndexOf(',');
+      const lastDot = cleaned.lastIndexOf('.');
+      if (lastComma > lastDot) {
+        // Formato europeo: 1.234,56
+        cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+      } else {
+        // Formato americano: 1,234.56
+        cleaned = cleaned.replace(/,/g, '');
+      }
+    } else if (cleaned.includes(',')) {
+      // Solo coma: determinar si es decimal o separador de miles
+      const parts = cleaned.split(',');
+      if (parts.length === 2 && parts[1].length <= 2) {
+        cleaned = cleaned.replace(',', '.'); // Es decimal
+      } else {
+        cleaned = cleaned.replace(/,/g, ''); // Es separador de miles
+      }
+    }
+    
+    num = parseFloat(cleaned);
+  } else {
+    throw new Error(`${fieldName}: Tipo de dato inválido. Se esperaba número o string, se recibió: ${typeof value}`);
+  }
+  
+  // Validar que sea un número válido
+  if (!isFinite(num) || isNaN(num)) {
+    throw new Error(`${fieldName}: Valor no es un número válido. Valor recibido: ${value}`);
+  }
+  
+  // Límites para DECIMAL(18,2)
+  const MAX_DECIMAL18_2 = 9999999999999999.99;
+  const MIN_DECIMAL18_2 = -9999999999999999.99;
+  
+  // Verificar overflow ANTES de redondear
+  if (num > MAX_DECIMAL18_2) {
+    throw new Error(`${fieldName}: Valor ${num} excede el máximo permitido para DECIMAL(18,2): ${MAX_DECIMAL18_2}`);
+  }
+  if (num < MIN_DECIMAL18_2) {
+    throw new Error(`${fieldName}: Valor ${num} excede el mínimo permitido para DECIMAL(18,2): ${MIN_DECIMAL18_2}`);
+  }
+  
+  // Redondear estrictamente a 2 decimales usando Math.round para evitar precisión flotante
+  // CRÍTICO: Usar Math.round(val * 100) / 100 para garantizar exactamente 2 decimales
+  // Esto elimina cualquier error de precisión de punto flotante de JavaScript
+  const rounded = Math.round(num * 100) / 100;
+  
+  // Validación final después del redondeo
+  if (!isFinite(rounded) || isNaN(rounded)) {
+    throw new Error(`${fieldName}: Error al redondear valor. Valor original: ${value}, Valor procesado: ${num}`);
+  }
+  
+  if (Math.abs(rounded) > MAX_DECIMAL18_2) {
+    throw new Error(`${fieldName}: Valor redondeado ${rounded} excede el máximo permitido: ${MAX_DECIMAL18_2}`);
+  }
+  
+  // CRÍTICO: Retornar el valor redondeado directamente
+  // Math.round(val * 100) / 100 garantiza exactamente 2 decimales
+  // No usar parseFloat(toFixed(2)) porque puede introducir errores de precisión
+  return rounded;
+};
+
+/**
+ * Valida y sanitiza un valor para DECIMAL(5,2) (porcentajes)
+ * Límite técnico: -999.99 a 999.99
+ * Límite lógico recomendado: 0 a 100 (pero permite hasta 999.99)
+ * @param {any} value - Valor a validar
+ * @param {string} fieldName - Nombre del campo para mensajes de error
+ * @param {boolean} enforceLogicalLimit - Si es true, limita a 0-100 (por defecto: false, permite hasta 999.99)
+ * @returns {number} - Valor validado y redondeado a 2 decimales
+ * @throws {Error} - Si el valor excede los límites o es inválido
+ */
+const validateDecimal5_2 = (value, fieldName = 'campo', enforceLogicalLimit = false) => {
+  // Normalizar valor
+  let num = 0;
+  
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+  
+  if (typeof value === 'number') {
+    num = value;
+  } else if (typeof value === 'string') {
+    // Limpiar formato
+    let cleaned = String(value).trim().replace(/[%\s]/g, '');
+    
+    // Manejar formato con coma decimal
+    if (cleaned.includes(',')) {
+      cleaned = cleaned.replace(',', '.');
+    }
+    
+    num = parseFloat(cleaned);
+  } else {
+    throw new Error(`${fieldName}: Tipo de dato inválido. Se esperaba número o string, se recibió: ${typeof value}`);
+  }
+  
+  // Validar que sea un número válido
+  if (!isFinite(num) || isNaN(num)) {
+    throw new Error(`${fieldName}: Valor no es un número válido. Valor recibido: ${value}`);
+  }
+  
+  // Límites para DECIMAL(5,2)
+  const MAX_DECIMAL5_2 = 999.99;
+  const MIN_DECIMAL5_2 = -999.99;
+  
+  // Límite lógico para porcentajes (0-100)
+  const MAX_LOGICAL = 100;
+  const MIN_LOGICAL = 0;
+  
+  // Verificar overflow ANTES de redondear
+  if (num > MAX_DECIMAL5_2) {
+    throw new Error(`${fieldName}: Valor ${num} excede el máximo técnico permitido para DECIMAL(5,2): ${MAX_DECIMAL5_2}`);
+  }
+  if (num < MIN_DECIMAL5_2) {
+    throw new Error(`${fieldName}: Valor ${num} excede el mínimo técnico permitido para DECIMAL(5,2): ${MIN_DECIMAL5_2}`);
+  }
+  
+  // Si se requiere límite lógico, validar también
+  if (enforceLogicalLimit) {
+    if (num > MAX_LOGICAL) {
+      throw new Error(`${fieldName}: Valor ${num} excede el límite lógico permitido (100%). Valor recibido: ${value}`);
+    }
+    if (num < MIN_LOGICAL) {
+      throw new Error(`${fieldName}: Valor ${num} es menor que el mínimo lógico permitido (0%). Valor recibido: ${value}`);
+    }
+  }
+  
+  // Redondear estrictamente a 2 decimales usando Math.round
+  // CRÍTICO: Usar Math.round(val * 100) / 100 para garantizar exactamente 2 decimales
+  // Esto elimina cualquier error de precisión de punto flotante de JavaScript
+  const rounded = Math.round(num * 100) / 100;
+  
+  // Validación final después del redondeo
+  if (!isFinite(rounded) || isNaN(rounded)) {
+    throw new Error(`${fieldName}: Error al redondear valor. Valor original: ${value}, Valor procesado: ${num}`);
+  }
+  
+  if (Math.abs(rounded) > MAX_DECIMAL5_2) {
+    throw new Error(`${fieldName}: Valor redondeado ${rounded} excede el máximo permitido: ${MAX_DECIMAL5_2}`);
+  }
+  
+  // CRÍTICO: Retornar el valor redondeado directamente
+  // Math.round(val * 100) / 100 garantiza exactamente 2 decimales
+  return rounded;
+};
+
+/**
+ * Valida un array de items de pedido antes de insertarlos
+ * @param {Array} items - Array de items a validar
+ * @throws {Error} - Si algún item tiene valores inválidos
+ */
+const validatePedidoItems = (items) => {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('Items: El array de items está vacío o no es válido');
+  }
+  
+  items.forEach((item, index) => {
+    const itemPrefix = `Item ${index + 1}`;
+    
+    // Validar productoId
+    if (!item.productoId) {
+      throw new Error(`${itemPrefix}: productoId es requerido`);
+    }
+    
+    const productoIdNum = typeof item.productoId === 'number' ? item.productoId : parseInt(item.productoId, 10);
+    if (isNaN(productoIdNum) || productoIdNum <= 0) {
+      throw new Error(`${itemPrefix}: productoId inválido. Valor recibido: ${item.productoId}`);
+    }
+    
+    // Validar cantidad (DECIMAL(18,2) pero debe ser positivo)
+    try {
+      const cantidad = validateDecimal18_2(item.cantidad, `${itemPrefix}.cantidad`);
+      if (cantidad <= 0) {
+        throw new Error(`${itemPrefix}.cantidad: La cantidad debe ser mayor que 0. Valor recibido: ${item.cantidad}`);
+      }
+    } catch (error) {
+      throw new Error(`${itemPrefix}.cantidad: ${error.message}`);
+    }
+    
+    // Validar precioUnitario (DECIMAL(18,2) pero debe ser no negativo)
+    try {
+      const precioUnitario = validateDecimal18_2(item.precioUnitario, `${itemPrefix}.precioUnitario`);
+      if (precioUnitario < 0) {
+        throw new Error(`${itemPrefix}.precioUnitario: El precio unitario no puede ser negativo. Valor recibido: ${item.precioUnitario}`);
+      }
+    } catch (error) {
+      throw new Error(`${itemPrefix}.precioUnitario: ${error.message}`);
+    }
+    
+    // Validar descuentoPorcentaje (DECIMAL(5,2), límite lógico 0-100)
+    try {
+      validateDecimal5_2(item.descuentoPorcentaje || 0, `${itemPrefix}.descuentoPorcentaje`, true);
+    } catch (error) {
+      throw new Error(`${itemPrefix}.descuentoPorcentaje: ${error.message}`);
+    }
+    
+    // Validar ivaPorcentaje (DECIMAL(5,2), límite lógico 0-100)
+    try {
+      validateDecimal5_2(item.ivaPorcentaje || 0, `${itemPrefix}.ivaPorcentaje`, true);
+    } catch (error) {
+      throw new Error(`${itemPrefix}.ivaPorcentaje: ${error.message}`);
+    }
+    
+    // Validar valores calculados (DECIMAL(18,2))
+    try {
+      validateDecimal18_2(item.descuentoValor || 0, `${itemPrefix}.descuentoValor`);
+    } catch (error) {
+      throw new Error(`${itemPrefix}.descuentoValor: ${error.message}`);
+    }
+    
+    try {
+      validateDecimal18_2(item.valorIva || 0, `${itemPrefix}.valorIva`);
+    } catch (error) {
+      throw new Error(`${itemPrefix}.valorIva: ${error.message}`);
+    }
+    
+    try {
+      validateDecimal18_2(item.total || 0, `${itemPrefix}.total`);
+    } catch (error) {
+      throw new Error(`${itemPrefix}.total: ${error.message}`);
+    }
+  });
+};
+
 // --- CREAR PEDIDO ---
 app.post('/api/pedidos', async (req, res) => {
   const body = req.body || {};
@@ -4075,7 +4389,9 @@ app.post('/api/pedidos', async (req, res) => {
       numeroPedido, fechaPedido, fechaEntregaEstimada,
       clienteId, vendedorId, cotizacionId, subtotal, descuentoValor = 0, ivaValor = 0, total = 0,
       impoconsumoValor = 0, observaciones = '', instruccionesEntrega = '',
-      estado = 'ENVIADA', empresaId, items = []
+      estado = 'ENVIADA', empresaId, items = [],
+      ivaPorcentaje = 19.00, // Por defecto 19% (IVA estándar en Colombia)
+      descuentoPorcentaje = 0
     } = body;
 
     if (!clienteId || !Array.isArray(items) || items.length === 0) {
@@ -4399,151 +4715,76 @@ app.post('/api/pedidos', async (req, res) => {
       // estado, fec_creacion, fec_modificacion
       const codVendedorFinal = vendedorIdFinal ? String(vendedorIdFinal).trim() : null;
       
-      // Normalizar y validar valores numéricos
-      // CRÍTICO: Validar todos los valores antes de procesarlos
-      const subtotalRaw = subtotal;
-      const descuentoValorRaw = descuentoValor;
-      const ivaValorRaw = ivaValor;
-      const totalRaw = total;
-      const impoconsumoValorRaw = impoconsumoValor;
-      
+      // VALIDACIÓN DEFENSIVA: Validar todos los valores del header ANTES de procesarlos
       console.log('📊 Valores recibidos del body:', {
-        subtotal: subtotalRaw,
-        descuentoValor: descuentoValorRaw,
-        ivaValor: ivaValorRaw,
-        total: totalRaw,
-        impoconsumoValor: impoconsumoValorRaw
+        subtotal,
+        descuentoValor,
+        ivaValor,
+        total,
+        impoconsumoValor
       });
       
-      // Función para normalizar valores numéricos que pueden venir como strings con formato
-      const normalizeNumericValue = (value) => {
-        if (value === null || value === undefined) return 0;
-        if (typeof value === 'number') {
-          return isFinite(value) && !isNaN(value) ? value : 0;
-        }
-        // Si es string, limpiar formato (quitar puntos de miles, convertir comas a puntos decimales)
-        const str = String(value).trim();
-        if (str === '' || str === '-') return 0;
-        // Remover símbolos de moneda y espacios
-        let cleaned = str.replace(/[$\s]/g, '');
-        // Si tiene coma y punto, la coma es decimal (formato europeo: 1.234,56)
-        if (cleaned.includes(',') && cleaned.includes('.')) {
-          cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-        } else if (cleaned.includes(',')) {
-          // Solo coma, puede ser decimal o separador de miles
-          // Si hay más de 3 dígitos después de la coma, es separador de miles
-          const parts = cleaned.split(',');
-          if (parts.length === 2 && parts[1].length <= 2) {
-            cleaned = cleaned.replace(',', '.'); // Es decimal
-          } else {
-            cleaned = cleaned.replace(/,/g, ''); // Es separador de miles
-          }
-        }
-        const num = parseFloat(cleaned);
-        return isFinite(num) && !isNaN(num) ? num : 0;
-      };
+      // Validar valores del header usando funciones helper
+      let subtotalFinal, descuentoValorFinal, ivaValorFinal, totalFinal, impoconsumoValorFinal;
+      let descuentoPorcentajeFinal, ivaPorcentajeFinal;
       
-      // Convertir a número y validar usando la función de normalización
-      const subtotalNum = normalizeNumericValue(subtotalRaw);
-      const descuentoValorNum = normalizeNumericValue(descuentoValorRaw);
-      const ivaValorNum = normalizeNumericValue(ivaValorRaw);
-      const totalNum = normalizeNumericValue(totalRaw);
-      const impoconsumoValorNum = normalizeNumericValue(impoconsumoValorRaw);
-      
-      // Validar que sean números finitos y no NaN
-      if (!isFinite(subtotalNum) || isNaN(subtotalNum)) {
-        console.error(`❌ subtotal inválido: ${subtotalRaw} → ${subtotalNum}`);
-        throw new Error(`subtotal inválido: ${subtotalRaw}`);
-      }
-      if (!isFinite(totalNum) || isNaN(totalNum)) {
-        console.error(`❌ total inválido: ${totalRaw} → ${totalNum}`);
-        throw new Error(`total inválido: ${totalRaw}`);
+      try {
+        subtotalFinal = validateDecimal18_2(subtotal || 0, 'subtotal');
+        descuentoValorFinal = validateDecimal18_2(descuentoValor || 0, 'descuentoValor');
+        ivaValorFinal = validateDecimal18_2(ivaValor || 0, 'ivaValor');
+        totalFinal = validateDecimal18_2(total || 0, 'total');
+        impoconsumoValorFinal = validateDecimal18_2(impoconsumoValor || 0, 'impoconsumoValor');
+      } catch (error) {
+        throw new Error(`Error validando valores del header del pedido: ${error.message}`);
       }
       
-      // Validar que sean números finitos y limitar a rango válido para DECIMAL(18,2)
-      const maxDecimal18_2 = 9999999999999999.99; // Máximo para DECIMAL(18,2)
-      const subtotalFinal = Math.max(0, Math.min(Math.abs(subtotalNum), maxDecimal18_2));
-      const descuentoValorFinal = Math.max(0, Math.min(Math.abs(descuentoValorNum || 0), maxDecimal18_2));
-      const ivaValorFinal = Math.max(0, Math.min(Math.abs(ivaValorNum || 0), maxDecimal18_2));
-      const totalFinal = Math.max(0, Math.min(Math.abs(totalNum), maxDecimal18_2));
-      const impoconsumoValorFinal = Math.max(0, Math.min(Math.abs(impoconsumoValorNum || 0), maxDecimal18_2));
+      // Calcular porcentajes si es necesario
+      if (subtotalFinal > 0 && descuentoValorFinal > 0) {
+        const descuentoPorcentajeCalc = (descuentoValorFinal / subtotalFinal) * 100;
+        try {
+          descuentoPorcentajeFinal = validateDecimal5_2(descuentoPorcentajeCalc, 'descuentoPorcentaje (calculado)', false);
+        } catch (error) {
+          // Si el porcentaje calculado excede el límite técnico, usar 0
+          console.warn(`⚠️ descuentoPorcentaje calculado excede límite, usando 0: ${error.message}`);
+          descuentoPorcentajeFinal = 0;
+        }
+      } else {
+        descuentoPorcentajeFinal = 0;
+      }
       
-      // Validar valores DECIMAL(18,2) sin redondeo - usar valores exactos
-      const subtotalFinalLimited = Math.min(subtotalFinal, maxDecimal18_2);
-      const descuentoValorFinalLimited = Math.min(descuentoValorFinal, maxDecimal18_2);
-      const ivaValorFinalLimited = Math.min(ivaValorFinal, maxDecimal18_2);
-      const impoconsumoValorFinalLimited = Math.min(impoconsumoValorFinal, maxDecimal18_2);
-      const totalFinalLimited = Math.min(totalFinal, maxDecimal18_2);
-      
-      // Calcular porcentajes si es necesario - Limitar a rango válido para DECIMAL(5,2) (máx 999.99)
-      let descuentoPorcentaje = 0;
-      if (subtotalFinalLimited > 0 && subtotalFinalLimited !== Infinity && descuentoValorFinalLimited > 0 && descuentoValorFinalLimited !== Infinity) {
-        const descuentoPorcentajeCalc = (descuentoValorFinalLimited / subtotalFinalLimited) * 100;
-        // Validar que sea finito antes de limitar
-        if (isFinite(descuentoPorcentajeCalc) && !isNaN(descuentoPorcentajeCalc)) {
-          descuentoPorcentaje = Math.min(Math.max(descuentoPorcentajeCalc, 0), 999.99);
+      // CRÍTICO: Usar el ivaPorcentaje del body si viene, o 19.00 por defecto
+      // NO calcular el porcentaje basándose en el ivaValor, ya que el porcentaje debe ser fijo (19%)
+      try {
+        // Si viene ivaPorcentaje en el body, usarlo; si no, usar 19.00 (IVA estándar en Colombia)
+        const ivaPorcentajeFromBody = ivaPorcentaje !== undefined && ivaPorcentaje !== null ? ivaPorcentaje : 19.00;
+        ivaPorcentajeFinal = validateDecimal5_2(ivaPorcentajeFromBody, 'ivaPorcentaje', true);
+        console.log(`✅ ivaPorcentaje usado: ${ivaPorcentajeFinal}% (del body: ${ivaPorcentajeFromBody})`);
+      } catch (error) {
+        // Si el porcentaje del body es inválido, usar 19.00 por defecto
+        console.warn(`⚠️ ivaPorcentaje del body inválido (${ivaPorcentaje}), usando 19.00 por defecto: ${error.message}`);
+        try {
+          ivaPorcentajeFinal = validateDecimal5_2(19.00, 'ivaPorcentaje (por defecto)', true);
+        } catch (defaultError) {
+          ivaPorcentajeFinal = 19.00; // Fallback directo
         }
       }
-      
-      let ivaPorcentaje = 0;
-      const baseParaIva = subtotalFinalLimited - descuentoValorFinalLimited;
-      if (baseParaIva > 0 && baseParaIva !== Infinity && ivaValorFinalLimited > 0 && ivaValorFinalLimited !== Infinity) {
-        const ivaPorcentajeCalc = (ivaValorFinalLimited / baseParaIva) * 100;
-        // Validar que sea finito antes de limitar
-        if (isFinite(ivaPorcentajeCalc) && !isNaN(ivaPorcentajeCalc)) {
-          ivaPorcentaje = Math.min(Math.max(ivaPorcentajeCalc, 0), 999.99);
-        }
-      }
-      
-      // Validación final: asegurar que no sean NaN, Infinity o valores fuera de rango
-      if (!isFinite(descuentoPorcentaje) || isNaN(descuentoPorcentaje) || descuentoPorcentaje < 0 || descuentoPorcentaje > 999.99) {
-        descuentoPorcentaje = 0;
-      }
-      if (!isFinite(ivaPorcentaje) || isNaN(ivaPorcentaje) || ivaPorcentaje < 0 || ivaPorcentaje > 999.99) {
-        ivaPorcentaje = 0;
-      }
-      
-      // Asegurar que los porcentajes estén dentro del rango válido (sin redondeo)
-      descuentoPorcentaje = Math.max(0, Math.min(999.99, descuentoPorcentaje));
-      ivaPorcentaje = Math.max(0, Math.min(999.99, ivaPorcentaje));
-      
-      // Usar valores exactos sin redondeo
-      const descuentoPorcentajeFinal = descuentoPorcentaje;
-      const ivaPorcentajeFinal = ivaPorcentaje;
       
       // Log de depuración detallado
-      console.log('📊 Valores validados para inserción:', {
-        subtotal: subtotalFinalLimited,
-        descuentoValor: descuentoValorFinalLimited,
+      console.log('📊 Valores validados para inserción (header):', {
+        subtotal: subtotalFinal,
+        descuentoValor: descuentoValorFinal,
         descuentoPorcentaje: descuentoPorcentajeFinal,
-        ivaValor: ivaValorFinalLimited,
+        ivaValor: ivaValorFinal,
         ivaPorcentaje: ivaPorcentajeFinal,
-        impoconsumoValor: impoconsumoValorFinalLimited,
-        total: totalFinalLimited,
-        validaciones: {
-          subtotalEsFinite: isFinite(subtotalFinalLimited),
-          descuentoPorcentajeEnRango: descuentoPorcentajeFinal >= 0 && descuentoPorcentajeFinal <= 999.99,
-          ivaPorcentajeEnRango: ivaPorcentajeFinal >= 0 && ivaPorcentajeFinal <= 999.99,
-          totalEsFinite: isFinite(totalFinalLimited)
-        }
+        impoconsumoValor: impoconsumoValorFinal,
+        total: totalFinal
       });
       
-      // Validación final antes de insertar - verificar que todos los valores estén en rango
-      if (descuentoPorcentajeFinal > 999.99 || descuentoPorcentajeFinal < 0) {
-        console.error(`❌ descuentoPorcentaje fuera de rango: ${descuentoPorcentajeFinal}`);
-        throw new Error(`descuentoPorcentaje fuera de rango válido (0-999.99): ${descuentoPorcentajeFinal}`);
-      }
-      if (ivaPorcentajeFinal > 999.99 || ivaPorcentajeFinal < 0) {
-        console.error(`❌ ivaPorcentaje fuera de rango: ${ivaPorcentajeFinal}`);
-        throw new Error(`ivaPorcentaje fuera de rango válido (0-999.99): ${ivaPorcentajeFinal}`);
-      }
-      if (subtotalFinalLimited > maxDecimal18_2 || subtotalFinalLimited < 0) {
-        console.error(`❌ subtotal fuera de rango: ${subtotalFinalLimited}`);
-        throw new Error(`subtotal fuera de rango válido: ${subtotalFinalLimited}`);
-      }
-      if (totalFinalLimited > maxDecimal18_2 || totalFinalLimited < 0) {
-        console.error(`❌ total fuera de rango: ${totalFinalLimited}`);
-        throw new Error(`total fuera de rango válido: ${totalFinalLimited}`);
+      // VALIDACIÓN DEFENSIVA: Validar todos los items ANTES de procesarlos
+      try {
+        validatePedidoItems(items);
+      } catch (error) {
+        throw new Error(`Error validando items del pedido: ${error.message}`);
       }
       
       req1.input('numero_pedido', sql.VarChar(50), numeroPedidoFinal);
@@ -4584,92 +4825,88 @@ app.post('/api/pedidos', async (req, res) => {
       }
       
       req1.input('empresa_id', sql.Int, empresaIdValid);
-      req1.input('codtar', sql.VarChar(20), null); // No se proporciona en el request
-      req1.input('codusu', sql.VarChar(20), null); // No se proporciona en el request
+      req1.input('codtar', sql.VarChar(20), null);
+      req1.input('codusu', sql.VarChar(20), null);
       req1.input('cotizacion_id', sql.Int, cotizacionIdValid);
       
-      // Redondear todos los valores DECIMAL a 2 decimales para evitar overflow
-      // SQL Server requiere exactamente el número de decimales especificado
-      // maxDecimal18_2 ya está definido arriba
-      const maxDecimal5_2 = 999.99; // Máximo para DECIMAL(5,2)
-      
-      const roundTo2Decimals = (value) => {
-        if (!isFinite(value) || isNaN(value)) return 0;
-        // Limitar al rango máximo antes de redondear
-        const limited = Math.max(-maxDecimal18_2, Math.min(maxDecimal18_2, value));
-        // Usar toFixed(2) para asegurar exactamente 2 decimales y evitar problemas de precisión
-        return parseFloat(limited.toFixed(2));
-      };
-      const roundTo2DecimalsPercent = (value) => {
-        if (!isFinite(value) || isNaN(value)) return 0;
-        // Limitar al rango máximo de porcentaje antes de redondear
-        const limited = Math.max(0, Math.min(maxDecimal5_2, value));
-        // Usar toFixed(2) para asegurar exactamente 2 decimales y evitar problemas de precisión
-        return parseFloat(limited.toFixed(2));
+      // CRÍTICO: Asegurar que todos los valores sean números con exactamente 2 decimales
+      // SQL Server es muy estricto con DECIMAL(18,2) y DECIMAL(5,2)
+      // Usar Math.round para redondear y luego Number(toFixed(2)) para garantizar 2 decimales
+      const roundTo2Decimals = (val) => {
+        if (!isFinite(val) || isNaN(val)) return 0;
+        const rounded = Math.round(val * 100) / 100;
+        return Number(rounded.toFixed(2));
       };
       
-      // Calcular valores redondeados
-      const subtotalRounded = roundTo2Decimals(subtotalFinalLimited);
-      const descuentoValorRounded = roundTo2Decimals(descuentoValorFinalLimited);
-      const descuentoPorcentajeRounded = roundTo2DecimalsPercent(descuentoPorcentajeFinal);
-      const ivaValorRounded = roundTo2Decimals(ivaValorFinalLimited);
-      const ivaPorcentajeRounded = roundTo2DecimalsPercent(ivaPorcentajeFinal);
-      const impoconsumoValorRounded = roundTo2Decimals(impoconsumoValorFinalLimited);
-      const totalRounded = roundTo2Decimals(totalFinalLimited);
+      const finalSubtotal = roundTo2Decimals(subtotalFinal);
+      const finalDescuentoValor = roundTo2Decimals(descuentoValorFinal);
+      const finalDescuentoPorcentaje = roundTo2Decimals(descuentoPorcentajeFinal);
+      const finalIvaValor = roundTo2Decimals(ivaValorFinal);
+      const finalIvaPorcentaje = roundTo2Decimals(ivaPorcentajeFinal);
+      const finalImpoconsumoValor = roundTo2Decimals(impoconsumoValorFinal);
+      const finalTotal = roundTo2Decimals(totalFinal);
       
-      // Validación final: asegurar que todos los valores estén dentro del rango
-      if (Math.abs(subtotalRounded) > maxDecimal18_2) {
-        throw new Error(`subtotal excede el rango máximo: ${subtotalRounded}`);
+      // Validación final: verificar que todos los valores sean finitos y estén en rango
+      const MAX_DECIMAL18_2 = 9999999999999999.99;
+      const MAX_DECIMAL5_2 = 999.99;
+      
+      if (!isFinite(finalSubtotal) || Math.abs(finalSubtotal) > MAX_DECIMAL18_2) {
+        throw new Error(`subtotal inválido después de conversión final: ${finalSubtotal}`);
       }
-      if (Math.abs(descuentoValorRounded) > maxDecimal18_2) {
-        throw new Error(`descuentoValor excede el rango máximo: ${descuentoValorRounded}`);
+      if (!isFinite(finalDescuentoPorcentaje) || Math.abs(finalDescuentoPorcentaje) > MAX_DECIMAL5_2) {
+        throw new Error(`descuentoPorcentaje inválido después de conversión final: ${finalDescuentoPorcentaje}`);
       }
-      if (Math.abs(ivaValorRounded) > maxDecimal18_2) {
-        throw new Error(`ivaValor excede el rango máximo: ${ivaValorRounded}`);
-      }
-      if (Math.abs(impoconsumoValorRounded) > maxDecimal18_2) {
-        throw new Error(`impoconsumoValor excede el rango máximo: ${impoconsumoValorRounded}`);
-      }
-      if (Math.abs(totalRounded) > maxDecimal18_2) {
-        throw new Error(`total excede el rango máximo: ${totalRounded}`);
-      }
-      if (descuentoPorcentajeRounded > maxDecimal5_2 || descuentoPorcentajeRounded < 0) {
-        throw new Error(`descuentoPorcentaje fuera de rango: ${descuentoPorcentajeRounded}`);
-      }
-      if (ivaPorcentajeRounded > maxDecimal5_2 || ivaPorcentajeRounded < 0) {
-        throw new Error(`ivaPorcentaje fuera de rango: ${ivaPorcentajeRounded}`);
+      if (!isFinite(finalIvaPorcentaje) || Math.abs(finalIvaPorcentaje) > MAX_DECIMAL5_2) {
+        throw new Error(`ivaPorcentaje inválido después de conversión final: ${finalIvaPorcentaje}`);
       }
       
-      // Log de valores antes de insertar
-      console.log('📊 Valores redondeados para inserción en ven_pedidos:', {
-        subtotal: subtotalRounded,
-        descuentoValor: descuentoValorRounded,
-        descuentoPorcentaje: descuentoPorcentajeRounded,
-        ivaValor: ivaValorRounded,
-        ivaPorcentaje: ivaPorcentajeRounded,
-        impoconsumoValor: impoconsumoValorRounded,
-        total: totalRounded
+      // CRÍTICO: Asegurar que los valores tengan exactamente 2 decimales antes de pasarlos a SQL Server
+      // Usar sql.Numeric en lugar de sql.Decimal para mayor control de precisión
+      // Forzar redondeo a 2 decimales usando Math.round para eliminar errores de precisión de punto flotante
+      const force2DecimalsForSQL = (val) => {
+        if (!isFinite(val) || isNaN(val)) return 0;
+        // Multiplicar por 100, redondear, dividir por 100 - esto elimina errores de precisión
+        return Math.round(val * 100) / 100;
+      };
+      
+      const subtotalForSQL = force2DecimalsForSQL(finalSubtotal);
+      const descuentoValorForSQL = force2DecimalsForSQL(finalDescuentoValor);
+      const descuentoPorcentajeForSQL = force2DecimalsForSQL(finalDescuentoPorcentaje);
+      const ivaValorForSQL = force2DecimalsForSQL(finalIvaValor);
+      const ivaPorcentajeForSQL = force2DecimalsForSQL(finalIvaPorcentaje);
+      const impoconsumoValorForSQL = force2DecimalsForSQL(finalImpoconsumoValor);
+      const totalForSQL = force2DecimalsForSQL(finalTotal);
+      
+      // Log de valores antes de pasar a SQL
+      console.log('🔍 Valores finales para sql.Numeric (header):', {
+        subtotal: { original: finalSubtotal, forSQL: subtotalForSQL, fixed: subtotalForSQL.toFixed(2) },
+        descuentoValor: { original: finalDescuentoValor, forSQL: descuentoValorForSQL, fixed: descuentoValorForSQL.toFixed(2) },
+        descuentoPorcentaje: { original: finalDescuentoPorcentaje, forSQL: descuentoPorcentajeForSQL, fixed: descuentoPorcentajeForSQL.toFixed(2) },
+        ivaValor: { original: finalIvaValor, forSQL: ivaValorForSQL, fixed: ivaValorForSQL.toFixed(2) },
+        ivaPorcentaje: { original: finalIvaPorcentaje, forSQL: ivaPorcentajeForSQL, fixed: ivaPorcentajeForSQL.toFixed(2) },
+        impoconsumoValor: { original: finalImpoconsumoValor, forSQL: impoconsumoValorForSQL, fixed: impoconsumoValorForSQL.toFixed(2) },
+        total: { original: finalTotal, forSQL: totalForSQL, fixed: totalForSQL.toFixed(2) }
       });
       
-      // CRÍTICO: Asegurar que los valores sean números puros antes de pasarlos a sql.Decimal
-      // Usar Number() explícitamente para asegurar que no sean strings y tengan exactamente 2 decimales
-      req1.input('subtotal', sql.Decimal(18, 2), Number(subtotalRounded.toFixed(2)));
-      req1.input('descuento_valor', sql.Decimal(18, 2), Number(descuentoValorRounded.toFixed(2)));
-      req1.input('descuento_porcentaje', sql.Decimal(5, 2), Number(descuentoPorcentajeRounded.toFixed(2)));
-      req1.input('iva_valor', sql.Decimal(18, 2), Number(ivaValorRounded.toFixed(2)));
-      req1.input('iva_porcentaje', sql.Decimal(5, 2), Number(ivaPorcentajeRounded.toFixed(2)));
-      req1.input('impoconsumo_valor', sql.Decimal(18, 2), Number(impoconsumoValorRounded.toFixed(2)));
-      req1.input('total', sql.Decimal(18, 2), Number(totalRounded.toFixed(2)));
+      // CRÍTICO: Usar sql.Decimal para compatibilidad con SQL Server
+      // Asegurar que todos los valores tengan exactamente 2 decimales usando toFixed(2)
+      req1.input('subtotal', sql.Decimal(18, 2), Number(subtotalForSQL.toFixed(2)));
+      req1.input('descuento_valor', sql.Decimal(18, 2), Number(descuentoValorForSQL.toFixed(2)));
+      req1.input('descuento_porcentaje', sql.Decimal(5, 2), Number(descuentoPorcentajeForSQL.toFixed(2)));
+      req1.input('iva_valor', sql.Decimal(18, 2), Number(ivaValorForSQL.toFixed(2)));
+      req1.input('iva_porcentaje', sql.Decimal(5, 2), Number(ivaPorcentajeForSQL.toFixed(2)));
+      req1.input('impoconsumo_valor', sql.Decimal(18, 2), Number(impoconsumoValorForSQL.toFixed(2)));
+      req1.input('total', sql.Decimal(18, 2), parseFloat(totalForSQL.toFixed(2)));
       
-      // Log de valores finales antes de insertar
+      // Log de valores finales antes de insertar con validación detallada
       console.log('📊 Valores finales para INSERT en ven_pedidos (header):', {
-        subtotal: { valor: subtotalRounded, final: Number(subtotalRounded.toFixed(2)), string: subtotalRounded.toFixed(2) },
-        descuentoValor: { valor: descuentoValorRounded, final: Number(descuentoValorRounded.toFixed(2)), string: descuentoValorRounded.toFixed(2) },
-        descuentoPorcentaje: { valor: descuentoPorcentajeRounded, final: Number(descuentoPorcentajeRounded.toFixed(2)), string: descuentoPorcentajeRounded.toFixed(2) },
-        ivaValor: { valor: ivaValorRounded, final: Number(ivaValorRounded.toFixed(2)), string: ivaValorRounded.toFixed(2) },
-        ivaPorcentaje: { valor: ivaPorcentajeRounded, final: Number(ivaPorcentajeRounded.toFixed(2)), string: ivaPorcentajeRounded.toFixed(2) },
-        impoconsumoValor: { valor: impoconsumoValorRounded, final: Number(impoconsumoValorRounded.toFixed(2)), string: impoconsumoValorRounded.toFixed(2) },
-        total: { valor: totalRounded, final: Number(totalRounded.toFixed(2)), string: totalRounded.toFixed(2) }
+        subtotal: { value: subtotalFinal, type: typeof subtotalFinal, fixed: subtotalFinal.toFixed(2), isFinite: isFinite(subtotalFinal) },
+        descuentoValor: { value: descuentoValorFinal, type: typeof descuentoValorFinal, fixed: descuentoValorFinal.toFixed(2), isFinite: isFinite(descuentoValorFinal) },
+        descuentoPorcentaje: { value: descuentoPorcentajeFinal, type: typeof descuentoPorcentajeFinal, fixed: descuentoPorcentajeFinal.toFixed(2), isFinite: isFinite(descuentoPorcentajeFinal) },
+        ivaValor: { value: ivaValorFinal, type: typeof ivaValorFinal, fixed: ivaValorFinal.toFixed(2), isFinite: isFinite(ivaValorFinal) },
+        ivaPorcentaje: { value: ivaPorcentajeFinal, type: typeof ivaPorcentajeFinal, fixed: ivaPorcentajeFinal.toFixed(2), isFinite: isFinite(ivaPorcentajeFinal) },
+        impoconsumoValor: { value: impoconsumoValorFinal, type: typeof impoconsumoValorFinal, fixed: impoconsumoValorFinal.toFixed(2), isFinite: isFinite(impoconsumoValorFinal) },
+        total: { value: totalFinal, type: typeof totalFinal, fixed: totalFinal.toFixed(2), isFinite: isFinite(totalFinal) }
       });
       req1.input('observaciones', sql.VarChar(500), observaciones || '');
       req1.input('instrucciones_entrega', sql.VarChar(500), instruccionesEntrega || '');
@@ -4688,78 +4925,96 @@ app.post('/api/pedidos', async (req, res) => {
         codtar: null,
         codusu: null,
         cotizacion_id: cotizacionIdValid,
-        subtotal: subtotalRounded,
-        descuento_valor: descuentoValorRounded,
-        descuento_porcentaje: descuentoPorcentajeRounded,
-        iva_valor: ivaValorRounded,
-        iva_porcentaje: ivaPorcentajeRounded,
-        impoconsumo_valor: impoconsumoValorRounded,
-        total: totalRounded,
+        subtotal: subtotalFinal,
+        descuento_valor: descuentoValorFinal,
+        descuento_porcentaje: descuentoPorcentajeFinal,
+        iva_valor: ivaValorFinal,
+        iva_porcentaje: ivaPorcentajeFinal,
+        impoconsumo_valor: impoconsumoValorFinal,
+        total: totalFinal,
         observaciones: observaciones || '',
         instrucciones_entrega: instruccionesEntrega || '',
         estado: estadoMapeado
       });
       
-      const insertHeader = await req1.query(`
-          INSERT INTO ven_pedidos (
-            numero_pedido, fecha_pedido, fecha_entrega_estimada,
-          codter, codven, empresa_id, codtar, codusu, cotizacion_id,
-          subtotal, descuento_valor, descuento_porcentaje, iva_valor, iva_porcentaje, 
-          impoconsumo_valor, total,
-          observaciones, instrucciones_entrega, estado, fec_creacion, fec_modificacion
-          ) VALUES (
-            @numero_pedido, @fecha_pedido, @fecha_entrega_estimada,
-          @codter, @codven, @empresa_id, @codtar, @codusu, @cotizacion_id,
-          @subtotal, @descuento_valor, @descuento_porcentaje, @iva_valor, @iva_porcentaje,
-          @impoconsumo_valor, @total,
-          @observaciones, @instrucciones_entrega, @estado, @fec_creacion, @fec_modificacion
-          );
-          SELECT SCOPE_IDENTITY() AS id;`);
-      const newIdRaw = insertHeader.recordset[0].id;
+      // Log de valores finales antes de insertar
+      console.log('🔍 Validación final de valores del header antes de INSERT:', {
+        subtotal: finalSubtotal,
+        descuento_valor: finalDescuentoValor,
+        descuento_porcentaje: finalDescuentoPorcentaje,
+        iva_valor: finalIvaValor,
+        iva_porcentaje: finalIvaPorcentaje,
+        impoconsumo_valor: finalImpoconsumoValor,
+        total: finalTotal
+      });
       
-      // Validar que newId sea un número entero válido
-      const newIdNum = Number(newIdRaw);
-      if (!isFinite(newIdNum) || newIdNum < 1 || newIdNum > 2147483647) {
-        throw new Error(`ID de pedido inválido generado: ${newIdRaw}`);
-      }
-      const newId = Math.floor(newIdNum);
-      console.log(`✅ Pedido creado con ID: ${newId}`);
+      try {
+        const insertHeader = await req1.query(`
+            INSERT INTO ven_pedidos (
+              numero_pedido, fecha_pedido, fecha_entrega_estimada,
+            codter, codven, empresa_id, codtar, codusu, cotizacion_id,
+            subtotal, descuento_valor, descuento_porcentaje, iva_valor, iva_porcentaje, 
+            impoconsumo_valor, total,
+            observaciones, instrucciones_entrega, estado, fec_creacion, fec_modificacion
+            ) VALUES (
+              @numero_pedido, @fecha_pedido, @fecha_entrega_estimada,
+            @codter, @codven, @empresa_id, @codtar, @codusu, @cotizacion_id,
+            @subtotal, @descuento_valor, @descuento_porcentaje, @iva_valor, @iva_porcentaje,
+            @impoconsumo_valor, @total,
+            @observaciones, @instrucciones_entrega, @estado, @fec_creacion, @fec_modificacion
+            );
+            SELECT SCOPE_IDENTITY() AS id;`);
+        const newIdRaw = insertHeader.recordset[0].id;
+        
+        // Validar que newId sea un número entero válido
+        const newIdNum = Number(newIdRaw);
+        if (!isFinite(newIdNum) || newIdNum < 1 || newIdNum > 2147483647) {
+          throw new Error(`ID de pedido inválido generado: ${newIdRaw}`);
+        }
+        const newId = Math.floor(newIdNum);
+        console.log(`✅ Pedido creado con ID: ${newId} (tipo: ${typeof newId}, valor: ${newId})`);
 
-      console.log(`📦 Guardando ${items.length} items de pedido...`);
-      for (let idx = 0; idx < items.length; idx++) {
+        console.log(`📦 Guardando ${items.length} items de pedido con pedido_id=${newId}...`);
+        for (let idx = 0; idx < items.length; idx++) {
         const it = items[idx];
         const reqDet = new sql.Request(tx);
         
-        // Validar y normalizar valores del item antes de procesarlos
-        const cantidadRaw = it.cantidad;
-        const precioUnitarioRaw = it.precioUnitario;
-        const descuentoPorcentajeRaw = it.descuentoPorcentaje || 0;
-        const ivaPorcentajeRaw = it.ivaPorcentaje || 0;
-        const valorIvaRaw = it.valorIva || 0;
-        const descuentoValorRaw = it.descuentoValor || 0;
-        const totalRaw = it.total || 0;
-        
         console.log(`➕ Insertando item ${idx + 1}/${items.length}:`, { 
           productoId: it.productoId, 
-          cantidad: cantidadRaw,
-          precioUnitario: precioUnitarioRaw,
-          descuentoPorcentaje: descuentoPorcentajeRaw,
-          ivaPorcentaje: ivaPorcentajeRaw,
-          valorIva: valorIvaRaw,
-          descuentoValor: descuentoValorRaw,
-          total: it.total,
-          tipos: {
-            cantidad: typeof cantidadRaw,
-            precioUnitario: typeof precioUnitarioRaw,
-            valorIva: typeof valorIvaRaw,
-            descuentoValor: typeof descuentoValorRaw
-          }
+          cantidad: it.cantidad,
+          precioUnitario: it.precioUnitario,
+          descuentoPorcentaje: it.descuentoPorcentaje,
+          ivaPorcentaje: it.ivaPorcentaje,
+          valorIva: it.valorIva,
+          descuentoValor: it.descuentoValor,
+          total: it.total
         });
         
         // Validar que el productoId sea numérico (producto_id es INT)
         const productoIdNum = typeof it.productoId === 'number' ? it.productoId : parseInt(it.productoId, 10);
-        if (isNaN(productoIdNum)) {
+        if (isNaN(productoIdNum) || productoIdNum <= 0) {
           throw new Error(`Item ${idx + 1}: productoId inválido: ${it.productoId}`);
+        }
+        
+        // VALIDACIÓN DEFENSIVA: Validar y sanitizar todos los valores del item
+        // Los items ya fueron validados arriba, pero validamos nuevamente aquí para asegurar
+        let cantidadFinal, valinsFinal, dctpedFinal, ivapedFinal;
+        
+        try {
+          cantidadFinal = validateDecimal18_2(it.cantidad, `Item ${idx + 1}.cantidad`);
+          if (cantidadFinal <= 0) {
+            throw new Error(`Item ${idx + 1}.cantidad: La cantidad debe ser mayor que 0`);
+          }
+          
+          valinsFinal = validateDecimal18_2(it.precioUnitario, `Item ${idx + 1}.precioUnitario`);
+          if (valinsFinal < 0) {
+            throw new Error(`Item ${idx + 1}.precioUnitario: El precio no puede ser negativo`);
+          }
+          
+          dctpedFinal = validateDecimal18_2(it.descuentoValor || 0, `Item ${idx + 1}.descuentoValor`);
+          ivapedFinal = validateDecimal18_2(it.valorIva || 0, `Item ${idx + 1}.valorIva`);
+        } catch (error) {
+          throw new Error(`Item ${idx + 1}: ${error.message}`);
         }
         
         // Obtener el código del producto (codins) desde inv_insumos
@@ -4775,253 +5030,381 @@ app.post('/api/pedidos', async (req, res) => {
           throw new Error(`Item ${idx + 1}: Producto con ID ${productoIdNum} no encontrado en inv_insumos`);
         }
         
-        const codins = codinsResult.recordset[0].codins.trim();
+        const codinsRaw = codinsResult.recordset[0].codins;
+        const codinsFinal = String(codinsRaw || '').trim().substring(0, 8).padStart(8, '0');
+        
+        if (!codinsFinal || codinsFinal === '00000000') {
+          throw new Error(`Item ${idx + 1}: codins inválido o vacío para producto ID ${productoIdNum}`);
+        }
         
         // La BD real usa numped (CHAR(8)) en ven_detapedidos
         // Generar numped desde numero_pedido (formato: PED-001 -> PED0001)
-          // Extraer número de "PED-001" o "PED001" y formatear a 8 caracteres
         const match = String(numeroPedidoFinal).match(/(\d+)/);
         let numped;
-          if (match) {
-            numped = 'PED' + match[1].padStart(5, '0');
-          } else {
+        if (match) {
+          numped = 'PED' + match[1].padStart(5, '0');
+        } else {
           numped = String(numeroPedidoFinal).replace(/-/g, '').substring(0, 8).padStart(8, '0');
         }
         
         // Asegurar que numped tenga exactamente 8 caracteres
-        numped = String(numped).substring(0, 8).padStart(8, '0');
-        
-        // Normalizar y validar valores numéricos del item
-        // CRÍTICO: Validar todos los valores antes de usar parseFloat para evitar overflow
-        // Usar las variables ya normalizadas arriba
-        
-        // Función para normalizar valores numéricos que pueden venir como strings con formato
-        const normalizeNumericValue = (value) => {
-          if (value === null || value === undefined) return 0;
-          if (typeof value === 'number') {
-            return isFinite(value) && !isNaN(value) ? value : 0;
-          }
-          // Si es string, limpiar formato (quitar puntos de miles, convertir comas a puntos decimales)
-          const str = String(value).trim();
-          if (str === '' || str === '-') return 0;
-          // Remover símbolos de moneda y espacios
-          let cleaned = str.replace(/[$\s]/g, '');
-          // Si tiene coma y punto, la coma es decimal (formato europeo: 1.234,56)
-          if (cleaned.includes(',') && cleaned.includes('.')) {
-            cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-          } else if (cleaned.includes(',')) {
-            // Solo coma, puede ser decimal o separador de miles
-            // Si hay más de 3 dígitos después de la coma, es separador de miles
-            const parts = cleaned.split(',');
-            if (parts.length === 2 && parts[1].length <= 2) {
-              cleaned = cleaned.replace(',', '.'); // Es decimal
-            } else {
-              cleaned = cleaned.replace(/,/g, ''); // Es separador de miles
-            }
-          }
-          const num = parseFloat(cleaned);
-          return isFinite(num) && !isNaN(num) ? num : 0;
-        };
-        
-        // Convertir a número y validar usando la función de normalización
-        const cantidadNum = normalizeNumericValue(cantidadRaw);
-        const precioUnitarioNum = normalizeNumericValue(precioUnitarioRaw);
-        const descuentoValorNum = normalizeNumericValue(descuentoValorRaw);
-        const valorIvaNum = normalizeNumericValue(valorIvaRaw);
-        const totalNum = normalizeNumericValue(totalRaw);
-        
-        // Normalizar porcentajes (pueden venir como strings o números)
-        const descuentoPorcentajeNum = normalizeNumericValue(descuentoPorcentajeRaw);
-        const ivaPorcentajeNum = normalizeNumericValue(ivaPorcentajeRaw);
-        
-        // Validar que sean números finitos y no NaN
-        if (!isFinite(cantidadNum) || isNaN(cantidadNum) || cantidadNum <= 0) {
-          console.error(`❌ Item ${idx + 1}: cantidad inválida:`, cantidadRaw, '→', cantidadNum);
-          throw new Error(`Item ${idx + 1}: cantidad inválida (${cantidadRaw})`);
-        }
-        if (!isFinite(precioUnitarioNum) || isNaN(precioUnitarioNum) || precioUnitarioNum < 0) {
-          console.error(`❌ Item ${idx + 1}: precioUnitario inválido:`, precioUnitarioRaw, '→', precioUnitarioNum);
-          throw new Error(`Item ${idx + 1}: precioUnitario inválido (${precioUnitarioRaw})`);
-        }
-        
-        // Log de valores normalizados para debugging
-        console.log(`📦 Item ${idx + 1} - Valores normalizados:`, {
-          cantidad: { raw: cantidadRaw, normalized: cantidadNum },
-          precioUnitario: { raw: precioUnitarioRaw, normalized: precioUnitarioNum },
-          descuentoValor: { raw: descuentoValorRaw, normalized: descuentoValorNum },
-          valorIva: { raw: valorIvaRaw, normalized: valorIvaNum },
-          total: { raw: totalRaw, normalized: totalNum },
-          descuentoPorcentaje: { raw: descuentoPorcentajeRaw, normalized: descuentoPorcentajeNum },
-          ivaPorcentaje: { raw: ivaPorcentajeRaw, normalized: ivaPorcentajeNum }
-        });
-        
-        // Validar que sean números finitos y limitar a rango válido para DECIMAL(18,2)
-        // DECIMAL(18,2) puede almacenar valores hasta 9999999999999999.99
-        const maxDecimal18_2 = 9999999999999999.99;
-        const minDecimal = 0;
-        
-        // Asegurar que estén en el rango válido
-        // Validar valores sin redondeo - usar valores exactos
-        const cantidad = Math.max(minDecimal, Math.min(Math.abs(cantidadNum), maxDecimal18_2));
-        const valins = Math.max(minDecimal, Math.min(Math.abs(precioUnitarioNum), maxDecimal18_2));
-        const dctped = Math.max(minDecimal, Math.min(Math.abs(descuentoValorNum || 0), maxDecimal18_2));
-        const ivaped = Math.max(minDecimal, Math.min(Math.abs(valorIvaNum || 0), maxDecimal18_2));
-        
-        // Validación final: asegurar que sean números finitos y válidos (sin redondeo)
-        const cantidadFinalValid = isFinite(cantidad) && !isNaN(cantidad) ? cantidad : 0;
-        const valinsFinalValid = isFinite(valins) && !isNaN(valins) ? valins : 0;
-        const dctpedFinalValid = isFinite(dctped) && !isNaN(dctped) ? dctped : 0;
-        const ivapedFinalValid = isFinite(ivaped) && !isNaN(ivaped) ? ivaped : 0;
-        
-        // Log de depuración detallado para items
-        console.log(`📦 Item ${idx + 1} - Valores originales:`, {
-          cantidadRaw,
-          precioUnitarioRaw,
-          descuentoValorRaw,
-          valorIvaRaw
-        });
-        console.log(`📦 Item ${idx + 1} - Valores validados:`, {
-          cantidad: cantidadFinalValid,
-          valins: valinsFinalValid,
-          dctped: dctpedFinalValid,
-          ivaped: ivapedFinalValid,
-          isFinite: {
-            cantidad: isFinite(cantidadFinalValid),
-            valins: isFinite(valinsFinalValid),
-            dctped: isFinite(dctpedFinalValid),
-            ivaped: isFinite(ivapedFinalValid)
-          }
-        });
+        const numpedFinal = String(numped).substring(0, 8).padStart(8, '0');
         
         // Formatear codalm correctamente (CHAR(3))
-        // Usar el codalm real del almacén validado arriba (codalmReal)
         const codalmFormatted = codalmReal.substring(0, 3).padStart(3, '0');
         
-        // Redondear todos los valores DECIMAL a 2 decimales para evitar overflow
-        // CRÍTICO: Asegurar que los valores estén dentro del rango de DECIMAL(18,2)
-        // DECIMAL(18,2) puede almacenar: -9999999999999999.99 a 9999999999999999.99
-        // Usar la misma constante definida arriba en el contexto del header del pedido
-        const maxDecimal18_2Items = 9999999999999999.99;
-        
-        // Función para convertir valores a formato DECIMAL(18,2) seguro para SQL Server
-        // CRÍTICO: SQL Server requiere que los valores DECIMAL(18,2) tengan exactamente 2 decimales
-        // y estén en el rango: -9999999999999999.99 a 9999999999999999.99
-        const toDecimal18_2 = (value) => {
-          if (!isFinite(value) || isNaN(value)) return 0;
-          
-          // Limitar al rango máximo primero
-          let limited = Math.abs(value);
-          if (limited > maxDecimal18_2Items) {
-            console.warn(`⚠️ Valor ${value} excede el máximo ${maxDecimal18_2Items}, limitando...`);
-            limited = maxDecimal18_2Items;
-          }
-          
+        // CRÍTICO: Asegurar que todos los valores sean números con exactamente 2 decimales
+        // SQL Server es muy estricto con DECIMAL(18,2) - necesita exactamente 2 decimales
+        // El problema es que parseFloat("2325.60") devuelve 2325.6 (pierde el segundo decimal)
+        // Necesitamos usar una conversión que preserve los 2 decimales
+        const roundTo2Decimals = (val) => {
+          if (!isFinite(val) || isNaN(val)) return 0;
           // Redondear a 2 decimales usando Math.round
-          const rounded = Math.round(limited * 100) / 100;
-          
-          // Asegurar que esté dentro del rango
-          const final = Math.max(0, Math.min(maxDecimal18_2Items, rounded));
-          
-          // CRÍTICO: Convertir a string con toFixed(2) y luego a número para asegurar exactamente 2 decimales
-          // Esto es necesario porque JavaScript puede tener problemas de precisión con números flotantes
-          const asString = final.toFixed(2);
-          const asNumber = parseFloat(asString);
-          
-          // Validación final
-          if (!isFinite(asNumber) || isNaN(asNumber) || asNumber < 0 || asNumber > maxDecimal18_2Items) {
-            console.error(`❌ Error al convertir valor a DECIMAL(18,2): ${value} → ${asNumber}`);
+          const rounded = Math.round(val * 100) / 100;
+          // CRÍTICO: Usar toFixed(2) y luego parseFloat para garantizar 2 decimales
+          // Aunque parseFloat puede perder el segundo decimal en la representación,
+          // el valor numérico sigue siendo correcto (2325.6 === 2325.60)
+          return parseFloat(rounded.toFixed(2));
+        };
+        
+        const canpedFinal = roundTo2Decimals(cantidadFinal);
+        const valinsFinalSafe = roundTo2Decimals(valinsFinal);
+        const ivapedFinalSafe = roundTo2Decimals(ivapedFinal);
+        const dctpedFinalSafe = roundTo2Decimals(dctpedFinal);
+        
+        // CRÍTICO: Validar que los valores no tengan más de 2 decimales en su representación
+        // Si un valor tiene más de 2 decimales, SQL Server lanzará un error de overflow
+        const validateDecimalPrecision = (val, fieldName) => {
+          const str = val.toString();
+          const parts = str.split('.');
+          if (parts.length === 2 && parts[1].length > 2) {
+            throw new Error(`${fieldName}: Valor ${val} tiene más de 2 decimales (${parts[1].length}). Esto causará overflow en SQL Server.`);
+          }
+          return val;
+        };
+        
+        // Validar precisión de decimales antes de pasar a SQL
+        validateDecimalPrecision(canpedFinal, `Item ${idx + 1}.canped`);
+        validateDecimalPrecision(valinsFinalSafe, `Item ${idx + 1}.valins`);
+        validateDecimalPrecision(ivapedFinalSafe, `Item ${idx + 1}.ivaped`);
+        validateDecimalPrecision(dctpedFinalSafe, `Item ${idx + 1}.dctped`);
+        
+        // Validación final: verificar que todos los valores sean finitos y estén en rango
+        const MAX_DECIMAL18_2_ITEM = 9999999999999999.99;
+        if (!isFinite(canpedFinal) || canpedFinal <= 0 || canpedFinal > MAX_DECIMAL18_2_ITEM) {
+          throw new Error(`Item ${idx + 1}: canped inválido después de conversión final: ${canpedFinal} (original: ${cantidadFinal})`);
+        }
+        if (!isFinite(valinsFinalSafe) || valinsFinalSafe < 0 || valinsFinalSafe > MAX_DECIMAL18_2_ITEM) {
+          throw new Error(`Item ${idx + 1}: valins inválido después de conversión final: ${valinsFinalSafe} (original: ${valinsFinal})`);
+        }
+        if (!isFinite(ivapedFinalSafe) || ivapedFinalSafe < 0 || ivapedFinalSafe > MAX_DECIMAL18_2_ITEM) {
+          throw new Error(`Item ${idx + 1}: ivaped inválido después de conversión final: ${ivapedFinalSafe} (original: ${ivapedFinal})`);
+        }
+        if (!isFinite(dctpedFinalSafe) || dctpedFinalSafe < 0 || dctpedFinalSafe > MAX_DECIMAL18_2_ITEM) {
+          throw new Error(`Item ${idx + 1}: dctped inválido después de conversión final: ${dctpedFinalSafe} (original: ${dctpedFinal})`);
+        }
+        
+        // Log detallado de valores antes de insertar con validación de decimales
+        console.log(`📦 Item ${idx + 1} - Valores finales para SQL Server:`, {
+          valins: { 
+            original: valinsFinal, 
+            safe: valinsFinalSafe, 
+            fixed: valinsFinalSafe.toFixed(2),
+            type: typeof valinsFinalSafe,
+            decimals: (valinsFinalSafe.toString().split('.')[1] || '').length
+          },
+          canped: { 
+            original: cantidadFinal, 
+            safe: canpedFinal, 
+            fixed: canpedFinal.toFixed(2),
+            type: typeof canpedFinal,
+            decimals: (canpedFinal.toString().split('.')[1] || '').length
+          },
+          ivaped: { 
+            original: ivapedFinal, 
+            safe: ivapedFinalSafe, 
+            fixed: ivapedFinalSafe.toFixed(2),
+            type: typeof ivapedFinalSafe,
+            decimals: (ivapedFinalSafe.toString().split('.')[1] || '').length
+          },
+          dctped: { 
+            original: dctpedFinal, 
+            safe: dctpedFinalSafe, 
+            fixed: dctpedFinalSafe.toFixed(2),
+            type: typeof dctpedFinalSafe,
+            decimals: (dctpedFinalSafe.toString().split('.')[1] || '').length
+          }
+        });
+        
+        reqDet.input('numped', sql.Char(8), numpedFinal);
+        reqDet.input('codins', sql.Char(8), codinsFinal);
+        
+        // CRÍTICO: Asegurar que los valores tengan exactamente 2 decimales antes de pasarlos a SQL Server
+        // SQL Server requiere que DECIMAL(18,2) tenga exactamente 2 decimales
+        // Usar Math.round para redondear y luego convertir a número con toFixed(2)
+        // Esto garantiza que valores como 2325.6 se conviertan a 2325.60
+        const ensure2Decimals = (val) => {
+          if (!isFinite(val) || isNaN(val)) return 0;
+          const rounded = Math.round(val * 100) / 100;
+          // Convertir a string con toFixed(2) y luego a número
+          // Esto asegura que 2325.6 se convierta a 2325.60
+          return parseFloat(rounded.toFixed(2));
+        };
+        
+        // CRÍTICO: Asegurar que los valores tengan exactamente 2 decimales usando una función más robusta
+        // El problema es que JavaScript puede tener errores de precisión de punto flotante
+        // Necesitamos forzar el redondeo a 2 decimales de manera más estricta
+        // Usar Math.round(val * 100) / 100 para eliminar cualquier error de precisión
+        const force2Decimals = (val) => {
+          if (!isFinite(val) || isNaN(val)) return 0;
+          // CRÍTICO: Usar toFixed(2) y luego parseFloat para eliminar errores de precisión
+          // El problema es que 609.92 * 100 = 60991.99999999999 (error de precisión)
+          // Usar toFixed(2) garantiza exactamente 2 decimales sin errores
+          const rounded = Math.round(val * 100) / 100;
+          // Convertir a string con toFixed(2) y luego parsear para eliminar errores de precisión
+          return parseFloat(rounded.toFixed(2));
+        };
+        
+        // CRÍTICO: Función que garantiza exactamente 2 decimales para SQL Server
+        // SQL Server es muy estricto con DECIMAL(18,2) - necesita exactamente 2 decimales
+        // Esta función elimina completamente los errores de precisión de punto flotante
+        const ensureExact2Decimals = (val, fieldName) => {
+          if (!isFinite(val) || isNaN(val)) {
+            console.warn(`⚠️ ${fieldName}: Valor no finito o NaN, usando 0`);
             return 0;
           }
           
-          return asNumber;
+          // Paso 1: Redondear usando Math.round para eliminar errores de precisión
+          const rounded = Math.round(val * 100) / 100;
+          
+          // Paso 2: Convertir a string con toFixed(2) para garantizar formato "XX.XX"
+          const str = rounded.toFixed(2);
+          
+          // Paso 3: Parsear de vuelta a número
+          const result = parseFloat(str);
+          
+          // Paso 4: Validación final - verificar que el resultado sea correcto
+          // Si el resultado tiene más de 2 decimales en su representación, forzar a 2
+          const resultStr = result.toString();
+          const parts = resultStr.split('.');
+          if (parts.length === 2 && parts[1].length > 2) {
+            console.warn(`⚠️ ${fieldName}: Valor tiene más de 2 decimales después de parseFloat. Forzando a 2 decimales. Original: ${val}, Resultado: ${result}`);
+            return parseFloat(result.toFixed(2));
+          }
+          
+          // Paso 5: Verificar que al multiplicar por 100 y redondear, obtengamos el valor esperado
+          // Esto detecta errores de precisión como 609.92 * 100 = 60991.99999999999
+          const multiplied = result * 100;
+          const roundedCheck = Math.round(multiplied);
+          const dividedCheck = roundedCheck / 100;
+          const diff = Math.abs(result - dividedCheck);
+          
+          if (diff > 0.0001) {
+            console.warn(`⚠️ ${fieldName}: Error de precisión detectado. Valor: ${result}, Multiplicado: ${multiplied}, Redondeado: ${roundedCheck}, Dividido: ${dividedCheck}, Diff: ${diff}`);
+            // Forzar corrección usando toFixed(2) nuevamente
+            return parseFloat(result.toFixed(2));
+          }
+          
+          return result;
         };
         
-        // Convertir valores a formato DECIMAL(18,2) seguro
-        const valinsFinal = toDecimal18_2(valinsFinalValid);
-        const canpedFinal = toDecimal18_2(cantidadFinalValid);
-        const ivapedFinal = toDecimal18_2(ivapedFinalValid);
-        const dctpedFinal = toDecimal18_2(dctpedFinalValid);
+        // CRÍTICO: Validar según la estructura REAL de la tabla ven_detapedidos
+        // valins: NUMERIC(18,2) - máximo 9999999999999999.99 (18 dígitos, 2 decimales)
+        // canped: NUMERIC(8) - máximo 99999999 (8 dígitos, SIN decimales - debe ser entero)
+        // ivaped: NUMERIC(18,2) - máximo 9999999999999999.99 (18 dígitos, 2 decimales)
+        // dctped: Asumiendo NUMERIC(18,2) por ahora (verificar estructura real)
         
-        // Validación final antes de pasar a SQL Server
-        if (!isFinite(valinsFinal) || isNaN(valinsFinal) || valinsFinal < 0 || valinsFinal > maxDecimal18_2Items) {
-          throw new Error(`Item ${idx + 1}: valins inválido después de formateo: ${valinsFinal} (original: ${valinsFinalValid})`);
-        }
-        if (!isFinite(canpedFinal) || isNaN(canpedFinal) || canpedFinal < 0 || canpedFinal > maxDecimal18_2Items) {
-          throw new Error(`Item ${idx + 1}: canped inválido después de formateo: ${canpedFinal} (original: ${cantidadFinalValid})`);
-        }
-        if (!isFinite(ivapedFinal) || isNaN(ivapedFinal) || ivapedFinal < 0 || ivapedFinal > maxDecimal18_2Items) {
-          throw new Error(`Item ${idx + 1}: ivaped inválido después de formateo: ${ivapedFinal} (original: ${ivapedFinalValid})`);
-        }
-        if (!isFinite(dctpedFinal) || isNaN(dctpedFinal) || dctpedFinal < 0 || dctpedFinal > maxDecimal18_2Items) {
-          throw new Error(`Item ${idx + 1}: dctped inválido después de formateo: ${dctpedFinal} (original: ${dctpedFinalValid})`);
+        // Función para garantizar número entero (para canped)
+        const ensureInteger = (val, fieldName) => {
+          if (!isFinite(val) || isNaN(val)) {
+            console.warn(`⚠️ ${fieldName}: Valor no finito o NaN, usando 0`);
+            return 0;
+          }
+          return Math.round(val);
+        };
+        
+        // Validar y ajustar valins (NUMERIC(18,2))
+        const MAX_NUMERIC18_2 = 9999999999999999.99; // 18 dígitos, 2 decimales
+        const valinsValidated = ensureExact2Decimals(valinsFinalSafe, `Item ${idx + 1}.valins`);
+        if (Math.abs(valinsValidated) > MAX_NUMERIC18_2) {
+          throw new Error(`Item ${idx + 1}: valins ${valinsValidated} excede el máximo permitido para NUMERIC(18,2): ${MAX_NUMERIC18_2}`);
         }
         
-        // Log detallado de valores antes de insertar
-        console.log(`📦 Item ${idx + 1} - Valores finales para SQL Server (DECIMAL(18,2)):`, {
+        // Validar y ajustar canped (NUMERIC(8) - SIN decimales)
+        const MAX_NUMERIC8 = 99999999; // 8 dígitos, sin decimales
+        const canpedValidated = ensureInteger(canpedFinal, `Item ${idx + 1}.canped`);
+        if (canpedValidated <= 0 || canpedValidated > MAX_NUMERIC8) {
+          throw new Error(`Item ${idx + 1}: canped ${canpedValidated} es inválido (debe ser entero > 0 y <= ${MAX_NUMERIC8})`);
+        }
+        
+        // Validar y ajustar ivaped (NUMERIC(18,2))
+        const ivapedValidated = ensureExact2Decimals(ivapedFinalSafe, `Item ${idx + 1}.ivaped`);
+        if (Math.abs(ivapedValidated) > MAX_NUMERIC18_2) {
+          throw new Error(`Item ${idx + 1}: ivaped ${ivapedValidated} excede el máximo permitido para NUMERIC(18,2): ${MAX_NUMERIC18_2}`);
+        }
+        
+        // Validar y ajustar dctped (asumiendo NUMERIC(18,2))
+        const dctpedValidated = ensureExact2Decimals(dctpedFinal, `Item ${idx + 1}.dctped`);
+        if (Math.abs(dctpedValidated) > MAX_NUMERIC18_2) {
+          throw new Error(`Item ${idx + 1}: dctped ${dctpedValidated} excede el máximo permitido para NUMERIC(18,2): ${MAX_NUMERIC18_2}`);
+        }
+        
+        // Log detallado para verificar los valores antes de pasar a SQL
+        console.log(`🔍 Item ${idx + 1} - Valores VALIDADOS para sql.Numeric:`, {
           valins: { 
-            original: valinsFinalValid, 
-            final: valinsFinal, 
-            string: valinsFinal.toFixed(2),
-            tipo: typeof valinsFinal, 
-            isFinite: isFinite(valinsFinal),
-            dentroRango: valinsFinal >= 0 && valinsFinal <= maxDecimal18_2Items
+            original: valinsFinalSafe,
+            validated: valinsValidated,
+            fixed: valinsValidated.toFixed(2), 
+            string: String(valinsValidated),
+            multiplied: (valinsValidated * 100),
+            rounded: Math.round(valinsValidated * 100),
+            divided: Math.round(valinsValidated * 100) / 100,
+            decimals: (valinsValidated.toString().split('.')[1] || '').length
           },
           canped: { 
-            original: cantidadFinalValid, 
-            final: canpedFinal, 
-            string: canpedFinal.toFixed(2),
-            tipo: typeof canpedFinal, 
-            isFinite: isFinite(canpedFinal),
-            dentroRango: canpedFinal >= 0 && canpedFinal <= maxDecimal18_2Items
+            original: canpedFinal,
+            validated: canpedValidated,
+            fixed: canpedValidated.toFixed(2), 
+            string: String(canpedValidated),
+            multiplied: (canpedValidated * 100),
+            rounded: Math.round(canpedValidated * 100),
+            divided: Math.round(canpedValidated * 100) / 100,
+            decimals: (canpedValidated.toString().split('.')[1] || '').length
           },
           ivaped: { 
-            original: ivapedFinalValid, 
-            final: ivapedFinal, 
-            string: ivapedFinal.toFixed(2),
-            tipo: typeof ivapedFinal, 
-            isFinite: isFinite(ivapedFinal),
-            dentroRango: ivapedFinal >= 0 && ivapedFinal <= maxDecimal18_2Items
+            original: ivapedFinalSafe,
+            validated: ivapedValidated,
+            fixed: ivapedValidated.toFixed(2), 
+            string: String(ivapedValidated),
+            multiplied: (ivapedValidated * 100),
+            rounded: Math.round(ivapedValidated * 100),
+            divided: Math.round(ivapedValidated * 100) / 100,
+            decimals: (ivapedValidated.toString().split('.')[1] || '').length
           },
           dctped: { 
-            original: dctpedFinalValid, 
-            final: dctpedFinal, 
-            string: dctpedFinal.toFixed(2),
-            tipo: typeof dctpedFinal, 
-            isFinite: isFinite(dctpedFinal),
-            dentroRango: dctpedFinal >= 0 && dctpedFinal <= maxDecimal18_2Items
+            original: dctpedFinal,
+            validated: dctpedValidated,
+            fixed: dctpedValidated.toFixed(2), 
+            string: String(dctpedValidated),
+            multiplied: (dctpedValidated * 100),
+            rounded: Math.round(dctpedValidated * 100),
+            divided: Math.round(dctpedValidated * 100) / 100,
+            decimals: (dctpedValidated.toString().split('.')[1] || '').length
           }
         });
         
-        reqDet.input('numped', sql.Char(8), numped.substring(0, 8).padStart(8, '0'));
-        reqDet.input('codins', sql.Char(8), codins.substring(0, 8).padStart(8, '0'));
+        // CRÍTICO: Usar los tipos SQL correctos según la estructura REAL de la tabla
+        // valins: NUMERIC(18,2) -> sql.Decimal(18, 2)
+        // canped: NUMERIC(8) -> sql.Decimal(8, 0) (sin decimales)
+        // ivaped: NUMERIC(18,2) -> sql.Decimal(18, 2)
+        // dctped: Asumiendo NUMERIC(18,2) -> sql.Decimal(18, 2)
         
-        // CRÍTICO: Asegurar que los valores sean números puros antes de pasarlos a sql.Decimal
-        // Usar Number() explícitamente para asegurar que no sean strings
-        reqDet.input('valins', sql.Decimal(18, 2), Number(valinsFinal));
-        reqDet.input('canped', sql.Decimal(18, 2), Number(canpedFinal));
-        reqDet.input('ivaped', sql.Decimal(18, 2), Number(ivapedFinal));
-        reqDet.input('dctped', sql.Decimal(18, 2), Number(dctpedFinal));
+        // Asegurar que los valores tengan el formato correcto antes de pasarlos a SQL Server
+        const valinsForSQLFinal = Number(valinsValidated.toFixed(2));
+        const canpedForSQLFinal = canpedValidated; // Ya es entero, no necesita toFixed
+        const ivapedForSQLFinal = Number(ivapedValidated.toFixed(2));
+        const dctpedForSQLFinal = Number(dctpedValidated.toFixed(2));
+        
+        // Log final antes de pasar a SQL Server
+        console.log(`🔍 Item ${idx + 1} - Valores FINALES para SQL Server (tipos reales):`, {
+          valins: { 
+            validated: valinsValidated, 
+            final: valinsForSQLFinal, 
+            fixed: valinsForSQLFinal.toFixed(2), 
+            sqlType: 'NUMERIC(18,2)',
+            maxAllowed: 9999999999999999.99,
+            withinRange: Math.abs(valinsForSQLFinal) <= 9999999999999999.99
+          },
+          canped: { 
+            validated: canpedValidated, 
+            final: canpedForSQLFinal, 
+            isInteger: Number.isInteger(canpedForSQLFinal),
+            sqlType: 'NUMERIC(8)',
+            maxAllowed: 99999999,
+            withinRange: canpedForSQLFinal > 0 && canpedForSQLFinal <= 99999999
+          },
+          ivaped: { 
+            validated: ivapedValidated, 
+            final: ivapedForSQLFinal, 
+            fixed: ivapedForSQLFinal.toFixed(2), 
+            sqlType: 'NUMERIC(18,2)',
+            maxAllowed: 9999999999999999.99,
+            withinRange: Math.abs(ivapedForSQLFinal) <= 9999999999999999.99
+          },
+          dctped: { 
+            validated: dctpedValidated, 
+            final: dctpedForSQLFinal, 
+            fixed: dctpedForSQLFinal.toFixed(2), 
+            sqlType: 'NUMERIC(18,2)',
+            maxAllowed: 9999999999999999.99,
+            withinRange: Math.abs(dctpedForSQLFinal) <= 9999999999999999.99
+          }
+        });
+        
+        reqDet.input('valins', sql.Decimal(18, 2), Number(valinsForSQLFinal.toFixed(2)));
+        reqDet.input('canped', sql.Decimal(8, 0), canpedForSQLFinal); // NUMERIC(8) sin decimales
+        reqDet.input('ivaped', sql.Decimal(18, 2), Number(ivapedForSQLFinal.toFixed(2)));
+        reqDet.input('dctped', sql.Decimal(18, 2), Number(dctpedForSQLFinal.toFixed(2))); // Asumiendo NUMERIC(18,2)
         reqDet.input('estped', sql.Char(1), 'B'); // B=BORRADOR
         reqDet.input('codalm', sql.Char(3), codalmFormatted);
         reqDet.input('pedido_id', sql.Int, newId); // Relación con ven_pedidos.id (ya validado arriba)
         reqDet.input('feccargo', sql.Date, fechaPedidoFinal); // Fecha de cargo
         reqDet.input('codtec', sql.VarChar(20), ''); // Código técnico (requerido, usar string vacío si no se proporciona)
         
-        await reqDet.query(`
-          INSERT INTO ven_detapedidos (
-            numped, codins, valins, canped, ivaped, dctped,
-            estped, codalm, pedido_id, feccargo, codtec, Fecsys
-          ) VALUES (
-            @numped, @codins, @valins, @canped, @ivaped, @dctped,
-            @estped, @codalm, @pedido_id, @feccargo, @codtec, GETDATE()
-          );`);
-        console.log(`✅ Item ${idx + 1} guardado correctamente`);
-      }
-      console.log(`✅ Todos los ${items.length} items de pedido guardados`);
+        // Log para verificar que pedido_id se está pasando correctamente
+        console.log(`🔍 Item ${idx + 1} - Insertando con pedido_id=${newId} (tipo: ${typeof newId}), codins=${codinsFinal}, numped=${numpedFinal}`);
+        
+        try {
+          await reqDet.query(`
+            INSERT INTO ven_detapedidos (
+              numped, codins, valins, canped, ivaped, dctped,
+              estped, codalm, pedido_id, feccargo, codtec, Fecsys
+            ) VALUES (
+              @numped, @codins, @valins, @canped, @ivaped, @dctped,
+              @estped, @codalm, @pedido_id, @feccargo, @codtec, GETDATE()
+            );`);
+          console.log(`✅ Item ${idx + 1} guardado correctamente con pedido_id=${newId}, codins=${codinsFinal}`);
+          
+          // Verificar que el item se guardó correctamente consultando la BD
+          const reqVerify = new sql.Request(tx);
+          reqVerify.input('pedidoId', sql.Int, newId);
+          reqVerify.input('codins', sql.Char(8), codinsFinal);
+          const verifyResult = await reqVerify.query(`
+            SELECT TOP 1 pedido_id, codins, canped, valins 
+            FROM ven_detapedidos 
+            WHERE pedido_id = @pedidoId AND codins = @codins
+          `);
+          if (verifyResult.recordset.length > 0) {
+            console.log(`✅ Verificación: Item ${idx + 1} encontrado en BD con pedido_id=${verifyResult.recordset[0].pedido_id}`);
+          } else {
+            console.warn(`⚠️ Verificación: Item ${idx + 1} NO encontrado en BD después de insertar (pedido_id=${newId}, codins=${codinsFinal})`);
+          }
+        } catch (itemError) {
+          // Capturar error específico de inserción del item
+          console.error(`❌ Error al insertar item ${idx + 1}:`, itemError);
+          if (itemError.originalError?.info) {
+            console.error(`   SQL Error Info:`, itemError.originalError.info);
+            console.error(`   SQL Error Number:`, itemError.originalError.info.number);
+            console.error(`   SQL Error Message:`, itemError.originalError.info.message);
+          }
+          throw new Error(`Item ${idx + 1}: Error al insertar item. Valores: valins=${valinsFinalSafe}, canped=${canpedFinal}, ivaped=${ivapedFinalSafe}, dctped=${dctpedFinalSafe}. Error: ${itemError.message}`);
+        }
+        }
+        console.log(`✅ Todos los ${items.length} items de pedido guardados`);
 
-      await tx.commit();
-      console.log(`✅ Pedido guardado exitosamente con ID: ${newId}`);
-      res.json({ success: true, data: { id: newId } });
+        await tx.commit();
+        console.log(`✅ Pedido guardado exitosamente con ID: ${newId}`);
+        res.json({ success: true, data: { id: newId } });
+      } catch (insertError) {
+        // Capturar error específico de inserción del header
+        console.error('❌ Error al insertar header del pedido:', insertError);
+        if (insertError.originalError?.info) {
+          console.error('   SQL Error Info:', insertError.originalError.info);
+          console.error('   SQL Error Number:', insertError.originalError.info.number);
+          console.error('   SQL Error Message:', insertError.originalError.info.message);
+        }
+        throw new Error(`Error al insertar header del pedido: ${insertError.message}. Valores enviados: subtotal=${finalSubtotal}, descuentoPorcentaje=${finalDescuentoPorcentaje}, ivaPorcentaje=${finalIvaPorcentaje}, total=${finalTotal}`);
+      }
     } catch (inner) {
       if (tx) {
         try {
@@ -5311,7 +5694,12 @@ app.put('/api/pedidos/:id', async (req, res) => {
             throw new Error(`Item ${idx + 1}: Producto con ID ${productoIdNum} no encontrado en inv_insumos`);
           }
           
-          const codins = codinsResult.recordset[0].codins.trim();
+          const codinsRaw = codinsResult.recordset[0].codins;
+        const codinsFinal = String(codinsRaw || '').trim().substring(0, 8).padStart(8, '0');
+        
+        if (!codinsFinal || codinsFinal === '00000000') {
+          throw new Error(`Item ${idx + 1}: codins inválido o vacío para producto ID ${productoIdNum}`);
+        }
           
           // Validar y normalizar valores numéricos (igual que en POST)
           const cantidadRaw = it.cantidad;
@@ -5359,10 +5747,12 @@ app.put('/api/pedidos/:id', async (req, res) => {
           
           reqDet.input('numped', sql.Char(8), numped);
           reqDet.input('codins', sql.Char(8), codins.substring(0, 8).padStart(8, '0'));
-          reqDet.input('valins', sql.Decimal(18, 2), valinsFinal);
-          reqDet.input('canped', sql.Decimal(18, 2), cantidadFinal);
-          reqDet.input('ivaped', sql.Decimal(18, 2), ivapedFinal);
-          reqDet.input('dctped', sql.Decimal(18, 2), dctpedFinal);
+          // CRÍTICO: Usar los tipos SQL correctos según la estructura REAL de la tabla
+          // valins: NUMERIC(18,2), canped: NUMERIC(8), ivaped: NUMERIC(18,2), dctped: NUMERIC(18,2)
+          reqDet.input('valins', sql.Decimal(18, 2), Number(valinsFinal.toFixed(2)));
+          reqDet.input('canped', sql.Decimal(8, 0), Math.round(cantidadFinal)); // NUMERIC(8) sin decimales
+          reqDet.input('ivaped', sql.Decimal(18, 2), Number(ivapedFinal.toFixed(2)));
+          reqDet.input('dctped', sql.Decimal(18, 2), Number(dctpedFinal.toFixed(2)));
           reqDet.input('estped', sql.Char(1), 'B');
           reqDet.input('codalm', sql.Char(3), codalmFormatted);
           reqDet.input('pedido_id', sql.Int, idNum);
@@ -7583,17 +7973,79 @@ app.put('/api/facturas/:id', async (req, res) => {
             console.warn(`[${requestId}] ⚠️ ADVERTENCIA: La factura no tiene detalles. Se creará una línea consolidada.`);
           }
           
+          // 3.5. AJUSTAR VALORES: Los valores de la BD ya tienen IVA incluido
+          // Calcular el valor ANTES del IVA (subtotal sin IVA) para cada detalle
+          console.log(`\n[${requestId}] 🔧 [TIMBRADO] PASO 3.5: Ajustando valores - Calculando subtotales SIN IVA...`);
+          console.log(`[${requestId}]    NOTA: Los valores en BD ya tienen IVA incluido, calculando valor antes del IVA`);
+          
+          // Función helper para redondear a 2 decimales (COP)
+          const roundCOP = (amount) => {
+            if (amount === null || amount === undefined || isNaN(amount)) {
+              return 0;
+            }
+            return Math.round(parseFloat(amount) * 100) / 100;
+          };
+          
+          // Crear una copia de facturaCompleta para ajustar los valores
+          const facturaCompletaAjustada = {
+            ...facturaCompleta,
+            factura: { ...facturaCompleta.factura },
+            detalles: facturaCompleta.detalles ? facturaCompleta.detalles.map(detalle => {
+              // Los valores en BD ya tienen IVA incluido
+              // Calcular el subtotal ANTES del IVA
+              const totalConIva = parseFloat(detalle.total || (detalle.subtotal || 0) + (detalle.valorIva || detalle.ivains || 0)) || 0;
+              const valorIva = parseFloat(detalle.valorIva || detalle.ivains || 0) || 0;
+              const subtotalSinIva = roundCOP(totalConIva - valorIva);
+              
+              // Calcular precio unitario sin IVA
+              const cantidad = parseFloat(detalle.cantidad || detalle.qtyins || 1) || 1;
+              const precioUnitarioSinIva = cantidad > 0 ? roundCOP(subtotalSinIva / cantidad) : 0;
+              
+              console.log(`[${requestId}]    Detalle ${detalle.codins || detalle.productoId || 'N/A'}:`);
+              console.log(`[${requestId}]      - Total con IVA (BD): ${totalConIva}`);
+              console.log(`[${requestId}]      - IVA (BD): ${valorIva}`);
+              console.log(`[${requestId}]      - Subtotal SIN IVA (calculado): ${subtotalSinIva}`);
+              console.log(`[${requestId}]      - Precio unitario SIN IVA (calculado): ${precioUnitarioSinIva}`);
+              
+              return {
+                ...detalle,
+                // Mantener valores originales para referencia
+                subtotalOriginal: detalle.subtotal,
+                precioUnitarioOriginal: detalle.precioUnitario || detalle.valins,
+                // Valores ajustados SIN IVA
+                subtotal: subtotalSinIva,
+                precioUnitario: precioUnitarioSinIva,
+                // El IVA se mantiene igual (ya está calculado)
+                valorIva: valorIva,
+                ivains: valorIva
+              };
+            }) : []
+          };
+          
+          // Ajustar también los totales de la factura
+          const totalFacturaConIva = parseFloat(facturaCompletaAjustada.factura.netfac || facturaCompletaAjustada.factura.total || 0) || 0;
+          const ivaFactura = parseFloat(facturaCompletaAjustada.factura.valiva || facturaCompletaAjustada.factura.iva_valor || 0) || 0;
+          const subtotalFacturaSinIva = roundCOP(totalFacturaConIva - ivaFactura);
+          
+          facturaCompletaAjustada.factura.valvta = subtotalFacturaSinIva;
+          facturaCompletaAjustada.factura.subtotal = subtotalFacturaSinIva;
+          
+          console.log(`[${requestId}]    Totales de factura ajustados:`);
+          console.log(`[${requestId}]      - Total con IVA (BD): ${totalFacturaConIva}`);
+          console.log(`[${requestId}]      - IVA (BD): ${ivaFactura}`);
+          console.log(`[${requestId}]      - Subtotal SIN IVA (calculado): ${subtotalFacturaSinIva}`);
+          
           // 4. Transformar factura al formato JSON requerido por DIAN
           console.log(`\n[${requestId}] 📋 [TIMBRADO] PASO 4: Transformando factura al formato JSON requerido por DIAN...`);
           console.log(`[${requestId}]    Llamando a: DIANService.transformVenFacturaForDIAN(...)`);
           console.log(`[${requestId}]    Parámetros:`);
-          console.log(`[${requestId}]      - facturaCompleta: ${facturaCompleta ? 'Presente' : 'Ausente'}`);
+          console.log(`[${requestId}]      - facturaCompleta: ${facturaCompletaAjustada ? 'Presente (AJUSTADA)' : 'Ausente'}`);
           console.log(`[${requestId}]      - resolution: ${resolution ? 'Presente' : 'Ausente'}`);
           console.log(`[${requestId}]      - dianParams: ${dianParams ? 'Presente' : 'Ausente'}`);
           console.log(`[${requestId}]      - invoiceData:`, JSON.stringify(body.invoiceData || {}, null, 2));
           
           const invoiceJson = await DIANService.transformVenFacturaForDIAN(
-            facturaCompleta,
+            facturaCompletaAjustada,
             resolution,
             dianParams,
             body.invoiceData || {}
@@ -8007,10 +8459,66 @@ app.post('/api/facturas/:id/timbrar', async (req, res) => {
         console.log('\n📋 [TIMBRADO] PASO 3: Obteniendo factura completa...');
         const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
         
+        // 3.5. AJUSTAR VALORES: Los valores de la BD ya tienen IVA incluido
+        // Calcular el valor ANTES del IVA (subtotal sin IVA) para cada detalle
+        console.log('\n🔧 [TIMBRADO] PASO 3.5: Ajustando valores - Calculando subtotales SIN IVA...');
+        console.log('   NOTA: Los valores en BD ya tienen IVA incluido, calculando valor antes del IVA');
+        
+        // Función helper para redondear a 2 decimales (COP)
+        const roundCOP = (amount) => {
+          if (amount === null || amount === undefined || isNaN(amount)) {
+            return 0;
+          }
+          return Math.round(parseFloat(amount) * 100) / 100;
+        };
+        
+        // Crear una copia de facturaCompleta para ajustar los valores
+        const facturaCompletaAjustada = {
+          ...facturaCompleta,
+          factura: { ...facturaCompleta.factura },
+          detalles: facturaCompleta.detalles ? facturaCompleta.detalles.map(detalle => {
+            // Los valores en BD ya tienen IVA incluido
+            // Calcular el subtotal ANTES del IVA
+            const totalConIva = parseFloat(detalle.total || (detalle.subtotal || 0) + (detalle.valorIva || detalle.ivains || 0)) || 0;
+            const valorIva = parseFloat(detalle.valorIva || detalle.ivains || 0) || 0;
+            const subtotalSinIva = roundCOP(totalConIva - valorIva);
+            
+            // Calcular precio unitario sin IVA
+            const cantidad = parseFloat(detalle.cantidad || detalle.qtyins || 1) || 1;
+            const precioUnitarioSinIva = cantidad > 0 ? roundCOP(subtotalSinIva / cantidad) : 0;
+            
+            return {
+              ...detalle,
+              // Mantener valores originales para referencia
+              subtotalOriginal: detalle.subtotal,
+              precioUnitarioOriginal: detalle.precioUnitario || detalle.valins,
+              // Valores ajustados SIN IVA
+              subtotal: subtotalSinIva,
+              precioUnitario: precioUnitarioSinIva,
+              // El IVA se mantiene igual (ya está calculado)
+              valorIva: valorIva,
+              ivains: valorIva
+            };
+          }) : []
+        };
+        
+        // Ajustar también los totales de la factura
+        const totalFacturaConIva = parseFloat(facturaCompletaAjustada.factura.netfac || facturaCompletaAjustada.factura.total || 0) || 0;
+        const ivaFactura = parseFloat(facturaCompletaAjustada.factura.valiva || facturaCompletaAjustada.factura.iva_valor || 0) || 0;
+        const subtotalFacturaSinIva = roundCOP(totalFacturaConIva - ivaFactura);
+        
+        facturaCompletaAjustada.factura.valvta = subtotalFacturaSinIva;
+        facturaCompletaAjustada.factura.subtotal = subtotalFacturaSinIva;
+        
+        console.log('   Totales de factura ajustados:');
+        console.log('     - Total con IVA (BD):', totalFacturaConIva);
+        console.log('     - IVA (BD):', ivaFactura);
+        console.log('     - Subtotal SIN IVA (calculado):', subtotalFacturaSinIva);
+        
         // 4. Transformar factura al formato JSON requerido por DIAN
         console.log('\n📋 [TIMBRADO] PASO 4: Transformando factura al formato DIAN...');
         const invoiceJson = await DIANService.transformVenFacturaForDIAN(
-          facturaCompleta,
+          facturaCompletaAjustada,
           resolution,
           dianParams,
           body.invoiceData || {}

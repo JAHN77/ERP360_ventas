@@ -243,6 +243,7 @@ const ProductosPage: React.FC = () => {
             isOpen={isModalOpen} 
             onClose={handleCloseModal} 
             title={`Detalle del Producto: ${selectedProducto.nombre}`}
+            size="xl"
         >
           <div className="space-y-4 text-sm">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">

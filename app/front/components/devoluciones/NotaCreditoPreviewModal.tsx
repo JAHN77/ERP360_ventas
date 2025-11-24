@@ -164,7 +164,7 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
 
     return (
         <>
-            <Modal isOpen={!!notaCredito} onClose={onClose} title="" size="4xl" noPadding>
+            <Modal isOpen={!!notaCredito} onClose={onClose} title="" size="3xl" noPadding>
                 <div className="sticky top-0 z-10 bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700">
                     <div className="flex items-center justify-between p-2">
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 px-2 truncate">

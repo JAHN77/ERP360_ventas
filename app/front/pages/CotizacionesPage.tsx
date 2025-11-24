@@ -639,7 +639,7 @@ const CotizacionesPage: React.FC = () => {
             isOpen={isModalOpen} 
             onClose={handleCloseModal} 
             title={`Detalle Cotización: ${selectedCotizacion.numeroCotizacion}`}
-            size="5xl"
+            size="3xl"
         >
           <div className="space-y-4 text-sm">
             <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg mb-4">
@@ -730,21 +730,23 @@ const CotizacionesPage: React.FC = () => {
               {selectedCotizacion.formaPago && (
                 <div>
                   <p className="font-semibold text-slate-600 dark:text-slate-400">Forma de Pago:</p>
-                  <p>{selectedCotizacion.formaPago === '01' ? 'Contado' : selectedCotizacion.formaPago === '02' ? 'Crédito' : selectedCotizacion.formaPago === '03' ? 'Mixto' : selectedCotizacion.formaPago}</p>
+                  <p>{selectedCotizacion.formaPago === '01' ? 'Contado' : selectedCotizacion.formaPago === '02' ? 'Crédito' : selectedCotizacion.formaPago}</p>
                 </div>
               )}
-              {selectedCotizacion.valorAnticipo && selectedCotizacion.valorAnticipo > 0 && (
+              {/* Sección de anticipos comentada - no visible para el usuario */}
+              {/* {selectedCotizacion.valorAnticipo && selectedCotizacion.valorAnticipo > 0 && (
                 <div>
                   <p className="font-semibold text-slate-600 dark:text-slate-400">Valor Anticipo:</p>
                   <p>{formatCurrency(selectedCotizacion.valorAnticipo)}</p>
                 </div>
-              )}
-              {selectedCotizacion.numOrdenCompra && (
+              )} */}
+              {/* Sección de número de orden de compra comentada - no visible para el usuario */}
+              {/* {selectedCotizacion.numOrdenCompra && (
                 <div>
                   <p className="font-semibold text-slate-600 dark:text-slate-400">N° Orden de Compra:</p>
                   <p>{selectedCotizacion.numOrdenCompra}</p>
                 </div>
-              )}
+              )} */}
               {selectedCotizacion.fechaAprobacion && (
                 <div>
                   <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Aprobación:</p>

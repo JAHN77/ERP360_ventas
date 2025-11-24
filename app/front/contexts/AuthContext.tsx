@@ -1,7 +1,7 @@
 import React, { createContext, useState, ReactNode, useMemo, useEffect, useCallback } from 'react';
 import { Usuario, Empresa, Sede } from '../types';
 // FIX: Imported all necessary mock data for user session creation.
-import { usuarios, empresas as allEmpresas, sedes as allSedes } from '../data/mockData';
+import { usuarios, empresas as allEmpresas } from '../data/mockData';
 import { Role, rolesConfig, Permission } from '../config/rolesConfig';
 import { fetchBodegas } from '../services/apiClient';
 import { logger } from '../utils/logger';
@@ -36,31 +36,86 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const isAuthenticated = !!user;
 
+  // Cargar bodega desde localStorage al iniciar (si existe)
+  useEffect(() => {
+    try {
+      const savedSedeId = localStorage.getItem('selectedSedeId');
+      const savedSedeData = localStorage.getItem('selectedSedeData');
+      
+      if (savedSedeId && savedSedeData) {
+        try {
+          const sedeData = JSON.parse(savedSedeData);
+          // Solo cargar si los datos son válidos
+          if (sedeData && sedeData.id && sedeData.codigo) {
+            // No establecer aquí, esperar a que se carguen las bodegas para validar
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega guardada encontrada en localStorage:', sedeData);
+          }
+        } catch (parseError) {
+          logger.warn({ prefix: 'AuthContext' }, 'Error parseando datos de bodega desde localStorage:', parseError);
+          localStorage.removeItem('selectedSedeId');
+          localStorage.removeItem('selectedSedeData');
+        }
+      }
+    } catch (error) {
+      logger.warn({ prefix: 'AuthContext' }, 'Error accediendo a localStorage:', error);
+    }
+  }, []);
+
   // Cargar bodegas desde la base de datos
   useEffect(() => {
     let isMounted = true;
+    let abortController: AbortController | null = null;
+    
     const loadBodegas = async () => {
       try {
+        // CRÍTICO: Establecer loading ANTES de cualquier operación
         setIsLoadingBodegas(true);
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Cargando bodegas desde la BD...');
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔄 Iniciando carga de bodegas desde la BD...');
+        
+        // Crear AbortController para poder cancelar la petición si el componente se desmonta
+        abortController = new AbortController();
         
         let response;
+        let fetchError: any = null;
+        
         try {
-          // Llamar directamente a fetchBodegas - el apiClient ya maneja timeouts
+          // Llamar directamente a fetchBodegas - el apiClient ya maneja timeouts (30 segundos)
+          // IMPORTANTE: Esperar a que la promesa se resuelva o rechace completamente
           response = await fetchBodegas();
-        } catch (fetchError) {
-          logger.warn({ prefix: 'AuthContext' }, 'Error de red al cargar bodegas (backend puede no estar disponible):', fetchError);
-          // Si hay error de red, usar datos mock
-          response = { success: false, data: [] };
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Respuesta recibida del backend:', {
+            success: response?.success,
+            hasData: !!response?.data,
+            dataLength: Array.isArray(response?.data) ? response.data.length : 0
+          });
+        } catch (error) {
+          // Capturar el error pero NO usar mocks todavía
+          // Solo usaremos mocks si realmente falla después de todos los intentos
+          fetchError = error;
+          logger.warn({ prefix: 'AuthContext' }, '⚠️ Error al cargar bodegas desde backend:', {
+            error: error instanceof Error ? error.message : String(error),
+            type: error instanceof Error ? error.constructor.name : typeof error,
+            isAbortError: error instanceof Error && error.name === 'AbortError'
+          });
+          
+          // Si es un error de aborto (componente desmontado), no hacer nada más
+          if (error instanceof Error && error.name === 'AbortError') {
+            logger.log({ prefix: 'AuthContext' }, '🛑 Petición cancelada (componente desmontado)');
+            return;
+          }
+          
+          // Para otros errores, establecer response como fallido pero NO usar mocks aún
+          response = { 
+            success: false, 
+            data: null,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          };
         }
         
         // Verificar que el componente aún esté montado antes de actualizar el estado
         if (!isMounted) {
-          logger.log({ prefix: 'AuthContext' }, 'Componente desmontado, cancelando actualización de bodegas');
+          logger.log({ prefix: 'AuthContext' }, '🛑 Componente desmontado, cancelando actualización de bodegas');
           return;
         }
-        
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Respuesta bodegas:', response);
         
         // Verificar que la respuesta sea válida y tenga datos
         if (response && response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
@@ -119,79 +174,152 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           })));
           setBodegas(mappedBodegas);
           
-          // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
-          // Limpiar cualquier selección previa
+          // Si solo hay una bodega, seleccionarla automáticamente
+          if (mappedBodegas.length === 1) {
+            const unicaBodega = mappedBodegas[0];
+            setSelectedSede(unicaBodega);
+            try {
+              localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+              localStorage.setItem('selectedSedeData', JSON.stringify({
+                id: unicaBodega.id,
+                nombre: unicaBodega.nombre,
+                codigo: unicaBodega.codigo,
+                empresaId: unicaBodega.empresaId
+              }));
+            } catch (error) {
+              logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage:', error);
+            }
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega única seleccionada automáticamente:', unicaBodega.nombre);
+          } else {
+            // Si hay múltiples bodegas, intentar cargar desde localStorage
+            let bodegaCargada = false;
+            try {
+              const savedSedeId = localStorage.getItem('selectedSedeId');
+              const savedSedeData = localStorage.getItem('selectedSedeData');
+              
+              if (savedSedeId && savedSedeData) {
+                const sedeData = JSON.parse(savedSedeData);
+                // Buscar la bodega guardada en las bodegas cargadas
+                const bodegaEncontrada = mappedBodegas.find(b => 
+                  String(b.id) === String(sedeData.id) || 
+                  String(b.codigo) === String(sedeData.codigo)
+                );
+                
+                if (bodegaEncontrada) {
+                  setSelectedSede(bodegaEncontrada);
+                  bodegaCargada = true;
+                  logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega cargada desde localStorage:', bodegaEncontrada.nombre);
+                } else {
+                  // Si la bodega guardada no existe, limpiar localStorage
+                  localStorage.removeItem('selectedSedeId');
+                  localStorage.removeItem('selectedSedeData');
+                  logger.warn({ prefix: 'AuthContext' }, 'Bodega guardada en localStorage no encontrada en las bodegas disponibles');
+                }
+              }
+            } catch (error) {
+              logger.warn({ prefix: 'AuthContext' }, 'Error cargando bodega desde localStorage:', error);
+            }
+            
+            // Si no se cargó desde localStorage, no preseleccionar ninguna - el usuario debe elegir manualmente
+            if (!bodegaCargada) {
+              setSelectedSede(null);
+              logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas cargadas desde BD. Usuario debe seleccionar una bodega manualmente.');
+            }
+          }
+        } else {
+          // Si no hay datos o la respuesta no fue exitosa
+          const reason = !response 
+            ? 'Sin respuesta del servidor' 
+            : !response.success 
+              ? 'Respuesta no exitosa del servidor' 
+              : !response.data 
+                ? 'Sin datos en la respuesta' 
+                : Array.isArray(response.data) && response.data.length === 0
+                  ? 'Array vacío'
+                  : 'Datos inválidos';
+          
+          logger.warn({ prefix: 'AuthContext' }, `❌ Sin datos válidos de bodegas desde BD: ${reason}`);
+          
+          // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
+          // Si no hay datos reales, establecer array vacío y permitir que la UI muestre el estado apropiado
+          logger.warn({ prefix: 'AuthContext' }, '⚠️ No hay bodegas disponibles desde la base de datos. No se usarán datos simulados.');
+          setBodegas([]);
           setSelectedSede(null);
+          
+          // Limpiar localStorage si no hay datos reales
           try {
             localStorage.removeItem('selectedSedeId');
             localStorage.removeItem('selectedSedeData');
           } catch (error) {
             logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', error);
           }
-          
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas cargadas desde BD. Usuario debe seleccionar una bodega manualmente.');
-        } else {
-          // Si no hay datos o la respuesta no fue exitosa, usar datos mock como fallback
-          const reason = !response ? 'Sin respuesta' : !response.success ? 'Respuesta no exitosa' : !response.data ? 'Sin datos' : 'Array vacío';
-          logger.warn({ prefix: 'AuthContext' }, `Sin datos de bodegas desde BD (${reason}), usando datos mock como fallback`);
-          setBodegas(allSedes);
-          
-          // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
-          setSelectedSede(null);
-          try {
-            localStorage.removeItem('selectedSedeId');
-            localStorage.removeItem('selectedSedeData');
-          } catch (error) {
-            logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage (mock):', error);
-          }
-          
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas mock cargadas como fallback. Usuario debe seleccionar una bodega manualmente.');
         }
       } catch (error) {
-        logger.error({ prefix: 'AuthContext' }, 'Error cargando bodegas:', error);
-        // Fallback a datos mock en caso de error
-        setBodegas(allSedes);
+        // Error inesperado en el procesamiento (no en la petición HTTP)
+        logger.error({ prefix: 'AuthContext' }, '❌ Error inesperado procesando bodegas:', error);
         
-        // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
+        // Verificar que el componente aún esté montado
+        if (!isMounted) {
+          return;
+        }
+        
+        // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
+        logger.error({ prefix: 'AuthContext' }, '❌ Error procesando bodegas. No se usarán datos simulados.');
+        setBodegas([]);
         setSelectedSede(null);
+        
+        // Limpiar localStorage si hay error
         try {
           localStorage.removeItem('selectedSedeId');
           localStorage.removeItem('selectedSedeData');
         } catch (localError) {
-          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage (mock - error):', localError);
+          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', localError);
         }
-        
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas mock cargadas (error). Usuario debe seleccionar una bodega manualmente.');
       } finally {
-        // Asegurar que siempre se ejecute, incluso si hay errores
+        // CRÍTICO: Solo establecer loading en false cuando realmente terminamos
+        // Esto asegura que la UI no muestre datos mock prematuramente
         if (isMounted) {
           setIsLoadingBodegas(false);
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Estado de carga de bodegas finalizado');
         }
       }
     };
     
     loadBodegas().catch((error) => {
-      // Capturar cualquier error no manejado
-      logger.error({ prefix: 'AuthContext' }, 'Error no manejado en loadBodegas:', error);
+      // Capturar cualquier error no manejado en la promesa
+      logger.error({ prefix: 'AuthContext' }, '❌ Error no manejado en loadBodegas:', error);
       if (isMounted) {
         setIsLoadingBodegas(false);
-        // Usar datos mock como último recurso
-        setBodegas(allSedes);
+        // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
+        logger.error({ prefix: 'AuthContext' }, '❌ Error no manejado. No se usarán datos simulados.');
+        setBodegas([]);
         setSelectedSede(null);
+        
+        // Limpiar localStorage
+        try {
+          localStorage.removeItem('selectedSedeId');
+          localStorage.removeItem('selectedSedeData');
+        } catch (localError) {
+          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', localError);
+        }
       }
     });
     
-    // Cleanup: marcar como desmontado cuando el componente se desmonte
+    // Cleanup: marcar como desmontado y abortar peticiones pendientes
     return () => {
       isMounted = false;
+      if (abortController) {
+        abortController.abort();
+        logger.log({ prefix: 'AuthContext' }, '🛑 Cleanup: AbortController activado');
+      }
     };
   }, []);
 
   const login = (email: string, role: Role) => {
     const foundUser = usuarios.find(u => u.email === email);
     if (foundUser) {
-      // Usar bodegas de la BD si están disponibles, sino usar mock
-      const sedesToUse = bodegas.length > 0 ? bodegas : allSedes;
+      // CRÍTICO: Solo usar bodegas reales de la BD - NUNCA usar datos mock
+      const sedesToUse = bodegas.length > 0 ? bodegas : [];
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas estado:', bodegas);
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas.length:', bodegas.length);
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - sedesToUse:', sedesToUse);
@@ -234,16 +362,33 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         });
         setSelectedCompany(firstCompany);
         
-        // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
-        setSelectedSede(null);
-        try {
-          localStorage.removeItem('selectedSedeId');
-          localStorage.removeItem('selectedSedeData');
-        } catch (error) {
-          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en login:', error);
+        // Si solo hay una bodega, seleccionarla automáticamente
+        if (firstCompany.sedes && firstCompany.sedes.length === 1) {
+          const unicaBodega = firstCompany.sedes[0];
+          setSelectedSede(unicaBodega);
+          try {
+            localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+            localStorage.setItem('selectedSedeData', JSON.stringify({
+              id: unicaBodega.id,
+              nombre: unicaBodega.nombre,
+              codigo: unicaBodega.codigo,
+              empresaId: unicaBodega.empresaId
+            }));
+          } catch (error) {
+            logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage en login:', error);
+          }
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login exitoso. Bodega única seleccionada automáticamente:', unicaBodega.nombre);
+        } else {
+          // Si hay múltiples bodegas, no preseleccionar ninguna - el usuario debe elegir manualmente
+          setSelectedSede(null);
+          try {
+            localStorage.removeItem('selectedSedeId');
+            localStorage.removeItem('selectedSedeData');
+          } catch (error) {
+            logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en login:', error);
+          }
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login exitoso. Usuario debe seleccionar una bodega manualmente.');
         }
-        
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login exitoso. Usuario debe seleccionar una bodega manualmente.');
       }
       return true;
     }
@@ -261,17 +406,34 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const company = user?.empresas.find(e => e.id === companyId);
     if (company) {
       setSelectedCompany(company);
-      // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
-      // Limpiar cualquier selección previa
-      setSelectedSede(null);
-      try {
-        localStorage.removeItem('selectedSedeId');
-        localStorage.removeItem('selectedSedeData');
-      } catch (error) {
-        logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en switchCompany:', error);
-      }
       
-      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Empresa cambiada. Usuario debe seleccionar una bodega manualmente.');
+      // Si solo hay una bodega en la nueva empresa, seleccionarla automáticamente
+      if (company.sedes && company.sedes.length === 1) {
+        const unicaBodega = company.sedes[0];
+        setSelectedSede(unicaBodega);
+        try {
+          localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+          localStorage.setItem('selectedSedeData', JSON.stringify({
+            id: unicaBodega.id,
+            nombre: unicaBodega.nombre,
+            codigo: unicaBodega.codigo,
+            empresaId: unicaBodega.empresaId
+          }));
+        } catch (error) {
+          logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage en switchCompany:', error);
+        }
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Empresa cambiada. Bodega única seleccionada automáticamente:', unicaBodega.nombre);
+      } else {
+        // Si hay múltiples bodegas, no preseleccionar ninguna - el usuario debe elegir manualmente
+        setSelectedSede(null);
+        try {
+          localStorage.removeItem('selectedSedeId');
+          localStorage.removeItem('selectedSedeData');
+        } catch (error) {
+          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en switchCompany:', error);
+        }
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Empresa cambiada. Usuario debe seleccionar una bodega manualmente.');
+      }
     }
   };
 

@@ -79,6 +79,13 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 (c as any).codter === initialData.clienteId
             );
             setSelectedCliente(cliente || null);
+            // Establecer el texto de búsqueda con el nombre del cliente
+            if (cliente) {
+                const nombreCliente = cliente.nombreCompleto || cliente.razonSocial || cliente.nomter || '';
+                setClienteSearch(nombreCliente);
+            } else {
+                setClienteSearch(initialData.clienteId || '');
+            }
             
             // Buscar vendedor de manera más robusta (por ID, código o codVendedor)
             let vendedorEncontrado: Vendedor | null = null;
@@ -366,36 +373,117 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     };
 
     const handleAddItem = () => {
-        const product = productos.find(p => p.id === Number(currentProductId));
-        if (!product || !isPositiveInteger(currentQuantity) || !isWithinRange(Number(currentDiscount), 0, 100)) return;
+        // Usar selectedProduct directamente, ya que se guarda cuando se selecciona del dropdown
+        // Si no está disponible, buscar en productos o productResults
+        let product = selectedProduct;
+        
+        if (!product && currentProductId) {
+            // Buscar primero en productos del contexto
+            product = productos.find(p => p.id === Number(currentProductId));
+            
+            // Si no se encuentra, buscar en los resultados de búsqueda
+            if (!product) {
+                product = productResults.find(p => p.id === Number(currentProductId));
+            }
+        }
 
+        if (!product) {
+            console.error('❌ Producto no encontrado:', { 
+                currentProductId, 
+                hasSelectedProduct: !!selectedProduct,
+                productosCount: productos.length,
+                productResultsCount: productResults.length,
+                selectedProductId: selectedProduct?.id
+            });
+            alert('Por favor, selecciona un producto válido antes de agregarlo.');
+            return;
+        }
+
+        // Validar cantidad
+        if (!isPositiveInteger(currentQuantity)) {
+            alert('La cantidad debe ser un número entero positivo mayor que cero.');
+            return;
+        }
+
+        // Validar descuento
+        const discountValue = Number(currentDiscount);
+        if (!isWithinRange(discountValue, 0, 100)) {
+            alert('El descuento debe estar entre 0 y 100.');
+            return;
+        }
+
+        // Validar que el producto no esté ya en la lista
         if (items.some(item => item.productoId === product.id)) {
             alert("El producto ya está en la lista.");
             return;
         }
 
+        // Validar y obtener precio unitario
+        const precioUnitario = Number(product.ultimoCosto || product.precio || product.precioPublico || 0);
+        if (!precioUnitario || precioUnitario <= 0 || !isFinite(precioUnitario)) {
+            console.error('❌ Precio inválido para producto:', { 
+                productId: product.id, 
+                nombre: product.nombre,
+                ultimoCosto: product.ultimoCosto,
+                precio: product.precio,
+                precioPublico: product.precioPublico
+            });
+            alert(`El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.`);
+            return;
+        }
+
+        // Determinar IVA: usar aplicaIva si existe, sino usar tasaIva > 0
+        const tieneIva = (product as any).aplicaIva !== undefined 
+            ? (product as any).aplicaIva 
+            : ((product.tasaIva || 0) > 0);
+        const ivaPorcentaje = tieneIva ? (product.tasaIva || 19) : 0;
+
         const quantityNum = Number(currentQuantity);
         const discountNum = Number(currentDiscount);
-        const precioUnitario = product.ultimoCosto;
-        const ivaPorcentaje = product.aplicaIva ? 19 : 0;
         
-        const subtotal = (precioUnitario * quantityNum) * (1 - (discountNum / 100));
-        const valorIva = subtotal * (ivaPorcentaje / 100);
-        const total = subtotal + valorIva;
+        // Calcular valores con redondeo a 2 decimales
+        const roundTo2 = (value: number) => Math.round(value * 100) / 100;
+        
+        const subtotalBruto = precioUnitario * quantityNum;
+        const descuentoValor = roundTo2(subtotalBruto * (discountNum / 100));
+        const subtotal = roundTo2(subtotalBruto - descuentoValor);
+        const valorIva = roundTo2(subtotal * (ivaPorcentaje / 100));
+        const total = roundTo2(subtotal + valorIva);
 
-        const newItem: DocumentItem = {
+        console.log('✅ Agregando producto a cotización:', {
             productoId: product.id,
-            descripcion: product.nombre,
+            nombre: product.nombre,
             cantidad: quantityNum,
-            precioUnitario: precioUnitario,
-            ivaPorcentaje: ivaPorcentaje,
+            precioUnitario,
             descuentoPorcentaje: discountNum,
-            subtotal: subtotal,
-            valorIva: valorIva,
-            total: total,
+            ivaPorcentaje,
+            subtotal,
+            valorIva,
+            total
+        });
+
+        const newItem: DocumentItem & { unidadMedida?: string; referencia?: string } = {
+            productoId: product.id,
+            descripcion: product.nombre || 'Sin nombre',
+            cantidad: quantityNum,
+            precioUnitario: roundTo2(precioUnitario),
+            ivaPorcentaje: roundTo2(ivaPorcentaje),
+            descuentoPorcentaje: roundTo2(discountNum),
+            subtotal: roundTo2(subtotal),
+            valorIva: roundTo2(valorIva),
+            total: roundTo2(total),
+            unidadMedida: product.unidadMedida || (product as any).unidadMedidaNombre || 'Unidad',
+            codigoMedida: product.unidadMedida || (product as any).unidadMedidaNombre || 'Unidad',
         };
+        
+        // Guardar referencia en el item si está disponible
+        if ((product as any).referencia) {
+            (newItem as any).referencia = (product as any).referencia;
+        }
+        
         setItems([...items, newItem]);
         
+        // Limpiar campos
         setCurrentProductId('');
         setSelectedProduct(null);
         setCurrentQuantity(1);
@@ -674,62 +762,86 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         </div>
                     )}
                 </div>
-                {selectedCliente && (
-                     <Card className="md:col-span-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                        <div className="space-y-1">
-                            <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
-                                {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
-                            </p>
-                            {(selectedCliente.dirter || selectedCliente.direccion) && (
-                                <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
-                                    <i className="fas fa-map-marker-alt mr-1"></i>
-                                    {selectedCliente.dirter || selectedCliente.direccion}
-                                    {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
-                                </p>
-                            )}
-                            <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                {selectedCliente.numeroDocumento && (
-                                    <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
-                                )}
-                                {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
-                                    <span>
-                                        <i className="fas fa-phone mr-1"></i>
-                                        {[
-                                            selectedCliente.telefono || (selectedCliente as any).telefono,
-                                            (selectedCliente as any).celular || selectedCliente.celter
-                                        ].filter(Boolean).join(' | ')}
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                        {/* Lista de precios comentado temporalmente - no implementado en frontend */}
-                        {/* <div className="mt-2 flex items-center gap-2 flex-wrap">
-                            <span className="text-slate-500 dark:text-slate-400">Lista de Precios:</span>
-                            <input
-                                type="text"
-                                value={listaPrecioTemp}
-                                onChange={(e)=>setListaPrecioTemp(e.target.value.replace(/[^0-9]/g,''))}
-                                placeholder="ID"
-                                className="w-28 px-2 py-1 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <button
-                                type="button"
-                                onClick={handleGuardarListaPrecio}
-                                disabled={isSavingLista || !listaPrecioTemp}
-                                className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md disabled:bg-slate-400"
-                                title="Guardar lista de precios para el cliente"
-                            >
-                                {isSavingLista ? 'Guardando...' : 'Guardar'}
-                            </button>
-                            <span className="text-xs text-slate-500">Actual: {(selectedCliente as any).listaPrecioId ?? 'N/A'}</span>
-                        </div> */}
-                    </Card>
+                {(selectedCliente || selectedVendedor) && (
+                    <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {selectedCliente && (
+                            <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                                <div className="space-y-1">
+                                    <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                        {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
+                                    </p>
+                                    {(selectedCliente.dirter || selectedCliente.direccion) && (
+                                        <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                                            <i className="fas fa-map-marker-alt mr-1"></i>
+                                            {selectedCliente.dirter || selectedCliente.direccion}
+                                            {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
+                                        </p>
+                                    )}
+                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                        {selectedCliente.numeroDocumento && (
+                                            <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
+                                        )}
+                                        {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
+                                            <span>
+                                                <i className="fas fa-phone mr-1"></i>
+                                                {[
+                                                    selectedCliente.telefono || (selectedCliente as any).telefono,
+                                                    (selectedCliente as any).celular || selectedCliente.celter
+                                                ].filter(Boolean).join(' | ')}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                {/* Lista de precios comentado temporalmente - no implementado en frontend */}
+                                {/* <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                    <span className="text-slate-500 dark:text-slate-400">Lista de Precios:</span>
+                                    <input
+                                        type="text"
+                                        value={listaPrecioTemp}
+                                        onChange={(e)=>setListaPrecioTemp(e.target.value.replace(/[^0-9]/g,''))}
+                                        placeholder="ID"
+                                        className="w-28 px-2 py-1 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleGuardarListaPrecio}
+                                        disabled={isSavingLista || !listaPrecioTemp}
+                                        className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md disabled:bg-slate-400"
+                                        title="Guardar lista de precios para el cliente"
+                                    >
+                                        {isSavingLista ? 'Guardando...' : 'Guardar'}
+                                    </button>
+                                    <span className="text-xs text-slate-500">Actual: {(selectedCliente as any).listaPrecioId ?? 'N/A'}</span>
+                                </div> */}
+                            </Card>
+                        )}
+                        {selectedVendedor && (
+                            <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                                <div className="space-y-1">
+                                    <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                        {selectedVendedor.primerNombre && selectedVendedor.primerApellido
+                                            ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
+                                            : selectedVendedor.nombreCompleto || selectedVendedor.nombre || 'Sin nombre'}
+                                    </p>
+                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                        {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
+                                            <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
+                                        )}
+                                        {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
+                                            <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </Card>
+                        )}
+                    </div>
                 )}
             </div>
 
             {/* Campos adicionales de cotización */}
-            <div className="grid md:grid-cols-3 gap-4 mb-6">
-                <div>
+            <div className="mb-6">
+                {/* Sección de Forma de Pago comentada - para posibles usos futuros */}
+                {/* <div className="w-full md:w-64">
                     <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
                         Forma de Pago
                     </label>
@@ -741,10 +853,10 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                     >
                         <option value="01">Contado</option>
                         <option value="02">Crédito</option>
-                        <option value="03">Mixto</option>
                     </select>
-                </div>
-                <div>
+                </div> */}
+                {/* Sección de anticipos comentada - no visible para el usuario */}
+                {/* <div>
                     <label htmlFor="valorAnticipo" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
                         Valor Anticipo (Opcional)
                     </label>
@@ -759,8 +871,9 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         placeholder="0"
                         className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-right"
                     />
-                </div>
-                <div>
+                </div> */}
+                {/* Sección de número de orden de compra comentada - no visible para el usuario */}
+                {/* <div>
                     <label htmlFor="numOrdenCompra" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
                         N° Orden de Compra (Opcional)
                     </label>
@@ -772,7 +885,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         placeholder="Número de orden del cliente"
                         className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                </div>
+                </div> */}
             </div>
             
             <div className="border-t border-b border-slate-200 dark:border-slate-700 py-4 mb-4">
@@ -879,6 +992,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
                             <thead className="bg-slate-50 dark:bg-slate-700">
                                 <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
                                     <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Producto</th>
                                     <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
                                     <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Cant.</th>
@@ -905,6 +1019,9 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                     
                                     return (
                                         <tr key={item.productoId || `item-${index}`}>
+                                            <td className="px-4 py-2 text-sm text-slate-600">
+                                                {(item as any).referencia || product?.referencia || 'N/A'}
+                                            </td>
                                             <td className="px-4 py-2 text-sm">
                                                 {productoNombre}
                                                 {!product && (
@@ -913,7 +1030,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="px-4 py-2 text-sm text-center">{product?.unidadMedida}</td>
+                                            <td className="px-4 py-2 text-sm text-center">{(item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'N/A'}</td>
                                             <td className="px-4 py-2 text-sm text-right">{item.cantidad}</td>
                                             <td className="px-4 py-2 text-sm text-right">{formatCurrency(item.precioUnitario)}</td>
                                             <td className="px-4 py-2 text-sm text-right">{item.descuentoPorcentaje}</td>
@@ -925,7 +1042,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                         </tr>
                                     )
                                 }) : (
-                                    <tr><td colSpan={8} className="text-center py-8 text-slate-500">Añada productos a la cotización.</td></tr>
+                                    <tr><td colSpan={9} className="text-center py-8 text-slate-500">Añada productos a la cotización.</td></tr>
                                 )}
                             </tbody>
                         </table>

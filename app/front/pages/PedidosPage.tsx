@@ -55,7 +55,7 @@ const PedidosPage: React.FC = () => {
   // Estados para paginación del servidor
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
@@ -509,7 +509,7 @@ const PedidosPage: React.FC = () => {
             isOpen={isDetailModalOpen} 
             onClose={handleCloseModals} 
             title={`Detalle Pedido: ${selectedPedido.numeroPedido}`}
-            size="5xl"
+            size="3xl"
         >
             <div className="space-y-6 text-sm">
                 <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg">
@@ -718,7 +718,7 @@ const PedidosPage: React.FC = () => {
             isOpen={!!pedidoToEdit}
             onClose={() => setPedidoToEdit(null)}
             title={`Editar Pedido: ${pedidoToEdit.numeroPedido}`}
-            size="4xl"
+            size="3xl"
           >
               <PedidoEditForm
                 initialData={pedidoToEdit}

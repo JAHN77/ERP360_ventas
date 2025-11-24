@@ -1023,7 +1023,7 @@ const FacturasPage: React.FC = () => {
             isOpen={isDetailModalOpen} 
             onClose={handleCloseModals} 
             title={`Detalle Factura: ${selectedFactura.numeroFactura}`}
-            size="5xl"
+            size="3xl"
         >
           <div className="space-y-6 text-sm">
             {/* Header */}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from './hooks/useAuth';
 import { useNavigation } from './hooks/useNavigation';
 import { hasPagePermission } from './config/rolesConfig';
@@ -27,13 +27,49 @@ import CategoriasPage from './pages/CategoriasPage';
 import CategoriaDetallePage from './pages/CategoriaDetallePage';
 import InformesPage from './pages/reports/InformesPage';
 import DemasInformesPage from './pages/DemasInformesPage';
+import BodegaSelectorModal from './components/shared/BodegaSelectorModal';
 
 const App: React.FC = () => {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, selectedSede, isLoadingBodegas, selectedCompany } = useAuth();
   const { page } = useNavigation();
+  const [showBodegaModal, setShowBodegaModal] = useState(false);
+
+  // Mostrar modal de selección de bodega si:
+  // 1. El usuario está autenticado
+  // 2. No se está cargando bodegas
+  // 3. Hay una empresa seleccionada
+  // 4. No hay bodega seleccionada
+  // 5. Hay bodegas disponibles (más de una, porque si hay una se selecciona automáticamente)
+  useEffect(() => {
+    if (
+      isAuthenticated &&
+      user &&
+      !isLoadingBodegas &&
+      selectedCompany &&
+      !selectedSede &&
+      selectedCompany.sedes &&
+      selectedCompany.sedes.length > 0
+    ) {
+      setShowBodegaModal(true);
+    } else {
+      setShowBodegaModal(false);
+    }
+  }, [isAuthenticated, user, isLoadingBodegas, selectedCompany, selectedSede]);
 
   if (!isAuthenticated || !user) {
     return <LoginPage />;
+  }
+
+  // No mostrar el contenido principal hasta que se seleccione una bodega
+  if (!selectedSede && !isLoadingBodegas && selectedCompany?.sedes && selectedCompany.sedes.length > 0) {
+    return (
+      <>
+        <BodegaSelectorModal
+          isOpen={showBodegaModal}
+          onClose={() => setShowBodegaModal(false)}
+        />
+      </>
+    );
   }
 
   const renderPage = () => {

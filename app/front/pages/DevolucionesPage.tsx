@@ -1298,7 +1298,7 @@ const DevolucionesPage: React.FC = () => {
                 const clienteNota = clientes.find(c => c.id === selectedNotaParaVer.clienteId);
                 const facturaNota = facturas.find(f => f.id === selectedNotaParaVer.facturaId);
                 return (
-                    <Modal isOpen={isDetailModalOpen} onClose={() => setIsDetailModalOpen(false)} title={`Detalle Nota de Crédito: ${selectedNotaParaVer.numero}`} size="5xl">
+                    <Modal isOpen={isDetailModalOpen} onClose={() => setIsDetailModalOpen(false)} title={`Detalle Nota de Crédito: ${selectedNotaParaVer.numero}`} size="3xl">
                         <div className="space-y-4 text-sm">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
                                 <div><p className="font-semibold text-slate-600 dark:text-slate-400">Cliente:</p><p>{clienteNota?.nombreCompleto}</p></div>

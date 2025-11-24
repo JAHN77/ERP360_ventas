@@ -37,6 +37,11 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     const [vendedorId, setVendedorId] = useState('');
     const [selectedVendedor, setSelectedVendedor] = useState<Vendedor | null>(null);
     const [cotizacionId, setCotizacionId] = useState('');
+    const [tipoPedido, setTipoPedido] = useState<'sin-cotizacion' | 'con-cotizacion'>('sin-cotizacion');
+    const [cotizacionSearch, setCotizacionSearch] = useState('');
+    const [cotizacionResults, setCotizacionResults] = useState<Cotizacion[]>([]);
+    const [isCotizacionOpen, setIsCotizacionOpen] = useState(false);
+    const [selectedCotizacion, setSelectedCotizacion] = useState<Cotizacion | null>(null);
     const [clienteSearch, setClienteSearch] = useState('');
     const [clienteResults, setClienteResults] = useState<Cliente[]>([]);
     const [isClienteOpen, setIsClienteOpen] = useState(false);
@@ -55,6 +60,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     const searchRef = useRef<HTMLDivElement>(null);
     const clienteRef = useRef<HTMLDivElement>(null);
     const vendedorRef = useRef<HTMLDivElement>(null);
+    const cotizacionRef = useRef<HTMLDivElement>(null);
     const [productSearchTerm, setProductSearchTerm] = useState('');
     const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
     const [productResults, setProductResults] = useState<Producto[]>([]);
@@ -86,12 +92,46 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             if (vendedorRef.current && !vendedorRef.current.contains(event.target as Node)) {
                 setIsVendedorOpen(false);
             }
+            if (cotizacionRef.current && !cotizacionRef.current.contains(event.target as Node)) {
+                setIsCotizacionOpen(false);
+            }
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, []);
+
+    // Debounced search para cotizaciones
+    useEffect(() => {
+        if (tipoPedido !== 'con-cotizacion') {
+            setCotizacionResults([]);
+            setIsCotizacionOpen(false);
+            return;
+        }
+        
+        const controller = new AbortController();
+        const handler = setTimeout(() => {
+            const q = cotizacionSearch.trim();
+            if (q.length >= 2) {
+                // Filtrar cotizaciones aprobadas que coincidan con la búsqueda
+                const cotizacionesAprobadas = cotizaciones.filter(c => c.estado === 'APROBADA');
+                const resultados = cotizacionesAprobadas.filter(c => {
+                    const numeroCotizacion = (c.numeroCotizacion || '').toLowerCase();
+                    const cliente = clientes.find(cli => cli.id === c.clienteId);
+                    const nombreCliente = (cliente?.nombreCompleto || cliente?.razonSocial || '').toLowerCase();
+                    const busqueda = q.toLowerCase();
+                    return numeroCotizacion.includes(busqueda) || nombreCliente.includes(busqueda);
+                });
+                setCotizacionResults(resultados);
+                setIsCotizacionOpen(true);
+            } else {
+                setCotizacionResults([]);
+                setIsCotizacionOpen(false);
+            }
+        }, 300);
+        return () => { clearTimeout(handler); controller.abort(); };
+    }, [cotizacionSearch, tipoPedido, cotizaciones, clientes]);
 
     // Debounced search para clientes
     useEffect(() => {
@@ -229,6 +269,31 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         setIsProductDropdownOpen(false);
     };
 
+    const handleTipoPedidoChange = (tipo: 'sin-cotizacion' | 'con-cotizacion') => {
+        setTipoPedido(tipo);
+        if (tipo === 'sin-cotizacion') {
+            // Limpiar cotización cuando se cambia a sin cotización
+            setCotizacionId('');
+            setSelectedCotizacion(null);
+            setCotizacionSearch('');
+            setItems([]);
+            setClienteId('');
+            setSelectedCliente(null);
+            setClienteSearch('');
+            setVendedorId('');
+            setSelectedVendedor(null);
+            setVendedorSearch('');
+        }
+    };
+
+    const handleCotizacionSelect = (cotizacion: Cotizacion) => {
+        setSelectedCotizacion(cotizacion);
+        setCotizacionId(cotizacion.id);
+        setCotizacionSearch(`${cotizacion.numeroCotizacion} - ${clientes.find(c => c.id === cotizacion.clienteId)?.nombreCompleto || ''}`);
+        setIsCotizacionOpen(false);
+        handleCotizacionChange(cotizacion.id);
+    };
+
     const handleCotizacionChange = (cId: string) => {
         setCotizacionId(cId);
         const cotizacion = cotizaciones.find(c => c.id === cId);
@@ -258,16 +323,24 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                 return Math.round(Number(value) * 100) / 100;
             };
             
-            const normalizedItems = cotizacion.items.map(item => ({
-                ...item,
-                cantidad: Number(item.cantidad) || 0,
-                precioUnitario: roundTo2(item.precioUnitario || 0),
-                descuentoPorcentaje: roundTo2(item.descuentoPorcentaje || 0),
-                ivaPorcentaje: roundTo2(item.ivaPorcentaje || 0),
-                subtotal: roundTo2(item.subtotal || 0),
-                valorIva: roundTo2(item.valorIva || 0),
-                total: roundTo2(item.total || 0)
-            }));
+            const normalizedItems = cotizacion.items.map(item => {
+                // Buscar el producto para obtener unidadMedida y referencia si no están en el item
+                const product = productos.find(p => p.id === item.productoId);
+                return {
+                    ...item,
+                    cantidad: Number(item.cantidad) || 0,
+                    precioUnitario: roundTo2(item.precioUnitario || 0),
+                    descuentoPorcentaje: roundTo2(item.descuentoPorcentaje || 0),
+                    ivaPorcentaje: roundTo2(item.ivaPorcentaje || 0),
+                    subtotal: roundTo2(item.subtotal || 0),
+                    valorIva: roundTo2(item.valorIva || 0),
+                    total: roundTo2(item.total || 0),
+                    // Preservar unidadMedida y referencia del item, o buscarlas en el producto
+                    unidadMedida: (item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'Unidad',
+                    codigoMedida: item.codigoMedida || (item as any).unidadMedida || product?.unidadMedida || 'Unidad',
+                    referencia: (item as any).referencia || product?.referencia || undefined
+                } as DocumentItem & { unidadMedida?: string; referencia?: string };
+            });
             
             setItems(normalizedItems);
         } else {
@@ -283,17 +356,73 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     }
 
     const handleAddItem = () => {
-        if (!selectedProduct || !isPositiveInteger(currentQuantity) || !isWithinRange(Number(currentDiscount), 0, 100)) return;
+        // Usar selectedProduct directamente, ya que se guarda cuando se selecciona del dropdown
+        // Si no está disponible, buscar en productos o productResults
+        let product = selectedProduct;
         
-        if (items.some(item => item.productoId === selectedProduct.id)) {
+        if (!product && currentProductId) {
+            // Buscar primero en productos del contexto
+            product = productos.find(p => p.id === Number(currentProductId));
+            
+            // Si no se encuentra, buscar en los resultados de búsqueda
+            if (!product) {
+                product = productResults.find(p => p.id === Number(currentProductId));
+            }
+        }
+
+        if (!product) {
+            console.error('❌ Producto no encontrado:', { 
+                currentProductId, 
+                hasSelectedProduct: !!selectedProduct,
+                productosCount: productos.length,
+                productResultsCount: productResults.length,
+                selectedProductId: selectedProduct?.id
+            });
+            alert('Por favor, selecciona un producto válido antes de agregarlo.');
+            return;
+        }
+
+        // Validar cantidad
+        if (!isPositiveInteger(currentQuantity)) {
+            alert('La cantidad debe ser un número entero positivo mayor que cero.');
+            return;
+        }
+
+        // Validar descuento
+        const discountValue = Number(currentDiscount);
+        if (!isWithinRange(discountValue, 0, 100)) {
+            alert('El descuento debe estar entre 0 y 100.');
+            return;
+        }
+
+        // Validar que el producto no esté ya en la lista
+        if (items.some(item => item.productoId === product.id)) {
             alert("El producto ya está en la lista.");
             return;
         }
 
+        // Validar y obtener precio unitario
+        const precioUnitario = Number(product.ultimoCosto || (product as any).precio || (product as any).precioPublico || 0);
+        if (!precioUnitario || precioUnitario <= 0 || !isFinite(precioUnitario)) {
+            console.error('❌ Precio inválido para producto:', { 
+                productId: product.id, 
+                nombre: product.nombre,
+                ultimoCosto: product.ultimoCosto,
+                precio: (product as any).precio,
+                precioPublico: (product as any).precioPublico
+            });
+            alert(`El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.`);
+            return;
+        }
+
+        // Determinar IVA: usar aplicaIva si existe, sino usar tasaIva > 0
+        const tieneIva = (product as any).aplicaIva !== undefined 
+            ? (product as any).aplicaIva 
+            : ((product.tasaIva || 0) > 0);
+        const ivaPorcentaje = tieneIva ? (product.tasaIva || 19) : 0;
+
         const quantityNum = Number(currentQuantity);
         const discountNum = Number(currentDiscount);
-        const precioUnitario = Number(selectedProduct.ultimoCosto) || 0;
-        const ivaPorcentaje = selectedProduct.aplicaIva ? 19 : 0;
 
         // Calcular valores y redondear a 2 decimales para evitar problemas de precisión
         // IMPORTANTE: Redondear en cada paso para evitar acumulación de errores de precisión
@@ -309,9 +438,21 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         const valorIva = roundTo2(subtotal * (ivaPorcentaje / 100));
         const total = roundTo2(subtotal + valorIva);
 
-        const newItem: DocumentItem = {
-            productoId: selectedProduct.id,
-            descripcion: selectedProduct.nombre,
+        console.log('✅ Agregando producto a pedido:', {
+            productoId: product.id,
+            nombre: product.nombre,
+            cantidad: quantityNum,
+            precioUnitario: precioUnitarioRounded,
+            descuentoPorcentaje: discountNum,
+            ivaPorcentaje,
+            subtotal,
+            valorIva,
+            total
+        });
+
+        const newItem: DocumentItem & { unidadMedida?: string; referencia?: string } = {
+            productoId: product.id,
+            descripcion: product.nombre || 'Sin nombre',
             cantidad: quantityNum,
             precioUnitario: precioUnitarioRounded,
             ivaPorcentaje: roundTo2(ivaPorcentaje),
@@ -319,8 +460,15 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             subtotal: subtotal,
             valorIva: valorIva,
             total: total,
-            descuentoValor: descuentoValor
+            descuentoValor: descuentoValor,
+            unidadMedida: product.unidadMedida || (product as any).unidadMedidaNombre || 'Unidad',
+            codigoMedida: product.unidadMedida || (product as any).unidadMedidaNombre || 'Unidad',
         };
+        
+        // Guardar referencia en el item si está disponible
+        if ((product as any).referencia) {
+            (newItem as any).referencia = (product as any).referencia;
+        }
         setItems([...items, newItem]);
         
         setCurrentProductId('');
@@ -411,18 +559,95 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
               </div>
             )}
 
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
-                <div>
-                    <label htmlFor="cotizacion" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cotización de Origen (Opcional)</label>
-                    <select id="cotizacion" value={cotizacionId} onChange={e => handleCotizacionChange(e.target.value)} className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="">Pedido Directo (sin cotización)</option>
-                        {cotizaciones.filter(c => c.estado === 'APROBADA').map(c => <option key={c.id} value={c.id}>{c.numeroCotizacion} - {clientes.find(cli => cli.id === c.clienteId)?.nombreCompleto}</option>)}
-                    </select>
+            <div className="mb-6">
+                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-3">Tipo de Pedido</label>
+                <div className="flex gap-3">
+                    <button
+                        type="button"
+                        onClick={() => handleTipoPedidoChange('sin-cotizacion')}
+                        className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                            tipoPedido === 'sin-cotizacion'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                        }`}
+                    >
+                        Sin Cotización
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleTipoPedidoChange('con-cotizacion')}
+                        className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                            tipoPedido === 'con-cotizacion'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                        }`}
+                    >
+                        Con Cotización
+                    </button>
                 </div>
+                
+                {/* Campo de búsqueda de cotizaciones - Solo visible cuando se selecciona "Con Cotización" */}
+                {tipoPedido === 'con-cotizacion' && (
+                    <div ref={cotizacionRef} className="relative mt-4">
+                        <label htmlFor="cotizacion-search" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
+                            Buscar Cotización <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                            id="cotizacion-search"
+                            type="text"
+                            value={cotizacionSearch}
+                            onChange={(e) => {
+                                setCotizacionSearch(e.target.value);
+                                setIsCotizacionOpen(true);
+                                if (!e.target.value.trim()) {
+                                    setCotizacionId('');
+                                    setSelectedCotizacion(null);
+                                    handleCotizacionChange('');
+                                }
+                            }}
+                            onFocus={() => {
+                                if (cotizacionSearch.trim().length >= 2) {
+                                    setIsCotizacionOpen(true);
+                                }
+                            }}
+                            placeholder="Buscar por número de cotización o cliente (min 2 caracteres)..."
+                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        {isCotizacionOpen && cotizacionResults.length > 0 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-60 overflow-auto">
+                                {cotizacionResults.map((cotizacion) => {
+                                    const cliente = clientes.find(c => c.id === cotizacion.clienteId);
+                                    return (
+                                        <div
+                                            key={cotizacion.id}
+                                            onClick={() => handleCotizacionSelect(cotizacion)}
+                                            className="px-4 py-2 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0"
+                                        >
+                                            <div className="font-medium text-slate-800 dark:text-slate-200">
+                                                {cotizacion.numeroCotizacion}
+                                            </div>
+                                            <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                Cliente: {cliente?.nombreCompleto || cliente?.razonSocial || 'N/A'}
+                                            </div>
+                                            <div className="text-xs text-slate-500 dark:text-slate-500">
+                                                Total: {formatCurrency(cotizacion.total || 0)}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        {isCotizacionOpen && cotizacionSearch.trim().length >= 2 && cotizacionResults.length === 0 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg p-4 text-sm text-slate-600 dark:text-slate-400">
+                                No se encontraron cotizaciones aprobadas
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
             
-            {/* Sección de Cliente y Vendedor - Solo visible cuando NO hay cotización */}
-            {!cotizacionId && (
+            {/* Sección de Cliente y Vendedor - Solo visible cuando NO hay cotización seleccionada */}
+            {tipoPedido === 'sin-cotizacion' && (
                 <div className="grid md:grid-cols-2 gap-6 mb-6">
                     <div ref={clienteRef} className="relative">
                         <label htmlFor="cliente" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cliente <span className="text-red-500">*</span></label>
@@ -599,8 +824,67 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                             </div>
                         )}
                     </div>
+                    {(selectedCliente || selectedVendedor) && (
+                        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {selectedCliente && (
+                                <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                                    <div className="space-y-1">
+                                        <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                            {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
+                                        </p>
+                                        {(selectedCliente.dirter || selectedCliente.direccion) && (
+                                            <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                                                <i className="fas fa-map-marker-alt mr-1"></i>
+                                                {selectedCliente.dirter || selectedCliente.direccion}
+                                                {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
+                                            </p>
+                                        )}
+                                        <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                            {selectedCliente.numeroDocumento && (
+                                                <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
+                                            )}
+                                            {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
+                                                <span>
+                                                    <i className="fas fa-phone mr-1"></i>
+                                                    {[
+                                                        selectedCliente.telefono || (selectedCliente as any).telefono,
+                                                        (selectedCliente as any).celular || selectedCliente.celter
+                                                    ].filter(Boolean).join(' | ')}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </Card>
+                            )}
+                            {selectedVendedor && (
+                                <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                                    <div className="space-y-1">
+                                        <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                            {selectedVendedor.primerNombre && selectedVendedor.primerApellido
+                                                ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
+                                                : selectedVendedor.nombreCompleto || selectedVendedor.nombre || 'Sin nombre'}
+                                        </p>
+                                        <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                            {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
+                                                <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
+                                            )}
+                                            {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
+                                                <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </Card>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+            
+            {/* Mostrar información del cliente y vendedor cuando hay cotización */}
+            {tipoPedido === 'con-cotizacion' && (selectedCliente || selectedVendedor) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     {selectedCliente && (
-                        <Card className="md:col-span-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                             <div className="space-y-1">
                                 <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
                                     {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
@@ -629,28 +913,23 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                             </div>
                         </Card>
                     )}
-                </div>
-            )}
-            
-            {/* Mostrar información del cliente y vendedor cuando hay cotización */}
-            {cotizacionId && (selectedCliente || selectedVendedor) && (
-                <div className="grid md:grid-cols-2 gap-6 mb-6">
-                    {selectedCliente && (
-                        <Card className="p-3 text-sm bg-slate-50 dark:bg-slate-700/50">
-                            <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">Cliente</p>
-                            <p className="font-semibold text-slate-800 dark:text-slate-200">{selectedCliente.nombreCompleto}</p>
-                            {(selectedCliente.direccion || selectedCliente.dirter) && (
-                                <p className="text-slate-500 dark:text-slate-400">{selectedCliente.direccion || selectedCliente.dirter}{selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}</p>
-                            )}
-                            {(selectedCliente.email || selectedCliente.telefono || selectedCliente.celter) && (
-                                <p className="text-slate-500 dark:text-slate-400">{selectedCliente.email || ''} {selectedCliente.telefono || selectedCliente.celter || ''}</p>
-                            )}
-                        </Card>
-                    )}
                     {selectedVendedor && (
-                        <Card className="p-3 text-sm bg-slate-50 dark:bg-slate-700/50">
-                            <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">Vendedor</p>
-                            <p className="font-semibold text-slate-800 dark:text-slate-200">{selectedVendedor.nombreCompleto || `${selectedVendedor.primerNombre || ''} ${selectedVendedor.primerApellido || ''}`.trim() || selectedVendedor.nombre}</p>
+                        <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                            <div className="space-y-1">
+                                <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                    {selectedVendedor.primerNombre && selectedVendedor.primerApellido
+                                        ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
+                                        : selectedVendedor.nombreCompleto || selectedVendedor.nombre || 'Sin nombre'}
+                                </p>
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                    {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
+                                        <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
+                                    )}
+                                    {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
+                                        <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
+                                    )}
+                                </div>
+                            </div>
                         </Card>
                     )}
                 </div>
@@ -786,6 +1065,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
                              <thead className="bg-slate-50 dark:bg-slate-700">
                                 <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
                                     <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Producto</th>
                                     <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
                                     <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Cant.</th>
@@ -812,6 +1092,9 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                     
                                     return (
                                         <tr key={item.productoId || `item-${index}`}>
+                                            <td className="px-4 py-2 text-sm text-slate-600">
+                                                {(item as any).referencia || product?.referencia || 'N/A'}
+                                            </td>
                                             <td className="px-4 py-2 text-sm">
                                                 {productoNombre}
                                                 {!product && (
@@ -820,7 +1103,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="px-4 py-2 text-sm text-center">{product?.unidadMedida}</td>
+                                            <td className="px-4 py-2 text-sm text-center">{(item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'N/A'}</td>
                                             <td className="px-4 py-2 text-sm text-right">{item.cantidad}</td>
                                             <td className="px-4 py-2 text-sm text-right">{formatCurrency(item.precioUnitario)}</td>
                                             <td className="px-4 py-2 text-sm text-right">{item.descuentoPorcentaje}</td>
@@ -832,7 +1115,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                         </tr>
                                     )
                                 }) : (
-                                    <tr><td colSpan={8} className="text-center py-8 text-slate-500">Añada productos al pedido.</td></tr>
+                                    <tr><td colSpan={9} className="text-center py-8 text-slate-500">Añada productos al pedido.</td></tr>
                                 )}
                             </tbody>
                         </table>

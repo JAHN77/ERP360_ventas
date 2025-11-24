@@ -53,7 +53,8 @@ const DashboardPage: React.FC = () => {
     notasCredito,
     getSalesDataByPeriod, 
     productos,
-    getSalesByVendedor, 
+    getSalesByVendedor,
+    getTopProductos,
     activityLog,
   } = useData();
   const { addNotification } = useNotifications();
@@ -98,35 +99,133 @@ const DashboardPage: React.FC = () => {
   const stats = useMemo(() => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const clientesNuevos = clientes.filter(c => new Date(c.createdAt) >= thirtyDaysAgo).length;
+    thirtyDaysAgo.setHours(0, 0, 0, 0);
+    
+    // Calcular clientes nuevos (últimos 30 días)
+    // Buscar en múltiples campos de fecha: createdAt, fechaIngreso, FECING
+    const clientesNuevos = clientes.filter(c => {
+      const fechaCreacion = c.createdAt || (c as any).fechaIngreso || (c as any).FECING;
+      if (!fechaCreacion) return false;
+      try {
+        const fecha = new Date(fechaCreacion);
+        fecha.setHours(0, 0, 0, 0);
+        return fecha >= thirtyDaysAgo;
+      } catch {
+        return false;
+      }
+    }).length;
+    
+    console.log('👥 Clientes nuevos calculados:', {
+      totalClientes: clientes.length,
+      clientesNuevos,
+      clientesConFecha: clientes.filter(c => c.createdAt || (c as any).fechaIngreso || (c as any).FECING).length
+    });
+    
+    // Calcular ventas del mes (facturas válidas menos devoluciones)
+    const ventasDelMes = facturas
+      .filter(f => {
+        if (!f.fechaFactura) return false;
+        const fechaFactura = new Date(f.fechaFactura);
+        fechaFactura.setHours(0, 0, 0, 0);
+        return fechaFactura >= firstDayOfMonth && 
+               f.estado !== 'ANULADA' && 
+               f.estado !== 'BORRADOR';
+      })
+      .reduce((total, factura) => {
+        const devolucionesTotal = notasCredito
+          .filter(nc => String(nc.facturaId) === String(factura.id))
+          .reduce((sum, nc) => sum + (nc.total || 0), 0);
+        return total + ((factura.total || 0) - devolucionesTotal);
+      }, 0);
+    
+    // Calcular devoluciones del mes
+    const devolucionesDelMes = notasCredito.filter(nc => {
+      if (!nc.fechaEmision) return false;
+      const fechaEmision = new Date(nc.fechaEmision);
+      fechaEmision.setHours(0, 0, 0, 0);
+      return fechaEmision >= firstDayOfMonth;
+    }).length;
       
     return {
-    ventasDelMes: facturas.filter(f => new Date(f.fechaFactura) >= firstDayOfMonth && f.estado !== 'ANULADA' && f.estado !== 'BORRADOR').reduce((total, factura) => total + (factura.total - notasCredito.filter(nc => nc.facturaId === factura.id).reduce((sum, nc) => sum + nc.total, 0)), 0),
-    pedidosPendientes: pedidos.filter(p => p.estado === 'CONFIRMADO').length,
-    clientesNuevos: clientesNuevos,
-    productosBajoStock: productos.filter(p => (p.controlaExistencia ?? 0) < LOW_STOCK_THRESHOLD).length,
-    devolucionesDelMes: notasCredito.filter(nc => new Date(nc.fechaEmision) >= firstDayOfMonth).length,
-  }}, [facturas, notasCredito, pedidos, productos, firstDayOfMonth, clientes]);
+      ventasDelMes,
+      pedidosPendientes: pedidos.filter(p => p.estado === 'CONFIRMADO' || p.estado === 'BORRADOR').length,
+      clientesNuevos,
+      productosBajoStock: productos.filter(p => (p.controlaExistencia ?? 0) < LOW_STOCK_THRESHOLD).length,
+      productosVendidosMes: (() => {
+        // Contar productos únicos vendidos en el mes (productos que aparecen en facturas)
+        const productosVendidos = new Set<number>();
+        facturas
+          .filter(f => {
+            if (!f.fechaFactura) return false;
+            const fechaFactura = new Date(f.fechaFactura);
+            fechaFactura.setHours(0, 0, 0, 0);
+            return fechaFactura >= firstDayOfMonth && 
+                   f.estado !== 'ANULADA' && 
+                   f.estado !== 'BORRADOR' &&
+                   f.items &&
+                   Array.isArray(f.items) &&
+                   f.items.length > 0;
+          })
+          .forEach(f => {
+            f.items.forEach(item => {
+              if (item.productoId != null) {
+                productosVendidos.add(Number(item.productoId));
+              }
+            });
+          });
+        return productosVendidos.size;
+      })(),
+      devolucionesDelMes,
+    };
+  }, [facturas, notasCredito, pedidos, productos, firstDayOfMonth, clientes]);
 
   const salesChartData = useMemo(() => {
     const end = new Date();
+    end.setHours(23, 59, 59, 999);
     const start = new Date();
     start.setDate(end.getDate() - 14);
-    return getSalesDataByPeriod(start, end).map(d => ({ name: `${new Date(d.date + 'T00:00:00').getUTCDate()}`, Ventas: d.sales }));
+    start.setHours(0, 0, 0, 0);
+    
+    const data = getSalesDataByPeriod(start, end);
+    
+    // Formatear datos para la gráfica con mejor formato de fecha
+    return data.map(d => {
+      const fecha = new Date(d.date + 'T00:00:00');
+      return { 
+        name: `${fecha.getUTCDate()}`, 
+        Ventas: Math.round(d.sales || 0) 
+      };
+    });
   }, [getSalesDataByPeriod]);
 
   const topProductos = useMemo(() => {
-    const productSales = facturas.filter(f => new Date(f.fechaFactura) >= firstDayOfMonth).flatMap(f => f.items).reduce((acc, item) => ({ ...acc, [item.productoId]: (acc[item.productoId] || 0) + item.cantidad }), {} as Record<number, number>);
-    return Object.entries(productSales).map(([productoId, cantidad]) => ({ producto: productos.find(p => p.id === Number(productoId)), cantidad })).filter((item): item is { producto: Producto; cantidad: number } => Boolean(item.producto)).sort((a, b) => b.cantidad - a.cantidad).slice(0, 5);
-  }, [facturas, productos, firstDayOfMonth]);
+    // Usar la función del contexto que ya tiene la lógica correcta
+    const productosTop = getTopProductos(5);
+    console.log('📊 Top Productos calculados:', {
+      cantidad: productosTop.length,
+      productos: productosTop.map(p => ({ nombre: p.producto?.nombre, cantidad: p.cantidad })),
+      facturasDelMes: facturas.filter(f => {
+        const fechaFactura = new Date(f.fechaFactura);
+        fechaFactura.setHours(0, 0, 0, 0);
+        return fechaFactura >= firstDayOfMonth && f.estado !== 'ANULADA' && f.estado !== 'BORRADOR';
+      }).length
+    });
+    return productosTop;
+  }, [getTopProductos, facturas, productos, firstDayOfMonth]);
   
   const salesBySellerData = useMemo(() => getSalesByVendedor(), [getSalesByVendedor]);
 
   // WIDGET COMPONENTS
   const TasksWidget = () => {
     const [activeTab, setActiveTab] = useState<'cotizaciones' | 'pedidos'>('cotizaciones');
-    const pendingCotizaciones = useMemo(() => cotizaciones.filter(c => c.estado === 'ENVIADA').sort((a, b) => b.total - a.total), [cotizaciones]);
-    const pendingPedidos = useMemo(() => pedidos.filter(p => p.estado === 'CONFIRMADO').sort((a, b) => b.total - a.total), [pedidos]);
+    const pendingCotizaciones = useMemo(() => 
+      cotizaciones.filter(c => c.estado === 'ENVIADA').sort((a, b) => (b.total || 0) - (a.total || 0)), 
+      [cotizaciones]
+    );
+    const pendingPedidos = useMemo(() => 
+      pedidos.filter(p => p.estado === 'CONFIRMADO' || p.estado === 'BORRADOR').sort((a, b) => (b.total || 0) - (a.total || 0)), 
+      [pedidos]
+    );
 
     return(
         <Card className="h-full flex flex-col col-span-1 md:col-span-2 lg:col-span-4 row-span-2">
@@ -178,16 +277,86 @@ const DashboardPage: React.FC = () => {
     <Card className="col-span-1 md:col-span-2 row-span-2"><CardHeader><CardTitle>Tendencia de Ventas (Últimos 15 días)</CardTitle></CardHeader><CardContent><SimpleChart data={salesChartData} type="line" height="h-72" dataKey="Ventas" labelKey="name" /></CardContent></Card>
   );
 
-  const TopProductsWidget = () => (
-    <Card className="col-span-1 md:col-span-2"><CardHeader><CardTitle>Top 5 Productos Vendidos (Mes)</CardTitle></CardHeader><CardContent><ol className="space-y-3">{topProductos.map((item, index) => <li key={item.producto.id} className="flex justify-between items-center text-sm gap-4"><div className="flex items-center gap-3 min-w-0"><span className="font-bold text-slate-400 w-5">{index + 1}.</span><span className="truncate font-semibold">{item.producto.nombre}</span></div><span className="flex-shrink-0 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full text-blue-500">{item.cantidad}</span></li>)}</ol></CardContent></Card>
-  );
+  const TopProductsWidget = () => {
+    console.log('📊 TopProductsWidget - topProductos:', topProductos);
+    
+    return (
+      <Card className="col-span-1 md:col-span-2">
+        <CardHeader><CardTitle>Top 5 Productos Vendidos (Mes)</CardTitle></CardHeader>
+        <CardContent>
+          {topProductos.length > 0 ? (
+            <ol className="space-y-3">
+              {topProductos.map((item, index) => (
+                <li key={item.producto.id} className="flex justify-between items-center text-sm gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="font-bold text-slate-400 w-5">{index + 1}.</span>
+                    <span className="truncate font-semibold">{item.producto.nombre}</span>
+                  </div>
+                  <span className="flex-shrink-0 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full text-blue-500">
+                    {item.cantidad}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-sm text-slate-500 text-center py-4">No hay productos vendidos este mes</p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
-  const RecentActivityWidget = () => (
-    <Card className="col-span-1 md:col-span-2"><CardHeader><CardTitle>Actividad Reciente</CardTitle></CardHeader><CardContent><div className="space-y-3">{activityLog.slice(0, 5).map((log: ActivityLog) => <div key={log.id} className="text-sm"><p className="font-semibold text-slate-700 dark:text-slate-300">{log.action}</p><p className="text-xs text-slate-500 dark:text-slate-400">{log.entity.name} - {timeSince(log.timestamp)} por {log.user.nombre}</p></div>)}</div></CardContent></Card>
-  );
+  const RecentActivityWidget = () => {
+    const recentActivity = useMemo(() => {
+      const sorted = [...activityLog].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      return sorted.slice(0, 5);
+    }, [activityLog]);
+    
+    console.log('📋 Activity Log:', activityLog.length, 'items');
+    console.log('📋 Recent Activity:', recentActivity);
+    
+    return (
+      <Card className="col-span-1 md:col-span-2">
+        <CardHeader><CardTitle>Actividad Reciente</CardTitle></CardHeader>
+        <CardContent>
+          {recentActivity.length > 0 ? (
+            <div className="space-y-3">
+              {recentActivity.map((log: ActivityLog) => (
+                <div key={log.id} className="text-sm">
+                  <p className="font-semibold text-slate-700 dark:text-slate-300">{log.action}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {log.entity?.name || 'N/A'} - {timeSince(log.timestamp)} por {log.user?.nombre || 'Usuario'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 text-center py-4">No hay actividad reciente</p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
   
   const SalesBySellerWidget = () => (
-      <Card className="col-span-1 md:col-span-2 row-span-2"><CardHeader><CardTitle>Ventas por Vendedor (Mes)</CardTitle></CardHeader><CardContent><SimpleChart data={salesBySellerData} type="bar" dataKey="Ventas" labelKey="name" height="h-72" /></CardContent></Card>
+    <Card className="col-span-1 md:col-span-2 row-span-2">
+      <CardHeader><CardTitle>Ventas por Vendedor (Mes)</CardTitle></CardHeader>
+      <CardContent>
+        {salesBySellerData.length > 0 ? (
+          <SimpleChart 
+            data={salesBySellerData.map(d => ({ ...d, Ventas: Math.round(d.totalSales || 0) }))} 
+            type="bar" 
+            dataKey="Ventas" 
+            labelKey="name" 
+            height="h-72" 
+          />
+        ) : (
+          <div className="flex items-center justify-center h-72 text-slate-500">
+            <p>No hay ventas registradas este mes</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
   
   return (
@@ -206,7 +375,7 @@ const DashboardPage: React.FC = () => {
         <StatCard title="Ventas del Mes" value={formatCurrency(stats.ventasDelMes)} icon="fa-chart-line" colorName="blue" />
         <StatCard title="Pedidos Pendientes" value={stats.pedidosPendientes.toString()} icon="fa-shopping-cart" colorName="orange" />
         <StatCard title="Clientes Nuevos (30d)" value={stats.clientesNuevos.toString()} icon="fa-user-plus" colorName="green" />
-        <StatCard title="Productos Bajo Stock" value={stats.productosBajoStock.toString()} icon="fa-box-open" colorName="violet" />
+        <StatCard title="Productos Vendidos (Mes)" value={stats.productosVendidosMes.toString()} icon="fa-box-open" colorName="violet" />
         <StatCard title="Devoluciones (Mes)" value={stats.devolucionesDelMes.toString()} icon="fa-undo" colorName="orange" />
       </div>
       

@@ -224,6 +224,7 @@ const ClientesPage: React.FC = () => {
             isOpen={isModalOpen} 
             onClose={handleCloseModal} 
             title={`Detalle del Cliente: ${selectedCliente.nombreCompleto}`}
+            size="xl"
         >
           <div className="space-y-4 text-sm">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">

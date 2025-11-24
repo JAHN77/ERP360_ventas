@@ -552,15 +552,9 @@ const RemisionesPage: React.FC = () => {
         });
         
         const itemsPendientes = pedidoToRemisionar.items.reduce<RemisionItemForm[]>((acc, itemPedido) => {
-            // OPTIMIZACIÓN: Usar mapa para búsqueda O(1)
+            // OPTIMIZACIÓN: Usar mapa para búsqueda O(1) - pero NO es obligatorio encontrar el producto
+            // Usar datos del pedido directamente, el catálogo solo como fuente adicional de información
             const producto = productosMap.get(itemPedido.productoId) || productosMap.get(String(itemPedido.productoId));
-
-            if (!producto) {
-                if (process.env.NODE_ENV === 'development') {
-                  console.warn(`Producto con ID ${itemPedido.productoId} no encontrado. Omitiendo del formulario de remisión.`);
-                }
-                return acc;
-            }
 
             // OPTIMIZACIÓN: Calcular cantidad enviada más eficientemente
             const productoIdStr = String(itemPedido.productoId);
@@ -576,20 +570,30 @@ const RemisionesPage: React.FC = () => {
             const cantPendiente = itemPedido.cantidad - cantYaEnviada;
 
             if (cantPendiente > 0) {
-                const cantStock = producto.controlaExistencia ?? producto.stock ?? 0;
+                // Usar stock del catálogo si está disponible, sino usar 0 o un valor por defecto
+                const cantStock = producto ? (producto.controlaExistencia ?? producto.stock ?? 0) : (itemPedido.stock ?? 0);
                 const cantAEnviar = Math.max(0, Math.min(cantPendiente, cantStock));
 
-                // Obtener nombre del producto: primero del producto encontrado, luego del item
-                const productoNombre = producto.nombre || 
-                                      itemPedido.descripcion || 
+                // Obtener datos del producto: primero del item del pedido (fuente principal), luego del catálogo
+                const productoNombre = itemPedido.descripcion || 
                                       itemPedido.nombre || 
+                                      producto?.nombre || 
                                       `Producto ${itemPedido.productoId}`;
+                
+                const referencia = itemPedido.referencia || 
+                                  itemPedido.codProducto || 
+                                  producto?.referencia || 
+                                  'N/A';
+                
+                const unidadMedida = itemPedido.unidadMedida || 
+                                   producto?.unidadMedida || 
+                                   'Unidad';
 
                 acc.push({
                     productoId: itemPedido.productoId,
-                    referencia: producto.referencia || 'N/A',
-                    descripcion: productoNombre, // Usar nombre del catálogo si está disponible
-                    unidadMedida: producto.unidadMedida || itemPedido.unidadMedida || 'Unidad',
+                    referencia: referencia,
+                    descripcion: productoNombre,
+                    unidadMedida: unidadMedida,
                     cantPedida: itemPedido.cantidad,
                     cantYaEnviada: cantYaEnviada,
                     cantPendiente: cantPendiente,

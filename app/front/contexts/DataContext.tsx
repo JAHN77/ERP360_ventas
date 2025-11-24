@@ -137,7 +137,7 @@ const generateTempId = () => {
 
 export const DataProvider = ({ children }: DataProviderProps) => {
     // DataProvider depende de AuthProvider, así que debe estar dentro de AuthProvider
-    const { user, selectedSede } = useAuth();
+    const { user, selectedSede, isLoadingBodegas } = useAuth();
     const [isLoading, setIsLoading] = useState(true);
     const [isMainDataLoaded, setIsMainDataLoaded] = useState(false);
     
@@ -167,20 +167,17 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const [activityLog, setActivityLog] = useState<ActivityLog[]>(initialActivityLog);
 
     // Phase 1: Load essential catalogs first
+    // PRIORIDAD: Esperar a que las bodegas se carguen primero en AuthContext antes de cargar otros datos
     useEffect(() => {
+        // No cargar nada hasta que las bodegas estén listas
+        if (isLoadingBodegas) {
+            logger.log({ prefix: 'DataContext' }, '⏳ Esperando a que se carguen las bodegas en AuthContext...');
+            return;
+        }
+
         const fetchEssentialCatalogs = async () => {
             try {
-                // Test API connection first (pero no fallar si no hay conexión, solo continuar)
-                try {
-                    const connectionTest = await testApiConnection();
-                    if (!connectionTest.success) {
-                        logger.warn({ prefix: 'DataContext' }, 'No se puede conectar con el servidor API, continuando con datos mock');
-                        // No lanzar error, solo continuar sin cargar datos del servidor
-                    }
-                } catch (connectionError) {
-                    logger.warn({ prefix: 'DataContext' }, 'Error al probar conexión API, continuando con datos mock:', connectionError);
-                    // Continuar sin lanzar error
-                }
+                logger.log({ prefix: 'DataContext' }, '🚀 Iniciando carga de catálogos esenciales (bodegas ya cargadas)');
                 
                 // Helper para extraer datos de estructura anidada
                 const extractArrayData = (response: any): any[] => {
@@ -193,30 +190,79 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     return [];
                 };
 
-                // Load medidas (con manejo de errores individual)
+                // PRIORIDAD 1: Cargar almacenes (bodegas) PRIMERO - son críticos para el resto de la aplicación
+                logger.log({ prefix: 'DataContext' }, '📦 Cargando almacenes (bodegas) como prioridad...');
+                let bodegasResp;
                 try {
-                    const medidasResponse = await fetchMedidas();
-                    if (medidasResponse && medidasResponse.success) {
-                        const medidasData = extractArrayData(medidasResponse);
-                        if (medidasData.length > 0) {
-                            setMedidas(medidasData);
-                        }
-                    }
-                } catch (error) {
-                    logger.warn({ prefix: 'DataContext' }, 'Error cargando medidas:', error);
+                    bodegasResp = await fetchBodegas();
+                } catch (fetchError) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error de red al cargar almacenes (backend puede no estar disponible):', fetchError);
+                    bodegasResp = { success: false, data: [] };
                 }
                 
-                // Load categorias (con manejo de errores individual)
+                if (bodegasResp && bodegasResp.success && bodegasResp.data && Array.isArray(bodegasResp.data) && bodegasResp.data.length > 0) {
+                    const bodegasData = extractArrayData(bodegasResp);
+                    // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
+                    const processedAlmacenes = (bodegasData as any[]).map((b: any) => ({
+                        id: b.id || b.codigo || b.codalm || String(b.id),
+                        nombre: b.nombre || b.nomalm || 'Sin nombre',
+                        codigo: b.codigo || b.codalm || String(b.id).padStart(3, '0'),
+                        direccion: b.direccion || b.diralm || '',
+                        ciudad: b.ciudad || b.ciualm || ''
+                    }));
+                    // Ordenar almacenes por código (001, 002, 003, etc.)
+                    const almacenesOrdenados = processedAlmacenes.sort((a, b) => {
+                        const codigoA = String(a.codigo || '').padStart(3, '0');
+                        const codigoB = String(b.codigo || '').padStart(3, '0');
+                        return codigoA.localeCompare(codigoB);
+                    });
+                    logger.log({ prefix: 'DataContext' }, `✅ Almacenes cargados desde BD: ${almacenesOrdenados.length}`, almacenesOrdenados.map(a => `${a.codigo} - ${a.nombre}`));
+                    setAlmacenes(almacenesOrdenados);
+                } else {
+                    const reason = !bodegasResp ? 'Sin respuesta' : !bodegasResp.success ? 'Respuesta no exitosa' : !bodegasResp.data ? 'Sin datos' : 'Array vacío';
+                    logger.warn({ prefix: 'DataContext' }, `⚠️ No se pudieron cargar almacenes desde la BD (${reason}). Continuando sin almacenes.`);
+                    setAlmacenes([]);
+                }
+
+                // PRIORIDAD 2: Cargar otros catálogos esenciales en paralelo (después de bodegas)
+                // Test API connection (pero no fallar si no hay conexión, solo continuar)
                 try {
-                    const categoriasResponse = await fetchCategorias();
-                    if (categoriasResponse && categoriasResponse.success) {
-                        const categoriasData = extractArrayData(categoriasResponse);
-                        if (categoriasData.length > 0) {
-                            setCategorias(categoriasData);
-                        }
+                    const connectionTest = await testApiConnection();
+                    if (!connectionTest.success) {
+                        logger.warn({ prefix: 'DataContext' }, 'No se puede conectar con el servidor API, continuando con datos mock');
+                        // No lanzar error, solo continuar sin cargar datos del servidor
                     }
-                } catch (error) {
-                    logger.warn({ prefix: 'DataContext' }, 'Error cargando categorías:', error);
+                } catch (connectionError) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error al probar conexión API, continuando con datos mock:', connectionError);
+                    // Continuar sin lanzar error
+                }
+
+                // Cargar medidas y categorías en paralelo (después de bodegas)
+                const [medidasResponse, categoriasResponse] = await Promise.all([
+                    fetchMedidas().catch(err => {
+                        logger.warn({ prefix: 'DataContext' }, 'Error cargando medidas:', err);
+                        return { success: false, data: [] };
+                    }),
+                    fetchCategorias().catch(err => {
+                        logger.warn({ prefix: 'DataContext' }, 'Error cargando categorías:', err);
+                        return { success: false, data: [] };
+                    })
+                ]);
+
+                // Procesar medidas
+                if (medidasResponse && medidasResponse.success) {
+                    const medidasData = extractArrayData(medidasResponse);
+                    if (medidasData.length > 0) {
+                        setMedidas(medidasData);
+                    }
+                }
+                
+                // Procesar categorías
+                if (categoriasResponse && categoriasResponse.success) {
+                    const categoriasData = extractArrayData(categoriasResponse);
+                    if (categoriasData.length > 0) {
+                        setCategorias(categoriasData);
+                    }
                 }
                 
                 // Load mock data for other catalogs (temporary)
@@ -263,41 +309,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     setVendedores([]);
                 }
                 
-                // Cargar almacenes (bodegas) desde la BD
-                let bodegasResp;
-                try {
-                    bodegasResp = await fetchBodegas();
-                } catch (fetchError) {
-                    logger.warn({ prefix: 'DataContext' }, 'Error de red al cargar almacenes (backend puede no estar disponible):', fetchError);
-                    bodegasResp = { success: false, data: [] };
-                }
-                
-                if (bodegasResp && bodegasResp.success && bodegasResp.data && Array.isArray(bodegasResp.data) && bodegasResp.data.length > 0) {
-                    const bodegasData = extractArrayData(bodegasResp);
-                    // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
-                    const processedAlmacenes = (bodegasData as any[]).map((b: any) => ({
-                        id: b.id || b.codigo || b.codalm || String(b.id),
-                        nombre: b.nombre || b.nomalm || 'Sin nombre',
-                        codigo: b.codigo || b.codalm || String(b.id).padStart(3, '0'),
-                        direccion: b.direccion || b.diralm || '',
-                        ciudad: b.ciudad || b.ciualm || ''
-                    }));
-                    // Ordenar almacenes por código (001, 002, 003, etc.)
-                    const almacenesOrdenados = processedAlmacenes.sort((a, b) => {
-                        const codigoA = String(a.codigo || '').padStart(3, '0');
-                        const codigoB = String(b.codigo || '').padStart(3, '0');
-                        return codigoA.localeCompare(codigoB);
-                    });
-                    logger.log({ prefix: 'DataContext' }, `✅ Almacenes cargados desde BD: ${almacenesOrdenados.length}`, almacenesOrdenados.map(a => `${a.codigo} - ${a.nombre}`));
-                    setAlmacenes(almacenesOrdenados);
-                } else {
-                    const reason = !bodegasResp ? 'Sin respuesta' : !bodegasResp.success ? 'Respuesta no exitosa' : !bodegasResp.data ? 'Sin datos' : 'Array vacío';
-                    logger.warn({ prefix: 'DataContext' }, `⚠️ No se pudieron cargar almacenes desde la BD (${reason}). Continuando sin almacenes.`);
-                    setAlmacenes([]);
-                }
-                
                 setTransportadoras([]);
                 
+                logger.log({ prefix: 'DataContext' }, '✅ Catálogos esenciales cargados');
                 setIsLoading(false);
             } catch (error) {
                 logger.error({ prefix: 'DataContext' }, 'Error cargando catálogos esenciales:', error);
@@ -306,7 +320,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         };
 
         fetchEssentialCatalogs();
-    }, []);
+    }, [isLoadingBodegas]);
 
     // Phase 2: Load heavy transactional data in the background with pagination
     useEffect(() => {
@@ -379,11 +393,15 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         activoNormalizado = Number(activoValor) || 0;
                     }
                     
+                    // Mapear fecha de ingreso: puede venir como fechaIngreso, FECING, o createdAt
+                    const fechaIngreso = c.createdAt || (c as any).fechaIngreso || (c as any).FECING;
+                    
                     return {
                         ...c, 
                         activo: activoNormalizado, // Siempre número: 1 (activo) o 0 (inactivo)
                         nombreCompleto: c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim(), 
-                        condicionPago: c.diasCredito > 0 ? `Crédito ${c.diasCredito} días` : 'Contado' 
+                        condicionPago: c.diasCredito > 0 ? `Crédito ${c.diasCredito} días` : 'Contado',
+                        createdAt: fechaIngreso || new Date().toISOString() // Asegurar que siempre haya una fecha
                     };
                 });
                 processedClientes.sort((a: Cliente, b: Cliente) => (a.nombreCompleto || '').trim().localeCompare((b.nombreCompleto || '').trim()));
@@ -426,18 +444,19 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     fetchNotasCredito().catch(() => ({ success: false, data: [] }))
                 ]);
                 
-                // Cargar detalles de cotizaciones y pedidos para que los items se muestren correctamente
-                // Los detalles de facturas y remisiones se pueden cargar bajo demanda
+                // Cargar detalles de cotizaciones, pedidos y facturas para que los items se muestren correctamente
+                // Los detalles de remisiones se pueden cargar bajo demanda
                 const [
                     cotizacionesDetalleResponse,
-                    pedidosDetalleResponse
+                    pedidosDetalleResponse,
+                    facturasDetalleResponse
                 ] = await Promise.all([
                     fetchCotizacionesDetalle().catch(() => ({ success: false, data: [] })),
-                    fetchPedidosDetalle().catch(() => ({ success: false, data: [] }))
+                    fetchPedidosDetalle().catch(() => ({ success: false, data: [] })),
+                    fetchFacturasDetalle().catch(() => ({ success: false, data: [] }))
                 ]);
                 
-                // Facturas y remisiones detalles se cargan bajo demanda
-                const facturasDetalleResponse = { success: true, data: [] };
+                // Remisiones detalles se cargan bajo demanda
                 const remisionesResponse = { success: true, data: [] };
                 const remisionesDetalleResponse = { success: true, data: [] };
                 
@@ -913,19 +932,36 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const getSalesDataByPeriod = useCallback((start: Date, end: Date) => {
         const salesData: Array<{ date: string; sales: number }> = [];
         const currentDate = new Date(start);
+        currentDate.setHours(0, 0, 0, 0);
         
-        while (currentDate <= end) {
+        const endDate = new Date(end);
+        endDate.setHours(23, 59, 59, 999);
+        
+        while (currentDate <= endDate) {
             const dateStr = currentDate.toISOString().split('T')[0];
+            const currentDayStart = new Date(currentDate);
+            currentDayStart.setHours(0, 0, 0, 0);
+            const currentDayEnd = new Date(currentDate);
+            currentDayEnd.setHours(23, 59, 59, 999);
+            
             const daySales = facturas
-                .filter(f => f.fechaFactura.startsWith(dateStr) && f.estado !== 'ANULADA' && f.estado !== 'BORRADOR')
+                .filter(f => {
+                    if (!f.fechaFactura) return false;
+                    const fechaFactura = new Date(f.fechaFactura);
+                    fechaFactura.setHours(0, 0, 0, 0);
+                    return fechaFactura >= currentDayStart && 
+                           fechaFactura <= currentDayEnd &&
+                           f.estado !== 'ANULADA' && 
+                           f.estado !== 'BORRADOR';
+                })
                 .reduce((total, factura) => {
                     const devolucionesTotal = notasCredito
-                        .filter(nc => nc.facturaId === factura.id)
-                        .reduce((sum, nc) => sum + nc.total, 0);
-                    return total + (factura.total - devolucionesTotal);
+                        .filter(nc => String(nc.facturaId) === String(factura.id))
+                        .reduce((sum, nc) => sum + (nc.total || 0), 0);
+                    return total + ((factura.total || 0) - devolucionesTotal);
                 }, 0);
             
-            salesData.push({ date: dateStr, sales: daySales });
+            salesData.push({ date: dateStr, sales: Math.round(daySales) });
             currentDate.setDate(currentDate.getDate() + 1);
         }
         
@@ -984,52 +1020,163 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
         
         const vendedorSales = facturas
-            .filter(f => new Date(f.fechaFactura) >= firstDayOfMonth && f.estado !== 'ANULADA' && f.estado !== 'BORRADOR')
+            .filter(f => {
+                // Filtrar facturas del mes actual y válidas
+                const fechaFactura = new Date(f.fechaFactura);
+                return fechaFactura >= firstDayOfMonth && 
+                       f.estado !== 'ANULADA' && 
+                       f.estado !== 'BORRADOR' &&
+                       f.estado !== 'BORRADOR';
+            })
             .reduce((acc, f) => {
-                const vendedorId = f.vendedorId || 'sin_vendedor';
-                if (!acc[vendedorId]) {
-                    acc[vendedorId] = { totalSales: 0, orderCount: 0 };
+                // Buscar vendedor de forma flexible (por id, codiEmple, o codigoVendedor)
+                let vendedorEncontrado = null;
+                if (f.vendedorId) {
+                    const vendedorIdStr = String(f.vendedorId).trim();
+                    vendedorEncontrado = vendedores.find(v => 
+                        String(v.id) === vendedorIdStr ||
+                        String(v.codiEmple || '') === vendedorIdStr ||
+                        String(v.codigoVendedor || '') === vendedorIdStr ||
+                        String(v.codigo || '') === vendedorIdStr
+                    );
+                }
+                
+                const vendedorKey = vendedorEncontrado 
+                    ? String(vendedorEncontrado.id || vendedorEncontrado.codiEmple || 'sin_vendedor')
+                    : 'sin_vendedor';
+                
+                if (!acc[vendedorKey]) {
+                    acc[vendedorKey] = { 
+                        totalSales: 0, 
+                        orderCount: 0,
+                        vendedor: vendedorEncontrado
+                    };
                 }
                 
                 const devolucionesTotal = notasCredito
-                    .filter(nc => nc.facturaId === f.id)
-                    .reduce((sum, nc) => sum + nc.total, 0);
+                    .filter(nc => String(nc.facturaId) === String(f.id))
+                    .reduce((sum, nc) => sum + (nc.total || 0), 0);
                 
-                acc[vendedorId].totalSales += f.total - devolucionesTotal;
-                acc[vendedorId].orderCount += 1;
+                acc[vendedorKey].totalSales += (f.total || 0) - devolucionesTotal;
+                acc[vendedorKey].orderCount += 1;
                 
                 return acc;
-            }, {} as Record<string, { totalSales: number; orderCount: number }>);
+            }, {} as Record<string, { totalSales: number; orderCount: number; vendedor: any }>);
         
         return Object.entries(vendedorSales)
-            .map(([vendedorId, salesData]) => ({
-                id: vendedorId,
-                name: vendedores.find(v => v.id === vendedorId)?.primerNombre || 'Sin Vendedor',
-                totalSales: (salesData as { totalSales: number; orderCount: number }).totalSales,
-                orderCount: (salesData as { totalSales: number; orderCount: number }).orderCount
-            }))
+            .map(([vendedorKey, salesData]) => {
+                const vendedor = salesData.vendedor;
+                const nombreVendedor = vendedor 
+                    ? `${vendedor.primerNombre || ''} ${vendedor.primerApellido || ''}`.trim() || vendedor.nombre || 'Sin Nombre'
+                    : 'Sin Vendedor';
+                
+                return {
+                    id: vendedorKey,
+                    name: nombreVendedor,
+                    totalSales: salesData.totalSales,
+                    orderCount: salesData.orderCount
+                };
+            })
             .sort((a, b) => b.totalSales - a.totalSales);
     }, [facturas, notasCredito, vendedores]);
 
     const getTopProductos = useCallback((limit = 5) => {
         const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        firstDayOfMonth.setHours(0, 0, 0, 0);
         
-        const productSales = facturas
-            .filter(f => new Date(f.fechaFactura) >= firstDayOfMonth)
-            .flatMap(f => f.items)
-            .reduce((acc, item) => {
-            acc[item.productoId] = (acc[item.productoId] || 0) + item.cantidad;
-            return acc;
-            }, {} as Record<number, number>);
+        // Filtrar facturas del mes actual, válidas y con items
+        const facturasValidas = facturas.filter(f => {
+            if (!f.fechaFactura) return false;
+            const fechaFactura = new Date(f.fechaFactura);
+            fechaFactura.setHours(0, 0, 0, 0);
+            return fechaFactura >= firstDayOfMonth &&
+                   f.estado !== 'ANULADA' &&
+                   f.estado !== 'BORRADOR' &&
+                   f.items &&
+                   Array.isArray(f.items) &&
+                   f.items.length > 0;
+        });
         
-        return Object.entries(productSales)
-            .map(([productoId, cantidad]) => ({
-                producto: productos.find(p => p.id === Number(productoId)),
-                cantidad
+        const facturasConItems = facturasValidas.filter(f => f.items && f.items.length > 0);
+        const totalItems = facturasConItems.reduce((sum, f) => sum + (f.items?.length || 0), 0);
+        
+        logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Facturas válidas del mes:', {
+            totalFacturas: facturas.length,
+            facturasValidas: facturasValidas.length,
+            facturasConItems: facturasConItems.length,
+            totalItems: totalItems,
+            primeraFactura: facturasValidas[0] ? {
+                id: facturasValidas[0].id,
+                fechaFactura: facturasValidas[0].fechaFactura,
+                estado: facturasValidas[0].estado,
+                tieneItems: !!(facturasValidas[0].items && facturasValidas[0].items.length > 0),
+                itemsCount: facturasValidas[0].items?.length || 0
+            } : null
+        });
+        
+        // Agrupar ventas por producto
+        const itemsValidos = facturasConItems
+            .flatMap(f => f.items || [])
+            .filter(item => {
+                const tieneProductoId = item.productoId != null && item.productoId !== undefined;
+                const tieneCantidad = item.cantidad != null && Number(item.cantidad) > 0;
+                if (!tieneProductoId || !tieneCantidad) {
+                    logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Item inválido:', {
+                        tieneProductoId,
+                        tieneCantidad,
+                        productoId: item.productoId,
+                        cantidad: item.cantidad
+                    });
+                }
+                return tieneProductoId && tieneCantidad;
+            });
+        
+        logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Items válidos:', {
+            totalItems: itemsValidos.length,
+            primerosItems: itemsValidos.slice(0, 3).map(item => ({
+                productoId: item.productoId,
+                cantidad: item.cantidad
             }))
-            .filter((item): item is { producto: InvProducto; cantidad: number } => Boolean(item.producto))
+        });
+        
+        const productSales = itemsValidos.reduce((acc, item) => {
+            const productoId = Number(item.productoId);
+            if (!isNaN(productoId) && productoId > 0) {
+                const cantidad = Number(item.cantidad || 0);
+                acc[productoId] = (acc[productoId] || 0) + cantidad;
+            }
+            return acc;
+        }, {} as Record<number, number>);
+        
+        logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Ventas por producto:', {
+            productosConVentas: Object.keys(productSales).length,
+            totalProductos: productos.length,
+            productosIds: Object.keys(productSales).slice(0, 10)
+        });
+        
+        const resultados = Object.entries(productSales)
+            .map(([productoId, cantidad]) => {
+                const producto = productos.find(p => {
+                    const pId = Number(p.id);
+                    const itemId = Number(productoId);
+                    return pId === itemId;
+                });
+                return {
+                    producto,
+                    cantidad: Number(cantidad),
+                    productoId: Number(productoId)
+                };
+            })
+            .filter((item): item is { producto: InvProducto; cantidad: number; productoId: number } => Boolean(item.producto))
             .sort((a, b) => b.cantidad - a.cantidad)
             .slice(0, limit);
+        
+        logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Top productos resultantes:', {
+            cantidad: resultados.length,
+            productos: resultados.map(r => ({ nombre: r.producto.nombre, cantidad: r.cantidad }))
+        });
+        
+        return resultados;
     }, [facturas, productos]);
 
     const getGlobalSearchResults = useCallback((query: string): GlobalSearchResults => {
