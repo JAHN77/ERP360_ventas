@@ -2342,6 +2342,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     throw new Error('No se pudo determinar el almacén para crear el pedido. Por favor, seleccione una bodega en el header.');
                 }
                 
+                // Obtener forma de pago de la cotización, normalizando valores antiguos
+                let formaPagoPedido = cotizacion.formaPago || '1';
+                formaPagoPedido = formaPagoPedido === '01' ? '1' : formaPagoPedido === '02' ? '2' : formaPagoPedido;
+                
                 const nuevoPedido: Pedido = {
                     id: '', // Se asignará cuando se cree
                     numeroPedido: `PED-${cotizacionAprobada.numeroCotizacion}`,
@@ -2360,7 +2364,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     observaciones: `Pedido creado desde cotización ${cotizacion.numeroCotizacion}`,
                     items: itemsMapeados,
                     fechaEntregaEstimada: cotizacion.fechaVencimiento,
-                    empresaId: empresaIdParaPedido
+                    empresaId: empresaIdParaPedido,
+                    formaPago: formaPagoPedido
                 };
                 
                 logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Llamando a crearPedido con:', { 
@@ -3162,6 +3167,30 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
             }
 
+            // Obtener forma de pago desde la cotización o pedido relacionado
+            let formaPago = '1'; // Por defecto: Contado (1)
+            const pedidoRelacionado = primeraRemision.pedidoId ? pedidos.find(p => String(p.id) === String(primeraRemision.pedidoId)) : null;
+            if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
+                const cotizacionRelacionada = cotizaciones.find(c => String(c.id) === String(pedidoRelacionado.cotizacionId));
+                if (cotizacionRelacionada && cotizacionRelacionada.formaPago) {
+                    // Normalizar valores antiguos '01'/'02' a nuevos '1'/'2'
+                    formaPago = cotizacionRelacionada.formaPago === '01' ? '1' : cotizacionRelacionada.formaPago === '02' ? '2' : cotizacionRelacionada.formaPago;
+                    logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago obtenida desde cotización:', {
+                        formaPago: formaPago,
+                        cotizacionId: cotizacionRelacionada.id,
+                        numeroCotizacion: cotizacionRelacionada.numeroCotizacion
+                    });
+                }
+            }
+            // Si no se encontró en la cotización, intentar desde el pedido
+            if (formaPago === '1' && pedidoRelacionado && pedidoRelacionado.formaPago) {
+                formaPago = pedidoRelacionado.formaPago === '01' ? '1' : pedidoRelacionado.formaPago === '02' ? '2' : pedidoRelacionado.formaPago;
+            }
+            // Si aún no se encontró, usar la condición de pago del cliente como fallback
+            if (formaPago === '1' && cliente && cliente.condicionPago) {
+                formaPago = cliente.condicionPago === 'Contado' ? '1' : '2';
+            }
+
             // Obtener código de bodega
             const bodegaCodigo = selectedSede?.codigo 
                 ? String(selectedSede.codigo).padStart(3, '0')
@@ -3193,6 +3222,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 remisionesIds: remisionesSeleccionadas.map(r => r.id), // Enviar todas las remisiones relacionadas
                 fechaFactura: fechaFacturaStr,
                 fechaVencimiento: fechaVencimiento, // Incluir fecha de vencimiento calculada
+                formaPago: formaPago, // Forma de pago obtenida desde cotización o cliente
                 subtotal: subtotal,
                 descuentoValor: 0,
                 ivaValor: ivaValor,

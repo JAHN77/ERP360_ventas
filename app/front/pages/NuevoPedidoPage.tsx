@@ -17,6 +17,8 @@ interface PedidoFormData {
     total: number;
     fechaEntregaEstimada?: string;
     instruccionesEntrega?: string;
+    notaPago?: string;
+    formaPago?: string;
 }
 
 const NuevoPedidoPage: React.FC = () => {
@@ -42,7 +44,9 @@ const NuevoPedidoPage: React.FC = () => {
                 total: formData.total,
                 fechaEntregaEstimada: formData.fechaEntregaEstimada,
                 instruccionesEntrega: formData.instruccionesEntrega,
-            });
+                notaPago: formData.notaPago,
+                formaPago: formData.formaPago,
+            } as any);
             addNotification({ message: 'Pedido creado exitosamente.', type: 'success' });
             setPage('pedidos');
         } catch (error) {

@@ -306,6 +306,20 @@ const DevolucionesPage: React.FC = () => {
             });
         }
         
+        // Si la factura no se encontró pero hay items cargados localmente,
+        // crear un objeto factura básico para permitir mostrar los items
+        if (!factura && facturaItemsCargados.length > 0) {
+            // Buscar cualquier referencia de la factura en facturasFiltradas o facturas por ID
+            // como fallback, crear una estructura mínima
+            factura = {
+                id: facturaId,
+                numeroFactura: `Factura ${facturaId}`,
+                fechaFactura: new Date().toISOString(),
+                total: 0,
+                items: facturaItemsCargados
+            } as Factura;
+        }
+        
         // Si la factura existe pero no tiene items, y hay items cargados localmente, usarlos
         if (factura && (!factura.items || !Array.isArray(factura.items) || factura.items.length === 0) && facturaItemsCargados.length > 0) {
             factura = {
@@ -328,6 +342,21 @@ const DevolucionesPage: React.FC = () => {
         );
     }, [clienteId, clientes]);
 
+    // Items disponibles para la factura seleccionada: combinar items de selectedFactura y facturaItemsCargados
+    const itemsDisponiblesFactura = useMemo(() => {
+        if (!selectedFactura) return [];
+        
+        // Priorizar items de selectedFactura, pero si no tiene o está vacío, usar facturaItemsCargados
+        const itemsDeFactura = selectedFactura.items && Array.isArray(selectedFactura.items) && selectedFactura.items.length > 0
+            ? selectedFactura.items
+            : null;
+        
+        const itemsCargados = facturaItemsCargados.length > 0 ? facturaItemsCargados : null;
+        
+        // Si hay items en la factura, usarlos; si no, usar los cargados localmente
+        return itemsDeFactura || itemsCargados || [];
+    }, [selectedFactura, facturaItemsCargados]);
+
     // Cargar items de la factura cuando se selecciona una factura y no tiene items cargados
     useEffect(() => {
         const cargarItemsFactura = async () => {
@@ -335,10 +364,16 @@ const DevolucionesPage: React.FC = () => {
                 return;
             }
             
-            // Si la factura ya tiene items cargados, no hacer nada
-            if (selectedFactura.items && Array.isArray(selectedFactura.items) && selectedFactura.items.length > 0) {
+            // Si la factura ya tiene items cargados o hay items cargados localmente, no hacer nada
+            const tieneItemsEnFactura = selectedFactura.items && Array.isArray(selectedFactura.items) && selectedFactura.items.length > 0;
+            const tieneItemsCargadosLocalmente = facturaItemsCargados.length > 0;
+            
+            if (tieneItemsEnFactura || tieneItemsCargadosLocalmente) {
                 if (process.env.NODE_ENV === 'development') {
-                    console.log('[Devoluciones] Factura ya tiene items cargados:', selectedFactura.items.length);
+                    console.log('[Devoluciones] Factura ya tiene items cargados:', {
+                        enFactura: tieneItemsEnFactura,
+                        localmente: tieneItemsCargadosLocalmente
+                    });
                 }
                 return;
             }
@@ -544,132 +579,119 @@ const DevolucionesPage: React.FC = () => {
         if (isFormDisabled) return;
         setIsTotalDevolucion(isTotal);
         if (isTotal && selectedFactura) {
-            // Verificar que la factura tenga items cargados
-            if (!selectedFactura.items || !Array.isArray(selectedFactura.items) || selectedFactura.items.length === 0) {
-                console.error('[Devoluciones] La factura seleccionada no tiene items cargados. Intentando cargar desde el backend...', {
-                    facturaId: selectedFactura.id,
-                    numeroFactura: selectedFactura.numeroFactura
-                });
+            // Función auxiliar para configurar devolución total con items
+            const configurarDevolucionTotal = (itemsDisponibles: DocumentItem[]) => {
+                const allItems = itemsDisponibles
+                    .filter(item => item && item.productoId) // Filtrar items válidos
+                    .map(item => {
+                        const yaDevueltos = cantidadesYaDevueltas.get(item.productoId) || 0;
+                        const cantidadADevolver = Math.max(0, (item.cantidad || 0) - yaDevueltos);
+                        const motivoSeleccion = getMotivoDefault();
+                        return {
+                            productoId: item.productoId,
+                            cantidadDevuelta: cantidadADevolver,
+                            motivoSeleccion,
+                            motivo: motivoSeleccion === 'Otro' ? '' : motivoSeleccion, 
+                        };
+                    })
+                    .filter(item => item.cantidadDevuelta > 0);
                 
-                // Intentar cargar los items desde el backend
-                try {
+                if (allItems.length === 0) {
                     addNotification({
-                        message: 'Cargando productos de la factura...',
-                        type: 'info'
-                    });
-                    
-                    // Pasar directamente el facturaId como string o number, no como objeto
-                    const detallesResponse = await fetchFacturasDetalle(selectedFactura.id);
-                    if (detallesResponse.success && detallesResponse.data) {
-                        // El backend ya filtra por facturaId, así que usamos directamente los datos
-                        const itemsFactura = Array.isArray(detallesResponse.data) 
-                            ? detallesResponse.data
-                            : [];
-                        
-                        if (itemsFactura.length === 0) {
-                            addNotification({
-                                message: 'La factura seleccionada no tiene productos asociados. Por favor, seleccione otra factura.',
-                                type: 'error'
-                            });
-                            setIsTotalDevolucion(false);
-                            return;
-                        }
-                        
-                        // Mapear items del backend a la estructura esperada
-                        const itemsMapeados = itemsFactura.map((d: any) => ({
-                            productoId: d.productoId || null,
-                            cantidad: Number(d.cantidad || d.qtyins || 0),
-                            precioUnitario: Number(d.precioUnitario || d.valins || 0),
-                            descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
-                            ivaPorcentaje: Number(d.ivaPorcentaje || 0),
-                            descripcion: d.descripcion || d.observa || '',
-                            subtotal: Number(d.subtotal || 0),
-                            valorIva: Number(d.valorIva || d.ivains || 0),
-                            total: Number(d.total || 0),
-                            codProducto: d.codProducto || d.codins || ''
-                        })).filter(item => item.productoId != null);
-                        
-                        // Guardar items en estado local para que selectedFactura los use
-                        setFacturaItemsCargados(itemsMapeados);
-                        
-                        // Esperar un momento para que el estado se actualice y luego configurar la devolución total
-                        // Usar setTimeout para que el useMemo de selectedFactura se ejecute con los nuevos items
-                        setTimeout(() => {
-                            // Usar los items cargados para la devolución total
-                            const allItems = itemsMapeados
-                                .map(item => {
-                                    const yaDevueltos = cantidadesYaDevueltas.get(item.productoId!) || 0;
-                                    const cantidadADevolver = Math.max(0, (item.cantidad || 0) - yaDevueltos);
-                                    const motivoSeleccion = getMotivoDefault();
-                                    return {
-                                        productoId: item.productoId!,
-                                        cantidadDevuelta: cantidadADevolver,
-                                        motivoSeleccion,
-                                        motivo: motivoSeleccion === 'Otro' ? '' : motivoSeleccion, 
-                                    };
-                                })
-                                .filter(item => item.cantidadDevuelta > 0);
-                            
-                            if (allItems.length === 0) {
-                                addNotification({
-                                    message: 'No hay cantidades disponibles para devolver en esta factura. Puede que todos los items ya hayan sido devueltos.',
-                                    type: 'warning'
-                                });
-                                setIsTotalDevolucion(false);
-                                return;
-                            }
-                            
-                            setDevolucionItems(allItems);
-                            addNotification({
-                                message: `Devolución total configurada: ${allItems.length} producto(s) para devolver.`,
-                                type: 'success'
-                            });
-                        }, 100);
-                        return;
-                    } else {
-                        throw new Error('No se pudieron cargar los items de la factura');
-                    }
-                } catch (error) {
-                    console.error('[Devoluciones] Error cargando items de la factura:', error);
-                    addNotification({
-                        message: 'Error al cargar los productos de la factura. Por favor, recargue la página o seleccione otra factura.',
-                        type: 'error'
+                        message: 'No hay cantidades disponibles para devolver en esta factura. Puede que todos los items ya hayan sido devueltos.',
+                        type: 'warning'
                     });
                     setIsTotalDevolucion(false);
                     return;
                 }
-            }
-            
-            // Si la factura ya tiene items cargados, proceder normalmente
-            const allItems = selectedFactura.items
-                .filter(item => item && item.productoId) // Filtrar items válidos
-                .map(item => {
-                    const yaDevueltos = cantidadesYaDevueltas.get(item.productoId) || 0;
-                    const cantidadADevolver = Math.max(0, (item.cantidad || 0) - yaDevueltos);
-                    const motivoSeleccion = getMotivoDefault();
-                    return {
-                        productoId: item.productoId,
-                        cantidadDevuelta: cantidadADevolver,
-                        motivoSeleccion,
-                        motivo: motivoSeleccion === 'Otro' ? '' : motivoSeleccion, 
-                    };
-                })
-                .filter(item => item.cantidadDevuelta > 0);
-            
-            if (allItems.length === 0) {
+                
+                setDevolucionItems(allItems);
                 addNotification({
-                    message: 'No hay cantidades disponibles para devolver en esta factura. Puede que todos los items ya hayan sido devueltos.',
-                    type: 'warning'
+                    message: `Devolución total configurada: ${allItems.length} producto(s) para devolver.`,
+                    type: 'success'
+                });
+            };
+
+            // Verificar que la factura tenga items cargados
+            // Si ya hay items disponibles (de selectedFactura o facturaItemsCargados), usarlos
+            if (itemsDisponiblesFactura.length > 0) {
+                // Configurar la devolución total con los items disponibles
+                configurarDevolucionTotal(itemsDisponiblesFactura);
+                return;
+            }
+
+            // Si no hay items disponibles, intentar cargarlos desde el backend
+            console.log('[Devoluciones] La factura seleccionada no tiene items cargados. Intentando cargar desde el backend...', {
+                facturaId: selectedFactura.id,
+                numeroFactura: selectedFactura.numeroFactura
+            });
+            
+            // Intentar cargar los items desde el backend
+            try {
+                addNotification({
+                    message: 'Cargando productos de la factura...',
+                    type: 'info'
+                });
+                
+                // Pasar directamente el facturaId como string o number, no como objeto
+                const detallesResponse = await fetchFacturasDetalle(selectedFactura.id);
+                if (detallesResponse.success && detallesResponse.data) {
+                    // El backend ya filtra por facturaId, así que usamos directamente los datos
+                    const itemsFactura = Array.isArray(detallesResponse.data) 
+                        ? detallesResponse.data
+                        : [];
+                    
+                    if (itemsFactura.length === 0) {
+                        addNotification({
+                            message: 'La factura seleccionada no tiene productos asociados. Por favor, seleccione otra factura.',
+                            type: 'error'
+                        });
+                        setIsTotalDevolucion(false);
+                        return;
+                    }
+                    
+                    // Mapear items del backend a la estructura esperada
+                    const itemsMapeados = itemsFactura.map((d: any) => ({
+                        productoId: d.productoId || null,
+                        cantidad: Number(d.cantidad || d.qtyins || 0),
+                        precioUnitario: Number(d.precioUnitario || d.valins || 0),
+                        descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
+                        ivaPorcentaje: Number(d.ivaPorcentaje || 0),
+                        descripcion: d.descripcion || d.observa || '',
+                        subtotal: Number(d.subtotal || 0),
+                        valorIva: Number(d.valorIva || d.ivains || 0),
+                        total: Number(d.total || 0),
+                        codProducto: d.codProducto || d.codins || ''
+                    })).filter(item => item.productoId != null);
+                    
+                    if (itemsMapeados.length === 0) {
+                        addNotification({
+                            message: 'La factura no tiene productos válidos asociados.',
+                            type: 'error'
+                        });
+                        setIsTotalDevolucion(false);
+                        return;
+                    }
+
+                    // Guardar items en estado local para que selectedFactura los use
+                    setFacturaItemsCargados(itemsMapeados);
+                    
+                    // Configurar la devolución total directamente con los items cargados
+                    // No usar setTimeout, configurar inmediatamente con los items cargados
+                    configurarDevolucionTotal(itemsMapeados);
+                    return;
+                } else {
+                    throw new Error('No se pudieron cargar los items de la factura');
+                }
+            } catch (error) {
+                console.error('[Devoluciones] Error cargando items de la factura:', error);
+                addNotification({
+                    message: 'Error al cargar los productos de la factura. Por favor, recargue la página o seleccione otra factura.',
+                    type: 'error'
                 });
                 setIsTotalDevolucion(false);
                 return;
             }
-            
-            setDevolucionItems(allItems);
-            addNotification({
-                message: `Devolución total configurada: ${allItems.length} producto(s) para devolver.`,
-                type: 'success'
-            });
         } else {
             setDevolucionItems([]);
         }
@@ -683,13 +705,13 @@ const DevolucionesPage: React.FC = () => {
     }, []);
     
     const summary = useMemo(() => {
-        if (devolucionItems.length === 0 || !selectedFactura || !selectedFactura.items) {
+        if (devolucionItems.length === 0 || itemsDisponiblesFactura.length === 0) {
             return { subtotalBruto: 0, iva: 0, total: 0, descuento: 0 };
         }
         let subBruto = 0, tax = 0, disc = 0;
         let ivaRate = 0;
         devolucionItems.forEach(devItem => {
-            const factItem = (selectedFactura.items || []).find(i => i.productoId === devItem.productoId);
+            const factItem = itemsDisponiblesFactura.find(i => i.productoId === devItem.productoId);
             if(factItem) {
                 const itemSubtotalBruto = factItem.precioUnitario * devItem.cantidadDevuelta;
                 const itemDescuento = itemSubtotalBruto * (factItem.descuentoPorcentaje / 100);
@@ -704,7 +726,7 @@ const DevolucionesPage: React.FC = () => {
         const finalTotal = subNeto + tax;
 
         return { subtotalBruto: subBruto, iva: tax, total: finalTotal, descuento: disc };
-    }, [devolucionItems, selectedFactura]);
+    }, [devolucionItems, itemsDisponiblesFactura]);
     
     const costoTotalDevolucion = useMemo(() => {
         if (devolucionItems.length === 0) return 0;
@@ -733,11 +755,11 @@ const DevolucionesPage: React.FC = () => {
             return;
         }
 
-        if (!selectedFactura.items || !Array.isArray(selectedFactura.items) || selectedFactura.items.length === 0) {
+        if (itemsDisponiblesFactura.length === 0) {
             console.error('[Devoluciones] Error: La factura no tiene items cargados:', {
                 facturaId: selectedFactura.id,
                 numeroFactura: selectedFactura.numeroFactura,
-                items: selectedFactura.items
+                itemsDisponibles: itemsDisponiblesFactura.length
             });
             addNotification({
                 message: 'La factura seleccionada no tiene productos cargados. Por favor, recargue la página o seleccione otra factura.',
@@ -783,7 +805,7 @@ const DevolucionesPage: React.FC = () => {
                 isTotalDevolucion
             });
             const itemsParaNota = devolucionItems.map(devItem => {
-                const factItem = (selectedFactura.items || []).find(i => i.productoId === devItem.productoId);
+                const factItem = itemsDisponiblesFactura.find(i => i.productoId === devItem.productoId);
                 if (!factItem) throw new Error(`Item de factura no encontrado para producto ${devItem.productoId}`);
                 const itemSubtotalBruto = factItem.precioUnitario * devItem.cantidadDevuelta;
                 const itemDescuento = itemSubtotalBruto * (factItem.descuentoPorcentaje / 100);
@@ -1083,7 +1105,7 @@ const DevolucionesPage: React.FC = () => {
                                                         </tr>
                                                     </thead>
                                                     <tbody className="bg-white dark:bg-slate-800/50 divide-y divide-slate-200 dark:divide-slate-700">
-                                                        {(selectedFactura.items || []).map(item => {
+                                                        {itemsDisponiblesFactura.map(item => {
                                                             const devItem = devolucionItems.find(d => d.productoId === item.productoId);
                                                             const product = productos.find(p => p.id === item.productoId);
                                                             const yaDevueltos = cantidadesYaDevueltas.get(item.productoId) || 0;

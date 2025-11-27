@@ -1087,17 +1087,42 @@ app.get('/api/facturas-detalle', async (req, res) => {
     const params = { offset, pageSize: pageSizeNum };
     let whereClause = '';
     
-    // Si se especifica facturaId, filtrar solo esos detalles (optimización importante)
+    let facturaIdValue = null;
+    let numfactValue = null;
+    
+    // Si se especifica facturaId, necesitamos hacer JOIN con ven_facturas para relacionar por numfact y tipfac
     if (facturaId) {
-      whereClause = 'WHERE fd.id_factura = @facturaId';
-      params.facturaId = parseInt(facturaId, 10);
+      // Primero obtener la factura para obtener numfact y tipfac
+      const facturaParams = { facturaId: parseInt(facturaId, 10) };
+      const facturaQuery = `
+        SELECT f.ID as id, f.numfact as numeroFactura, f.tipfac as tipoFactura
+        FROM ${TABLE_NAMES.facturas} f
+        WHERE f.ID = @facturaId
+      `;
+      const facturaResult = await executeQueryWithParams(facturaQuery, facturaParams);
+      
+      if (!facturaResult || facturaResult.length === 0) {
+        return res.json({ 
+          success: true, 
+          data: [],
+          message: 'Factura no encontrada'
+        });
+      }
+      
+      const factura = facturaResult[0];
+      facturaIdValue = factura.id;
+      numfactValue = factura.numeroFactura;
+      whereClause = `WHERE LTRIM(RTRIM(fd.numfac)) = LTRIM(RTRIM(@numfact)) AND LTRIM(RTRIM(ISNULL(fd.tipfact, ''))) = LTRIM(RTRIM(@tipfac))`;
+      params.numfact = factura.numeroFactura;
+      params.tipfac = factura.tipoFactura || '';
+      
+      console.log(`🔍 [API] Buscando detalles de factura ID: ${facturaIdValue}, numfact: "${factura.numeroFactura}", tipfac: "${factura.tipoFactura || ''}"`);
     }
     
     // Query optimizado - solo obtener detalles necesarios
     const query = `
       SELECT 
         fd.ID as id,
-        fd.id_factura as facturaId,
         COALESCE(
           (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
           NULL
@@ -1128,7 +1153,22 @@ app.get('/api/facturas-detalle', async (req, res) => {
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `;
     
-    const detalles = await executeQueryWithParams(query, params);
+    let detalles = await executeQueryWithParams(query, params);
+    
+    // Asegurar que detalles sea un array
+    if (!Array.isArray(detalles)) {
+      detalles = [];
+    }
+    
+    console.log(`📊 [API] Detalles encontrados: ${detalles.length} items`);
+    
+    // Agregar facturaId a cada detalle si fue especificado
+    if (facturaIdValue && detalles.length > 0) {
+      detalles = detalles.map(d => ({
+        ...d,
+        facturaId: facturaIdValue
+      }));
+    }
     
     res.json({ 
       success: true, 

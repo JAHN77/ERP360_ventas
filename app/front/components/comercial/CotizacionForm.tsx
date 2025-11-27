@@ -24,6 +24,7 @@ interface CotizacionFormData {
     formaPago?: string;
     valorAnticipo?: number;
     numOrdenCompra?: string;
+    notaPago?: string;
     // domicilios removido por optimización de UI
 }
 
@@ -50,9 +51,10 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     const [isVendedorOpen, setIsVendedorOpen] = useState(false);
     const [items, setItems] = useState<DocumentItem[]>([]);
     const [observacionesInternas, setObservacionesInternas] = useState('');
-    const [formaPago, setFormaPago] = useState('01'); // Por defecto: Contado
+    const [formaPago, setFormaPago] = useState('1'); // Por defecto: Contado (1)
     const [valorAnticipo, setValorAnticipo] = useState<number | string>(0);
     const [numOrdenCompra, setNumOrdenCompra] = useState<string>('');
+    const [notaPago, setNotaPago] = useState('');
     // Removido: domicilios
 
     const [currentProductId, setCurrentProductId] = useState('');
@@ -133,9 +135,12 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             
             setItems(initialData.items);
             setObservacionesInternas(initialData.observacionesInternas || '');
-            setFormaPago(initialData.formaPago || '01');
+            // Convertir valores antiguos '01'/'02' a nuevos '1'/'2' si es necesario
+            const formaPagoValue = initialData.formaPago || '1';
+            setFormaPago(formaPagoValue === '01' ? '1' : formaPagoValue === '02' ? '2' : formaPagoValue);
             setValorAnticipo(initialData.valorAnticipo || 0);
             setNumOrdenCompra(initialData.numOrdenCompra?.toString() || '');
+            setNotaPago((initialData as any).notaPago || '');
             // domicilios removido
         }
     }, [initialData, clientes, vendedores]);
@@ -146,7 +151,8 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             const dirty = clienteId !== (initialData?.clienteId || '') 
                 || vendedorId !== (initialData?.vendedorId || '') 
                 || JSON.stringify(items) !== JSON.stringify(initialItems)
-                || observacionesInternas !== (initialData?.observacionesInternas || '');
+                || observacionesInternas !== (initialData?.observacionesInternas || '')
+                || notaPago !== ((initialData as any)?.notaPago || '');
             onDirtyChange(dirty);
         }
     }, [clienteId, vendedorId, items, observacionesInternas, onDirtyChange, initialData]);
@@ -530,6 +536,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             formaPago,
             valorAnticipo: Number(valorAnticipo) || 0,
             numOrdenCompra: numOrdenCompra.trim() || undefined,
+            notaPago: notaPago.trim() || undefined,
         } as any);
     }
     
@@ -840,8 +847,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
 
             {/* Campos adicionales de cotización */}
             <div className="mb-6">
-                {/* Sección de Forma de Pago comentada - para posibles usos futuros */}
-                {/* <div className="w-full md:w-64">
+                <div className="w-full md:w-64">
                     <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
                         Forma de Pago
                     </label>
@@ -851,10 +857,10 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         onChange={(e) => setFormaPago(e.target.value)}
                         className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                        <option value="01">Contado</option>
-                        <option value="02">Crédito</option>
+                        <option value="1">Contado</option>
+                        <option value="2">Crédito</option>
                     </select>
-                </div> */}
+                </div>
                 {/* Sección de anticipos comentada - no visible para el usuario */}
                 {/* <div>
                     <label htmlFor="valorAnticipo" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
@@ -1056,6 +1062,17 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                             rows={3}
                             className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                             placeholder="Ej: El cliente solicita descuento especial, validar margen."
+                        />
+                    </div>
+                    <div className="mt-6">
+                        <label htmlFor="notaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Nota de Pago</label>
+                        <textarea
+                            id="notaPago"
+                            value={notaPago}
+                            onChange={(e) => setNotaPago(e.target.value)}
+                            rows={2}
+                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Ej: Pago a 30 días, transferencia bancaria, etc."
                         />
                     </div>
                 </div>

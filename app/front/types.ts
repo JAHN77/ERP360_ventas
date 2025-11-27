@@ -231,6 +231,7 @@ export interface Cotizacion {
   idUsuario?: number; // ID de usuario
   codTarifa?: string; // Código de tarifa (char(2))
   fechaCreacion?: string; // Fecha de creación del sistema (datetime)
+  notaPago?: string; // Nota de pago
 }
 
 export interface Pedido {
@@ -256,6 +257,8 @@ export interface Pedido {
   ivaPorcentaje?: number;
   impoconsumoValor?: number;
   instruccionesEntrega?: string;
+  notaPago?: string; // Nota de pago
+  formaPago?: string; // Forma de pago: 1=Contado, 2=Crédito
 }
 
 
@@ -315,6 +318,7 @@ export interface Factura {
   estadoDevolucion?: 'DEVOLUCION_PARCIAL' | 'DEVOLUCION_TOTAL';
   fechaTimbrado?: string;
   motivoRechazo?: string; // Motivo del rechazo cuando la factura es rechazada
+  formaPago?: string; // Forma de pago: 1=Contado, 2=Crédito
 }
 
 

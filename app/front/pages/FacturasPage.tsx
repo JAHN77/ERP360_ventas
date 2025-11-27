@@ -33,7 +33,7 @@ const filterOptions = [
 
 const FacturasPage: React.FC = () => {
   const { params, setPage } = useNavigation();
-  const { facturas, remisiones, clientes, pedidos, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones } = useData();
+  const { facturas, remisiones, clientes, pedidos, cotizaciones, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones } = useData();
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [selectedRemisiones, setSelectedRemisiones] = useState<Set<string>>(new Set());
   const { addNotification } = useNotifications();
@@ -184,9 +184,9 @@ const FacturasPage: React.FC = () => {
     }],
   });
 
-  const { cliente, remisionesRelacionadas, pedido } = useMemo(() => {
+  const { cliente, remisionesRelacionadas, pedido, formaPago } = useMemo(() => {
     if (!selectedFactura) {
-      return { cliente: null, remisionesRelacionadas: [], pedido: null };
+      return { cliente: null, remisionesRelacionadas: [], pedido: null, formaPago: undefined };
     }
     // Buscar cliente de forma flexible
     const cliente = clientes.find(c => 
@@ -241,8 +241,26 @@ const FacturasPage: React.FC = () => {
     }
     
     const pedido = remisionesRelacionadas.length > 0 ? pedidos.find(p => p.id === remisionesRelacionadas[0].pedidoId) : null;
-    return { cliente, remisionesRelacionadas, pedido };
-  }, [selectedFactura, clientes, remisiones, pedidos]);
+    
+    // Obtener forma de pago: primero desde la factura, luego desde la cotización relacionada
+    let formaPago = selectedFactura.formaPago;
+    if (!formaPago && pedido && pedido.cotizacionId) {
+      const cotizacion = cotizaciones.find(c => String(c.id) === String(pedido.cotizacionId));
+      if (cotizacion && cotizacion.formaPago) {
+        formaPago = cotizacion.formaPago;
+      }
+    }
+    // Si aún no se encontró, usar la condición de pago del cliente como fallback
+    if (!formaPago && cliente && cliente.condicionPago) {
+      formaPago = cliente.condicionPago === 'Contado' ? '1' : '2';
+    }
+    // Normalizar valores antiguos '01'/'02' a nuevos '1'/'2' si es necesario
+    if (formaPago) {
+      formaPago = formaPago === '01' ? '1' : formaPago === '02' ? '2' : formaPago;
+    }
+    
+    return { cliente, remisionesRelacionadas, pedido, formaPago };
+  }, [selectedFactura, clientes, remisiones, pedidos, cotizaciones]);
   
   const selectedFacturaTotals = useMemo(() => {
     const defaultTotals = { subtotalBruto: 0, descuentoTotal: 0, subtotalNeto: 0, iva: 0, total: 0 };
@@ -909,6 +927,38 @@ const FacturasPage: React.FC = () => {
     }},
     { header: 'Fecha Emisión', accessor: 'fechaFactura', cell: (item) => formatDateOnly(item.fechaFactura) },
     { header: 'Total', accessor: 'total', cell: (item) => formatCurrency(item.total) },
+    { 
+      header: 'Forma de Pago', 
+      accessor: 'formaPago', 
+      cell: (item) => {
+        // Intentar obtener forma de pago desde la factura, luego desde la cotización relacionada
+        let formaPagoFactura = item.formaPago;
+        if (!formaPagoFactura) {
+          // Buscar pedido relacionado
+          const remisionRelacionada = remisiones.find(r => 
+            (item.remisionesIds && item.remisionesIds.includes(r.id)) || 
+            r.facturaId === item.id
+          );
+          if (remisionRelacionada && remisionRelacionada.pedidoId) {
+            const pedidoRelacionado = pedidos.find(p => p.id === remisionRelacionada.pedidoId);
+            if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
+              const cotizacion = cotizaciones.find(c => c.id === pedidoRelacionado.cotizacionId);
+              if (cotizacion && cotizacion.formaPago) {
+                formaPagoFactura = cotizacion.formaPago;
+              }
+            }
+          }
+        }
+        if (!formaPagoFactura) return 'N/A';
+        // Convertir valores antiguos '01'/'02' a nuevos '1'/'2' si es necesario
+        const formaPagoValue = formaPagoFactura === '01' ? '1' : formaPagoFactura === '02' ? '2' : formaPagoFactura;
+        const formaPagoMap: Record<string, string> = {
+          '1': 'Contado',
+          '2': 'Crédito'
+        };
+        return formaPagoMap[formaPagoValue] || formaPagoValue;
+      }
+    },
     { header: 'Motivo Rechazo', accessor: 'estado', cell: (item) => {
       // Mostrar motivo de rechazo solo si la factura está rechazada
       if (item.estado === 'RECHAZADA' && item.motivoRechazo) {
@@ -1040,6 +1090,17 @@ const FacturasPage: React.FC = () => {
                     <p className="text-slate-600 dark:text-slate-300 mt-2">
                         <span className="font-semibold">Fecha Emisión:</span> {formatDateOnly(selectedFactura.fechaFactura)}
                     </p>
+                    {(selectedFactura.formaPago || formaPago) && (
+                        <p className="text-slate-600 dark:text-slate-300 mt-1">
+                            <span className="font-semibold">Forma de Pago:</span> {
+                                (() => {
+                                    const formaPagoValue = selectedFactura.formaPago || formaPago;
+                                    const normalizedValue = formaPagoValue === '01' ? '1' : formaPagoValue === '02' ? '2' : formaPagoValue;
+                                    return normalizedValue === '1' ? 'Contado' : normalizedValue === '2' ? 'Crédito' : normalizedValue;
+                                })()
+                            }
+                        </p>
+                    )}
                 </div>
             </div>
 

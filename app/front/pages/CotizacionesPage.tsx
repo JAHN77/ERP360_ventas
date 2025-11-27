@@ -505,6 +505,20 @@ const CotizacionesPage: React.FC = () => {
         return vendedor ? `${vendedor.primerNombre || ''} ${vendedor.primerApellido || ''}`.trim() : 'N/A';
     } },
     { header: 'Total', accessor: 'total', cell: (item) => formatCurrency(item.total) },
+    { 
+      header: 'Forma de Pago', 
+      accessor: 'formaPago', 
+      cell: (item) => {
+        if (!item.formaPago) return 'N/A';
+        // Convertir valores antiguos '01'/'02' a nuevos '1'/'2' si es necesario
+        const formaPagoValue = item.formaPago === '01' ? '1' : item.formaPago === '02' ? '2' : item.formaPago;
+        const formaPagoMap: Record<string, string> = {
+          '1': 'Contado',
+          '2': 'Crédito'
+        };
+        return formaPagoMap[formaPagoValue] || formaPagoValue;
+      }
+    },
     { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
     { header: 'Acciones', accessor: 'id', cell: (item) => (
       <div className="space-x-3">
@@ -730,7 +744,12 @@ const CotizacionesPage: React.FC = () => {
               {selectedCotizacion.formaPago && (
                 <div>
                   <p className="font-semibold text-slate-600 dark:text-slate-400">Forma de Pago:</p>
-                  <p>{selectedCotizacion.formaPago === '01' ? 'Contado' : selectedCotizacion.formaPago === '02' ? 'Crédito' : selectedCotizacion.formaPago}</p>
+                  <p>{
+                    (() => {
+                      const formaPagoValue = selectedCotizacion.formaPago === '01' ? '1' : selectedCotizacion.formaPago === '02' ? '2' : selectedCotizacion.formaPago;
+                      return formaPagoValue === '1' ? 'Contado' : formaPagoValue === '2' ? 'Crédito' : formaPagoValue;
+                    })()
+                  }</p>
                 </div>
               )}
               {/* Sección de anticipos comentada - no visible para el usuario */}

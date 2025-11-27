@@ -20,6 +20,8 @@ interface PedidoFormData {
     total: number;
     fechaEntregaEstimada?: string;
     instruccionesEntrega?: string;
+    notaPago?: string;
+    formaPago?: string;
 }
 
 interface PedidoFormProps {
@@ -51,6 +53,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     const [items, setItems] = useState<DocumentItem[]>([]);
     const [fechaEntregaEstimada, setFechaEntregaEstimada] = useState('');
     const [instruccionesEntrega, setInstruccionesEntrega] = useState('');
+    const [notaPago, setNotaPago] = useState('');
+    const [formaPago, setFormaPago] = useState('1'); // Por defecto: Contado (1)
 
     const [currentProductId, setCurrentProductId] = useState('');
     const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
@@ -67,10 +71,10 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     
     useEffect(() => {
         if (onDirtyChange) {
-            const dirty = cotizacionId !== '' || clienteId !== '' || vendedorId !== '' || items.length > 0 || fechaEntregaEstimada !== '' || instruccionesEntrega !== '';
+            const dirty = cotizacionId !== '' || clienteId !== '' || vendedorId !== '' || items.length > 0 || fechaEntregaEstimada !== '' || instruccionesEntrega !== '' || notaPago !== '' || formaPago !== '1';
             onDirtyChange(dirty);
         }
-    }, [cotizacionId, clienteId, vendedorId, items, fechaEntregaEstimada, instruccionesEntrega, onDirtyChange]);
+    }, [cotizacionId, clienteId, vendedorId, items, fechaEntregaEstimada, instruccionesEntrega, notaPago, formaPago, onDirtyChange]);
 
     const currentItemSubtotalForDisplay = useMemo(() => {
         if (selectedProduct && isPositiveInteger(currentQuantity) && isWithinRange(Number(currentDiscount), 0, 100)) {
@@ -515,7 +519,9 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             iva: totals.iva, 
             total: totals.total, 
             fechaEntregaEstimada, 
-            instruccionesEntrega 
+            instruccionesEntrega,
+            notaPago: notaPago.trim() || undefined,
+            formaPago: formaPago
         });
     }
     
@@ -946,6 +952,18 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                 </div>
+                <div>
+                    <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Forma de Pago</label>
+                    <select
+                        id="formaPago"
+                        value={formaPago}
+                        onChange={(e) => setFormaPago(e.target.value)}
+                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        <option value="1">Contado</option>
+                        <option value="2">Crédito</option>
+                    </select>
+                </div>
                 <div className="md:col-span-2">
                     <label htmlFor="instruccionesEntrega" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Instrucciones de Entrega</label>
                     <textarea
@@ -955,6 +973,17 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         rows={2}
                         className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="Ej: Entregar en portería, contactar a Juan Pérez."
+                    />
+                </div>
+                <div className="md:col-span-2">
+                    <label htmlFor="notaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Nota de Pago</label>
+                    <textarea
+                        id="notaPago"
+                        value={notaPago}
+                        onChange={e => setNotaPago(e.target.value)}
+                        rows={2}
+                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Ej: Pago a 30 días, transferencia bancaria, etc."
                     />
                 </div>
             </div>

@@ -30,6 +30,7 @@ interface CotizacionFormData {
     formaPago?: string;
     valorAnticipo?: number;
     numOrdenCompra?: string;
+    notaPago?: string;
 }
 
 const NuevaCotizacionPage: React.FC = () => {
@@ -78,6 +79,7 @@ const NuevaCotizacionPage: React.FC = () => {
                 formaPago: formData.formaPago,
                 valorAnticipo: formData.valorAnticipo,
                 numOrdenCompra: formData.numOrdenCompra ? parseInt(formData.numOrdenCompra, 10) : undefined,
+                notaPago: formData.notaPago,
             } as Partial<Cotizacion>);
             if (updatedQuote) {
                 addNotification({ 
@@ -136,7 +138,8 @@ const NuevaCotizacionPage: React.FC = () => {
                 formaPago: formData.formaPago,
                 valorAnticipo: formData.valorAnticipo,
                 numOrdenCompra: formData.numOrdenCompra ? parseInt(formData.numOrdenCompra, 10) : undefined,
-            };
+                notaPago: formData.notaPago,
+            } as Cotizacion;
             setPreviewCliente(resolvedCliente);
             setPreviewVendedor(resolvedVendedor);
             setQuoteToPreview(previewData);
