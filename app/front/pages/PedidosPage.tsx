@@ -430,6 +430,33 @@ const PedidosPage: React.FC = () => {
     },
     { header: 'Fecha', accessor: 'fechaPedido', cell: (item) => formatDateOnly(item.fechaPedido) },
     { header: 'Total', accessor: 'total', cell: (item) => formatCurrency(item.total) },
+    { 
+        header: 'Forma de Pago', 
+        accessor: 'formaPago', 
+        cell: (item) => {
+            // Validación defensiva: si item es undefined o null, retornar N/A
+            if (!item) return 'N/A';
+            
+            // Intentar obtener forma de pago desde el pedido, luego desde la cotización relacionada
+            let formaPagoPedido = item.formaPago;
+            if (!formaPagoPedido && item.cotizacionId) {
+                const cotizacion = cotizaciones.find(c => String(c.id) === String(item.cotizacionId));
+                if (cotizacion && cotizacion.formaPago) {
+                    formaPagoPedido = cotizacion.formaPago;
+                }
+            }
+            if (!formaPagoPedido) return 'N/A';
+
+            const formaPagoValue = formaPagoPedido === '01' ? '1' : formaPagoPedido === '02' ? '2' : formaPagoPedido;
+            const formaPagoMap: Record<string, string> = {
+                '1': 'Contado',
+                '2': 'Crédito',
+                '01': 'Contado', // Para compatibilidad si viene directamente '01'
+                '02': 'Crédito', // Para compatibilidad si viene directamente '02'
+            };
+            return formaPagoMap[formaPagoValue] || formaPagoValue;
+        }
+    },
     { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
     { header: 'Acciones', accessor: 'id', cell: (item) => (
       <div className="space-x-3">
@@ -554,6 +581,36 @@ const PedidosPage: React.FC = () => {
                         <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Entrega Estimada</p>
                         <p className="text-slate-800 dark:text-slate-200">{formatDateOnly(selectedPedido.fechaEntregaEstimada)}</p>
                     </div>
+                    {(selectedPedido.formaPago || (() => {
+                        let formaPagoPedido = selectedPedido.formaPago;
+                        if (!formaPagoPedido && selectedPedido.cotizacionId) {
+                            const cotizacion = cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId));
+                            if (cotizacion && cotizacion.formaPago) {
+                                formaPagoPedido = cotizacion.formaPago;
+                            }
+                        }
+                        return formaPagoPedido;
+                    })()) && (
+                        <div>
+                            <p className="font-semibold text-slate-600 dark:text-slate-400">Forma de Pago</p>
+                            <p className="text-slate-800 dark:text-slate-200">
+                                {(() => {
+                                    const formaPagoValue = selectedPedido.formaPago || (() => {
+                                        if (selectedPedido.cotizacionId) {
+                                            const cotizacion = cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId));
+                                            if (cotizacion && cotizacion.formaPago) {
+                                                return cotizacion.formaPago;
+                                            }
+                                        }
+                                        return undefined;
+                                    })();
+                                    if (!formaPagoValue) return 'N/A';
+                                    const normalizedValue = formaPagoValue === '01' ? '1' : formaPagoValue === '02' ? '2' : formaPagoValue;
+                                    return normalizedValue === '1' ? 'Contado' : normalizedValue === '2' ? 'Crédito' : formaPagoValue;
+                                })()}
+                            </p>
+                        </div>
+                    )}
                     <div className="sm:col-span-2">
                         <p className="font-semibold text-slate-600 dark:text-slate-400">Instrucciones de Entrega</p>
                         <p className="text-slate-800 dark:text-slate-200">{selectedPedido.instruccionesEntrega || 'Sin instrucciones.'}</p>
@@ -600,8 +657,9 @@ const PedidosPage: React.FC = () => {
                                                        item.unidadMedida || 
                                                        'Unidad';
                                     
-                                    const itemSubtotal = (item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100);
-                                    const itemIva = itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
+                                    // Usar valores del backend directamente (igual que en cotizaciones)
+                                    const itemSubtotal = item.subtotal ?? ((item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100));
+                                    const itemIva = item.valorIva ?? (itemSubtotal * ((item.ivaPorcentaje || 0) / 100));
                                     
                                     return (
                                         <tr key={item.productoId || `item-${index}`}>
@@ -616,8 +674,25 @@ const PedidosPage: React.FC = () => {
                                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{unidadMedida}</td>
                                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{item.cantidad}</td>
                                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{formatCurrency(item.precioUnitario)}</td>
-                                            <td className="px-4 py-3 text-sm text-red-600 dark:text-red-500 text-right">{item.descuentoPorcentaje.toFixed(2)}%</td>
-                                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{item.ivaPorcentaje}%</td>
+                                            <td className="px-4 py-3 text-sm text-red-600 dark:text-red-500 text-right">{(item.descuentoPorcentaje || 0).toFixed(2)}%</td>
+                                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">
+                                                {(() => {
+                                                    // Redondear a porcentajes estándar de IVA (19%, 5%, 8%, 0%)
+                                                    const ivaPct = Number(item.ivaPorcentaje || 0);
+                                                    if (ivaPct >= 18.5 && ivaPct <= 19.5) {
+                                                        return '19.00%';
+                                                    } else if (ivaPct >= 7.5 && ivaPct <= 8.5) {
+                                                        return '8.00%';
+                                                    } else if (ivaPct >= 4.5 && ivaPct <= 5.5) {
+                                                        return '5.00%';
+                                                    } else if (ivaPct < 0.5) {
+                                                        return '0.00%';
+                                                    } else {
+                                                        // Si no coincide con valores estándar, mostrar con 2 decimales
+                                                        return Number(ivaPct.toFixed(2)) + '%';
+                                                    }
+                                                })()}
+                                            </td>
                                             <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-200 text-right">{formatCurrency(itemSubtotal)}</td>
                                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{formatCurrency(itemIva)}</td>
                                         </tr>

@@ -161,7 +161,15 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         if (selectedProduct && isPositiveInteger(currentQuantity) && isWithinRange(Number(currentDiscount), 0, 100)) {
             const quantityNum = Number(currentQuantity);
             const discountNum = Number(currentDiscount);
-            return (selectedProduct.ultimoCosto * quantityNum) * (1 - (discountNum / 100));
+            // Calcular subtotal sin IVA (después de descuento)
+            const subtotal = (selectedProduct.ultimoCosto * quantityNum) * (1 - (discountNum / 100));
+            // Determinar IVA: usar aplicaIva si existe, sino usar tasaIva > 0
+            const tieneIva = (selectedProduct as any).aplicaIva !== undefined 
+                ? (selectedProduct as any).aplicaIva 
+                : ((selectedProduct.tasaIva || 0) > 0);
+            const ivaPorcentaje = tieneIva ? (selectedProduct.tasaIva || 19) : 0;
+            // Retornar total CON IVA
+            return subtotal * (1 + (ivaPorcentaje / 100));
         }
         return 0;
     }, [selectedProduct, currentQuantity, currentDiscount]);
@@ -191,20 +199,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             const q = clienteSearch.trim();
             if (q.length >= 2) {
                 try {
-                    console.log('🔍 [Búsqueda Clientes] Buscando:', q);
                 const resp = await apiSearchClientes(q, 20);
-                    console.log('🔍 [Búsqueda Clientes] Respuesta completa:', resp);
-                    console.log('🔍 [Búsqueda Clientes] resp.success:', resp.success);
-                    console.log('🔍 [Búsqueda Clientes] resp.data:', resp.data);
-                    console.log('🔍 [Búsqueda Clientes] Tipo de resp.data:', typeof resp.data);
-                    console.log('🔍 [Búsqueda Clientes] resp.data es Array?:', Array.isArray(resp.data));
-                    if (resp.data && Array.isArray(resp.data)) {
-                        console.log('🔍 [Búsqueda Clientes] Cantidad de resultados:', resp.data.length);
-                        if (resp.data.length > 0) {
-                            console.log('🔍 [Búsqueda Clientes] Primer resultado:', resp.data[0]);
-                            console.log('🔍 [Búsqueda Clientes] Keys del primer resultado:', Object.keys(resp.data[0]));
-                        }
-                    }
                     if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
                         // Construir nombreCompleto si no existe
@@ -213,14 +208,12 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                             nombreCompleto: c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || c.nomter || ''
                         }));
                         setClienteResults(clientesProcesados);
-                        console.log('🔍 [Búsqueda Clientes] Estado actualizado, resultados procesados:', clientesProcesados.length, 'clientes');
                     } else {
-                        console.warn('🔍 [Búsqueda Clientes] Respuesta sin éxito o sin data:', resp);
                         setClienteResults([]);
                     }
                 setIsClienteOpen(true);
                 } catch (error) {
-                    console.error('🔍 [Búsqueda Clientes] Error:', error);
+                    console.error('Error buscando clientes:', error);
                     setClienteResults([]);
                 }
             } else {
@@ -238,21 +231,16 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             const q = vendedorSearch.trim();
             if (q.length >= 2) {
                 try {
-                    console.log('👤 [Búsqueda Vendedores] Buscando:', q);
                 const resp = await apiSearchVendedores(q, 20);
-                    console.log('👤 [Búsqueda Vendedores] Respuesta completa:', resp);
-                    console.log('👤 [Búsqueda Vendedores] resp.success:', resp.success);
-                    console.log('👤 [Búsqueda Vendedores] resp.data:', resp.data);
                     if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
-                        console.log('👤 [Búsqueda Vendedores] Resultados encontrados:', dataArray?.length || 0);
                         setVendedorResults(dataArray);
                     } else {
                         setVendedorResults([]);
                     }
                 setIsVendedorOpen(true);
                 } catch (error) {
-                    console.error('👤 [Búsqueda Vendedores] Error:', error);
+                    console.error('Error buscando vendedores:', error);
                     setVendedorResults([]);
                 }
             } else {
@@ -271,11 +259,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             const q = productSearchTerm.trim();
             if (q.length >= 2) {
                 try {
-                    console.log('📦 [Búsqueda Productos] Buscando:', q);
                 const resp = await apiSearchProductos(q, 20);
-                    console.log('📦 [Búsqueda Productos] Respuesta completa:', resp);
-                    console.log('📦 [Búsqueda Productos] resp.success:', resp.success);
-                    console.log('📦 [Búsqueda Productos] resp.data:', resp.data);
                 if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
                     const productsInList = new Set(items.map(item => item.productoId));
@@ -290,12 +274,10 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                             controlaExistencia: p.stock || 0
                         }));
                         const available = mappedProducts.filter((p: any) => !productsInList.has(p.id));
-                        console.log('📦 [Búsqueda Productos] Resultados totales:', dataArray?.length || 0);
-                        console.log('📦 [Búsqueda Productos] Productos disponibles (no en lista):', available.length);
                         setProductResults(available);
                     }
                 } catch (error) {
-                    console.error('📦 [Búsqueda Productos] Error:', error);
+                    console.error('Error buscando productos:', error);
                 }
             } else {
                 setProductResults([]);
@@ -411,6 +393,18 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             return;
         }
 
+        // Validar stock disponible si el producto controla existencia
+        const quantityNum = Number(currentQuantity);
+        const stockDisponible = product.stock ?? null;
+        const controlaExistencia = product.karins ?? false;
+        
+        if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
+            if (quantityNum > stockDisponible) {
+                alert(`La cantidad solicitada (${quantityNum}) supera el stock disponible (${stockDisponible}). Por favor, ajuste la cantidad.`);
+                return;
+            }
+        }
+
         // Validar descuento
         const discountValue = Number(currentDiscount);
         if (!isWithinRange(discountValue, 0, 100)) {
@@ -444,7 +438,6 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             : ((product.tasaIva || 0) > 0);
         const ivaPorcentaje = tieneIva ? (product.tasaIva || 19) : 0;
 
-        const quantityNum = Number(currentQuantity);
         const discountNum = Number(currentDiscount);
         
         // Calcular valores con redondeo a 2 decimales
@@ -456,17 +449,6 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         const valorIva = roundTo2(subtotal * (ivaPorcentaje / 100));
         const total = roundTo2(subtotal + valorIva);
 
-        console.log('✅ Agregando producto a cotización:', {
-            productoId: product.id,
-            nombre: product.nombre,
-            cantidad: quantityNum,
-            precioUnitario,
-            descuentoPorcentaje: discountNum,
-            ivaPorcentaje,
-            subtotal,
-            valorIva,
-            total
-        });
 
         const newItem: DocumentItem & { unidadMedida?: string; referencia?: string } = {
             productoId: product.id,
@@ -499,6 +481,63 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     
     const handleRemoveItem = (productId: number) => {
         setItems(items.filter(item => item.productoId !== productId));
+    }
+
+    const handleItemChange = (productId: number, field: 'cantidad' | 'descuentoPorcentaje', value: any) => {
+        setItems(prevItems => {
+            return prevItems.map(item => {
+                if (item.productoId === productId) {
+                    // Procesar el valor según el campo
+                    let processedValue: number;
+                    
+                    if (field === 'cantidad') {
+                        const numericString = String(value).replace(/[^0-9]/g, '');
+                        const cantidadIngresada = numericString === '' ? 1 : parseInt(numericString, 10);
+                        
+                        // Buscar el producto para obtener el stock disponible
+                        const product = productos.find(p => 
+                            String(p.id) === String(productId) ||
+                            p.id === productId
+                        );
+                        
+                        // Obtener stock disponible y si controla existencia
+                        const stockDisponible = product?.stock ?? null;
+                        const controlaExistencia = product?.karins ?? false;
+                        
+                        // Si el producto controla existencia y hay stock disponible, limitar a ese stock
+                        if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
+                            processedValue = Math.max(1, Math.min(cantidadIngresada, stockDisponible));
+                        } else {
+                            // Si no controla existencia o no hay stock definido, permitir cualquier cantidad >= 1
+                            processedValue = Math.max(1, cantidadIngresada);
+                        }
+                    } else if (field === 'descuentoPorcentaje') {
+                        const numericString = String(value).replace(/[^0-9]/g, '');
+                        processedValue = numericString === '' ? 0 : Math.min(100, Math.max(0, parseInt(numericString, 10)));
+                    } else {
+                        return item; // Campo no soportado
+                    }
+
+                    const newItem = { ...item, [field]: processedValue };
+                    
+                    // Recalcular totales
+                    const roundTo2 = (val: number) => Math.round(val * 100) / 100;
+                    const subtotalBruto = newItem.precioUnitario * newItem.cantidad;
+                    const descuentoValor = roundTo2(subtotalBruto * (newItem.descuentoPorcentaje / 100));
+                    const subtotal = roundTo2(subtotalBruto - descuentoValor);
+                    const valorIva = roundTo2(subtotal * (newItem.ivaPorcentaje / 100));
+                    const total = roundTo2(subtotal + valorIva);
+                    
+                    return {
+                        ...newItem,
+                        subtotal: roundTo2(subtotal),
+                        valorIva: roundTo2(valorIva),
+                        total: roundTo2(total)
+                    };
+                }
+                return item;
+            });
+        });
     }
 
     const totals = useMemo(() => {
@@ -542,14 +581,6 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     
     const canSubmit = clienteId && vendedorId && items.length > 0;
     
-    useEffect(() => {
-        console.log('🔵 [CotizacionForm] Validación:', { 
-            clienteId: !!clienteId, 
-            vendedorId: !!vendedorId, 
-            itemsLength: items.length, 
-            canSubmit 
-        });
-    }, [clienteId, vendedorId, items.length, canSubmit]);
     
     const getNumericInputClasses = (value: number | string, isValid: boolean) => `w-full px-3 py-2 text-sm text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 text-right ${
       !isValid ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
@@ -664,7 +695,6 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                     const search = clienteSearch.toLowerCase();
                                     return nombre.includes(search) || doc.includes(search);
                                 });
-                                console.log('🎨 [Render Cliente] Total a mostrar:', filtered.length, 'Resultados búsqueda:', clienteResults.length, 'Total clientes:', clientes.length);
                                 if (filtered.length === 0) {
                                     return (
                                         <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
@@ -894,6 +924,32 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 </div> */}
             </div>
             
+            {/* Campos de observaciones y nota de pago - antes de añadir productos */}
+            <div className="grid md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <label htmlFor="observacionesInternas" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Observaciones Internas (para Supervisor)</label>
+                    <textarea
+                        id="observacionesInternas"
+                        value={observacionesInternas}
+                        onChange={(e) => setObservacionesInternas(e.target.value)}
+                        rows={2}
+                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Ej: El cliente solicita descuento especial, validar margen."
+                    />
+                </div>
+                <div>
+                    <label htmlFor="notaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Nota de Pago</label>
+                    <textarea
+                        id="notaPago"
+                        value={notaPago}
+                        onChange={(e) => setNotaPago(e.target.value)}
+                        rows={2}
+                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Ej: Pago a 30 días, transferencia bancaria, etc."
+                    />
+                </div>
+            </div>
+            
             <div className="border-t border-b border-slate-200 dark:border-slate-700 py-4 mb-4">
                 <h4 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-100">Añadir Productos</h4>
                 <div className="grid grid-cols-1 lg:grid-cols-8 gap-2 lg:gap-3">
@@ -1023,6 +1079,11 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                                           item.nombre || 
                                                           `Producto ${index + 1}`;
                                     
+                                    // Solo mostrar warning si el producto NO tiene un ID válido
+                                    // Si el producto tiene un ID válido (numérico > 0), asumimos que existe en la BD y no mostramos warning
+                                    const hasValidProductId = item.productoId && (typeof item.productoId === 'number' || typeof item.productoId === 'string') && Number(item.productoId) > 0;
+                                    const shouldShowWarning = !hasValidProductId;
+                                    
                                     return (
                                         <tr key={item.productoId || `item-${index}`}>
                                             <td className="px-4 py-2 text-sm text-slate-600">
@@ -1030,16 +1091,77 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                             </td>
                                             <td className="px-4 py-2 text-sm">
                                                 {productoNombre}
-                                                {!product && (
+                                                {shouldShowWarning && (
                                                     <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
                                                         <i className="fas fa-exclamation-triangle"></i>
                                                     </span>
                                                 )}
                                             </td>
                                             <td className="px-4 py-2 text-sm text-center">{(item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'N/A'}</td>
-                                            <td className="px-4 py-2 text-sm text-right">{item.cantidad}</td>
+                                            <td className="px-4 py-2 text-sm text-right">
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max={(() => {
+                                                        const product = productos.find(p => 
+                                                            String(p.id) === String(item.productoId) ||
+                                                            p.id === item.productoId
+                                                        );
+                                                        const stockDisponible = product?.stock ?? null;
+                                                        const controlaExistencia = product?.karins ?? false;
+                                                        return (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) ? stockDisponible : undefined;
+                                                    })()}
+                                                    value={item.cantidad}
+                                                    onChange={(e) => {
+                                                        const newValue = e.target.value;
+                                                        if (newValue === '' || parseInt(newValue, 10) > 0) {
+                                                            handleItemChange(item.productoId, 'cantidad', newValue);
+                                                        }
+                                                    }}
+                                                    onBlur={(e) => {
+                                                        const val = parseInt(e.target.value, 10);
+                                                        if (isNaN(val) || val < 1) {
+                                                            handleItemChange(item.productoId, 'cantidad', 1);
+                                                        } else {
+                                                            // Validar contra stock máximo si aplica
+                                                            const product = productos.find(p => 
+                                                                String(p.id) === String(item.productoId) ||
+                                                                p.id === item.productoId
+                                                            );
+                                                            const stockDisponible = product?.stock ?? null;
+                                                            const controlaExistencia = product?.karins ?? false;
+                                                            if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0 && val > stockDisponible) {
+                                                                handleItemChange(item.productoId, 'cantidad', stockDisponible);
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="w-20 px-2 py-1 text-right bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </td>
                                             <td className="px-4 py-2 text-sm text-right">{formatCurrency(item.precioUnitario)}</td>
-                                            <td className="px-4 py-2 text-sm text-right">{item.descuentoPorcentaje}</td>
+                                            <td className="px-4 py-2 text-sm text-right">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="100"
+                                                    value={item.descuentoPorcentaje}
+                                                    onChange={(e) => {
+                                                        const newValue = e.target.value;
+                                                        if (newValue === '' || (parseInt(newValue, 10) >= 0 && parseInt(newValue, 10) <= 100)) {
+                                                            handleItemChange(item.productoId, 'descuentoPorcentaje', newValue);
+                                                        }
+                                                    }}
+                                                    onBlur={(e) => {
+                                                        const val = parseInt(e.target.value, 10);
+                                                        if (isNaN(val) || val < 0) {
+                                                            handleItemChange(item.productoId, 'descuentoPorcentaje', 0);
+                                                        } else if (val > 100) {
+                                                            handleItemChange(item.productoId, 'descuentoPorcentaje', 100);
+                                                        }
+                                                    }}
+                                                    className="w-16 px-2 py-1 text-right bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </td>
                                             <td className="px-4 py-2 text-sm text-right">{item.ivaPorcentaje}</td>
                                             <td className="px-4 py-2 text-sm text-right font-medium">{formatCurrency(item.total)}</td>
                                             <td className="px-4 py-2 text-center">
@@ -1052,28 +1174,6 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                 )}
                             </tbody>
                         </table>
-                    </div>
-                     <div className="mt-6">
-                        <label htmlFor="observacionesInternas" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Observaciones Internas (para Supervisor)</label>
-                        <textarea
-                            id="observacionesInternas"
-                            value={observacionesInternas}
-                            onChange={(e) => setObservacionesInternas(e.target.value)}
-                            rows={3}
-                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Ej: El cliente solicita descuento especial, validar margen."
-                        />
-                    </div>
-                    <div className="mt-6">
-                        <label htmlFor="notaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Nota de Pago</label>
-                        <textarea
-                            id="notaPago"
-                            value={notaPago}
-                            onChange={(e) => setNotaPago(e.target.value)}
-                            rows={2}
-                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Ej: Pago a 30 días, transferencia bancaria, etc."
-                        />
                     </div>
                 </div>
 

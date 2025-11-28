@@ -80,7 +80,15 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         if (selectedProduct && isPositiveInteger(currentQuantity) && isWithinRange(Number(currentDiscount), 0, 100)) {
             const quantityNum = Number(currentQuantity);
             const discountNum = Number(currentDiscount);
-            return (selectedProduct.ultimoCosto * quantityNum) * (1 - (discountNum / 100));
+            // Calcular subtotal sin IVA (después de descuento)
+            const subtotal = (selectedProduct.ultimoCosto * quantityNum) * (1 - (discountNum / 100));
+            // Determinar IVA: usar aplicaIva si existe, sino usar tasaIva > 0
+            const tieneIva = (selectedProduct as any).aplicaIva !== undefined 
+                ? (selectedProduct as any).aplicaIva 
+                : ((selectedProduct.tasaIva || 0) > 0);
+            const ivaPorcentaje = tieneIva ? (selectedProduct.tasaIva || 19) : 0;
+            // Retornar total CON IVA
+            return subtotal * (1 + (ivaPorcentaje / 100));
         }
         return 0;
     }, [selectedProduct, currentQuantity, currentDiscount]);
@@ -392,6 +400,18 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             return;
         }
 
+        // Validar stock disponible si el producto controla existencia
+        const quantityNum = Number(currentQuantity);
+        const stockDisponible = product.stock ?? null;
+        const controlaExistencia = product.karins ?? false;
+        
+        if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
+            if (quantityNum > stockDisponible) {
+                alert(`La cantidad solicitada (${quantityNum}) supera el stock disponible (${stockDisponible}). Por favor, ajuste la cantidad.`);
+                return;
+            }
+        }
+
         // Validar descuento
         const discountValue = Number(currentDiscount);
         if (!isWithinRange(discountValue, 0, 100)) {
@@ -425,7 +445,6 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             : ((product.tasaIva || 0) > 0);
         const ivaPorcentaje = tieneIva ? (product.tasaIva || 19) : 0;
 
-        const quantityNum = Number(currentQuantity);
         const discountNum = Number(currentDiscount);
 
         // Calcular valores y redondear a 2 decimales para evitar problemas de precisión
@@ -442,17 +461,6 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         const valorIva = roundTo2(subtotal * (ivaPorcentaje / 100));
         const total = roundTo2(subtotal + valorIva);
 
-        console.log('✅ Agregando producto a pedido:', {
-            productoId: product.id,
-            nombre: product.nombre,
-            cantidad: quantityNum,
-            precioUnitario: precioUnitarioRounded,
-            descuentoPorcentaje: discountNum,
-            ivaPorcentaje,
-            subtotal,
-            valorIva,
-            total
-        });
 
         const newItem: DocumentItem & { unidadMedida?: string; referencia?: string } = {
             productoId: product.id,
@@ -484,6 +492,66 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     
     const handleRemoveItem = (productId: number) => {
         setItems(items.filter(item => item.productoId !== productId));
+    }
+
+    const handleItemChange = (productId: number, field: 'cantidad' | 'descuentoPorcentaje', value: any) => {
+        setItems(prevItems => {
+            return prevItems.map(item => {
+                if (item.productoId === productId) {
+                    // Procesar el valor según el campo
+                    let processedValue: number;
+                    
+                    if (field === 'cantidad') {
+                        const numericString = String(value).replace(/[^0-9]/g, '');
+                        const cantidadIngresada = numericString === '' ? 1 : parseInt(numericString, 10);
+                        
+                        // Buscar el producto para obtener el stock disponible
+                        const product = productos.find(p => 
+                            String(p.id) === String(productId) ||
+                            p.id === productId
+                        );
+                        
+                        // Obtener stock disponible y si controla existencia
+                        const stockDisponible = product?.stock ?? null;
+                        const controlaExistencia = product?.karins ?? false;
+                        
+                        // Si el producto controla existencia y hay stock disponible, limitar a ese stock
+                        if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
+                            processedValue = Math.max(1, Math.min(cantidadIngresada, stockDisponible));
+                        } else {
+                            // Si no controla existencia o no hay stock definido, permitir cualquier cantidad >= 1
+                            processedValue = Math.max(1, cantidadIngresada);
+                        }
+                    } else if (field === 'descuentoPorcentaje') {
+                        const numericString = String(value).replace(/[^0-9]/g, '');
+                        processedValue = numericString === '' ? 0 : Math.min(100, Math.max(0, parseInt(numericString, 10)));
+                    } else {
+                        return item; // Campo no soportado
+                    }
+
+                    const newItem = { ...item, [field]: processedValue };
+                    
+                    // Recalcular totales
+                    const roundTo2 = (val: number) => {
+                        if (!isFinite(val) || isNaN(val)) return 0;
+                        return Math.round(Number(val) * 100) / 100;
+                    };
+                    const subtotalBruto = roundTo2(newItem.precioUnitario * newItem.cantidad);
+                    const descuentoValor = roundTo2(subtotalBruto * (newItem.descuentoPorcentaje / 100));
+                    const subtotal = roundTo2(subtotalBruto - descuentoValor);
+                    const valorIva = roundTo2(subtotal * (newItem.ivaPorcentaje / 100));
+                    const total = roundTo2(subtotal + valorIva);
+                    
+                    return {
+                        ...newItem,
+                        subtotal: roundTo2(subtotal),
+                        valorIva: roundTo2(valorIva),
+                        total: roundTo2(total)
+                    };
+                }
+                return item;
+            });
+        });
     }
 
     const totals = useMemo(() => {
@@ -1119,6 +1187,11 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                                           item.nombre || 
                                                           `Producto ${index + 1}`;
                                     
+                                    // Solo mostrar warning si el producto NO tiene un ID válido
+                                    // Si el producto tiene un ID válido (numérico > 0), asumimos que existe en la BD y no mostramos warning
+                                    const hasValidProductId = item.productoId && (typeof item.productoId === 'number' || typeof item.productoId === 'string') && Number(item.productoId) > 0;
+                                    const shouldShowWarning = !hasValidProductId;
+                                    
                                     return (
                                         <tr key={item.productoId || `item-${index}`}>
                                             <td className="px-4 py-2 text-sm text-slate-600">
@@ -1126,16 +1199,77 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                             </td>
                                             <td className="px-4 py-2 text-sm">
                                                 {productoNombre}
-                                                {!product && (
+                                                {shouldShowWarning && (
                                                     <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
                                                         <i className="fas fa-exclamation-triangle"></i>
                                                     </span>
                                                 )}
                                             </td>
                                             <td className="px-4 py-2 text-sm text-center">{(item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'N/A'}</td>
-                                            <td className="px-4 py-2 text-sm text-right">{item.cantidad}</td>
+                                            <td className="px-4 py-2 text-sm text-right">
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max={(() => {
+                                                        const product = productos.find(p => 
+                                                            String(p.id) === String(item.productoId) ||
+                                                            p.id === item.productoId
+                                                        );
+                                                        const stockDisponible = product?.stock ?? null;
+                                                        const controlaExistencia = product?.karins ?? false;
+                                                        return (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) ? stockDisponible : undefined;
+                                                    })()}
+                                                    value={item.cantidad}
+                                                    onChange={(e) => {
+                                                        const newValue = e.target.value;
+                                                        if (newValue === '' || parseInt(newValue, 10) > 0) {
+                                                            handleItemChange(item.productoId, 'cantidad', newValue);
+                                                        }
+                                                    }}
+                                                    onBlur={(e) => {
+                                                        const val = parseInt(e.target.value, 10);
+                                                        if (isNaN(val) || val < 1) {
+                                                            handleItemChange(item.productoId, 'cantidad', 1);
+                                                        } else {
+                                                            // Validar contra stock máximo si aplica
+                                                            const product = productos.find(p => 
+                                                                String(p.id) === String(item.productoId) ||
+                                                                p.id === item.productoId
+                                                            );
+                                                            const stockDisponible = product?.stock ?? null;
+                                                            const controlaExistencia = product?.karins ?? false;
+                                                            if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0 && val > stockDisponible) {
+                                                                handleItemChange(item.productoId, 'cantidad', stockDisponible);
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="w-20 px-2 py-1 text-right bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </td>
                                             <td className="px-4 py-2 text-sm text-right">{formatCurrency(item.precioUnitario)}</td>
-                                            <td className="px-4 py-2 text-sm text-right">{item.descuentoPorcentaje}</td>
+                                            <td className="px-4 py-2 text-sm text-right">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="100"
+                                                    value={item.descuentoPorcentaje}
+                                                    onChange={(e) => {
+                                                        const newValue = e.target.value;
+                                                        if (newValue === '' || (parseInt(newValue, 10) >= 0 && parseInt(newValue, 10) <= 100)) {
+                                                            handleItemChange(item.productoId, 'descuentoPorcentaje', newValue);
+                                                        }
+                                                    }}
+                                                    onBlur={(e) => {
+                                                        const val = parseInt(e.target.value, 10);
+                                                        if (isNaN(val) || val < 0) {
+                                                            handleItemChange(item.productoId, 'descuentoPorcentaje', 0);
+                                                        } else if (val > 100) {
+                                                            handleItemChange(item.productoId, 'descuentoPorcentaje', 100);
+                                                        }
+                                                    }}
+                                                    className="w-16 px-2 py-1 text-right bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </td>
                                             <td className="px-4 py-2 text-sm text-right">{item.ivaPorcentaje}</td>
                                             <td className="px-4 py-2 text-sm text-right font-medium">{formatCurrency(item.total)}</td>
                                             <td className="px-4 py-2 text-center">

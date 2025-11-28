@@ -275,16 +275,28 @@ const FacturasPage: React.FC = () => {
         return defaultTotals;
     }
 
+    // IMPORTANTE: Usar valores del backend directamente, NO recalcular
+    // El backend ya calculó correctamente todos los valores desde la BD
     const subtotalBruto = itemsToCalculate.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
     const descuentoTotal = itemsToCalculate.reduce((acc, item) => {
         const itemTotalBruto = item.precioUnitario * item.cantidad;
         return acc + (itemTotalBruto * ((item.descuentoPorcentaje || 0) / 100));
     }, 0);
     const subtotalNeto = subtotalBruto - descuentoTotal;
+    // Usar valorIva directamente del backend (ya calculado desde BD), NO recalcular
     const iva = itemsToCalculate.reduce((acc, item) => {
+        // Prioridad 1: usar valorIva del backend (ya calculado desde BD)
+        if (item.valorIva !== undefined && item.valorIva !== null) {
+            return acc + item.valorIva;
+        }
+        // Fallback: si no viene valorIva, usar subtotal del backend
+        if (item.subtotal !== undefined && item.subtotal !== null) {
+            // Calcular IVA desde subtotal y ivaPorcentaje del backend
+            return acc + (item.subtotal * ((item.ivaPorcentaje || 0) / 100));
+        }
+        // Último fallback: calcular desde precio y cantidad (no debería llegar aquí)
         const itemSubtotal = (item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100);
-        const itemIva = itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
-        return acc + itemIva;
+        return acc + (itemSubtotal * ((item.ivaPorcentaje || 0) / 100));
     }, 0);
     const total = subtotalNeto + iva;
     
@@ -911,7 +923,29 @@ const FacturasPage: React.FC = () => {
       );
       return <StatusBadge status={cliente?.condicionPago === 'Contado' ? 'PAGADA' : 'VENCIDA'} />;
     }},
-    { header: 'Total Pedido', accessor: 'pedidoId', cell: (item) => formatCurrency(pedidos.find(p => p.id === item.pedidoId)?.total || 0)},
+    { header: 'Total Pedido', accessor: 'total', cell: (item) => {
+      // Usar el total de la remisión que viene del backend (ya calculado desde items)
+      // El backend ahora calcula el total correcto desde los items de la remisión
+      if (item.total && item.total > 0) {
+        return formatCurrency(item.total);
+      }
+      // Fallback: calcular desde items si están cargados
+      if (item.items && item.items.length > 0) {
+        const totalRemision = item.items.reduce((sum: number, itemRem: any) => {
+          // Si el item tiene total, usarlo directamente (ya incluye IVA)
+          if (itemRem.total && itemRem.total > 0) {
+            return sum + itemRem.total;
+          }
+          // Calcular manualmente si falta total
+          const subtotal = (itemRem.precioUnitario || 0) * (itemRem.cantidad || itemRem.cantidadEnviada || 0) * (1 - ((itemRem.descuentoPorcentaje || 0) / 100));
+          const valorIva = subtotal * ((itemRem.ivaPorcentaje || 0) / 100);
+          return sum + subtotal + valorIva;
+        }, 0);
+        return formatCurrency(totalRemision);
+      }
+      // Último fallback: mostrar 0 o total del pedido
+      return formatCurrency(0);
+    }},
   ];
 
   const facturasColumns: Column<Factura>[] = [
@@ -1181,8 +1215,18 @@ const FacturasPage: React.FC = () => {
                       <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
                           {(selectedFactura.items || []).map((item: DocumentItem) => {
                               const producto = productos.find(p => p.id === item.productoId);
-                              const itemSubtotal = (item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100);
-                              const itemIva = itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
+                              // IMPORTANTE: Usar valores del backend directamente, NO recalcular
+                              // Prioridad 1: usar subtotal del backend (ya calculado desde BD)
+                              // Prioridad 2: calcular desde precio y cantidad si no viene subtotal
+                              const itemSubtotal = item.subtotal !== undefined && item.subtotal !== null
+                                  ? item.subtotal
+                                  : (item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100);
+                              // Prioridad 1: usar valorIva del backend (ya calculado desde BD)
+                              // Prioridad 2: calcular desde subtotal y ivaPorcentaje del backend
+                              // NO recalcular desde cero, usar valores del backend
+                              const itemIva = item.valorIva !== undefined && item.valorIva !== null
+                                  ? item.valorIva
+                                  : itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
                               return (
                                   <tr key={item.productoId} className="text-sm">
                                       <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{producto?.referencia || 'N/A'}</td>
@@ -1191,7 +1235,7 @@ const FacturasPage: React.FC = () => {
                                       <td className="px-4 py-2 whitespace-nowrap text-right">{item.cantidad}</td>
                                       <td className="px-4 py-2 whitespace-nowrap text-right">{formatCurrency(item.precioUnitario)}</td>
                                       <td className="px-4 py-2 whitespace-nowrap text-right text-red-600">{item.descuentoPorcentaje.toFixed(2)}%</td>
-                                      <td className="px-4 py-2 whitespace-nowrap text-right">{item.ivaPorcentaje}%</td>
+                                      <td className="px-4 py-2 whitespace-nowrap text-right">{item.ivaPorcentaje?.toFixed(2) || '0.00'}%</td>
                                       <td className="px-4 py-2 whitespace-nowrap font-semibold text-right">{formatCurrency(itemSubtotal)}</td>
                                       <td className="px-4 py-2 whitespace-nowrap text-right">{formatCurrency(itemIva)}</td>
                                   </tr>
@@ -1218,7 +1262,21 @@ const FacturasPage: React.FC = () => {
                         <span>{formatCurrency(selectedFacturaTotals.subtotalNeto)}</span>
                     </div>
                     <div className="flex justify-between">
-                        <span>IVA (19%)</span>
+                        <span>IVA ({(() => {
+                            // Calcular porcentaje de IVA promedio desde los items del backend
+                            if (selectedFactura.items && selectedFactura.items.length > 0 && selectedFacturaTotals.subtotalNeto > 0) {
+                                const ivaPorcentajePromedio = (selectedFacturaTotals.iva / selectedFacturaTotals.subtotalNeto) * 100;
+                                // Redondear a porcentajes estándar (19%, 8%, 5%, 0%)
+                                if (Math.abs(ivaPorcentajePromedio - 19) < 1) return '19';
+                                if (Math.abs(ivaPorcentajePromedio - 8) < 1) return '8';
+                                if (Math.abs(ivaPorcentajePromedio - 5) < 1) return '5';
+                                if (ivaPorcentajePromedio < 0.5) return '0';
+                                // Si no es estándar, mostrar con 2 decimales
+                                return ivaPorcentajePromedio.toFixed(2);
+                            }
+                            // Fallback: usar ivaPorcentaje del primer item del backend
+                            return selectedFactura.items?.[0]?.ivaPorcentaje?.toFixed(2) || '19';
+                        })()}%)</span>
                         <span>{formatCurrency(selectedFacturaTotals.iva)}</span>
                     </div>
                     <div className="flex justify-between font-bold text-base border-t-2 border-slate-400 dark:border-slate-500 pt-2 mt-2 text-blue-600 dark:text-blue-400">

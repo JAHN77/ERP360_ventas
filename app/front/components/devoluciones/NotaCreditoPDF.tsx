@@ -86,8 +86,8 @@ const NotaCreditoPDF = React.forwardRef<HTMLDivElement, NotaCreditoPDFProps>(
                                     <td className="p-3 font-semibold text-slate-800 align-top">{item.descripcion}</td>
                                     <td className="p-3 text-right text-slate-800 align-top">{item.cantidad.toFixed(2)}</td>
                                     <td className="p-3 text-right text-slate-800 align-top">{formatCurrency(item.precioUnitario)}</td>
-                                    <td className="p-3 text-right font-medium text-slate-800 align-top">{formatCurrency(item.total)}</td>
-                                    <td className="p-3 text-right text-slate-800 align-top">{formatCurrency(item.total * (item.ivaPorcentaje / 100))}</td>
+                                    <td className="p-3 text-right font-medium text-slate-800 align-top">{formatCurrency(item.subtotal ?? ((item.precioUnitario || 0) * (item.cantidad || 0) * (1 - ((item.descuentoPorcentaje || 0) / 100))))}</td>
+                                    <td className="p-3 text-right text-slate-800 align-top">{formatCurrency(item.valorIva ?? ((item.subtotal ?? ((item.precioUnitario || 0) * (item.cantidad || 0) * (1 - ((item.descuentoPorcentaje || 0) / 100)))) * ((item.ivaPorcentaje || 0) / 100)))}</td>
                                 </tr>
                             )
                         })}

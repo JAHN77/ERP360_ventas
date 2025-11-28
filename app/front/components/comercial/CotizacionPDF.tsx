@@ -113,7 +113,7 @@ const CotizacionPDF = React.forwardRef<HTMLDivElement, CotizacionPDFProps>(
                                         <>
                                             <td className="p-3 text-right text-slate-600 align-top">{formatCurrency(item.precioUnitario)}</td>
                                             <td className="p-3 text-right text-red-600 align-top">{item.descuentoPorcentaje.toFixed(2)}%</td>
-                                            <td className="p-3 text-right font-medium text-slate-800 align-top">{formatCurrency(item.total)}</td>
+                                            <td className="p-3 text-right font-medium text-slate-800 align-top">{formatCurrency(item.subtotal)}</td>
                                             <td className="p-3 text-right text-slate-600 align-top">{formatCurrency(item.valorIva)}</td>
                                         </>
                                     ) : (

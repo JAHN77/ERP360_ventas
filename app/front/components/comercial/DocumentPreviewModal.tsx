@@ -6,6 +6,7 @@ import DocumentOptionsToolbar from './DocumentOptionsToolbar';
 import { DocumentPreferences } from '../../types';
 import SendEmailModal from './SendEmailModal';
 import { useData } from '../../hooks/useData';
+import { descargarElementoComoPDF } from '../../utils/pdfClient';
 
 interface DocumentPreviewModalProps {
     isOpen: boolean;
@@ -24,12 +25,6 @@ interface DocumentPreviewModalProps {
     clientName?: string; // Nuevo prop
 }
 
-declare global {
-  interface Window {
-    jspdf: any;
-    html2canvas: any;
-  }
-}
 
 const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
     isOpen,
@@ -55,74 +50,54 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
     const [isDownloading, setIsDownloading] = useState(false);
 
     const handleDownload = async () => {
-        if (!documentRef.current || isDownloading) {
+        // Buscar el elemento que contiene el contenido visible
+        const contentElement = documentRef.current || 
+            document.querySelector('.bg-white.shadow-lg.rounded-md') as HTMLElement;
+        
+        if (!contentElement || isDownloading) {
             if (!isDownloading) {
                 addNotification({ message: 'No hay contenido para descargar. Por favor, intenta nuevamente.', type: 'warning' });
             }
             return;
         }
 
-        // Verificar que html2canvas esté disponible
-        if (!window.html2canvas || typeof window.html2canvas !== 'function') {
-            addNotification({ 
-                message: 'La biblioteca html2canvas no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('html2canvas no disponible:', typeof window.html2canvas);
-            return;
-        }
-
-        // Verificar que jsPDF esté disponible
-        if (!window.jspdf || typeof window.jspdf !== 'object') {
-            addNotification({ 
-                message: 'La biblioteca jsPDF no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('jsPDF no disponible:', typeof window.jspdf);
+        // Validar que el elemento tenga contenido
+        if (!contentElement.innerHTML || contentElement.innerHTML.trim().length < 100) {
+            addNotification({ message: 'El contenido está vacío. Por favor, verifica la previsualización.', type: 'warning' });
             return;
         }
 
         setIsDownloading(true);
-        addNotification({ message: 'Iniciando descarga de previsualización...', type: 'info' });
+        addNotification({ message: 'Generando PDF desde la previsualización...', type: 'info' });
 
         try {
-            const { jsPDF } = window.jspdf;
+            // Esperar un momento para asegurar que el contenido esté completamente renderizado
+            await new Promise(resolve => setTimeout(resolve, 300));
             
-            if (!jsPDF) {
-                throw new Error('jsPDF no está disponible en window.jspdf');
-            }
-            const canvas = await window.html2canvas(documentRef.current, { 
-                scale: 2, 
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-                windowWidth: documentRef.current.scrollWidth,
-                windowHeight: documentRef.current.scrollHeight
-            });
-            const imgData = canvas.toDataURL('image/png');
-            
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            const imgProps = pdf.getImageProperties(imgData);
-            const ratio = imgProps.width / imgProps.height;
-            let finalWidth = pdfWidth;
-            let finalHeight = finalWidth / ratio;
-            
-            if (finalHeight > pdfHeight) {
-                finalHeight = pdfHeight;
-                finalWidth = finalHeight * ratio;
-            }
+            // Generar nombre de archivo seguro
+            const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '_');
+            const fileName = `Previsualizacion-${safeTitle}.pdf`;
 
-            const x = (pdfWidth - finalWidth) / 2;
-            const y = (pdfHeight - finalHeight) / 2;
-            
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            pdf.save(`Previsualizacion-${title.replace(/ /g, '_')}.pdf`);
-            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
+            // Usar el servicio de PDF con Puppeteer que captura correctamente el contenido
+            await descargarElementoComoPDF(contentElement, {
+                fileName,
+                format: 'A4',
+                margin: {
+                    top: '10mm',
+                    right: '12mm',
+                    bottom: '12mm',
+                    left: '12mm'
+                }
+            });
+
+            addNotification({ message: 'PDF generado correctamente desde la previsualización.', type: 'success' });
         } catch (error) {
             console.error('Error al generar el PDF:', error);
-            addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });
+            const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+            addNotification({ 
+                message: `No se pudo generar el archivo: ${errorMessage}. Intenta nuevamente.`, 
+                type: 'error' 
+            });
         } finally {
             setIsDownloading(false);
         }
@@ -136,9 +111,9 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         setIsEmailModalOpen(false);
     };
     
-    // Clone child to pass ref and preferences
+    // Clone child to pass preferences (el ref ahora está en el contenedor)
     const childWithProps = React.isValidElement(children) 
-        ? React.cloneElement(children, { ref: documentRef, preferences } as React.RefAttributes<HTMLDivElement> & { preferences: DocumentPreferences }) 
+        ? React.cloneElement(children, { preferences } as { preferences: DocumentPreferences }) 
         : children;
 
     const documentNumber = title.split(': ')[1] || 'N/A';
@@ -248,7 +223,7 @@ El equipo de ${datosEmpresa.nombre}`;
 
 
                 <div className="bg-slate-200 dark:bg-slate-900 p-4 sm:p-8">
-                    <div className="bg-white shadow-lg rounded-md overflow-hidden max-w-4xl mx-auto">
+                    <div ref={documentRef} className="bg-white shadow-lg rounded-md max-w-4xl mx-auto" style={{ overflow: 'visible' }}>
                         {childWithProps}
                     </div>
                 </div>

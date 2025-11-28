@@ -7,19 +7,19 @@ const { getConnection } = require('./sqlServerClient.cjs');
  * y envía las facturas al endpoint de DIAN
  */
 class DIANService {
-  // NIT de la empresa
-  static COMPANY_NIT = 901994818;
+  // NIT de la empresa (MULTIACABADOS S.A.S.)
+  static COMPANY_NIT = 802024306;
   
-  // Datos de la empresa (hardcodeados según necesidad)
+  // Datos de la empresa (se obtendrán desde gen_empresa)
   static COMPANY_DATA = {
-    identification_number: 901994818,
-    name: "ORQUIDEA IA SOLUTIONS S.A.S",
+    identification_number: 802024306, // nitemp de gen_empresa
+    name: "", // razemp de gen_empresa - se actualizará dinámicamente
     type_organization_id: 1, // 1 = Persona Jurídica
     type_document_id: "31", // NIT
     id_location: "11001", // Bogotá D.C.
-    address: "CR 53 100 50",
-    phone: "3044261630",
-    email: "orquideaiasolutionssas@gmail.com"
+    address: "",
+    phone: "",
+    email: ""
   };
 
   /**
@@ -34,19 +34,19 @@ class DIANService {
   }
 
   /**
-   * Obtiene la resolución DIAN activa desde la base de datos
+   * Obtiene la resolución DIAN activa desde la base de datos (Base de datos: Prueba_ERP360)
    * @returns {Promise<Object>} Resolución DIAN activa
    */
   static async getDIANResolution() {
-    console.log('\n' + '='.repeat(80));
-    console.log('📋 [DIAN] PASO 1: Obteniendo resolución DIAN activa');
-    console.log('='.repeat(80));
+    console.log('\n📊 Obteniendo resolución DIAN activa desde la base de datos...');
+    console.log('   Base de datos: Prueba_ERP360');
+    
     try {
       const pool = await getConnection();
       const request = pool.request();
       
-      console.log('🔍 [DIAN] Buscando resolución en Dian_Resoluciones_electronica...');
       // Intentar obtener desde Dian_Resoluciones_electronica primero, luego Dian_Resoluciones
+      console.log('🔍 Consultando Dian_Resoluciones_electronica...');
       let result = await request.query(`
         SELECT TOP 1 
           id,
@@ -60,10 +60,8 @@ class DIANService {
         ORDER BY id DESC
       `);
       
-      console.log(`📊 [DIAN] Resultados en Dian_Resoluciones_electronica: ${result.recordset.length}`);
-      
       if (result.recordset.length === 0) {
-        console.log('🔍 [DIAN] No se encontró en Dian_Resoluciones_electronica, buscando en Dian_Resoluciones...');
+        console.log('   No encontrada en Dian_Resoluciones_electronica, consultando Dian_Resoluciones...');
         result = await request.query(`
           SELECT TOP 1 
             id,
@@ -76,7 +74,6 @@ class DIANService {
           WHERE activa = 1
           ORDER BY id DESC
         `);
-        console.log(`📊 [DIAN] Resultados en Dian_Resoluciones: ${result.recordset.length}`);
       }
       
       if (result.recordset.length === 0) {
@@ -85,37 +82,95 @@ class DIANService {
       }
       
       const resolution = result.recordset[0];
-      console.log('✅ [DIAN] Resolución DIAN activa encontrada:');
-      console.log('   - ID:', resolution.id);
-      console.log('   - Consecutivo:', resolution.consecutivo);
-      console.log('   - Rango Inicial:', resolution.rango_inicial);
-      console.log('   - Rango Final:', resolution.rango_final);
-      console.log('   - ID API:', resolution.id_api);
-      console.log('   - Activa:', resolution.activa);
-      console.log('='.repeat(80) + '\n');
+      console.log('✅ Resolución DIAN activa encontrada:');
+      console.log('   - id:', resolution.id);
+      console.log('   - consecutivo:', resolution.consecutivo);
+      console.log('   - rango_inicial:', resolution.rango_inicial);
+      console.log('   - rango_final:', resolution.rango_final);
+      console.log('   - id_api:', resolution.id_api);
+      console.log('   - activa:', resolution.activa);
       
       return resolution;
     } catch (error) {
       console.error('❌ [DIAN] Error obteniendo resolución DIAN:', error.message);
       console.error('   Stack:', error.stack);
-      console.log('='.repeat(80) + '\n');
       throw error;
     }
   }
 
   /**
-   * Obtiene los parámetros DIAN desde dian_parametros_fe
-   * @returns {Promise<Object>} Parámetros DIAN (URL, testSetID, etc.)
+   * Obtiene los datos de la empresa desde gen_empresa (Base de datos: Prueba_ERP360)
+   * @returns {Promise<Object>} Datos de la empresa
    */
-  static async getDIANParameters() {
-    console.log('\n' + '='.repeat(80));
-    console.log('📋 [DIAN] PASO 2: Obteniendo parámetros DIAN');
-    console.log('='.repeat(80));
+  static async getCompanyData() {
     try {
       const pool = await getConnection();
       const request = pool.request();
       
-      console.log('🔍 [DIAN] Buscando parámetros en dian_parametros_fe...');
+      console.log('🔍 Consultando gen_empresa para obtener datos de la empresa...');
+      const result = await request.query(`
+        SELECT TOP 1 
+          nitemp,
+          razemp,
+          diremp,
+          teleep,
+          emailemp,
+          codmunicipio
+        FROM gen_empresa
+        ORDER BY id DESC
+      `);
+      
+      if (result.recordset.length === 0) {
+        console.warn('⚠️ [DIAN] No se encontraron datos de empresa en gen_empresa, usando valores por defecto');
+        return this.COMPANY_DATA;
+      }
+      
+      const empresa = result.recordset[0];
+      console.log('✅ Datos obtenidos de gen_empresa:');
+      console.log('   - nitemp:', empresa.nitemp);
+      console.log('   - razemp:', empresa.razemp);
+      console.log('   - diremp:', empresa.diremp);
+      console.log('   - teleep:', empresa.teleep);
+      console.log('   - emailemp:', empresa.emailemp);
+      console.log('   - codmunicipio:', empresa.codmunicipio);
+      
+      const companyData = {
+        identification_number: Number(empresa.nitemp) || this.COMPANY_NIT,
+        name: (empresa.razemp || '').trim().toUpperCase() || 'MULTIACABADOS S.A.S.',
+        type_organization_id: 1, // 1 = Persona Jurídica
+        type_document_id: "31", // NIT
+        id_location: empresa.codmunicipio || "11001", // Código DANE del municipio
+        address: (empresa.diremp || '').trim() || '',
+        phone: (empresa.teleep || '').replace(/[^\d]/g, '') || '',
+        email: (empresa.emailemp || '').trim().toLowerCase() || ''
+      };
+      
+      // Actualizar COMPANY_DATA estático
+      this.COMPANY_DATA = companyData;
+      this.COMPANY_NIT = companyData.identification_number;
+      
+      console.log('✅ Datos de empresa procesados y listos para usar');
+      return companyData;
+    } catch (error) {
+      console.error('❌ [DIAN] Error obteniendo datos de empresa desde gen_empresa:', error.message);
+      console.error('   Stack:', error.stack);
+      return this.COMPANY_DATA;
+    }
+  }
+
+  /**
+   * Obtiene los parámetros DIAN desde dian_parametros_fe (Base de datos: Prueba_ERP360)
+   * @returns {Promise<Object>} Parámetros DIAN (URL, testSetID, etc.)
+   */
+  static async getDIANParameters() {
+    console.log('\n📊 Obteniendo parámetros DIAN desde dian_parametros_fe...');
+    console.log('   Base de datos: Prueba_ERP360');
+    
+    try {
+      const pool = await getConnection();
+      const request = pool.request();
+      
+      console.log('🔍 Consultando dian_parametros_fe...');
       const result = await request.query(`
         SELECT TOP 1 *
         FROM dian_parametros_fe
@@ -123,69 +178,57 @@ class DIANService {
         ORDER BY id DESC
       `);
       
-      console.log(`📊 [DIAN] Resultados encontrados: ${result.recordset.length}`);
-      
       if (result.recordset.length === 0) {
-        console.log('⚠️ [DIAN] No se encontraron parámetros en BD, usando valores por defecto');
-        const defaultParams = {
+        console.warn('⚠️ [DIAN] No se encontraron parámetros en dian_parametros_fe, usando valores por defecto');
+        return {
           url_base: 'https://facturacionelectronica.mobilsaas.com',
           testSetID: '1',
           isPrueba: false,
           sync: false
         };
-        console.log('✅ [DIAN] Parámetros por defecto:', defaultParams);
-        console.log('='.repeat(80) + '\n');
-        return defaultParams;
       }
       
       const params = result.recordset[0];
-      const finalParams = {
+      console.log('✅ Parámetros DIAN encontrados en dian_parametros_fe:');
+      console.log('   - url_base:', params.url_base || 'N/A');
+      console.log('   - testSetID:', params.testSetID || params.test_set_id || 'N/A');
+      console.log('   - isPrueba:', params.isPrueba || params.is_prueba || 'N/A');
+      console.log('   - sync:', params.sync || 'N/A');
+      
+      return {
         url_base: params.url_base || 'https://facturacionelectronica.mobilsaas.com',
         testSetID: params.testSetID || params.test_set_id || '1',
         isPrueba: params.isPrueba || params.is_prueba || false,
         sync: params.sync || false
       };
-      
-      console.log('✅ [DIAN] Parámetros DIAN encontrados:');
-      console.log('   - URL Base:', finalParams.url_base);
-      console.log('   - Test Set ID:', finalParams.testSetID);
-      console.log('   - Es Prueba:', finalParams.isPrueba);
-      console.log('   - Sync:', finalParams.sync);
-      console.log('   - Parámetros completos desde BD:', JSON.stringify(params, null, 2));
-      console.log('='.repeat(80) + '\n');
-      
-      return finalParams;
     } catch (error) {
-      console.error('❌ [DIAN] Error obteniendo parámetros DIAN:', error.message);
+      console.error('❌ [DIAN] Error obteniendo parámetros DIAN desde dian_parametros_fe:', error.message);
       console.error('   Stack:', error.stack);
-      console.log('⚠️ [DIAN] Usando valores por defecto debido al error');
-      const defaultParams = {
+      console.warn('   Usando valores por defecto');
+      return {
         url_base: 'https://facturacionelectronica.mobilsaas.com',
         testSetID: '1',
         isPrueba: false,
         sync: false
       };
-      console.log('✅ [DIAN] Parámetros por defecto:', defaultParams);
-      console.log('='.repeat(80) + '\n');
-      return defaultParams;
     }
   }
 
   /**
-   * Obtiene los datos completos de una factura con sus detalles
+   * Obtiene los datos completos de una factura con sus detalles (Base de datos: Prueba_ERP360)
    * @param {number} facturaId - ID de la factura
    * @returns {Promise<Object>} Factura completa con detalles y cliente
    */
   static async getFacturaCompleta(facturaId) {
-    console.log('\n' + '='.repeat(80));
-    console.log('📋 [DIAN] PASO 3: Obteniendo factura completa');
-    console.log('='.repeat(80));
-    console.log('🔍 [DIAN] Factura ID:', facturaId);
+    console.log('\n📊 Obteniendo datos completos de la factura desde la base de datos...');
+    console.log('   Base de datos: Prueba_ERP360');
+    console.log('   Factura ID:', facturaId);
+    
     try {
       const pool = await getConnection();
       
-      // Obtener factura
-      console.log('🔍 [DIAN] Obteniendo encabezado de factura...');
+      // Obtener factura desde ven_facturas
+      console.log('\n🔍 Consultando ven_facturas para obtener encabezado de factura...');
       const reqFactura = pool.request();
       reqFactura.input('facturaId', sql.Int, facturaId);
       const facturaResult = await reqFactura.query(`
@@ -195,21 +238,22 @@ class DIANService {
       `);
       
       if (facturaResult.recordset.length === 0) {
-        console.error(`❌ [DIAN] Factura con ID ${facturaId} no encontrada`);
+        console.error(`❌ [DIAN] Factura con ID ${facturaId} no encontrada en ven_facturas`);
         throw new Error(`Factura con ID ${facturaId} no encontrada`);
       }
       
       const factura = facturaResult.recordset[0];
-      console.log('✅ [DIAN] Factura encontrada:');
+      console.log('✅ Factura encontrada en ven_facturas:');
       console.log('   - ID:', factura.id);
-      console.log('   - Número:', factura.numfact || factura.numero_factura);
-      console.log('   - Cliente (codter):', factura.codter || factura.cliente_id);
-      console.log('   - Total:', factura.netfac || factura.total);
-      console.log('   - IVA:', factura.valiva || factura.iva_valor);
-      console.log('   - Estado:', factura.estfac || factura.estado);
+      console.log('   - numfact:', factura.numfact || 'N/A');
+      console.log('   - codter:', factura.codter || 'N/A');
+      console.log('   - valvta:', factura.valvta || 'N/A');
+      console.log('   - valiva:', factura.valiva || 'N/A');
+      console.log('   - netfac:', factura.netfac || 'N/A');
+      console.log('   - valdcto:', factura.valdcto || 'N/A');
       
-      // Obtener detalles de factura
-      console.log('🔍 [DIAN] Obteniendo detalles de factura...');
+      // Obtener detalles de factura desde ven_detafact
+      console.log('\n🔍 Consultando ven_detafact para obtener detalles de factura...');
       const reqDetalles = pool.request();
       reqDetalles.input('facturaId', sql.Int, facturaId);
       
@@ -220,11 +264,11 @@ class DIANService {
         WHERE id_factura = @facturaId
       `);
       
-      console.log(`📊 [DIAN] Detalles encontrados con id_factura: ${detallesResult.recordset.length}`);
+      console.log(`   Detalles encontrados con id_factura: ${detallesResult.recordset.length}`);
       
       // Si no hay resultados, intentar con campos legacy (numfac, tipfact, codalm)
       if (detallesResult.recordset.length === 0 && factura.numero_factura) {
-        console.log('🔍 [DIAN] No se encontraron detalles con id_factura, intentando con campos legacy...');
+        console.log('   Intentando con campos legacy (numfac, tipfact, codalm)...');
         const reqDetallesLegacy = pool.request();
         reqDetallesLegacy.input('numfac', sql.VarChar(15), factura.numero_factura);
         reqDetallesLegacy.input('tipfact', sql.Char(2), factura.tipfac || '01');
@@ -237,12 +281,19 @@ class DIANService {
             AND (tipfact = @tipfact OR tipfact IS NULL)
             AND codalm = @codalm
         `);
-        console.log(`📊 [DIAN] Detalles encontrados con campos legacy: ${detallesResult.recordset.length}`);
+        console.log(`   Detalles encontrados con campos legacy: ${detallesResult.recordset.length}`);
       }
       
-      // Obtener datos del cliente
+      if (detallesResult.recordset.length > 0) {
+        console.log('✅ Detalles de factura encontrados:');
+        detallesResult.recordset.forEach((det, idx) => {
+          console.log(`   Línea ${idx + 1}: codins=${det.codins || 'N/A'}, qtyins=${det.qtyins || 'N/A'}, valins=${det.valins || 'N/A'}, ivains=${det.ivains || 'N/A'}`);
+        });
+      }
+      
+      // Obtener datos del cliente desde con_terceros
       const codterCliente = factura.cliente_id || factura.codter;
-      console.log('🔍 [DIAN] Obteniendo datos del cliente (codter):', codterCliente);
+      console.log(`\n🔍 Consultando con_terceros para obtener datos del cliente (codter: ${codterCliente})...`);
       const reqCliente = pool.request();
       reqCliente.input('codter', sql.VarChar(15), codterCliente);
       const clienteResult = await reqCliente.query(`
@@ -254,32 +305,123 @@ class DIANService {
       const cliente = clienteResult.recordset.length > 0 ? clienteResult.recordset[0] : null;
       
       if (cliente) {
-        console.log('✅ [DIAN] Cliente encontrado:');
-        console.log('   - Código:', cliente.codter);
-        console.log('   - Nombre:', cliente.nomter || cliente.nombreCompleto);
-        console.log('   - Teléfono:', cliente.TELTER || cliente.telefono || cliente.CELTER || cliente.celular || 'N/A');
-        console.log('   - Email:', cliente.EMAIL || cliente.email || 'N/A');
-        console.log('   - Dirección:', cliente.dirter || cliente.direccion || 'N/A');
+        console.log('✅ Cliente encontrado en con_terceros:');
+        console.log('   - codter:', cliente.codter);
+        console.log('   - nomter:', cliente.nomter);
+        console.log('   - tipter:', cliente.tipter);
+        console.log('   - Tipo_documento:', cliente.Tipo_documento || cliente.tipo_documento);
+        console.log('   - coddane:', cliente.coddane);
+        console.log('   - dirter:', cliente.dirter);
+        console.log('   - TELTER:', cliente.TELTER);
+        console.log('   - EMAIL:', cliente.EMAIL);
       } else {
-        console.warn('⚠️ [DIAN] Cliente no encontrado con codter:', codterCliente);
+        console.warn(`⚠️ [DIAN] Cliente no encontrado en con_terceros con codter: ${codterCliente}`);
       }
       
-      console.log('✅ [DIAN] Factura completa obtenida:');
-      console.log('   - Total detalles:', detallesResult.recordset.length);
-      console.log('   - Cliente:', cliente ? 'Encontrado' : 'No encontrado');
-      console.log('='.repeat(80) + '\n');
-      
+      console.log('\n✅ Datos completos de factura obtenidos exitosamente');
       return {
         factura,
         detalles: detallesResult.recordset || [],
         cliente
       };
     } catch (error) {
-      console.error('❌ [DIAN] Error obteniendo factura completa:', error.message);
+      console.error('❌ [DIAN] Error obteniendo factura completa desde la base de datos:', error.message);
       console.error('   Stack:', error.stack);
-      console.log('='.repeat(80) + '\n');
       throw error;
     }
+  }
+
+  /**
+   * Imprime un resumen completo de todos los datos que se enviarán a facturar
+   * @param {Object} datosFacturacion - Todos los datos de facturación
+   */
+  static imprimirResumenDatosFacturacion(datosFacturacion) {
+    console.log('\n' + '='.repeat(100));
+    console.log('📋 RESUMEN COMPLETO DE DATOS A FACTURAR');
+    console.log('='.repeat(100));
+    
+    const {
+      factura,
+      cliente,
+      empresa,
+      detalles,
+      numeroFactura,
+      totales,
+      impuestos,
+      formasPago,
+      configuracion
+    } = datosFacturacion;
+    
+    console.log('\n🔢 INFORMACIÓN DE LA FACTURA:');
+    console.log('   - ID Factura:', factura?.id || 'N/A');
+    console.log('   - Número Factura (BD):', factura?.numfact || factura?.numeroFactura || 'N/A');
+    console.log('   - Número Factura (DIAN):', numeroFactura || 'N/A');
+    console.log('   - Fecha Factura:', factura?.fecfac || factura?.fechaFactura || 'N/A');
+    console.log('   - Fecha Vencimiento:', factura?.venfac || factura?.fechaVencimiento || 'N/A');
+    console.log('   - Tipo Factura:', factura?.tipfac || factura?.tipoFactura || 'N/A');
+    console.log('   - Estado:', factura?.estfac || factura?.estado || 'N/A');
+    
+    console.log('\n💰 TOTALES DE LA FACTURA (desde ven_facturas):');
+    console.log('   - Subtotal (valvta):', totales?.subtotal || 'N/A');
+    console.log('   - IVA (valiva):', totales?.iva || 'N/A');
+    console.log('   - Descuento (valdcto):', totales?.descuento || 'N/A');
+    console.log('   - Total (netfac):', totales?.total || 'N/A');
+    console.log('   - % IVA Calculado:', impuestos?.porcentaje || 'N/A', '%');
+    console.log('   - Código Impuesto:', impuestos?.codigo || 'N/A');
+    
+    console.log('\n🏢 DATOS DE LA EMPRESA (desde gen_empresa):');
+    console.log('   - NIT (nitemp):', empresa?.identification_number || 'N/A');
+    console.log('   - Razón Social (razemp):', empresa?.name || 'N/A');
+    console.log('   - Dirección (diremp):', empresa?.address || 'N/A');
+    console.log('   - Teléfono (teleep):', empresa?.phone || 'N/A');
+    console.log('   - Email (emailemp):', empresa?.email || 'N/A');
+    console.log('   - Código DANE (codmunicipio):', empresa?.id_location || 'N/A');
+    console.log('   - Tipo Organización:', empresa?.type_organization_id || 'N/A', '(1=Jurídica, 2=Natural)');
+    console.log('   - Tipo Documento:', empresa?.type_document_id || 'N/A', '(31=NIT)');
+    
+    console.log('\n👤 DATOS DEL CLIENTE (desde con_terceros):');
+    console.log('   - NIT/Documento (codter):', cliente?.codter || 'N/A');
+    console.log('   - Nombre (nomter):', cliente?.nomter || 'N/A');
+    console.log('   - Tipo Organización (tipter):', cliente?.tipter || 'N/A', '(1=Jurídica, 2=Natural)');
+    console.log('   - Tipo Documento (Tipo_documento):', cliente?.Tipo_documento || cliente?.tipo_documento || 'N/A');
+    console.log('   - Código DANE (coddane):', cliente?.coddane || 'N/A');
+    console.log('   - Dirección (dirter):', cliente?.dirter || 'N/A');
+    console.log('   - Teléfono (TELTER):', cliente?.TELTER || 'N/A');
+    console.log('   - Celular (CELTER):', cliente?.CELTER || 'N/A');
+    console.log('   - Email (EMAIL):', cliente?.EMAIL || 'N/A');
+    
+    console.log('\n📦 DETALLES DE LA FACTURA (desde ven_detafact):');
+    if (detalles && detalles.length > 0) {
+      detalles.forEach((det, index) => {
+        console.log(`\n   Línea ${index + 1}:`);
+        console.log('     - Código Producto (codins):', det.codins || 'N/A');
+        console.log('     - Cantidad (qtyins):', det.qtyins || det.cantidad || 'N/A');
+        console.log('     - Precio Unitario (valins):', det.valins || det.precioUnitario || 'N/A');
+        console.log('     - IVA (ivains):', det.ivains || det.valorIva || 'N/A');
+        console.log('     - Descuento (valdescuento):', det.valdescuento || 'N/A');
+        console.log('     - Descripción (observa):', det.observa || det.descripcion || 'N/A');
+      });
+    } else {
+      console.log('   ⚠️ No hay detalles de factura');
+    }
+    
+    console.log('\n💳 FORMAS DE PAGO (desde ven_facturas):');
+    console.log('   - Efectivo:', formasPago?.efectivo || 'N/A');
+    console.log('   - Crédito:', formasPago?.credito || 'N/A');
+    console.log('   - Tarjeta:', formasPago?.tarjeta || 'N/A');
+    console.log('   - Transferencia:', formasPago?.transferencia || 'N/A');
+    console.log('   - Payment Form ID:', formasPago?.formId || 'N/A');
+    console.log('   - Payment Method ID:', formasPago?.methodId || 'N/A');
+    console.log('   - Plazo (días):', formasPago?.plazo || 'N/A');
+    
+    console.log('\n⚙️ CONFIGURACIÓN DIAN:');
+    console.log('   - Resolución ID:', configuracion?.resolutionId || 'N/A');
+    console.log('   - Tipo Documento (Producción/Prueba):', configuracion?.typeDocumentId || 'N/A', '(1=Producción, 2=Prueba)');
+    console.log('   - Sync:', configuracion?.sync || 'N/A');
+    console.log('   - URL Base:', configuracion?.urlBase || 'N/A');
+    console.log('   - Test Set ID:', configuracion?.testSetID || 'N/A');
+    
+    console.log('\n' + '='.repeat(100));
   }
 
   /**
@@ -291,9 +433,9 @@ class DIANService {
    * @returns {Promise<Object>} JSON en formato DIAN
    */
   static async transformVenFacturaForDIAN(facturaData, resolution, config = {}, invoiceData = {}) {
-    console.log('\n' + '='.repeat(80));
-    console.log('📋 [DIAN] PASO 4: Transformando factura al formato DIAN');
-    console.log('='.repeat(80));
+    console.log('\n' + '='.repeat(100));
+    console.log('🔄 TRANSFORMANDO FACTURA PARA FACTURACIÓN ELECTRÓNICA DIAN');
+    console.log('='.repeat(100));
     
     const { factura: venFactura, detalles, cliente } = facturaData;
     
@@ -304,32 +446,14 @@ class DIANService {
         const isArray = Array.isArray(invoiceData.trackId);
         const isObject = trackIdType === 'object' && invoiceData.trackId !== null;
         
-        console.log('🔍 [DIAN] Validando trackId en invoiceData:');
-        console.log('   - trackId presente:', 'trackId' in invoiceData);
-        console.log('   - trackId valor:', invoiceData.trackId);
-        console.log('   - trackId tipo:', trackIdType);
-        console.log('   - trackId es array:', isArray);
-        console.log('   - trackId es object:', isObject);
-        
         if (isArray || isObject) {
-          console.error('❌ [DIAN] ERROR: trackId en invoiceData es array u objeto!');
-          console.error('   - Eliminando trackId inválido de invoiceData...');
+          console.error('❌ [DIAN] ERROR: trackId en invoiceData es array u objeto! Eliminando...');
           delete invoiceData.trackId;
         } else if (invoiceData.trackId !== null && invoiceData.trackId !== undefined) {
-          // Convertir a string si es válido
           invoiceData.trackId = String(invoiceData.trackId);
-          console.log('   - trackId convertido a string:', invoiceData.trackId);
         }
       }
     }
-    
-    console.log('📊 [DIAN] Datos de entrada:');
-    console.log('   - Factura ID:', venFactura.id);
-    console.log('   - Número Factura:', venFactura.numfact || venFactura.numero_factura);
-    console.log('   - Total detalles:', detalles?.length || 0);
-    console.log('   - Cliente:', cliente ? (cliente.nomter || cliente.nombreCompleto || cliente.codter) : 'No encontrado');
-    console.log('   - Config:', JSON.stringify(config, null, 2));
-    console.log('   - Invoice Data (validado):', JSON.stringify(invoiceData, null, 2));
     
     // Fechas
     const currentDate = new Date();
@@ -338,124 +462,241 @@ class DIANService {
       ? new Date(venFactura.fecha_vencimiento).toISOString().split('T')[0]
       : issueDate;
     
-    console.log('📅 [DIAN] Fechas:');
-    console.log('   - Fecha Emisión:', issueDate);
-    console.log('   - Fecha Vencimiento:', dueDate);
+    // Obtener datos de la empresa dinámicamente desde gen_empresa (Base de datos: Prueba_ERP360)
+    console.log('\n📊 Obteniendo datos de la empresa desde gen_empresa...');
+    const companyData = await this.getCompanyData();
+    console.log('✅ Datos de empresa obtenidos:', {
+      nitemp: companyData.identification_number,
+      razemp: companyData.name,
+      diremp: companyData.address,
+      teleep: companyData.phone,
+      emailemp: companyData.email,
+      codmunicipio: companyData.id_location
+    });
     
-    // Calcular número de factura (consecutivo + 1)
-    let invoiceNumber = (resolution.consecutivo || 0) + 1;
-    console.log('🔢 [DIAN] Número de factura inicial:', invoiceNumber, '(consecutivo:', resolution.consecutivo, ')');
-    
-    // Validar que esté en el rango autorizado
-    if (resolution.rango_inicial && invoiceNumber < resolution.rango_inicial) {
-      console.log('⚠️ [DIAN] Número de factura menor al rango inicial, ajustando a:', resolution.rango_inicial);
-      invoiceNumber = resolution.rango_inicial;
-    } else if (resolution.rango_final && invoiceNumber > resolution.rango_final) {
-      console.log('⚠️ [DIAN] Número de factura mayor al rango final, reiniciando a:', resolution.rango_inicial || 1);
-      invoiceNumber = resolution.rango_inicial || 1; // Reinicia si se excede
+    // Obtener último número de factura desde ven_facturas (Base de datos: Prueba_ERP360)
+    console.log('\n📊 Obteniendo último número de factura desde ven_facturas...');
+    let invoiceNumber = 80604; // Último número conocido
+    try {
+      const pool = await getConnection();
+      const request = pool.request();
+      
+      // Buscar el número más alto considerando diferentes formatos
+      const maxNumResult = await request.query(`
+        SELECT TOP 1 
+          numfact,
+          CASE 
+            WHEN ISNUMERIC(numfact) = 1 THEN CAST(numfact AS INT)
+            WHEN numfact LIKE 'FC-%' AND ISNUMERIC(SUBSTRING(numfact, 4, LEN(numfact))) = 1 
+              THEN CAST(SUBSTRING(numfact, 4, LEN(numfact)) AS INT)
+            ELSE 0
+          END as maxNum
+        FROM ven_facturas
+        WHERE (
+          ISNUMERIC(numfact) = 1 OR
+          (numfact LIKE 'FC-%' AND ISNUMERIC(SUBSTRING(numfact, 4, LEN(numfact))) = 1)
+        )
+        ORDER BY 
+          CASE 
+            WHEN ISNUMERIC(numfact) = 1 THEN CAST(numfact AS INT)
+            WHEN numfact LIKE 'FC-%' AND ISNUMERIC(SUBSTRING(numfact, 4, LEN(numfact))) = 1 
+              THEN CAST(SUBSTRING(numfact, 4, LEN(numfact)) AS INT)
+            ELSE 0
+          END DESC
+      `);
+      
+      if (maxNumResult.recordset.length > 0 && maxNumResult.recordset[0].maxNum) {
+        const lastNumber = maxNumResult.recordset[0].maxNum;
+        const lastNumFact = maxNumResult.recordset[0].numfact;
+        console.log(`✅ Última factura encontrada: ${lastNumFact} (número: ${lastNumber})`);
+        
+        if (lastNumber >= 80604) {
+          invoiceNumber = lastNumber + 1;
+          console.log(`✅ Nuevo número de factura generado: ${invoiceNumber} (continuando desde ${lastNumber})`);
+        } else {
+          invoiceNumber = 80605;
+          console.log(`⚠️ Último número (${lastNumber}) menor a 80604, usando: ${invoiceNumber}`);
+        }
+      } else {
+        invoiceNumber = 80605;
+        console.log(`⚠️ No se encontró número anterior, usando: ${invoiceNumber}`);
+      }
+    } catch (error) {
+      console.warn('⚠️ [DIAN] Error obteniendo último número de factura, usando 80605:', error.message);
+      invoiceNumber = 80605;
     }
-    console.log('✅ [DIAN] Número de factura final:', invoiceNumber);
     
-    // Calcular totales
-    const totalAmount = venFactura.netfac || venFactura.valvta || venFactura.total || 0;
-    const taxAmount = this.roundCOP(venFactura.valiva || venFactura.iva_valor || 0);
-    const lineExtensionAmount = this.roundCOP(totalAmount - taxAmount);
+    // Calcular totales usando valvta (sin IVA) y valiva (IVA) desde ven_facturas (Base de datos: Prueba_ERP360)
+    console.log('\n💰 Calculando totales desde ven_facturas:');
+    const lineExtensionAmount = this.roundCOP(venFactura.valvta || 0); // Total sin impuestos (valvta)
+    const taxAmount = this.roundCOP(venFactura.valiva || 0); // Valor total del IVA (valiva)
+    const totalAmount = this.roundCOP(lineExtensionAmount + taxAmount); // Total con IVA (valvta + valiva)
+    const descuento = this.roundCOP(venFactura.valdcto || venFactura.descuento_valor || 0); // Descuento (valdcto)
     
-    console.log('💰 [DIAN] Totales calculados:');
-    console.log('   - Total Amount:', totalAmount);
-    console.log('   - Tax Amount (IVA):', taxAmount);
-    console.log('   - Line Extension Amount (Subtotal):', lineExtensionAmount);
+    console.log('   - valvta (Total sin impuestos):', lineExtensionAmount);
+    console.log('   - valiva (IVA):', taxAmount);
+    console.log('   - valdcto (Descuento):', descuento);
+    console.log('   - netfac (Total):', totalAmount);
     
-    // Calcular porcentaje de IVA
-    let ivaPercent = 19; // Por defecto 19%
+    // Calcular porcentaje de IVA desde valvta y valiva (Base de datos: Prueba_ERP360)
+    console.log('\n📊 Calculando porcentaje de IVA desde valvta y valiva...');
+    let ivaPercent = 0; // Por defecto 0%
     if (lineExtensionAmount > 0 && taxAmount > 0) {
       const calculatedPercent = (taxAmount / lineExtensionAmount) * 100;
-      console.log('📊 [DIAN] Porcentaje IVA calculado:', calculatedPercent, '%');
+      console.log(`   Porcentaje calculado: ${calculatedPercent.toFixed(2)}%`);
       
-      // Redondear a tarifas estándar de DIAN (19%, 5%, 0%)
+      // Redondear a tarifas estándar de DIAN (19%, 5%, 8%, 0%)
       if (calculatedPercent >= 18.5 && calculatedPercent <= 19.5) {
         ivaPercent = 19;
-        console.log('✅ [DIAN] IVA ajustado a 19% (estándar)');
+        console.log('   ✅ IVA ajustado a 19% (estándar)');
+      } else if (calculatedPercent >= 7.5 && calculatedPercent <= 8.5) {
+        ivaPercent = 8;
+        console.log('   ✅ IVA ajustado a 8% (especial)');
       } else if (calculatedPercent >= 4.5 && calculatedPercent <= 5.5) {
         ivaPercent = 5;
-        console.log('✅ [DIAN] IVA ajustado a 5% (reducido)');
+        console.log('   ✅ IVA ajustado a 5% (reducido)');
       } else if (calculatedPercent < 0.5) {
         ivaPercent = 0;
-        console.log('✅ [DIAN] IVA ajustado a 0% (exento)');
+        console.log('   ✅ IVA ajustado a 0% (exento)');
       } else {
         ivaPercent = Math.round(calculatedPercent * 100) / 100;
-        console.log('✅ [DIAN] IVA usando porcentaje calculado:', ivaPercent, '%');
+        console.log(`   ✅ IVA usando porcentaje calculado: ${ivaPercent}%`);
       }
     } else {
-      console.log('⚠️ [DIAN] Usando IVA por defecto 19% (no se pudo calcular)');
+      console.log('   ⚠️ No se pudo calcular IVA, usando 0%');
     }
     
-    // Determinar forma de pago
-    let paymentFormId = 1; // Efectivo
-    let paymentMethodId = 10; // Efectivo
+    // Determinar código de impuesto según el tipo de IVA
+    // 01 para IVA, 04 para INC, ZA para IVA e INC, ZZ para no aplica
+    let taxCode = "01"; // Por defecto IVA
+    if (ivaPercent === 0) {
+      taxCode = "ZZ"; // No aplica
+      console.log('   ✅ Código de impuesto: ZZ (no aplica)');
+    } else if (taxAmount > 0) {
+      taxCode = "01"; // IVA
+      console.log('   ✅ Código de impuesto: 01 (IVA)');
+    }
+    
+    // Determinar forma de pago desde ven_facturas (Base de datos: Prueba_ERP360)
+    console.log('\n💳 Determinando forma de pago desde ven_facturas...');
+    console.log('   - efectivo:', venFactura.efectivo || 0);
+    console.log('   - credito:', venFactura.credito || 0);
+    console.log('   - tarjetacr:', venFactura.tarjetacr || 0);
+    console.log('   - Transferencia:', venFactura.Transferencia || venFactura.transferencia || 0);
+    console.log('   - plazo:', venFactura.plazo || 0);
+    
+    let paymentFormId = 1; // 1 = Contado (hardcodeado temporalmente - se obtendrá desde MySQL electronica)
+    let paymentMethodId = 10; // 10 = Efectivo (hardcodeado temporalmente - se obtendrá desde MySQL electronica)
     
     if ((venFactura.tarjetacr || 0) > 0) {
       paymentFormId = 2; // Tarjeta
       paymentMethodId = 48; // Tarjeta débito/crédito
+      console.log('   ✅ Forma de pago: Tarjeta (Form ID: 2, Method ID: 48)');
     } else if ((venFactura.Transferencia || venFactura.transferencia || 0) > 0) {
       paymentFormId = 3; // Transferencia
       paymentMethodId = 42; // Transferencia bancaria
+      console.log('   ✅ Forma de pago: Transferencia (Form ID: 3, Method ID: 42)');
     } else if ((venFactura.credito || 0) > 0) {
       paymentFormId = 4; // Crédito
       paymentMethodId = 1; // Crédito
+      console.log(`   ✅ Forma de pago: Crédito (Form ID: 4, Method ID: 1, Plazo: ${venFactura.plazo || 0} días)`);
+    } else {
+      console.log('   ✅ Forma de pago: Efectivo (Form ID: 1, Method ID: 10)');
     }
     
-    // Construir líneas de factura
+    // Construir líneas de factura desde ven_detafact (Base de datos: Prueba_ERP360)
+    console.log('\n📦 Construyendo líneas de factura desde ven_detafact...');
+    console.log(`   Total de detalles encontrados: ${detalles?.length || 0}`);
+    
     let invoiceLines = [];
     
     if (detalles && detalles.length > 0) {
-      // Si hay detalles, crear una línea por cada detalle
+      // Si hay detalles, crear una línea por cada detalle desde ven_detafact
       invoiceLines = detalles.map((detalle, index) => {
-        const detalleLineExtension = this.roundCOP(detalle.subtotal || (detalle.valins || 0) - (detalle.ivains || 0));
-        const detalleTaxAmount = this.roundCOP(detalle.valorIva || detalle.ivains || 0);
-        const detallePrice = this.roundCOP(detalle.precioUnitario || detalle.valins || 0);
-        const detalleQuantity = parseFloat(detalle.cantidad || detalle.qtyins || 1);
+        console.log(`\n   Procesando línea ${index + 1} desde ven_detafact:`);
+        console.log(`     - codins: ${detalle.codins || 'N/A'}`);
+        console.log(`     - qtyins: ${detalle.qtyins || detalle.cantidad || 'N/A'}`);
+        console.log(`     - valins: ${detalle.valins || detalle.precioUnitario || 'N/A'}`);
+        console.log(`     - ivains: ${detalle.ivains || detalle.valorIva || 'N/A'}`);
+        console.log(`     - valdescuento: ${detalle.valdescuento || 'N/A'}`);
+        console.log(`     - observa: ${detalle.observa || detalle.descripcion || 'N/A'}`);
         
-        return {
-          unit_measure_id: 70, // Unidad estándar
-          invoiced_quantity: detalleQuantity,
-          line_extension_amount: detalleLineExtension,
-          description: detalle.descripcion || "VENTA DE PRODUCTOS Y SERVICIOS",
-          price_amount: detallePrice,
-          code: String(detalle.productoId || detalle.codins || (index + 1)),
-          type_item_identification_id: 4, // Código interno del vendedor
-          base_quantity: detalleQuantity,
-          free_of_charge_indicator: false,
+        // Calcular valores desde ven_detafact
+        const detalleQuantity = parseFloat(detalle.qtyins || detalle.cantidad || 1);
+        const detallePrice = this.roundCOP(detalle.valins || detalle.precioUnitario || 0);
+        const detalleTaxAmount = this.roundCOP(detalle.ivains || detalle.valorIva || 0);
+        const detalleLineExtension = this.roundCOP((detallePrice * detalleQuantity) - (detalle.valdescuento || 0)); // Precio * cantidad - descuento
+        
+        // Calcular porcentaje de IVA del detalle
+        let detalleIvaPercent = ivaPercent;
+        if (detalleLineExtension > 0 && detalleTaxAmount > 0) {
+          const calcPercent = (detalleTaxAmount / detalleLineExtension) * 100;
+          if (calcPercent >= 18.5 && calcPercent <= 19.5) {
+            detalleIvaPercent = 19;
+          } else if (calcPercent >= 7.5 && calcPercent <= 8.5) {
+            detalleIvaPercent = 8;
+          } else if (calcPercent >= 4.5 && calcPercent <= 5.5) {
+            detalleIvaPercent = 5;
+          } else if (calcPercent < 0.5) {
+            detalleIvaPercent = 0;
+          } else {
+            detalleIvaPercent = Math.round(calcPercent * 100) / 100;
+          }
+        }
+        
+        // Determinar código de impuesto para esta línea
+        let detalleTaxCode = taxCode;
+        if (detalleIvaPercent === 0) {
+          detalleTaxCode = "ZZ"; // No aplica
+        } else if (detalleTaxAmount > 0) {
+          detalleTaxCode = "01"; // IVA
+        }
+        
+        const linea = {
+          unit_measure_id: 70, // Hardcodeado temporalmente - se obtendrá desde MySQL electronica
+          invoiced_quantity: detalleQuantity, // qtyins desde ven_detafact
+          line_extension_amount: detalleLineExtension, // Total de la línea sin impuestos
+          description: detalle.observa || detalle.descripcion || "VENTA DE PRODUCTOS Y SERVICIOS", // observa desde ven_detafact
+          price_amount: detallePrice, // Precio unitario (valins)
+          code: String(detalle.codins || detalle.codProducto || (index + 1)), // codins desde ven_detafact
+          type_item_identification_id: 4, // 4 = Código estándar interno (DIAN)
+          base_quantity: detalleQuantity, // Cantidad base (generalmente igual a invoiced_quantity)
+          free_of_charge_indicator: false, // Si es una línea gratuita
           tax_totals: [{
-            tax_id: 1,
-            tax_amount: detalleTaxAmount,
-            taxable_amount: detalleLineExtension,
-            percent: ivaPercent
+            tax_id: detalleTaxCode, // 01 para IVA, 04 para INC, ZA para IVA e INC, ZZ para no aplica
+            tax_amount: detalleTaxAmount, // ivains desde ven_detafact
+            taxable_amount: detalleLineExtension, // Base de cálculo
+            percent: detalleIvaPercent // Porcentaje del impuesto
           }]
         };
+        
+        console.log(`     ✅ Línea ${index + 1} procesada correctamente`);
+        return linea;
       });
     } else {
       // Factura consolidada (una sola línea)
+      console.log('\n   ⚠️ No se encontraron detalles en ven_detafact, creando línea consolidada');
       invoiceLines = [{
-        unit_measure_id: 70,
+        unit_measure_id: 70, // Hardcodeado temporalmente - se obtendrá desde MySQL electronica
         invoiced_quantity: 1,
-        line_extension_amount: this.roundCOP(lineExtensionAmount),
+        line_extension_amount: this.roundCOP(lineExtensionAmount), // valvta
         description: "VENTA DE PRODUCTOS Y SERVICIOS",
-        price_amount: this.roundCOP(lineExtensionAmount),
+        price_amount: this.roundCOP(lineExtensionAmount), // valvta
         code: "1",
         type_item_identification_id: 4,
         base_quantity: 1,
         free_of_charge_indicator: false,
         tax_totals: [{
-          tax_id: 1,
-          tax_amount: this.roundCOP(taxAmount),
-          taxable_amount: this.roundCOP(lineExtensionAmount),
+          tax_id: taxCode, // 01 para IVA, 04 para INC, ZA para IVA e INC, ZZ para no aplica
+          tax_amount: this.roundCOP(taxAmount), // valiva
+          taxable_amount: this.roundCOP(lineExtensionAmount), // valvta
           percent: ivaPercent
         }]
       }];
     }
     
-    // Datos del cliente
+    // Datos del cliente desde con_terceros (Base de datos: Prueba_ERP360)
+    console.log('\n👤 Procesando datos del cliente desde con_terceros...');
     const customerIdentification = Number(
       invoiceData?.customer_document || 
       cliente?.codter || 
@@ -470,84 +711,80 @@ class DIANService {
        "CONSUMIDOR FINAL")
     ).toUpperCase().trim();
     
+    // Obtener tipo de documento del cliente desde con_terceros
+    const customerTypeDocument = cliente?.Tipo_documento || cliente?.tipo_documento || "13";
+    const customerTypeOrganization = cliente?.tipter || 2; // 1 = Jurídica, 2 = Natural
+    
+    console.log('   ✅ Datos del cliente procesados:');
+    console.log('     - identification_number (codter):', customerIdentification);
+    console.log('     - name (nomter):', customerName);
+    console.log('     - type_organization_id (tipter):', customerTypeOrganization);
+    console.log('     - type_document_id (Tipo_documento):', customerTypeDocument);
+    console.log('     - id_location (coddane):', cliente?.coddane || 'N/A');
+    console.log('     - address (dirter):', cliente?.dirter || 'N/A');
+    console.log('     - phone (TELTER):', cliente?.TELTER || 'N/A');
+    console.log('     - email (EMAIL):', cliente?.EMAIL || 'N/A');
+    
+    // Normalizar teléfono del cliente
+    const normalizePhone = (phone) => {
+      if (!phone) return "3000000000";
+      let cleanPhone = String(phone).replace(/[^\d]/g, "");
+      if (cleanPhone.length < 10) {
+        cleanPhone = cleanPhone.padStart(10, "0");
+      }
+      return cleanPhone.substring(0, 15);
+    };
+    
     // Construir JSON final
     // IMPORTANTE: Si sync es false, trackId NO debe incluirse en el JSON (no enviarlo)
     // Si sync es true, trackId debe ser un string válido
     // CRÍTICO: NO usar undefined, sino NO incluir el campo en absoluto
     const syncValue = config?.sync === true; // Asegurar que sea boolean explícito
     
-    // Construir el objeto base SIN trackId
+    // Determinar si es producción o prueba
+    const isPrueba = config?.isPrueba === true;
+    const typeDocumentId = isPrueba ? 2 : 1; // 1 = Producción, 2 = Prueba
+    
+    // Construir el objeto base SIN trackId - según formato válido del body
     const dianJson = {
       number: invoiceNumber,
-      type_document_id: 1, // Factura de Venta
-      identification_number: this.COMPANY_NIT,
-      resolution_id: resolution.id_api || resolution.id || 79,
+      type_document_id: typeDocumentId, // 1 = Producción, 2 = Prueba
+      identification_number: companyData.identification_number || this.COMPANY_NIT,
+      resolution_id: resolution.id_api || resolution.id || 4, // Temporalmente 4
       sync: syncValue, // Boolean explícito
-      issue_date: issueDate,
-      due_date: dueDate,
-      profile_id: config?.isPrueba ? "2" : "1", // 1 = Producción, 2 = Prueba
-      profile_execution_id: config?.isPrueba ? "2" : "1",
-      scheme_id: config?.isPrueba ? "2" : "1",
-      document_currency_code: "COP",
-      invoice_type_code: "1",
       company: {
-        identification_number: this.COMPANY_DATA.identification_number,
-        name: this.COMPANY_DATA.name,
-        type_organization_id: this.COMPANY_DATA.type_organization_id,
-        type_document_id: this.COMPANY_DATA.type_document_id,
-        id_location: this.COMPANY_DATA.id_location,
-        address: this.COMPANY_DATA.address,
-        phone: this.COMPANY_DATA.phone,
-        email: this.COMPANY_DATA.email
+        identification_number: companyData.identification_number || this.COMPANY_NIT,
+        name: companyData.name || "MULTIACABADOS S.A.S.",
+        type_organization_id: companyData.type_organization_id || 1, // 1 = Persona Jurídica
+        type_document_id: companyData.type_document_id || "31", // NIT
+        id_location: companyData.id_location || "11001",
+        address: companyData.address || "",
+        phone: companyData.phone || "",
+        email: companyData.email || ""
       },
       customer: {
         identification_number: customerIdentification,
         name: customerName,
-        type_organization_id: 2, // Persona Natural por defecto
-        type_document_id: "13", // Cédula de ciudadanía por defecto
-        id_location: cliente?.coddane || cliente?.id_location || "11001",
-        address: cliente?.dirter || cliente?.direccion || "BOGOTA D.C.",
-        // CRÍTICO: Validar y normalizar teléfono - DIAN requiere al menos 10 dígitos
-        phone: (() => {
-          let phone = invoiceData?.customer_phone || cliente?.TELTER || cliente?.telefono || cliente?.CELTER || cliente?.celular || "";
-          const phoneOriginal = phone;
-          console.log('📞 [DIAN] Teléfono original:', phoneOriginal);
-          
-          // Remover espacios, guiones, paréntesis y otros caracteres no numéricos
-          phone = String(phone || "").replace(/[^\d]/g, "");
-          console.log('📞 [DIAN] Teléfono después de limpiar:', phone, '(longitud:', phone.length, ')');
-          
-          // Si el teléfono es muy corto o vacío, usar un teléfono válido por defecto
-          // DIAN requiere al menos 10 dígitos para números colombianos
-          if (!phone || phone.length < 10) {
-            console.log('⚠️ [DIAN] Teléfono muy corto o vacío, usando valor por defecto');
-            phone = "3000000000"; // 10 dígitos mínimo
-          }
-          // Asegurar que tenga al menos 10 dígitos (agregar ceros al inicio si es necesario)
-          if (phone.length < 10) {
-            console.log('⚠️ [DIAN] Rellenando teléfono con ceros al inicio');
-            phone = phone.padStart(10, "0");
-          }
-          // Limitar a 15 dígitos máximo (formato internacional)
-          phone = phone.substring(0, 15);
-          console.log('✅ [DIAN] Teléfono final normalizado:', phone, '(longitud:', phone.length, ')');
-          return phone;
-        })(),
-        email: invoiceData?.customer_email || cliente?.EMAIL || cliente?.email || "consumidor@final.com"
+        type_organization_id: customerTypeOrganization, // Desde con_terceros.tipter
+        type_document_id: customerTypeDocument, // Desde con_terceros.Tipo_documento
+        id_location: cliente?.coddane || "11001", // Desde con_terceros.coddane
+        address: cliente?.dirter || "BOGOTA D.C.", // Desde con_terceros.dirter
+        phone: normalizePhone(invoiceData?.customer_phone || cliente?.TELTER || cliente?.CELTER || ""), // Desde con_terceros.TELTER
+        email: invoiceData?.customer_email || cliente?.EMAIL || cliente?.email || "cliente@ejemplo.com" // Desde con_terceros.EMAIL
       },
       tax_totals: [{
-        tax_id: 1,
-        tax_amount: this.roundCOP(taxAmount),
-        taxable_amount: this.roundCOP(lineExtensionAmount),
-        percent: ivaPercent
+        tax_id: taxCode, // 01 para IVA, 04 para INC, ZA para IVA e INC, ZZ para no aplica
+        tax_amount: this.roundCOP(taxAmount), // valiva desde ven_facturas
+        taxable_amount: this.roundCOP(lineExtensionAmount), // valvta desde ven_facturas
+        percent: ivaPercent // Porcentaje calculado desde valiva/valvta
       }],
       legal_monetary_totals: {
-        line_extension_amount: this.roundCOP(lineExtensionAmount),
-        tax_exclusive_amount: this.roundCOP(lineExtensionAmount),
-        tax_inclusive_amount: this.roundCOP(totalAmount),
-        payable_amount: this.roundCOP(totalAmount),
-        allowance_total_amount: this.roundCOP(venFactura.valdcto || venFactura.descuento_valor || 0),
-        charge_total_amount: 0
+        line_extension_amount: this.roundCOP(lineExtensionAmount), // Total sin impuestos (valvta)
+        tax_exclusive_amount: this.roundCOP(lineExtensionAmount), // Subtotal antes de IVA (valvta)
+        tax_inclusive_amount: this.roundCOP(totalAmount), // Total + impuestos (valvta + valiva)
+        payable_amount: this.roundCOP(totalAmount), // Valor final a pagar (valvta + valiva)
+        allowance_total_amount: this.roundCOP(venFactura.valdcto || venFactura.descuento_valor || 0), // Descuentos globales
+        charge_total_amount: 0 // Cargos globales
       },
       invoice_lines: invoiceLines,
       payment_forms: [{
@@ -598,28 +835,52 @@ class DIANService {
     
     // VERIFICACIÓN FINAL EN LA CONSTRUCCIÓN: Asegurar que trackId no esté presente si sync es false
     if (syncValue === false && 'trackId' in dianJson) {
-      console.error('❌❌❌ [DIAN] ERROR CRÍTICO: trackId presente cuando sync es false en construcción del JSON!');
+      console.error('❌ [DIAN] ERROR: trackId presente cuando sync es false en construcción del JSON!');
       delete dianJson.trackId;
-      console.log('   ✅ trackId eliminado en verificación de construcción');
     }
     
-    console.log('✅ [DIAN] JSON DIAN generado exitosamente');
-    console.log('📋 [DIAN] Resumen del JSON:');
-    console.log('   - Número:', dianJson.number);
-    console.log('   - Tipo Documento:', dianJson.type_document_id);
-    console.log('   - Fecha Emisión:', dianJson.issue_date);
-    console.log('   - Fecha Vencimiento:', dianJson.due_date);
-    console.log('   - Cliente ID:', dianJson.customer.identification_number);
-    console.log('   - Cliente Nombre:', dianJson.customer.name);
-    console.log('   - Cliente Teléfono:', dianJson.customer.phone);
-    console.log('   - Cliente Email:', dianJson.customer.email);
-    console.log('   - Total Líneas:', dianJson.invoice_lines.length);
-    console.log('   - Total a Pagar:', dianJson.legal_monetary_totals.payable_amount);
-    console.log('   - IVA Total:', dianJson.tax_totals[0].tax_amount);
-    console.log('   - Perfil:', dianJson.profile_id, '(1=Producción, 2=Prueba)');
-    console.log('📋 [DIAN] JSON completo:');
+    // Preparar datos para el resumen
+    const datosParaResumen = {
+      factura: venFactura,
+      cliente: cliente,
+      empresa: companyData,
+      detalles: detalles,
+      numeroFactura: invoiceNumber,
+      totales: {
+        subtotal: lineExtensionAmount,
+        iva: taxAmount,
+        descuento: descuento,
+        total: totalAmount
+      },
+      impuestos: {
+        porcentaje: ivaPercent,
+        codigo: taxCode
+      },
+      formasPago: {
+        efectivo: venFactura.efectivo || 0,
+        credito: venFactura.credito || 0,
+        tarjeta: venFactura.tarjetacr || 0,
+        transferencia: venFactura.Transferencia || venFactura.transferencia || 0,
+        formId: paymentFormId,
+        methodId: paymentMethodId,
+        plazo: venFactura.plazo || 0
+      },
+      configuracion: {
+        resolutionId: resolution.id_api || resolution.id || 4,
+        typeDocumentId: typeDocumentId,
+        sync: syncValue,
+        urlBase: config?.url_base || 'https://facturacionelectronica.mobilsaas.com',
+        testSetID: config?.testSetID || '1'
+      }
+    };
+    
+    // Imprimir resumen completo de datos a facturar
+    this.imprimirResumenDatosFacturacion(datosParaResumen);
+    
+    // Mostrar JSON final que se enviará
+    console.log('\n📤 JSON FINAL QUE SE ENVIARÁ A DIAN:');
     console.log(JSON.stringify(dianJson, null, 2));
-    console.log('='.repeat(80) + '\n');
+    console.log('\n' + '='.repeat(100));
     
     return dianJson;
   }
@@ -632,16 +893,12 @@ class DIANService {
    * @returns {Promise<Object>} Respuesta de DIAN con CUFE y otros datos
    */
   static async sendInvoiceToDIAN(invoiceJson, testSetID, baseUrl = 'https://facturacionelectronica.mobilsaas.com') {
-    console.log('\n' + '='.repeat(80));
-    console.log('📋 [DIAN] PASO 5: Enviando factura a DIAN');
-    console.log('='.repeat(80));
     try {
       // Asegurar que testSetID sea string y no array/objeto
       const testSetIDStr = String(testSetID || '1').trim();
       
       // Validar que invoiceJson.sync sea boolean explícito
       if (invoiceJson.sync !== undefined && typeof invoiceJson.sync !== 'boolean') {
-        console.warn('⚠️ [DIAN] sync no es boolean, convirtiendo...');
         invoiceJson.sync = Boolean(invoiceJson.sync);
       }
       
@@ -651,25 +908,20 @@ class DIANService {
       if (invoiceJson.sync === false) {
         // Si sync es false, eliminar trackId completamente del JSON
         if (invoiceJson.trackId !== undefined) {
-          console.log('🔧 [DIAN] sync es false, removiendo trackId del JSON (no debe estar presente)');
           delete invoiceJson.trackId;
         }
       } else if (invoiceJson.sync === true) {
         // Si sync es true, trackId debe existir y ser string
         if (invoiceJson.trackId === undefined || invoiceJson.trackId === null) {
-          // Generar un trackId si no existe
           invoiceJson.trackId = `track-${invoiceJson.number || Date.now()}-${Date.now()}`;
-          console.log('🔧 [DIAN] sync es true, generando trackId:', invoiceJson.trackId);
         } else {
           // Asegurar que trackId sea string (no array ni objeto)
-          const trackIdType = typeof invoiceJson.trackId;
-          if (Array.isArray(invoiceJson.trackId) || (trackIdType === 'object' && invoiceJson.trackId !== null)) {
-            console.error('❌ [DIAN] ERROR: trackId es array u objeto! Convertiendo a string...');
+          if (Array.isArray(invoiceJson.trackId) || (typeof invoiceJson.trackId === 'object' && invoiceJson.trackId !== null)) {
+            console.error('❌ [DIAN] ERROR: trackId es array u objeto! Generando nuevo...');
             invoiceJson.trackId = `track-${invoiceJson.number || Date.now()}-${Date.now()}`;
           } else {
             invoiceJson.trackId = String(invoiceJson.trackId);
           }
-          console.log('🔧 [DIAN] trackId validado y convertido a string:', invoiceJson.trackId);
         }
       }
       
@@ -682,279 +934,25 @@ class DIANService {
         'Accept': 'application/json'
       };
       
-      // VALIDACIÓN FINAL: Verificar que trackId no sea array u objeto
-      // Esto es crítico porque la API de DIAN rechaza arrays/objetos en trackId
-      if (invoiceJson.trackId !== undefined && invoiceJson.trackId !== null) {
-        if (Array.isArray(invoiceJson.trackId) || (typeof invoiceJson.trackId === 'object')) {
-          console.error('❌ [DIAN] ERROR CRÍTICO: trackId es array u objeto!');
-          console.error('   - trackId tipo:', typeof invoiceJson.trackId);
-          console.error('   - trackId es array:', Array.isArray(invoiceJson.trackId));
-          console.error('   - trackId valor:', invoiceJson.trackId);
-          
-          // Si sync es false, simplemente eliminar trackId
-          if (invoiceJson.sync === false) {
-            console.log('🔧 [DIAN] sync es false, eliminando trackId inválido');
-            delete invoiceJson.trackId;
-          } else {
-            // Si sync es true, generar un nuevo trackId válido
-            invoiceJson.trackId = `track-${invoiceJson.number || Date.now()}-${Date.now()}`;
-            console.log('🔧 [DIAN] Generando nuevo trackId válido:', invoiceJson.trackId);
-          }
-        } else {
-          // Asegurar que sea string
-          invoiceJson.trackId = String(invoiceJson.trackId);
-        }
-      }
-      
-      // Log final del JSON antes de serializar
-      console.log('\n🔍 [DIAN] VALIDACIÓN FINAL DEL JSON ANTES DE ENVIAR:');
-      console.log('   - sync:', invoiceJson.sync, '(tipo:', typeof invoiceJson.sync, ')');
-      console.log('   - trackId presente:', invoiceJson.trackId !== undefined);
-      console.log('   - trackId en objeto:', 'trackId' in invoiceJson);
-      if (invoiceJson.trackId !== undefined) {
-        console.log('   - trackId:', invoiceJson.trackId, '(tipo:', typeof invoiceJson.trackId, ')');
-        console.log('   - trackId es array:', Array.isArray(invoiceJson.trackId));
-        console.log('   - trackId es object:', typeof invoiceJson.trackId === 'object');
-        console.log('   - trackId es null:', invoiceJson.trackId === null);
-      }
-      
-      // ELIMINAR trackId SI sync es false (ANTES de crear copia limpia)
-      if (invoiceJson.sync === false) {
-        if ('trackId' in invoiceJson) {
-          console.log('🔧 [DIAN] sync es false - Eliminando trackId del objeto antes de enviar');
-          delete invoiceJson.trackId;
-          console.log('   ✅ trackId eliminado del objeto');
-        }
-      }
-      
-      // Crear una copia limpia del JSON para asegurar que no haya propiedades ocultas
+      // Crear una copia limpia del JSON y eliminar trackId si sync es false
       let cleanJson = JSON.parse(JSON.stringify(invoiceJson));
-      
-      // ELIMINAR trackId de la copia limpia si sync es false
-      if (cleanJson.sync === false) {
-        if ('trackId' in cleanJson) {
-          console.log('🔧 [DIAN] sync es false - Eliminando trackId de la copia limpia');
-          delete cleanJson.trackId;
-          console.log('   ✅ trackId eliminado de la copia limpia');
-        }
+      if (cleanJson.sync === false && 'trackId' in cleanJson) {
+        delete cleanJson.trackId;
       }
       
-      console.log('\n🔍 [DIAN] VERIFICACIÓN EN COPIA LIMPIA:');
-      console.log('   - sync:', cleanJson.sync);
-      console.log('   - trackId presente:', 'trackId' in cleanJson);
-      console.log('   - Claves del objeto:', Object.keys(cleanJson).join(', '));
-      
-      // Preparar body como JSON string desde la copia limpia
+      // Preparar body como JSON string
       let bodyString = JSON.stringify(cleanJson);
       
-      // VERIFICACIÓN FINAL ABSOLUTA: Buscar trackId en el string JSON
-      // Si sync es false, trackId NO debe estar en el string
-      if (cleanJson.sync === false) {
-        const bodyStringLower = bodyString.toLowerCase();
-        if (bodyStringLower.includes('trackid')) {
-          console.error('❌ [DIAN] ERROR CRÍTICO: trackId encontrado en string JSON cuando sync es false!');
-          console.error('   - Buscando y eliminando trackId del string...');
-          
-          // Parsear, eliminar trackId, y volver a serializar
-          const tempObj = JSON.parse(bodyString);
-          delete tempObj.trackId;
-          cleanJson = tempObj; // Actualizar la copia limpia
-          bodyString = JSON.stringify(tempObj); // Regenerar el string
-          
-          console.log('   ✅ trackId eliminado del string JSON');
-          console.log('   - Verificación final: trackId en string:', bodyString.toLowerCase().includes('trackid') ? 'AÚN EXISTE ❌' : 'ELIMINADO ✅');
-        } else {
-          console.log('   ✅ Verificación: trackId NO está en el string JSON');
-        }
+      // Verificación final: si sync es false, asegurar que trackId no esté en el string
+      if (cleanJson.sync === false && bodyString.toLowerCase().includes('trackid')) {
+        console.error('❌ [DIAN] ERROR: trackId encontrado en string JSON cuando sync es false! Eliminando...');
+        const tempObj = JSON.parse(bodyString);
+        delete tempObj.trackId;
+        cleanJson = tempObj;
+        bodyString = JSON.stringify(tempObj);
       }
       
-      // USAR LA COPIA LIMPIA para todos los logs y el envío
-      const finalJson = cleanJson;
-      let finalBodyString = bodyString; // let porque puede ser modificado si sync es false
-      
-      console.log('\n🔗 [DIAN] ========== INFORMACIÓN DE LA PETICIÓN ==========');
-      console.log('📡 [DIAN] URL BASE:', baseUrl);
-      console.log('🔗 [DIAN] ENDPOINT:', `/api/ubl2.1/invoice/${testSetIDStr}`);
-      console.log('🌐 [DIAN] URL COMPLETA:', url);
-      console.log('📝 [DIAN] MÉTODO HTTP: POST');
-      console.log('📋 [DIAN] TEST SET ID (original):', testSetID);
-      console.log('📋 [DIAN] TEST SET ID (normalizado):', testSetIDStr);
-      console.log('📋 [DIAN] sync en JSON FINAL:', finalJson.sync, '(tipo:', typeof finalJson.sync, ')');
-      console.log('📋 [DIAN] trackId en JSON FINAL:', finalJson.trackId !== undefined ? finalJson.trackId : 'No presente', '(tipo:', finalJson.trackId ? typeof finalJson.trackId : 'N/A', ')');
-      console.log('📋 [DIAN] trackId existe en objeto:', 'trackId' in finalJson);
-      
-      // Sincronizar finalBodyString con bodyString (ya limpiado arriba)
-      finalBodyString = bodyString;
-      
-      console.log('\n📤 [DIAN] ========== HEADERS ENVIADOS ==========');
-      console.log(JSON.stringify(headers, null, 2));
-      
-      console.log('\n📦 [DIAN] ========== BODY ENVIADO (JSON) ==========');
-      console.log('📏 [DIAN] Tamaño del body:', bodyString.length, 'caracteres');
-      
-      // VALIDACIÓN CRÍTICA FINAL: Verificar que NO hay trackId en el string antes de mostrar
-      // Parsear el body para inspeccionarlo
-      let bodyObjForInspection = null;
-      try {
-        bodyObjForInspection = JSON.parse(bodyString);
-        console.log('📋 [DIAN] Body parseado correctamente para inspección');
-        
-        // Verificar trackId en el objeto parseado
-        if (finalJson.sync === false) {
-          if ('trackId' in bodyObjForInspection) {
-            console.error('\n❌❌❌ [DIAN] ERROR CRÍTICO: trackId encontrado en objeto parseado cuando sync es false!');
-            console.error('   - trackId valor:', bodyObjForInspection.trackId);
-            console.error('   - trackId tipo:', typeof bodyObjForInspection.trackId);
-            console.error('   - trackId es array:', Array.isArray(bodyObjForInspection.trackId));
-            console.error('   - trackId es object:', typeof bodyObjForInspection.trackId === 'object');
-            console.error('   - trackId es null:', bodyObjForInspection.trackId === null);
-            
-            // ELIMINAR trackId del objeto
-            delete bodyObjForInspection.trackId;
-            
-            // Regenerar el body string SIN trackId
-            bodyString = JSON.stringify(bodyObjForInspection);
-            finalBodyString = bodyString;
-            bodyObjForInspection = JSON.parse(bodyString); // Re-parsear para verificar
-            
-            console.log('   ✅ trackId eliminado del objeto y body regenerado');
-            
-            // Verificar que realmente se eliminó
-            if ('trackId' in bodyObjForInspection) {
-              console.error('   ❌ ERROR: trackId AÚN existe después de delete!');
-            } else {
-              console.log('   ✅ Verificado: trackId NO existe en el objeto regenerado');
-            }
-          } else {
-            console.log('✅ [DIAN] Verificación: trackId NO está en el objeto parseado');
-          }
-        }
-        
-        // También verificar en el string
-        const trackIdIndex = bodyString.toLowerCase().indexOf('trackid');
-        if (trackIdIndex !== -1 && finalJson.sync === false) {
-          console.error('\n❌❌❌ [DIAN] ERROR: trackId encontrado en string JSON cuando sync es false!');
-          console.error('   - Posición en string:', trackIdIndex);
-          console.error('   - Contexto (100 chars antes y después):');
-          const contextStart = Math.max(0, trackIdIndex - 100);
-          const contextEnd = Math.min(bodyString.length, trackIdIndex + 150);
-          console.error(bodyString.substring(contextStart, contextEnd));
-          
-          // Intentar eliminar usando regex como último recurso
-          const cleanedBody = bodyString.replace(/"trackId"\s*:\s*[^,}\]]+,?/gi, '');
-          const cleanedBody2 = cleanedBody.replace(/'trackId'\s*:\s*[^,}\]]+,?/gi, '');
-          
-          if (cleanedBody2.toLowerCase().includes('trackid')) {
-            console.error('   ❌ ERROR: No se pudo eliminar trackId del string usando regex');
-          } else {
-            console.log('   ✅ trackId eliminado del string usando regex');
-            bodyString = cleanedBody2;
-            finalBodyString = bodyString;
-          }
-        }
-      } catch (e) {
-        console.error('❌ [DIAN] Error parseando body para inspección:', e.message);
-      }
-      
-      console.log('📋 [DIAN] Body completo:');
-      console.log(bodyString);
-      
-      // VERIFICACIÓN FINAL FINAL: Buscar trackId en el body string después de todo
-      if (finalJson.sync === false) {
-        const finalCheck = bodyString.toLowerCase().includes('trackid');
-        if (finalCheck) {
-          console.error('\n❌❌❌ [DIAN] ERROR CRÍTICO: trackId AÚN presente después de TODAS las eliminaciones!');
-          console.error('   Esto NO debería pasar. El body contiene trackId cuando sync es false.');
-          console.error('   Body string (primeros 2000 caracteres):', bodyString.substring(0, 2000));
-          
-          // Último intento: usar un objeto completamente limpio
-          try {
-            const finalCleanObj = JSON.parse(bodyString);
-            delete finalCleanObj.trackId;
-            bodyString = JSON.stringify(finalCleanObj);
-            finalBodyString = bodyString;
-            console.log('   ✅ Último intento: body regenerado completamente sin trackId');
-          } catch (e) {
-            console.error('   ❌ Error en último intento:', e.message);
-          }
-        } else {
-          console.log('\n✅✅✅ [DIAN] VERIFICACIÓN FINAL: trackId NO está en el body string ✅✅✅');
-        }
-      }
-      
-      console.log('\n📊 [DIAN] ========== RESUMEN DEL BODY ==========');
-      console.log('   - Número Factura:', finalJson.number);
-      console.log('   - Tipo Documento:', finalJson.type_document_id);
-      console.log('   - Fecha Emisión:', finalJson.issue_date);
-      console.log('   - Fecha Vencimiento:', finalJson.due_date);
-      console.log('   - Perfil:', finalJson.profile_id, '(1=Producción, 2=Prueba)');
-      console.log('   - Sync:', finalJson.sync);
-      console.log('   - trackId presente:', 'trackId' in finalJson);
-      console.log('   - Resolución ID:', finalJson.resolution_id);
-      console.log('   - Total a Pagar:', finalJson.legal_monetary_totals?.payable_amount);
-      console.log('   - Subtotal:', finalJson.legal_monetary_totals?.line_extension_amount);
-      console.log('   - IVA Total:', finalJson.tax_totals?.[0]?.tax_amount || 0);
-      console.log('   - Total Líneas:', finalJson.invoice_lines?.length || 0);
-      
-      console.log('\n👤 [DIAN] ========== DATOS DEL CLIENTE ==========');
-      console.log('   - Cliente Nombre:', finalJson.customer.name);
-      console.log('   - Cliente ID:', finalJson.customer.identification_number);
-      console.log('   - Cliente Teléfono:', finalJson.customer.phone);
-      console.log('   - Cliente Email:', finalJson.customer.email);
-      console.log('   - Cliente Dirección:', finalJson.customer.address || 'N/A');
-      
-      console.log('\n🏢 [DIAN] ========== DATOS DE LA EMPRESA ==========');
-      console.log('   - Empresa NIT:', finalJson.company.identification_number);
-      console.log('   - Empresa Nombre:', finalJson.company.name);
-      console.log('   - Empresa Dirección:', finalJson.company.address);
-      console.log('   - Empresa Teléfono:', finalJson.company.phone);
-      console.log('   - Empresa Email:', finalJson.company.email);
-      
-      console.log('\n📦 [DIAN] ========== LÍNEAS DE FACTURA ==========');
-      if (finalJson.invoice_lines && finalJson.invoice_lines.length > 0) {
-        finalJson.invoice_lines.forEach((line, index) => {
-          console.log(`\n   Línea ${index + 1}:`);
-          console.log('     - Código:', line.code);
-          console.log('     - Descripción:', line.description);
-          console.log('     - Cantidad:', line.invoiced_quantity);
-          console.log('     - Precio Unitario:', line.price_amount);
-          console.log('     - Subtotal:', line.line_extension_amount);
-          console.log('     - IVA:', line.tax_totals?.[0]?.tax_amount || 0);
-          console.log('     - IVA %:', line.tax_totals?.[0]?.percent || 0);
-        });
-      } else {
-        console.log('   ⚠️ No hay líneas de factura');
-      }
-      
-      console.log('\n🌐 [DIAN] ========== ENVIANDO PETICIÓN HTTP POST ==========');
       const requestStartTime = Date.now();
-      console.log('⏱️ [DIAN] Iniciando petición a las:', new Date().toISOString());
-      
-      // VERIFICACIÓN FINAL ANTES DE ENVIAR: Asegurar que trackId no esté presente si sync es false
-      if (finalJson.sync === false) {
-        // Verificar una última vez en el string final
-        const hasTrackIdInFinalString = bodyString.toLowerCase().includes('trackid');
-        if (hasTrackIdInFinalString) {
-          console.error('❌ [DIAN] ERROR CRÍTICO: trackId aún presente en body string final!');
-          console.error('   - Eliminando trackId una vez más...');
-          try {
-            const finalBodyObj = JSON.parse(bodyString);
-            delete finalBodyObj.trackId;
-            bodyString = JSON.stringify(finalBodyObj);
-            finalBodyString = bodyString;
-            console.log('   ✅ trackId eliminado definitivamente');
-          } catch (e) {
-            console.error('   ❌ Error parseando JSON final:', e.message);
-          }
-        }
-      }
-      
-      console.log('\n📋 [DIAN] VERIFICACIÓN FINAL ANTES DE ENVIAR:');
-      console.log('   - sync:', finalJson.sync);
-      console.log('   - trackId en objeto:', 'trackId' in finalJson);
-      console.log('   - trackId en string FINAL:', bodyString.toLowerCase().includes('trackid') ? 'SÍ ❌' : 'NO ✅');
-      console.log('   - Longitud del body:', bodyString.length, 'caracteres');
-      
       const response = await fetch(url, {
         method: 'POST',
         headers: headers,
@@ -962,126 +960,46 @@ class DIANService {
       });
       
       const requestDuration = Date.now() - requestStartTime;
-      console.log('⏱️ [DIAN] Petición completada en:', requestDuration, 'ms');
-      console.log('⏱️ [DIAN] Finalizada a las:', new Date().toISOString());
-      
-      console.log('\n📥 [DIAN] ========== RESPUESTA RECIBIDA ==========');
-      console.log('📊 [DIAN] Status HTTP:', response.status, response.statusText);
-      console.log('📋 [DIAN] Headers de respuesta:');
-      const responseHeaders = Object.fromEntries(response.headers.entries());
-      console.log(JSON.stringify(responseHeaders, null, 2));
+      console.log(`📤 [DIAN] Petición enviada a ${url} (${requestDuration}ms)`);
       
       // Obtener respuesta como texto primero
       const responseText = await response.text();
-      console.log('\n📄 [DIAN] ========== BODY DE RESPUESTA (TEXTO) ==========');
-      console.log('📏 [DIAN] Tamaño de la respuesta:', responseText.length, 'caracteres');
-      console.log('📋 [DIAN] Respuesta completa (texto):');
-      console.log(responseText);
       
       if (!response.ok) {
-        console.error('\n❌ [DIAN] ========== ERROR EN RESPUESTA HTTP ==========');
-        console.error('🚨 [DIAN] La respuesta HTTP indica un error');
-        console.error('   - Status Code:', response.status);
-        console.error('   - Status Text:', response.statusText);
-        console.error('   - URL:', url);
-        console.error('   - Test Set ID:', testSetID);
-        
-        console.error('\n📋 [DIAN] Headers de respuesta (error):');
-        console.error(JSON.stringify(responseHeaders, null, 2));
-        
-        console.error('\n📄 [DIAN] Body de respuesta (error):');
-        console.error('   Tamaño:', responseText.length, 'caracteres');
-        console.error('   Contenido completo:');
-        console.error(responseText);
-        
-        // Intentar parsear como JSON si es posible
         let errorData = null;
         try {
           errorData = JSON.parse(responseText);
-          console.error('\n✅ [DIAN] Error parseado como JSON:');
-          console.error(JSON.stringify(errorData, null, 2));
         } catch (e) {
-          // Si no es JSON, usar el texto directamente
           errorData = responseText;
-          console.error('\n⚠️ [DIAN] Error no es JSON válido:');
-          console.error('   - Error de parseo:', e.message);
-          console.error('   - Respuesta (texto plano):', errorData);
         }
-        
-        console.error('\n📋 [DIAN] ========== RESUMEN DEL ERROR ==========');
-        console.error('   Status:', response.status, response.statusText);
-        console.error('   Error Data:', JSON.stringify(errorData));
-        console.error('='.repeat(80) + '\n');
+        console.error(`❌ [DIAN] Error HTTP ${response.status}:`, errorData);
         throw new Error(`DIAN API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
       }
       
       // Intentar parsear respuesta como JSON
-      console.log('\n🔍 [DIAN] ========== PROCESANDO RESPUESTA ==========');
-      console.log('🔍 [DIAN] Intentando parsear respuesta como JSON...');
       let responseData = null;
       try {
         responseData = JSON.parse(responseText);
-        console.log('✅ [DIAN] Respuesta parseada exitosamente como JSON');
-        console.log('📋 [DIAN] Claves principales en la respuesta:', Object.keys(responseData));
       } catch (parseError) {
-        console.warn('\n⚠️ [DIAN] ========== RESPUESTA NO ES JSON VÁLIDO ==========');
-        console.warn('   - Error de parseo:', parseError.message);
-        console.warn('   - Stack:', parseError.stack);
-        console.warn('   - Respuesta recibida (primeros 500 caracteres):');
-        console.warn(responseText.substring(0, 500));
-        console.warn('   - Respuesta completa:');
-        console.warn(responseText);
-        
         // Si no es JSON, intentar extraer CUFE del texto si es posible
-        console.log('\n🔍 [DIAN] Intentando extraer CUFE del texto...');
         const cufeMatch = responseText.match(/CUFE[:\s]+([A-Z0-9-]+)/i) || 
                          responseText.match(/"cufe"\s*:\s*"([^"]+)"/i) ||
                          responseText.match(/"CUFE"\s*:\s*"([^"]+)"/i);
         
         if (cufeMatch) {
-          console.log('✅ [DIAN] CUFE extraído del texto:', cufeMatch[1]);
           responseData = { cufe: cufeMatch[1] };
         } else {
-          console.error('❌ [DIAN] No se pudo extraer CUFE del texto');
-          console.error('   Respuesta completa:', responseText);
+          console.error('❌ [DIAN] No se pudo parsear respuesta ni extraer CUFE');
           throw new Error(`Respuesta de DIAN no es JSON válido: ${responseText.substring(0, 200)}`);
         }
       }
       
-      // Log detallado de la respuesta completa de DIAN
-      console.log('\n' + '='.repeat(80));
-      console.log('📋 [DIAN] PASO 6: Procesando respuesta de DIAN');
-      console.log('='.repeat(80));
-      
-      console.log('\n✅ [DIAN] ========== RESPUESTA COMPLETA DE DIAN (JSON) ==========');
-      console.log('📋 [DIAN] Response Data (raw - JSON completo):');
-      console.log(JSON.stringify(responseData, null, 2));
-      console.log('📋 [DIAN] Todas las claves en response:', Object.keys(responseData || {}));
-      
       // Verificar si la respuesta tiene estructura anidada (response.response)
       const dianResponse = responseData.response || responseData;
-      console.log('\n📋 [DIAN] ========== ESTRUCTURA DE RESPUESTA ==========');
-      console.log('📋 [DIAN] Verificando estructura anidada (response.response)...');
-      if (responseData.response) {
-        console.log('✅ [DIAN] Estructura anidada encontrada: response.response');
-        console.log('📋 [DIAN] DianResponse (anidado):');
-        console.log(JSON.stringify(dianResponse, null, 2));
-      } else {
-        console.log('✅ [DIAN] Estructura directa (sin anidación)');
-        console.log('📋 [DIAN] DianResponse (directo):');
-        console.log(JSON.stringify(dianResponse, null, 2));
-      }
-      console.log('📋 [DIAN] Claves en dianResponse:', dianResponse ? Object.keys(dianResponse) : 'null');
       
       // Verificar statusCode de DIAN (CRÍTICO)
       const statusCode = dianResponse.statusCode || dianResponse.status_code || dianResponse.code || null;
       const isValid = dianResponse.isValid !== undefined ? dianResponse.isValid : null;
-      
-      console.log('\n🔍 [DIAN] ANÁLISIS DE RESPUESTA DIAN:');
-      console.log('   - statusCode:', statusCode, '(tipo:', typeof statusCode, ')');
-      console.log('   - isValid:', isValid, '(tipo:', typeof isValid, ')');
-      console.log('   - isSuccess (statusCode === "00"):', statusCode === '00');
-      console.log('   - isError (statusCode === "99"):', statusCode === '99');
       
       // Extraer campos importantes
       const uuid = dianResponse.uuid || dianResponse.UUID || responseData.uuid || responseData.UUID || null;
@@ -1099,42 +1017,13 @@ class DIANService {
       const xmlUrl = dianResponse.xml_url || dianResponse.xmlUrl || dianResponse.xml || null;
       const qrCode = dianResponse.qr_code || dianResponse.qrCode || dianResponse.qr || null;
       
-      console.log('\n📦 [DIAN] CAMPOS EXTRAÍDOS:');
-      console.log('   - UUID:', uuid ? `${uuid.substring(0, 20)}... (${uuid.length} chars)` : 'null');
-      console.log('   - CUFE:', cufe ? `${cufe.substring(0, 20)}... (${cufe.length} chars)` : 'null');
-      console.log('   - Message:', message || 'null');
-      console.log('   - PDF URL:', pdfUrl || 'null');
-      console.log('   - XML URL:', xmlUrl || 'null');
-      console.log('   - QR Code:', qrCode ? 'Presente' : 'null');
-      
-      // Log adicional si hay estructura response.response
-      if (responseData.response && typeof responseData.response === 'object') {
-        console.log('\n📋 [DIAN] Estructura response.response encontrada:');
-        console.log('   - Claves:', Object.keys(responseData.response));
-        console.log('   - Contenido:', JSON.stringify(responseData.response, null, 2));
-      }
-      
-      // Log de toda la respuesta completa para debugging
-      console.log('\n📋 [DIAN] RESPUESTA COMPLETA (para debugging):');
-      console.log(JSON.stringify(responseData, null, 2));
-      
       if (!cufe) {
         console.warn('⚠️ [DIAN] CUFE no encontrado en la respuesta de DIAN');
-        console.warn('   Estructura de respuesta completa:', JSON.stringify(responseData, null, 2));
-      } else {
-        console.log('✅ [DIAN] CUFE extraído exitosamente:', cufe);
       }
       
       // Determinar si fue exitoso basado en statusCode
       const isSuccess = statusCode === '00';
       const isError = statusCode === '99';
-      
-      console.log('\n📊 [DIAN] RESUMEN DE PROCESAMIENTO:');
-      console.log('   - Éxito (statusCode === "00"):', isSuccess);
-      console.log('   - Error (statusCode === "99"):', isError);
-      console.log('   - CUFE obtenido:', cufe ? 'Sí' : 'No');
-      console.log('   - Fecha timbrado:', new Date().toISOString());
-      console.log('='.repeat(80) + '\n');
       
       return {
         success: isSuccess && !!cufe,
@@ -1152,14 +1041,7 @@ class DIANService {
         fechaTimbrado: new Date()
       };
     } catch (error) {
-      console.error('\n' + '='.repeat(80));
-      console.error('❌ [DIAN] ERROR EN PROCESO DE ENVÍO A DIAN');
-      console.error('='.repeat(80));
       console.error('❌ [DIAN] Error enviando factura a DIAN:', error.message);
-      console.error('   - URL:', `${baseUrl}/api/ubl2.1/invoice/${testSetID}`);
-      console.error('   - Error message:', error.message);
-      console.error('   - Error stack:', error.stack);
-      console.error('='.repeat(80) + '\n');
       throw error;
     }
   }

@@ -192,7 +192,21 @@ const FacturaPDF = React.forwardRef<HTMLDivElement, FacturaPDFProps>(
                                     <td className="py-1 text-right">{formatCurrency(factura.subtotal)}</td>
                                 </tr>
                                 <tr className="text-slate-700">
-                                    <td className="pt-1 pb-2 pr-4 text-right">IVA ({factura.items[0]?.ivaPorcentaje || 19}%)</td>
+                                    <td className="pt-1 pb-2 pr-4 text-right">IVA ({(() => {
+                                        // Calcular porcentaje de IVA promedio desde los items del backend
+                                        if (factura.items && factura.items.length > 0 && factura.subtotal > 0) {
+                                            const ivaPorcentajePromedio = (factura.ivaValor / factura.subtotal) * 100;
+                                            // Redondear a porcentajes estándar (19%, 8%, 5%, 0%)
+                                            if (Math.abs(ivaPorcentajePromedio - 19) < 1) return '19';
+                                            if (Math.abs(ivaPorcentajePromedio - 8) < 1) return '8';
+                                            if (Math.abs(ivaPorcentajePromedio - 5) < 1) return '5';
+                                            if (ivaPorcentajePromedio < 0.5) return '0';
+                                            // Si no es estándar, mostrar con 2 decimales
+                                            return ivaPorcentajePromedio.toFixed(2);
+                                        }
+                                        // Fallback: usar ivaPorcentaje del primer item del backend
+                                        return factura.items?.[0]?.ivaPorcentaje?.toFixed(2) || '19';
+                                    })()}%)</td>
                                     <td className="pt-1 pb-2 text-right font-medium">{formatCurrency(factura.ivaValor)}</td>
                                 </tr>
                                 <tr className="font-bold text-lg bg-blue-800 text-white shadow-lg">

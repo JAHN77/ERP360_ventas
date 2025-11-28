@@ -394,22 +394,31 @@ app.get('/api/buscar/productos', async (req, res) => {
     }
     const like = `%${search}%`;
     // Usando caninv (cantidad de inventario) en lugar de ucoins para el stock
+    // Precio obtenido desde inv_detaprecios con tarifa '07': precio SIN IVA como base
     const query = `
       SELECT TOP (@limit)
         ins.id,
         ins.nomins AS nombre,
         LTRIM(RTRIM(COALESCE(ins.referencia, ''))) AS referencia,
-        ins.ultimo_costo AS ultimoCosto,
+        -- Precio SIN IVA desde inv_detaprecios (tarifa '07'), fallback a ultimo_costo si no existe
+        -- Este es el precio base que se usará para calcular IVA
+        COALESCE(
+          CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(10,2)),
+          ins.ultimo_costo
+        ) AS ultimoCosto,
         COALESCE(SUM(inv.caninv), 0) AS stock,
         COALESCE(SUM(inv.valinv), 0) AS precioInventario,
         ins.undins AS unidadMedidaCodigo,
         m.nommed AS unidadMedidaNombre,
-        ins.tasa_iva AS tasaIva
+        ins.tasa_iva AS tasaIva,
+        -- Precio CON IVA (para referencia/visualización)
+        dp.valins AS precioConIva
       FROM inv_insumos ins
       LEFT JOIN inv_invent inv ON inv.codins = ins.codins
       LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
+      LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
       WHERE ins.activo = 1 AND (ins.nomins LIKE @like OR ins.referencia LIKE @like)
-      GROUP BY ins.id, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva
+      GROUP BY ins.id, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva, dp.valins
       ORDER BY ins.nomins`;
     const data = await executeQueryWithParams(query, { like, limit: Number(limit) });
     res.json({ success: true, data });
@@ -1134,15 +1143,19 @@ app.get('/api/facturas-detalle', async (req, res) => {
         fd.qtyins as cantidad,
         fd.valins as precioUnitario,
         fd.desins as descuentoPorcentaje,
+        -- Usar siempre tasa_iva del producto desde inv_insumos, sin calcular desde ivains
+        -- Redondear a 2 decimales para evitar valores como 22.60999805086224%
+        CAST(ROUND(
+          COALESCE(
+            (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+            0
+          ), 2
+        ) AS DECIMAL(5,2)) as ivaPorcentaje,
         COALESCE(
-          (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
-          CASE 
-            WHEN fd.valins > 0 AND fd.qtyins > 0 THEN 
-              (fd.ivains / ((fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0))) * 100
-            ELSE 0
-          END
-        ) as ivaPorcentaje,
-        fd.observa as descripcion,
+          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+          LTRIM(RTRIM(COALESCE(fd.observa, ''))),
+          LTRIM(RTRIM(COALESCE(fd.codins, '')))
+        ) as descripcion,
         (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) as subtotal,
         fd.ivains as valorIva,
         (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) + COALESCE(fd.ivains, 0) as total,
@@ -1257,7 +1270,7 @@ app.get('/api/cotizaciones', async (req, res) => {
         COALESCE(c.subtotal,0) - COALESCE(c.val_descuento,0) + COALESCE(c.val_iva,0) AS total,
         c.observa              AS observaciones,
         c.estado,
-        c.formapago            AS formaPago,
+        LTRIM(RTRIM(COALESCE(c.formapago, '01'))) AS formaPago,
         COALESCE(c.valor_anticipo, 0) AS valorAnticipo,
         c.num_orden_compra     AS numOrdenCompra,
         c.fecha_aprobacion     AS fechaAprobacion,
@@ -1475,7 +1488,8 @@ app.get('/api/pedidos', async (req, res) => {
         COALESCE(p.descuento_porcentaje, 0) as descuentoPorcentaje,
         COALESCE(p.iva_porcentaje, 0) as ivaPorcentaje,
         COALESCE(p.impoconsumo_valor, 0) as impoconsumoValor,
-        LTRIM(RTRIM(COALESCE(p.instrucciones_entrega, ''))) as instruccionesEntrega
+        LTRIM(RTRIM(COALESCE(p.instrucciones_entrega, ''))) as instruccionesEntrega,
+        LTRIM(RTRIM(COALESCE(p.formapago, '01'))) as formaPago
       FROM ${TABLE_NAMES.pedidos} p
       LEFT JOIN ven_cotizacion c ON c.id = p.cotizacion_id
       ${where}
@@ -1742,18 +1756,32 @@ app.get('/api/pedidos-detalle', async (req, res) => {
           THEN (COALESCE(pd.dctped, 0) / (pd.canped * pd.valins)) * 100
           ELSE 0
         END as descuentoPorcentaje,
-        CASE 
-          WHEN COALESCE(pd.canped, 0) > 0 AND COALESCE(pd.valins, 0) > 0 
-            AND (pd.canped * pd.valins - COALESCE(pd.dctped, 0)) > 0
-          THEN (COALESCE(pd.ivaped, 0) / (pd.canped * pd.valins - COALESCE(pd.dctped, 0))) * 100
-          ELSE 0
-        END as ivaPorcentaje,
+        -- Obtener porcentaje de IVA: primero del producto, si no existe calcular desde ivaped/subtotal
+        COALESCE(
+          (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+          CASE 
+            WHEN COALESCE(pd.canped, 0) > 0 AND COALESCE(pd.valins, 0) > 0 
+              AND (pd.canped * pd.valins - COALESCE(pd.dctped, 0)) > 0
+            THEN (COALESCE(pd.ivaped, 0) / (pd.canped * pd.valins - COALESCE(pd.dctped, 0))) * 100
+            ELSE 0
+          END,
+          0
+        ) as ivaPorcentaje,
         COALESCE(
           (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
           LTRIM(RTRIM(COALESCE(pd.codins, '')))
         ) as descripcion,
+        COALESCE(
+          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(m.nommed, ins.undins, 'Unidad'))) 
+           FROM inv_insumos ins
+           LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
+           WHERE LTRIM(RTRIM(ins.codins)) = LTRIM(RTRIM(pd.codins))),
+          'Unidad'
+        ) as unidadMedida,
         ((COALESCE(pd.canped, 0) * COALESCE(pd.valins, 0)) - COALESCE(pd.dctped, 0)) as subtotal,
+        -- Usar ivaped como valorIva directamente (ya está almacenado)
         COALESCE(pd.ivaped, 0) as valorIva,
+        -- Calcular total
         ((COALESCE(pd.canped, 0) * COALESCE(pd.valins, 0)) - COALESCE(pd.dctped, 0) + COALESCE(pd.ivaped, 0)) as total,
         pd.estped as estadoItem,
         pd.codalm,
@@ -1901,7 +1929,7 @@ app.get('/api/remisiones', async (req, res) => {
         LTRIM(RTRIM(COALESCE(r.observaciones, ''))) as observaciones,
         LTRIM(RTRIM(COALESCE(r.codusu, ''))) as codUsuario,
         COALESCE(r.fec_creacion, GETDATE()) as fechaCreacion,
-        -- Campos calculados/compatibilidad (no existen en la tabla pero se dejan como NULL)
+        -- Campos calculados/compatibilidad - se calculan después desde los items
         NULL as subtotal,
         NULL as descuentoValor,
         NULL as ivaValor,
@@ -1928,8 +1956,43 @@ app.get('/api/remisiones', async (req, res) => {
     
     const remisiones = await executeQuery(sqlQuery);
     
+    // Calcular totales desde los items de cada remisión
+    const remisionesConTotales = await Promise.all(remisiones.map(async (r) => {
+      try {
+        // Obtener items de la remisión usando el query de detalles
+        const detallesQuery = QUERIES.GET_REMISIONES_DETALLE.replace(
+          'WHERE rd.remision_id IS NOT NULL',
+          'WHERE rd.remision_id = @remisionId'
+        );
+        const items = await executeQueryWithParams(detallesQuery, { remisionId: r.id });
+        
+        // Calcular totales desde los items
+        const subtotal = items.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0);
+        const ivaValor = items.reduce((sum, item) => sum + (Number(item.valorIva) || 0), 0);
+        const total = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+        
+        return {
+          ...r,
+          subtotal: subtotal || 0,
+          descuentoValor: 0, // Se puede calcular desde items si es necesario
+          ivaValor: ivaValor || 0,
+          total: total || 0
+        };
+      } catch (error) {
+        console.error(`❌ Error calculando totales para remisión ${r.id}:`, error);
+        // Si hay error, retornar la remisión con totales en 0
+        return {
+          ...r,
+          subtotal: 0,
+          descuentoValor: 0,
+          ivaValor: 0,
+          total: 0
+        };
+      }
+    }));
+    
     // Mapear estados de BD a frontend usando mapEstadoFromDb
-    const remisionesMapeadas = remisiones.map(r => ({
+    const remisionesMapeadas = remisionesConTotales.map(r => ({
       ...r,
       estado: mapEstadoFromDb(r.estado)
     }));
@@ -3598,8 +3661,23 @@ app.post('/api/cotizaciones', async (req, res) => {
       req1.input('cod_usuario', sql.VarChar(10), codUsuario.substring(0, 10));
       req1.input('COD_TARIFA', sql.Char(2), (req.body.COD_TARIFA || req.body.codTarifa || '  ').substring(0, 2).padEnd(2, ' '));
       
+      // Normalizar formaPago: si viene '1' o 'Contado', guardar como '01' internamente
+      // Si viene '2' o 'Crédito', guardar como '02'
+      let formaPagoNormalizada = '01'; // Por defecto Contado
+      if (formaPago) {
+        const formaPagoStr = String(formaPago).trim().toLowerCase();
+        if (formaPagoStr === '1' || formaPagoStr === 'contado' || formaPagoStr === '01') {
+          formaPagoNormalizada = '01'; // Contado
+        } else if (formaPagoStr === '2' || formaPagoStr === 'crédito' || formaPagoStr === 'credito' || formaPagoStr === '02') {
+          formaPagoNormalizada = '02'; // Crédito
+        } else {
+          formaPagoNormalizada = formaPagoStr.substring(0, 2).padStart(2, '0');
+        }
+      }
+      console.log(`💳 Forma de pago recibida: "${formaPago}" → Normalizada: "${formaPagoNormalizada}" (se guardará como ${formaPagoNormalizada}, se mostrará como ${formaPagoNormalizada === '01' ? 'Contado' : 'Crédito'})`);
+      
       // Campos adicionales
-      const formaPagoFormatted = String(formaPago || '01').substring(0, 2).padEnd(2, ' ');
+      const formaPagoFormatted = String(formaPagoNormalizada).substring(0, 2).padEnd(2, ' ');
       req1.input('formapago', sql.NChar(2), formaPagoFormatted);
       req1.input('valor_anticipo', sql.Decimal(18, 2), Number(valorAnticipo) || 0);
       req1.input('num_orden_compra', sql.Int, numOrdenCompra ? parseInt(numOrdenCompra, 10) : null);
@@ -3814,6 +3892,23 @@ app.put('/api/cotizaciones/:id', async (req, res) => {
       if (body.observaciones !== undefined || body.observacionesInternas !== undefined) {
         updates.push('observa = @observa');
         reqUpdate.input('observa', sql.VarChar(500), body.observaciones || body.observacionesInternas || '');
+      }
+      
+      if (body.formaPago !== undefined) {
+        // Normalizar formaPago: si viene '1' o 'Contado', guardar como '01' internamente
+        let formaPagoNormalizada = '01'; // Por defecto Contado
+        const formaPagoStr = String(body.formaPago).trim().toLowerCase();
+        if (formaPagoStr === '1' || formaPagoStr === 'contado' || formaPagoStr === '01') {
+          formaPagoNormalizada = '01'; // Contado
+        } else if (formaPagoStr === '2' || formaPagoStr === 'crédito' || formaPagoStr === 'credito' || formaPagoStr === '02') {
+          formaPagoNormalizada = '02'; // Crédito
+        } else {
+          formaPagoNormalizada = formaPagoStr.substring(0, 2).padStart(2, '0');
+        }
+        updates.push('formapago = @formapago');
+        const formaPagoFormatted = String(formaPagoNormalizada).substring(0, 2).padEnd(2, ' ');
+        reqUpdate.input('formapago', sql.NChar(2), formaPagoFormatted);
+        console.log(`💳 Forma de pago actualizada: "${body.formaPago}" → Normalizada: "${formaPagoNormalizada}"`);
       }
       
       if (updates.length === 0) {
@@ -4431,7 +4526,8 @@ app.post('/api/pedidos', async (req, res) => {
       impoconsumoValor = 0, observaciones = '', instruccionesEntrega = '',
       estado = 'ENVIADA', empresaId, items = [],
       ivaPorcentaje = 19.00, // Por defecto 19% (IVA estándar en Colombia)
-      descuentoPorcentaje = 0
+      descuentoPorcentaje = 0,
+      formaPago // Forma de pago desde el frontend
     } = body;
 
     if (!clienteId || !Array.isArray(items) || items.length === 0) {
@@ -4507,7 +4603,37 @@ app.post('/api/pedidos', async (req, res) => {
         
         cotizacionIdFinal = cotizacionResult.recordset[0].id;
         console.log(`✅ Cotización encontrada: id=${cotizacionIdFinal}, numcot=${cotizacionResult.recordset[0].numcot}`);
+        
+        // Obtener formapago de la cotización si no se proporcionó en el body
+        if (!formaPago) {
+          const reqFormaPago = new sql.Request(tx);
+          reqFormaPago.input('cotizacionId', sql.Int, cotizacionIdFinal);
+          const formaPagoResult = await reqFormaPago.query(`
+            SELECT formapago
+            FROM ${TABLE_NAMES.cotizaciones}
+            WHERE id = @cotizacionId
+          `);
+          if (formaPagoResult.recordset.length > 0 && formaPagoResult.recordset[0].formapago) {
+            formaPago = formaPagoResult.recordset[0].formapago;
+            console.log(`✅ Forma de pago obtenida desde cotización: "${formaPago}"`);
+          }
+        }
       }
+      
+      // Normalizar formaPago: si viene '1' o 'Contado', guardar como '01' internamente
+      // Si viene '2' o 'Crédito', guardar como '02'
+      let formaPagoNormalizada = '01'; // Por defecto Contado
+      if (formaPago) {
+        const formaPagoStr = String(formaPago).trim().toLowerCase();
+        if (formaPagoStr === '1' || formaPagoStr === 'contado' || formaPagoStr === '01') {
+          formaPagoNormalizada = '01'; // Contado
+        } else if (formaPagoStr === '2' || formaPagoStr === 'crédito' || formaPagoStr === 'credito' || formaPagoStr === '02') {
+          formaPagoNormalizada = '02'; // Crédito
+        } else {
+          formaPagoNormalizada = formaPagoStr.substring(0, 2).padStart(2, '0');
+        }
+      }
+      console.log(`💳 Forma de pago recibida: "${formaPago}" → Normalizada: "${formaPagoNormalizada}" (se guardará como ${formaPagoNormalizada}, se mostrará como ${formaPagoNormalizada === '01' ? 'Contado' : 'Crédito'})`);
       
       // Validar que el cliente existe
       const clienteIdStr = String(clienteId || '').trim();
@@ -4953,6 +5079,9 @@ app.post('/api/pedidos', async (req, res) => {
       req1.input('estado', sql.VarChar(20), estadoMapeado);
       req1.input('fec_creacion', sql.DateTime, new Date());
       req1.input('fec_modificacion', sql.DateTime, new Date());
+      // Normalizar formapago a NCHAR(2) para la BD
+      const formaPagoFormatted = String(formaPagoNormalizada || '01').substring(0, 2).padEnd(2, ' ');
+      req1.input('formapago', sql.NChar(2), formaPagoFormatted);
       
       // Log final de todos los parámetros antes de insertar
       console.log('📋 Parámetros finales para INSERT en ven_pedidos:', {
@@ -4974,7 +5103,8 @@ app.post('/api/pedidos', async (req, res) => {
         total: totalFinal,
         observaciones: observaciones || '',
         instrucciones_entrega: instruccionesEntrega || '',
-        estado: estadoMapeado
+        estado: estadoMapeado,
+        formapago: formaPagoNormalizada
       });
       
       // Log de valores finales antes de insertar
@@ -4995,13 +5125,13 @@ app.post('/api/pedidos', async (req, res) => {
             codter, codven, empresa_id, codtar, codusu, cotizacion_id,
             subtotal, descuento_valor, descuento_porcentaje, iva_valor, iva_porcentaje, 
             impoconsumo_valor, total,
-            observaciones, instrucciones_entrega, estado, fec_creacion, fec_modificacion
+            observaciones, instrucciones_entrega, estado, fec_creacion, fec_modificacion, formapago
             ) VALUES (
               @numero_pedido, @fecha_pedido, @fecha_entrega_estimada,
             @codter, @codven, @empresa_id, @codtar, @codusu, @cotizacion_id,
             @subtotal, @descuento_valor, @descuento_porcentaje, @iva_valor, @iva_porcentaje,
             @impoconsumo_valor, @total,
-            @observaciones, @instrucciones_entrega, @estado, @fec_creacion, @fec_modificacion
+            @observaciones, @instrucciones_entrega, @estado, @fec_creacion, @fec_modificacion, @formapago
             );
             SELECT SCOPE_IDENTITY() AS id;`);
         const newIdRaw = insertHeader.recordset[0].id;
@@ -5057,11 +5187,11 @@ app.post('/api/pedidos', async (req, res) => {
           throw new Error(`Item ${idx + 1}: ${error.message}`);
         }
         
-        // Obtener el código del producto (codins) desde inv_insumos
+        // Obtener el código del producto (codins) y tasa_iva desde inv_insumos
         const reqGetCodins = new sql.Request(tx);
         reqGetCodins.input('productoId', sql.Int, productoIdNum);
         const codinsResult = await reqGetCodins.query(`
-          SELECT TOP 1 codins
+          SELECT TOP 1 codins, COALESCE(tasa_iva, 19) as tasa_iva
           FROM inv_insumos
           WHERE id = @productoId
         `);
@@ -5072,6 +5202,9 @@ app.post('/api/pedidos', async (req, res) => {
         
         const codinsRaw = codinsResult.recordset[0].codins;
         const codinsFinal = String(codinsRaw || '').trim().substring(0, 8).padStart(8, '0');
+        // Obtener tasa_iva del producto o usar el del item, con fallback a 19%
+        const tasaIvaProducto = codinsResult.recordset[0].tasa_iva || 19;
+        const tasaIvaItem = it.ivaPorcentaje || tasaIvaProducto;
         
         if (!codinsFinal || codinsFinal === '00000000') {
           throw new Error(`Item ${idx + 1}: codins inválido o vacío para producto ID ${productoIdNum}`);
@@ -5381,10 +5514,20 @@ app.post('/api/pedidos', async (req, res) => {
           }
         });
         
+        // Obtener porcentajes para guardar
+        const tasaIvaFinal = Number(tasaIvaItem) || 19;
+        const tasaDescuentoFinal = Number(it.descuentoPorcentaje || 0);
+        
+        // Validar y limitar tasa_iva a valores estándar (0-100)
+        const tasaIvaValidada = Math.max(0, Math.min(100, Math.round(tasaIvaFinal * 100) / 100));
+        const tasaDescuentoValidada = Math.max(0, Math.min(100, Math.round(tasaDescuentoFinal * 100) / 100));
+        
         reqDet.input('valins', sql.Decimal(18, 2), Number(valinsForSQLFinal.toFixed(2)));
         reqDet.input('canped', sql.Decimal(8, 0), canpedForSQLFinal); // NUMERIC(8) sin decimales
         reqDet.input('ivaped', sql.Decimal(18, 2), Number(ivapedForSQLFinal.toFixed(2)));
         reqDet.input('dctped', sql.Decimal(18, 2), Number(dctpedForSQLFinal.toFixed(2))); // Asumiendo NUMERIC(18,2)
+        // NOTA: tasa_iva y tasa_descuento no existen en la tabla ven_detapedidos real
+        // Se eliminan del INSERT para evitar error "Invalid column name"
         reqDet.input('estped', sql.Char(1), 'B'); // B=BORRADOR
         reqDet.input('codalm', sql.Char(3), codalmFormatted);
         reqDet.input('pedido_id', sql.Int, newId); // Relación con ven_pedidos.id (ya validado arriba)
@@ -5392,7 +5535,7 @@ app.post('/api/pedidos', async (req, res) => {
         reqDet.input('codtec', sql.VarChar(20), ''); // Código técnico (requerido, usar string vacío si no se proporciona)
         
         // Log para verificar que pedido_id se está pasando correctamente
-        console.log(`🔍 Item ${idx + 1} - Insertando con pedido_id=${newId} (tipo: ${typeof newId}), codins=${codinsFinal}, numped=${numpedFinal}`);
+        console.log(`🔍 Item ${idx + 1} - Insertando con pedido_id=${newId} (tipo: ${typeof newId}), codins=${codinsFinal}, numped=${numpedFinal}, tasa_iva=${tasaIvaValidada}%`);
         
         try {
           await reqDet.query(`
@@ -5591,6 +5734,23 @@ app.put('/api/pedidos/:id', async (req, res) => {
       if (body.instruccionesEntrega !== undefined) {
         updates.push('instrucciones_entrega = @instrucciones_entrega');
         reqUpdate.input('instrucciones_entrega', sql.VarChar(500), body.instruccionesEntrega || '');
+      }
+      
+      if (body.formaPago !== undefined) {
+        // Normalizar formaPago: si viene '1' o 'Contado', guardar como '01' internamente
+        let formaPagoNormalizada = '01'; // Por defecto Contado
+        const formaPagoStr = String(body.formaPago).trim().toLowerCase();
+        if (formaPagoStr === '1' || formaPagoStr === 'contado' || formaPagoStr === '01') {
+          formaPagoNormalizada = '01'; // Contado
+        } else if (formaPagoStr === '2' || formaPagoStr === 'crédito' || formaPagoStr === 'credito' || formaPagoStr === '02') {
+          formaPagoNormalizada = '02'; // Crédito
+        } else {
+          formaPagoNormalizada = formaPagoStr.substring(0, 2).padStart(2, '0');
+        }
+        updates.push('formapago = @formapago');
+        const formaPagoFormatted = String(formaPagoNormalizada).substring(0, 2).padEnd(2, ' ');
+        reqUpdate.input('formapago', sql.NChar(2), formaPagoFormatted);
+        console.log(`💳 Forma de pago actualizada: "${body.formaPago}" → Normalizada: "${formaPagoNormalizada}"`);
       }
       
       // Validar y normalizar valores numéricos (SIN redondeo - usar valores exactos de la BD)
@@ -6794,8 +6954,24 @@ app.post('/api/facturas', async (req, res) => {
       numeroFactura, fechaFactura, fechaVencimiento,
       clienteId, vendedorId, remisionId, pedidoId,
       subtotal, descuentoValor = 0, ivaValor = 0, total = 0,
-      observaciones = '', estado = 'BORRADOR', empresaId, items = []
+      observaciones = '', estado = 'BORRADOR', empresaId, items = [],
+      formaPago // Forma de pago desde el frontend
     } = body;
+    
+    // Normalizar formaPago: si viene '1' o 'Contado', guardar como '01' internamente
+    // Si viene '2' o 'Crédito', guardar como '02'
+    let formaPagoNormalizada = '01'; // Por defecto Contado
+    if (formaPago) {
+      const formaPagoStr = String(formaPago).trim().toLowerCase();
+      if (formaPagoStr === '1' || formaPagoStr === 'contado' || formaPagoStr === '01') {
+        formaPagoNormalizada = '01'; // Contado
+      } else if (formaPagoStr === '2' || formaPagoStr === 'crédito' || formaPagoStr === 'credito' || formaPagoStr === '02') {
+        formaPagoNormalizada = '02'; // Crédito
+      } else {
+        formaPagoNormalizada = formaPagoStr.substring(0, 2).padStart(2, '0');
+      }
+    }
+    console.log(`💳 Forma de pago recibida: "${formaPago}" → Normalizada: "${formaPagoNormalizada}" (se guardará como ${formaPagoNormalizada}, se mostrará como ${formaPagoNormalizada === '01' ? 'Contado' : 'Crédito'})`);
 
     // Validar clienteId
     if (!clienteId) {
@@ -7295,19 +7471,25 @@ app.post('/api/facturas', async (req, res) => {
       let numeroFacturaFinal = numeroFactura ? String(numeroFactura).trim() : null;
       
       if (!numeroFacturaFinal || numeroFacturaFinal === 'AUTO' || numeroFacturaFinal === '') {
-        // Generar número automático usando la columna numfact
+        // Generar número automático: buscar el máximo número numérico en numfact (sin prefijo)
+        // Continuar desde 96274
         const reqMax = new sql.Request(tx);
         const maxResult = await reqMax.query(`
-          SELECT MAX(CAST(SUBSTRING(numfact, 4, LEN(numfact)) AS INT)) as maxNum
+          SELECT MAX(
+            CASE 
+              WHEN ISNUMERIC(numfact) = 1 THEN CAST(numfact AS INT)
+              WHEN numfact LIKE 'FC-%' AND ISNUMERIC(SUBSTRING(numfact, 4, LEN(numfact))) = 1 
+                THEN CAST(SUBSTRING(numfact, 4, LEN(numfact)) AS INT)
+              ELSE 0
+            END
+          ) as maxNum
           FROM ${TABLE_NAMES.facturas}
-          WHERE numfact LIKE 'FC-%' 
-            AND ISNUMERIC(SUBSTRING(numfact, 4, LEN(numfact))) = 1
         `);
         
-        const maxNum = maxResult.recordset[0]?.maxNum || 0;
-        const nextNum = maxNum + 1;
-        numeroFacturaFinal = `FC-${String(nextNum).padStart(4, '0')}`;
-        console.log(`📝 Número de factura generado automáticamente: "${numeroFacturaFinal}"`);
+        const maxNum = maxResult.recordset[0]?.maxNum || 96274;
+        const nextNum = maxNum >= 96274 ? maxNum + 1 : 96275;
+        numeroFacturaFinal = String(nextNum);
+        console.log(`📝 Número de factura generado automáticamente: "${numeroFacturaFinal}" (continuando desde 96274)`);
       } else {
         // Validar que no exista usando la columna numfact
         const reqExistente = new sql.Request(tx);
@@ -7384,7 +7566,7 @@ app.post('/api/facturas', async (req, res) => {
       // Observa VARCHAR(150), resolucion_dian CHAR(2), estfac VARCHAR(1), estado_envio BIT, sey_key VARCHAR(120), CUFE VARCHAR(600)
       const numfactFinal = String(numeroFacturaFinal || '').trim().substring(0, 15);
       const codalmFinalTrunc = codalmFinal; // Ya está truncado arriba (CHAR(3))
-      const tipfacFinal = String(body.tipoFactura || '01').trim().substring(0, 2).padEnd(2, ' '); // CHAR(2) - rellenar con espacios
+      const tipfacFinal = String(body.tipoFactura || 'FV').trim().substring(0, 2).padEnd(2, ' '); // CHAR(2) - usar 'FV' por defecto
       const codterFinal = String(clienteIdStr || '').trim().substring(0, 15);
       const doccocFinal = body.documentoContable ? String(body.documentoContable).trim().substring(0, 12).padEnd(12, ' ') : null; // CHAR(12)
       
@@ -7487,9 +7669,31 @@ app.post('/api/facturas', async (req, res) => {
       const cufeFinal = body.cufe ? String(body.cufe).trim().substring(0, 600) : null; // VARCHAR(600)
       
       req1.input('codcue', sql.Char(8), codcueFinal);
-      req1.input('efectivo', sql.Decimal(18, 2), body.efectivo || 0);
+      
+      // Determinar valores de efectivo/credito basándose en formaPagoNormalizada si no se especifican explícitamente
+      // Si formaPagoNormalizada es '01' (Contado), todo va a efectivo
+      // Si formaPagoNormalizada es '02' (Crédito), todo va a credito
+      let efectivoFinal = body.efectivo || 0;
+      let creditoFinal = body.credito || 0;
+      
+      // Si no se especificaron valores explícitos y tenemos una forma de pago normalizada
+      if ((!body.efectivo && !body.credito && !body.tarjetaCredito && !body.transferencia) && formaPagoNormalizada) {
+        if (formaPagoNormalizada === '01') {
+          // Contado: todo el total va a efectivo
+          efectivoFinal = totalFinal;
+          creditoFinal = 0;
+          console.log(`   ✅ Forma de pago: Contado (01) → efectivo=${efectivoFinal}, credito=0`);
+        } else if (formaPagoNormalizada === '02') {
+          // Crédito: todo el total va a credito
+          efectivoFinal = 0;
+          creditoFinal = totalFinal;
+          console.log(`   ✅ Forma de pago: Crédito (02) → efectivo=0, credito=${creditoFinal}`);
+        }
+      }
+      
+      req1.input('efectivo', sql.Decimal(18, 2), efectivoFinal);
       req1.input('cheques', sql.Decimal(18, 2), body.cheques || 0);
-      req1.input('credito', sql.Decimal(18, 2), body.credito || 0);
+      req1.input('credito', sql.Decimal(18, 2), creditoFinal);
       req1.input('tarjetacr', sql.Decimal(18, 2), body.tarjetaCredito || 0);
       req1.input('TarjetaDB', sql.Decimal(18, 2), body.tarjetaDebito || 0);
       req1.input('Transferencia', sql.Decimal(18, 2), body.transferencia || 0);
@@ -7601,11 +7805,11 @@ app.post('/api/facturas', async (req, res) => {
           throw new Error(`Item ${idx + 1}: productoId inválido: ${it.productoId}`);
         }
         
-        // Obtener codins desde inv_insumos usando el id del producto
+        // Obtener codins y tasa_iva desde inv_insumos usando el id del producto
         const reqProducto = new sql.Request(tx);
         reqProducto.input('productoId', sql.Int, productoIdNum);
         const productoResult = await reqProducto.query(`
-          SELECT TOP 1 codins, nomins
+          SELECT TOP 1 codins, nomins, COALESCE(tasa_iva, 0) as tasa_iva
           FROM inv_insumos
           WHERE id = @productoId
         `);
@@ -7617,22 +7821,26 @@ app.post('/api/facturas', async (req, res) => {
         
         const codins = String(productoResult.recordset[0].codins || '').trim().substring(0, 8).padStart(8, '0');
         const nomins = String(productoResult.recordset[0].nomins || '').trim();
+        // IMPORTANTE: Obtener tasa_iva del producto desde la base de datos (ÚNICA fuente confiable)
+        // IGNORAR completamente los valores de IVA que vienen del frontend
+        const tasaIvaProducto = Number(productoResult.recordset[0].tasa_iva || 0);
         
-        // Validar y normalizar valores numéricos
+        // Validar y normalizar valores numéricos (solo cantidad, precio y descuento del frontend)
         const maxDecimal18_2 = 9999999999999999.99;
         const cantidadRaw = it.cantidad;
         const precioUnitarioRaw = it.precioUnitario;
         const descuentoPorcentajeRaw = it.descuentoPorcentaje || 0;
-        const ivaPorcentajeRaw = it.ivaPorcentaje || 0;
-        const subtotalRaw = it.subtotal;
-        const valorIvaRaw = it.valorIva || 0;
+        // NO usar it.ivaPorcentaje ni it.valorIva del frontend - solo usar tasa_iva de BD
         
         const cantidadNum = typeof cantidadRaw === 'number' ? cantidadRaw : parseFloat(cantidadRaw);
         const precioUnitarioNum = typeof precioUnitarioRaw === 'number' ? precioUnitarioRaw : parseFloat(precioUnitarioRaw);
         const descuentoPorcentajeNum = typeof descuentoPorcentajeRaw === 'number' ? descuentoPorcentajeRaw : parseFloat(descuentoPorcentajeRaw);
-        const ivaPorcentajeNum = typeof ivaPorcentajeRaw === 'number' ? ivaPorcentajeRaw : parseFloat(ivaPorcentajeRaw);
-        const subtotalNum = typeof subtotalRaw === 'number' ? subtotalRaw : parseFloat(subtotalRaw);
-        const valorIvaNum = typeof valorIvaRaw === 'number' ? valorIvaRaw : parseFloat(valorIvaRaw);
+        
+        // Calcular subtotal sin IVA (después de descuento)
+        const subtotalSinIva = precioUnitarioNum * cantidadNum * (1 - (descuentoPorcentajeNum / 100));
+        
+        // Calcular IVA SIEMPRE desde la tasa_iva del producto en BD (ignorar frontend completamente)
+        const valorIvaFinalCalculado = subtotalSinIva * (tasaIvaProducto / 100);
         
         // Validar que sean números finitos
         if (!isFinite(cantidadNum) || isNaN(cantidadNum) || cantidadNum <= 0) {
@@ -7648,10 +7856,10 @@ app.post('/api/facturas', async (req, res) => {
         const qtyinsFinal = Math.max(0.01, Math.min(Math.abs(cantidadNum), maxDecimal18_2));
         const valinsFinal = Math.max(0, Math.min(Math.abs(precioUnitarioNum), maxDecimal18_2));
         const desinsFinal = Math.max(0, Math.min(Math.abs(descuentoPorcentajeNum), 100));
-        const ivainsFinal = Math.max(0, Math.min(Math.abs(ivaPorcentajeNum), 100));
-        const valorIvaFinal = Math.max(0, Math.min(Math.abs(valorIvaNum), maxDecimal18_2));
-        // Calcular valdescuento (valor del descuento, no porcentaje)
-        const valdescuentoFinal = Math.max(0, Math.min(Math.abs(subtotalNum * (desinsFinal / 100)), maxDecimal18_2));
+        // Calcular IVA SIEMPRE desde tasa_iva de BD (ignorar completamente frontend)
+        const valorIvaFinal = Math.max(0, Math.min(Math.abs(valorIvaFinalCalculado), maxDecimal18_2));
+        // Calcular valdescuento (valor del descuento, no porcentaje) desde subtotal calculado
+        const valdescuentoFinal = Math.max(0, Math.min(Math.abs(subtotalSinIva * (desinsFinal / 100)), maxDecimal18_2));
         // cosins (costo) - usar 0 si no se proporciona
         const cosinsFinal = 0;
         
@@ -7661,9 +7869,12 @@ app.post('/api/facturas', async (req, res) => {
           qtyins: qtyinsFinal,
           valins: valinsFinal,
           desins: desinsFinal,
-          ivains: valorIvaFinal,
+          tasa_iva_producto_BD: tasaIvaProducto,
+          subtotal_sin_iva: subtotalSinIva,
+          valor_iva_calculado_BD: valorIvaFinal,
           valdescuento: valdescuentoFinal,
-          observa: (it.descripcion || nomins || '').substring(0, 50)
+          observa: (it.descripcion || nomins || '').substring(0, 50),
+          nota: 'IVA calculado desde BD, ignorando valores del frontend'
         });
         
         // Mapear a columnas reales de ven_detafact

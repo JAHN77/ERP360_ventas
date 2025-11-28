@@ -141,7 +141,7 @@ export interface InvProducto {
   codigoSublinea: string;
   codigoMedida: string;
   tasaIva: number;
-  ultimoCosto: number;
+  ultimoCosto: number; // Precio SIN IVA (base para calcular IVA)
   costoPromedio: number;
   referencia?: string;
   karins: boolean; // Controla existencia
@@ -161,6 +161,9 @@ export interface InvProducto {
   // Campos de inventario desde inv_invent
   stock?: number; // ucoins desde inv_invent
   precioInventario?: number; // valinv desde inv_invent
+  // Campos adicionales de tarifa de precios
+  precioConIva?: number; // Precio CON IVA (para referencia/visualización)
+  margenTarifa?: number; // Margen de la tarifa
 }
 export type Producto = InvProducto;
 

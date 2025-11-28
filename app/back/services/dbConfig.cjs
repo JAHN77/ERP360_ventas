@@ -82,6 +82,7 @@ const QUERIES = {
 
   // Obtener todos los productos con stock desde inv_invent (filtrado por bodega si se proporciona)
   // Usando caninv (cantidad de inventario) en lugar de ucoins
+  // Precio obtenido desde inv_detaprecios con tarifa '07': precio SIN IVA como base, precio CON IVA para referencia
   GET_PRODUCTOS: `
     SELECT 
       ins.id,
@@ -92,7 +93,12 @@ const QUERIES = {
       ins.Codigo_Medida          AS idMedida,
       ins.undins                 AS unidadMedida,
       ins.tasa_iva               AS tasaIva,
-      ins.ultimo_costo           AS ultimoCosto,
+      -- Precio SIN IVA desde inv_detaprecios (tarifa '07'), fallback a ultimo_costo si no existe
+      -- Este es el precio base que se usará para calcular IVA
+      COALESCE(
+        CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(10,2)),
+        ins.ultimo_costo
+      ) AS ultimoCosto,
       ins.costo_promedio         AS costoPromedio,
       ins.referencia,
       ins.karins                 AS controlaExistencia,
@@ -102,38 +108,52 @@ const QUERIES = {
       ins.precio_publico         AS precioPublico,
       ins.precio_mayorista       AS precioMayorista,
       ins.precio_minorista       AS precioMinorista,
-      ins.fecsys                 AS fechaCreacion
+      ins.fecsys                 AS fechaCreacion,
+      -- Campos adicionales de la tarifa de precios
+      dp.margen_tarifa           AS margenTarifa,
+      -- Precio CON IVA (para referencia/visualización)
+      dp.valins                  AS precioConIva
     FROM ${TABLE_NAMES.productos} ins
     LEFT JOIN inv_invent inv ON inv.codins = ins.codins
       AND (@codalm IS NULL OR inv.codalm = @codalm)
+    LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
     WHERE ins.activo = 1
     GROUP BY ins.id, ins.codins, ins.nomins, ins.codigo_linea, ins.codigo_sublinea, 
              ins.Codigo_Medida, ins.undins, ins.tasa_iva, ins.ultimo_costo, 
              ins.costo_promedio, ins.referencia, ins.karins, ins.activo, 
              ins.MARGEN_VENTA, ins.precio_publico, ins.precio_mayorista, 
-             ins.precio_minorista, ins.fecsys
+             ins.precio_minorista, ins.fecsys, dp.valins, dp.margen_tarifa
     ORDER BY ins.nomins
   `,
 
   // Productos mínimos para UI: nombre, referencia, ultimoCosto, stock, precioInventario (filtrado por bodega si se proporciona)
   // Usando caninv (cantidad de inventario) en lugar de ucoins
+  // Precio obtenido desde inv_detaprecios con tarifa '07': precio SIN IVA como base
   GET_PRODUCTOS_MIN: `
     SELECT 
       ins.id,
       ins.nomins                                   AS nombre,
       LTRIM(RTRIM(COALESCE(ins.referencia, '')))   AS referencia,
-      ins.ultimo_costo                             AS ultimoCosto,
+      -- Precio SIN IVA desde inv_detaprecios (tarifa '07'), fallback a ultimo_costo si no existe
+      -- Este es el precio base que se usará para calcular IVA
+      COALESCE(
+        CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(10,2)),
+        ins.ultimo_costo
+      ) AS ultimoCosto,
       COALESCE(SUM(inv.caninv), 0)                 AS stock,
       COALESCE(SUM(inv.valinv), 0)                 AS precioInventario,
       ins.undins                                   AS unidadMedidaCodigo,
       m.nommed                                     AS unidadMedidaNombre,
-      ins.tasa_iva                                 AS tasaIva
+      ins.tasa_iva                                 AS tasaIva,
+      -- Precio CON IVA (para referencia/visualización)
+      dp.valins                                    AS precioConIva
     FROM ${TABLE_NAMES.productos} ins
     LEFT JOIN inv_invent inv ON inv.codins = ins.codins
       AND (@codalm IS NULL OR inv.codalm = @codalm)
     LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
+    LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
     WHERE ins.activo = 1
-    GROUP BY ins.id, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva
+    GROUP BY ins.id, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva, dp.valins
     ORDER BY ins.nomins
   `,
 
@@ -183,7 +203,14 @@ const QUERIES = {
       f.IdCaja as cajaId,
       f.Valnotas as valorNotas,
       -- Si la factura está rechazada, usar Observa como motivoRechazo
-      CASE WHEN f.estfac = 'R' THEN f.Observa ELSE NULL END as motivoRechazo
+      CASE WHEN f.estfac = 'R' THEN f.Observa ELSE NULL END as motivoRechazo,
+      -- Calcular formaPago: '01' (Contado) si efectivo > 0, '02' (Crédito) si credito > 0
+      CASE 
+        WHEN COALESCE(f.efectivo, 0) > 0 AND COALESCE(f.credito, 0) = 0 THEN '01'
+        WHEN COALESCE(f.credito, 0) > 0 THEN '02'
+        WHEN COALESCE(f.tarjetacr, 0) > 0 OR COALESCE(f.Transferencia, 0) > 0 THEN '01'
+        ELSE '01'
+      END as formaPago
     FROM ${TABLE_NAMES.facturas} f
     ORDER BY f.fecfac DESC
   `,
@@ -346,21 +373,33 @@ const QUERIES = {
         THEN (COALESCE(pd.dctped, 0) / (pd.canped * pd.valins)) * 100
         ELSE 0
       END as descuentoPorcentaje,
-      -- Calcular ivaPorcentaje desde ivaped
-      CASE 
-        WHEN COALESCE(pd.canped, 0) > 0 AND COALESCE(pd.valins, 0) > 0 
-          AND (pd.canped * pd.valins - COALESCE(pd.dctped, 0)) > 0
-        THEN (COALESCE(pd.ivaped, 0) / (pd.canped * pd.valins - COALESCE(pd.dctped, 0))) * 100
-        ELSE 0
-      END as ivaPorcentaje,
+      -- Obtener porcentaje de IVA desde el producto, si no existe calcular desde ivaped/subtotal
+      COALESCE(
+        (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+        CASE 
+          WHEN COALESCE(pd.canped, 0) > 0 AND COALESCE(pd.valins, 0) > 0 
+            AND (pd.canped * pd.valins - COALESCE(pd.dctped, 0)) > 0
+          THEN (COALESCE(pd.ivaped, 0) / (pd.canped * pd.valins - COALESCE(pd.dctped, 0))) * 100
+          ELSE 0
+        END,
+        0
+      ) as ivaPorcentaje,
       -- Obtener descripción del producto
       COALESCE(
         (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
         LTRIM(RTRIM(COALESCE(pd.codins, '')))
       ) as descripcion,
+      -- Obtener unidad de medida (similar a cotizaciones)
+      COALESCE(
+        (SELECT TOP 1 LTRIM(RTRIM(COALESCE(m.nommed, ins.undins, 'Unidad'))) 
+         FROM inv_insumos ins
+         LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
+         WHERE LTRIM(RTRIM(ins.codins)) = LTRIM(RTRIM(pd.codins))),
+        'Unidad'
+      ) as unidadMedida,
       -- Calcular subtotal
       ((COALESCE(pd.canped, 0) * COALESCE(pd.valins, 0)) - COALESCE(pd.dctped, 0)) as subtotal,
-      -- Usar ivaped como valorIva
+      -- Usar ivaped como valorIva directamente (ya está almacenado)
       COALESCE(pd.ivaped, 0) as valorIva,
       -- Calcular total
       ((COALESCE(pd.canped, 0) * COALESCE(pd.valins, 0)) - COALESCE(pd.dctped, 0) + COALESCE(pd.ivaped, 0)) as total,
