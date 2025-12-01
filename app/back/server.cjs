@@ -8618,7 +8618,12 @@ app.put('/api/facturas/:id', async (req, res) => {
             // Factura aceptada y timbrada por DIAN
             cufeGenerado = dianResponse.cufe;
             fechaTimbradoGenerada = dianResponse.fechaTimbrado || new Date();
+            fechaTimbradoGenerada = dianResponse.fechaTimbrado || new Date();
             estadoFinal = 'E'; // ENVIADA - Solo después de que DIAN confirme el timbrado
+
+            // Actualizar estado_envio a 1 (Aceptada)
+            reqUpdate.input('estado_envio', sql.Bit, 1);
+            updates.push('estado_envio = @estado_envio');
 
             console.log(`\n[${requestId}] ✅ FACTURA ACEPTADA Y TIMBRADA POR DIAN:`);
             console.log(`[${requestId}]    - CUFE:`, cufeGenerado);
@@ -8632,6 +8637,10 @@ app.put('/api/facturas/:id', async (req, res) => {
           } else {
             // Factura rechazada o error en respuesta de DIAN
             estadoFinal = 'R'; // RECHAZADA
+
+            // Actualizar estado_envio a 0 (Rechazada)
+            reqUpdate.input('estado_envio', sql.Bit, 0);
+            updates.push('estado_envio = @estado_envio');
 
             console.log(`\n[${requestId}] ❌ FACTURA RECHAZADA O ERROR EN RESPUESTA DIAN:`);
             console.log(`[${requestId}]    - success:`, dianResponse.success);
@@ -8654,6 +8663,10 @@ app.put('/api/facturas/:id', async (req, res) => {
 
           // Marcar como rechazada si hay error
           estadoFinal = 'R'; // RECHAZADA
+
+          // Actualizar estado_envio a 0 (Rechazada por error)
+          reqUpdate.input('estado_envio', sql.Bit, 0);
+          updates.push('estado_envio = @estado_envio');
 
           // Loggear error detallado pero continuar con la actualización
           // El estado RECHAZADA quedará guardado en la base de datos
@@ -8697,7 +8710,15 @@ app.put('/api/facturas/:id', async (req, res) => {
         console.log(`[${requestId}] 📝 [UPDATE] Agregando numfact a la actualización: ${invoiceJson.number}`);
         reqUpdate.input('numfact', sql.VarChar(15), String(invoiceJson.number));
         updates.push('numfact = @numfact');
-      } else {
+      }
+
+      // SIEMPRE actualizar resolucion_dian a 58 si se intentó timbrar
+      if (debeTimbrar) {
+        reqUpdate.input('resolucion_dian', sql.Char(2), '58');
+        updates.push('resolucion_dian = @resolucion_dian');
+      }
+
+      if (!invoiceJson || !invoiceJson.number) {
         console.log(`[${requestId}] ⚠️ [UPDATE] No se agregará numfact. invoiceJson: ${invoiceJson ? 'Presente' : 'Null'}, number: ${invoiceJson?.number}`);
       }
 

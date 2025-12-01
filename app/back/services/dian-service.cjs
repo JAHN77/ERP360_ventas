@@ -129,16 +129,16 @@ class DIANService {
       }
 
       const resolution = {
-        id: 54,
+        id: 58,
         consecutivo: 'SETP',
         rango_inicial: 90000,
         rango_final: 99000,
-        codigo: 54,
-        id_api: 54,
+        codigo: 58,
+        id_api: 58,
         activa: true
       };
 
-      console.log('✅ Resolución DIAN activa (HARDCODED 54):');
+      console.log('✅ Resolución DIAN activa (HARDCODED 58):');
       console.log('   - id:', resolution.id);
       console.log('   - consecutivo:', resolution.consecutivo);
       console.log('   - rango_inicial:', resolution.rango_inicial);
@@ -906,7 +906,7 @@ class DIANService {
       number: Number(invoiceNumber), // Número explícito
       type_document_id: Number(typeDocumentId), // 1 = Producción, 2 = Prueba
       identification_number: Number(companyData.identification_number || this.COMPANY_NIT), // Número explícito
-      resolution_id: 54, // Hardcoded to 54 as requested
+      resolution_id: 58, // Hardcoded to 58 as requested
       sync: Boolean(syncValue), // Boolean explícito
       company: {
         identification_number: Number(companyData.identification_number || this.COMPANY_NIT), // Número explícito
