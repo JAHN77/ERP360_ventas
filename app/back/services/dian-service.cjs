@@ -356,39 +356,23 @@ class DIANService {
     }
     console.log('✅ [DIAN] Número de factura final:', invoiceNumber);
     
-    // Calcular totales
-    const totalAmount = venFactura.netfac || venFactura.valvta || venFactura.total || 0;
-    const taxAmount = this.roundCOP(venFactura.valiva || venFactura.iva_valor || 0);
-    const lineExtensionAmount = this.roundCOP(totalAmount - taxAmount);
+    // Calcular totales - SIEMPRE usar 19% de IVA
+    const ivaPercent = 19; // SIEMPRE 19% según requerimiento
+    console.log('💰 [DIAN] Usando IVA fijo: 19%');
     
-    console.log('💰 [DIAN] Totales calculados:');
-    console.log('   - Total Amount:', totalAmount);
-    console.log('   - Tax Amount (IVA):', taxAmount);
-    console.log('   - Line Extension Amount (Subtotal):', lineExtensionAmount);
+    // Obtener el subtotal sin IVA desde la base de datos
+    const lineExtensionAmount = this.roundCOP(venFactura.valvta || venFactura.subtotal || 0);
     
-    // Calcular porcentaje de IVA
-    let ivaPercent = 19; // Por defecto 19%
-    if (lineExtensionAmount > 0 && taxAmount > 0) {
-      const calculatedPercent = (taxAmount / lineExtensionAmount) * 100;
-      console.log('📊 [DIAN] Porcentaje IVA calculado:', calculatedPercent, '%');
-      
-      // Redondear a tarifas estándar de DIAN (19%, 5%, 0%)
-      if (calculatedPercent >= 18.5 && calculatedPercent <= 19.5) {
-        ivaPercent = 19;
-        console.log('✅ [DIAN] IVA ajustado a 19% (estándar)');
-      } else if (calculatedPercent >= 4.5 && calculatedPercent <= 5.5) {
-        ivaPercent = 5;
-        console.log('✅ [DIAN] IVA ajustado a 5% (reducido)');
-      } else if (calculatedPercent < 0.5) {
-        ivaPercent = 0;
-        console.log('✅ [DIAN] IVA ajustado a 0% (exento)');
-      } else {
-        ivaPercent = Math.round(calculatedPercent * 100) / 100;
-        console.log('✅ [DIAN] IVA usando porcentaje calculado:', ivaPercent, '%');
-      }
-    } else {
-      console.log('⚠️ [DIAN] Usando IVA por defecto 19% (no se pudo calcular)');
-    }
+    // Calcular el IVA sobre el subtotal (19%)
+    const taxAmount = this.roundCOP(lineExtensionAmount * (ivaPercent / 100));
+    
+    // Calcular el total con IVA
+    const totalAmount = this.roundCOP(lineExtensionAmount + taxAmount);
+    
+    console.log('💰 [DIAN] Totales calculados (con IVA 19%):');
+    console.log('   - Line Extension Amount (Subtotal SIN IVA):', lineExtensionAmount);
+    console.log('   - Tax Amount (IVA 19%):', taxAmount);
+    console.log('   - Total Amount (con IVA):', totalAmount);
     
     // Determinar forma de pago
     let paymentFormId = 1; // Efectivo
@@ -405,16 +389,21 @@ class DIANService {
       paymentMethodId = 1; // Crédito
     }
     
-    // Construir líneas de factura
+    // Construir líneas de factura - SIEMPRE usar 19% de IVA
     let invoiceLines = [];
     
     if (detalles && detalles.length > 0) {
       // Si hay detalles, crear una línea por cada detalle
       invoiceLines = detalles.map((detalle, index) => {
+        // Obtener el subtotal sin IVA del detalle
         const detalleLineExtension = this.roundCOP(detalle.subtotal || (detalle.valins || 0) - (detalle.ivains || 0));
-        const detalleTaxAmount = this.roundCOP(detalle.valorIva || detalle.ivains || 0);
-        const detallePrice = this.roundCOP(detalle.precioUnitario || detalle.valins || 0);
+        
+        // Calcular IVA sobre el subtotal (19%)
+        const detalleTaxAmount = this.roundCOP(detalleLineExtension * (ivaPercent / 100));
+        
+        // Calcular precio unitario sin IVA
         const detalleQuantity = parseFloat(detalle.cantidad || detalle.qtyins || 1);
+        const detallePrice = detalleQuantity > 0 ? this.roundCOP(detalleLineExtension / detalleQuantity) : 0;
         
         return {
           unit_measure_id: 70, // Unidad estándar
@@ -430,7 +419,7 @@ class DIANService {
             tax_id: 1,
             tax_amount: detalleTaxAmount,
             taxable_amount: detalleLineExtension,
-            percent: ivaPercent
+            percent: ivaPercent // Siempre 19%
           }]
         };
       });
@@ -450,7 +439,7 @@ class DIANService {
           tax_id: 1,
           tax_amount: this.roundCOP(taxAmount),
           taxable_amount: this.roundCOP(lineExtensionAmount),
-          percent: ivaPercent
+          percent: ivaPercent // Siempre 19%
         }]
       }];
     }
@@ -471,25 +460,18 @@ class DIANService {
     ).toUpperCase().trim();
     
     // Construir JSON final
-    // IMPORTANTE: Si sync es false, trackId NO debe incluirse en el JSON (no enviarlo)
+    // IMPORTANTE: sync siempre será true según requerimiento
     // Si sync es true, trackId debe ser un string válido
     // CRÍTICO: NO usar undefined, sino NO incluir el campo en absoluto
-    const syncValue = config?.sync === true; // Asegurar que sea boolean explícito
+    const syncValue = true; // Siempre true según requerimiento
     
-    // Construir el objeto base SIN trackId
+    // Construir el objeto base SIN trackId - Formato simplificado como test.jsonc
     const dianJson = {
       number: invoiceNumber,
       type_document_id: 1, // Factura de Venta
       identification_number: this.COMPANY_NIT,
-      resolution_id: resolution.id_api || resolution.id || 79,
-      sync: syncValue, // Boolean explícito
-      issue_date: issueDate,
-      due_date: dueDate,
-      profile_id: config?.isPrueba ? "2" : "1", // 1 = Producción, 2 = Prueba
-      profile_execution_id: config?.isPrueba ? "2" : "1",
-      scheme_id: config?.isPrueba ? "2" : "1",
-      document_currency_code: "COP",
-      invoice_type_code: "1",
+      resolution_id: 101, // Por ahora fijo en 101, luego se ajustará desde BD
+      sync: true, // Siempre true
       company: {
         identification_number: this.COMPANY_DATA.identification_number,
         name: this.COMPANY_DATA.name,
@@ -607,8 +589,8 @@ class DIANService {
     console.log('📋 [DIAN] Resumen del JSON:');
     console.log('   - Número:', dianJson.number);
     console.log('   - Tipo Documento:', dianJson.type_document_id);
-    console.log('   - Fecha Emisión:', dianJson.issue_date);
-    console.log('   - Fecha Vencimiento:', dianJson.due_date);
+    console.log('   - Resolution ID:', dianJson.resolution_id);
+    console.log('   - Sync:', dianJson.sync);
     console.log('   - Cliente ID:', dianJson.customer.identification_number);
     console.log('   - Cliente Nombre:', dianJson.customer.name);
     console.log('   - Cliente Teléfono:', dianJson.customer.phone);
@@ -616,7 +598,7 @@ class DIANService {
     console.log('   - Total Líneas:', dianJson.invoice_lines.length);
     console.log('   - Total a Pagar:', dianJson.legal_monetary_totals.payable_amount);
     console.log('   - IVA Total:', dianJson.tax_totals[0].tax_amount);
-    console.log('   - Perfil:', dianJson.profile_id, '(1=Producción, 2=Prueba)');
+    console.log('   - IVA Porcentaje:', dianJson.tax_totals[0].percent, '%');
     console.log('📋 [DIAN] JSON completo:');
     console.log(JSON.stringify(dianJson, null, 2));
     console.log('='.repeat(80) + '\n');

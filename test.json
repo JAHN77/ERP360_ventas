@@ -1,0 +1,79 @@
+{
+    "number": 1,
+    "type_document_id": 1,         // 1: Factura, 2: Nota de crédito, 3: Nota de débito
+    "identification_number": 901994818,
+    "resolution_id": 61,
+    "sync": true,
+    "issue_date": "2025-11-25",
+    "due_date": "2025-11-25",
+    "profile_id": "1",
+    "profile_execution_id": "1",
+    "scheme_id": "1",
+    "document_currency_code": "COP",
+    "invoice_type_code": "1",
+    "company": {
+        "identification_number": 901994818,
+        "name": "ORQUIDEA IA SOLUTIONS S.A.S",
+        "type_organization_id": 1,
+        "type_document_id": "31",
+        "id_location": "11001",
+        "address": "CR 53 100 50",
+        "phone": "3044261630",
+        "email": "orquideaiasolutionssas@gmail.com"
+    },
+    "customer": {
+        "identification_number": 72229294,
+        "name": ".CAMARGO PINO MARCO ANTONIO",
+        "type_organization_id": 2,
+        "type_document_id": "13",
+        "id_location": "08001",
+        "address":"CRA 17  23-71 ",
+        "phone": "3000000000",
+        "email": "consumidor@final.com"
+    },
+    "tax_totals": [
+        {
+            "tax_id": 1,
+            "tax_amount": 610,
+            "taxable_amount": 3210,
+            "percent": 19
+        }
+    ],
+    "legal_monetary_totals": {
+        "line_extension_amount": 3210,
+        "tax_exclusive_amount": 3210,
+        "tax_inclusive_amount": 3820,
+        "payable_amount": 3820,
+        "allowance_total_amount": 0,
+        "charge_total_amount": 0
+    },
+    "invoice_lines": [
+        {
+            "unit_measure_id": 70,
+            "invoiced_quantity": 1,
+            "line_extension_amount": 2600.16,
+            "description": "VENTA DE PRODUCTOS Y SERVICIOS",   
+            "price_amount": 3210.08,
+            "code": "02590001",
+            "type_item_identification_id": 4,
+            "base_quantity": 1,
+            "free_of_charge_indicator": false,
+            "tax_totals": [
+                {
+                    "tax_id": 1,
+                    "tax_amount": 609.92,
+                    "taxable_amount": 2600.16,
+                    "percent": 19
+                }
+            ]
+        }
+    ],
+    "payment_forms": [
+        {
+            "payment_form_id": 1,
+            "payment_method_id": 10,
+            "payment_due_date": "2025-11-25",
+            "duration_measure": 0
+        }
+    ]
+}

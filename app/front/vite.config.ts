@@ -5,7 +5,6 @@ import vitePluginSingleSpa from 'vite-plugin-single-spa';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
-    // GEMINI_API_KEY es opcional - si no está configurada, usar string vacío
     const geminiApiKey = env.GEMINI_API_KEY || env.API_KEY || '';
 
     return {
@@ -14,6 +13,7 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
         cors: true, // Importante para Single-SPA
       },
+
       plugins: [
         react(),
         vitePluginSingleSpa({
