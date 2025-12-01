@@ -117,6 +117,7 @@ export interface Cliente {
   empresaId: number;
   // FIX: Added missing property to Cliente interface
   regimenFiscalId?: string;
+  codter?: string;
 }
 
 

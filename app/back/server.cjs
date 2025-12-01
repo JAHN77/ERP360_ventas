@@ -1125,11 +1125,41 @@ app.get('/api/facturas-detalle', async (req, res) => {
       const factura = facturaResult[0];
       facturaIdValue = factura.id;
       numfactValue = factura.numeroFactura;
-      whereClause = `WHERE LTRIM(RTRIM(fd.numfac)) = LTRIM(RTRIM(@numfact)) AND LTRIM(RTRIM(ISNULL(fd.tipfact, ''))) = LTRIM(RTRIM(@tipfac))`;
+
+      // Intentar usar factura_id primero (más seguro), si falla el query, el catch lo capturará.
+      // Basado en el script de creación, la columna es factura_id.
+      // Si la tabla es antigua (ven_detafacturas), podría ser numfact/tipfac.
+      // Vamos a intentar usar factura_id ya que es lo correcto según el esquema nuevo.
+      whereClause = `WHERE fd.factura_id = @facturaId`;
+
       params.numfact = factura.numeroFactura;
       params.tipfac = factura.tipoFactura || '';
+      params.facturaId = factura.id;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔍 [API] Buscando detalles para factura:', {
+          id: factura.id,
+          numfact: params.numfact,
+          tipfac: params.tipfac
+        });
+      }
 
       console.log(`🔍 [API] Buscando detalles de factura ID: ${facturaIdValue}, numfact: "${factura.numeroFactura}", tipfac: "${factura.tipoFactura || ''}"`);
+
+      // DEBUG: Inspeccionar columnas de ven_detafact para salir de dudas
+      if (process.env.NODE_ENV === 'development') {
+        try {
+          const schemaQuery = `
+            SELECT COLUMN_NAME 
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_NAME = '${TABLE_NAMES.facturas_detalle}'
+          `;
+          const columns = await executeQueryWithParams(schemaQuery, {});
+          console.log('🧐 [SCHEMA] Columnas de ven_detafact:', columns.map(c => c.COLUMN_NAME).join(', '));
+        } catch (e) {
+          console.error('Error inspeccionando esquema:', e);
+        }
+      }
     }
 
     // Query optimizado - solo obtener detalles necesarios
@@ -1137,11 +1167,11 @@ app.get('/api/facturas-detalle', async (req, res) => {
       SELECT 
         fd.ID as id,
         COALESCE(
-          (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+          (SELECT id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
           NULL
         ) as productoId,
         COALESCE(
-          (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+          (SELECT tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
           0
         ) as tasaIvaProducto,
         fd.qtyins as cantidad,
@@ -1151,12 +1181,12 @@ app.get('/api/facturas-detalle', async (req, res) => {
         -- Redondear a 2 decimales para evitar valores como 22.60999805086224%
         CAST(ROUND(
           COALESCE(
-            (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+            (SELECT tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
             0
           ), 2
         ) AS DECIMAL(5,2)) as ivaPorcentaje,
         COALESCE(
-          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+          (SELECT LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
           LTRIM(RTRIM(COALESCE(fd.observa, ''))),
           LTRIM(RTRIM(COALESCE(fd.codins, '')))
         ) as descripcion,
@@ -1761,12 +1791,12 @@ app.get('/api/pedidos-detalle', async (req, res) => {
 
     // Query optimizado - solo obtener detalles necesarios
     const query = `
-      SELECT TOP (@pageSize)
+      SELECT ${pedidoId ? 'TOP (@pageSize)' : ''}
         NULL as detaPedidoId,
         CAST(COALESCE(pd.pedido_id, p.id) AS INT) as pedidoId,
         pd.numped,
         COALESCE(
-          (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+          (SELECT id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
           NULL
         ) as productoId,
         LTRIM(RTRIM(COALESCE(pd.codins, ''))) as codProducto,
@@ -1779,7 +1809,7 @@ app.get('/api/pedidos-detalle', async (req, res) => {
         END as descuentoPorcentaje,
         -- Obtener porcentaje de IVA: primero del producto, si no existe calcular desde ivaped/subtotal
         COALESCE(
-          (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+          (SELECT tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
           CASE 
             WHEN COALESCE(pd.canped, 0) > 0 AND COALESCE(pd.valins, 0) > 0 
               AND (pd.canped * pd.valins - COALESCE(pd.dctped, 0)) > 0
@@ -1789,11 +1819,11 @@ app.get('/api/pedidos-detalle', async (req, res) => {
           0
         ) as ivaPorcentaje,
         COALESCE(
-          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+          (SELECT LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
           LTRIM(RTRIM(COALESCE(pd.codins, '')))
         ) as descripcion,
         COALESCE(
-          (SELECT TOP 1 LTRIM(RTRIM(COALESCE(m.nommed, ins.undins, 'Unidad'))) 
+          (SELECT LTRIM(RTRIM(COALESCE(m.nommed, ins.undins, 'Unidad'))) 
            FROM inv_insumos ins
            LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
            WHERE LTRIM(RTRIM(ins.codins)) = LTRIM(RTRIM(pd.codins))),
@@ -2501,7 +2531,8 @@ app.post('/api/notas-credito', async (req, res) => {
       items = [],
       fechaEmision,
       numero,
-      estadoDian
+      estadoDian,
+      tipoNota // Nuevo campo
     } = body;
 
     if (!facturaId) {
@@ -2783,6 +2814,7 @@ app.post('/api/notas-credito', async (req, res) => {
       insertNotaRequest.input('iva', sql.Decimal(18, 2), Number(ivaTotal.toFixed(2)));
       insertNotaRequest.input('total', sql.Decimal(18, 2), Number(totalTotal.toFixed(2)));
       insertNotaRequest.input('estadoDian', sql.VarChar(20), String(estadoDian || 'PENDIENTE').trim());
+      insertNotaRequest.input('tipoNota', sql.VarChar(20), String(tipoNota || 'DEVOLUCION').trim()); // Nuevo campo
 
       const insertNotaResult = await insertNotaRequest.query(`
         INSERT INTO ven_notas (
@@ -2794,7 +2826,8 @@ app.post('/api/notas-credito', async (req, res) => {
           subtotal,
           iva,
           total,
-          estado_dian
+          estado_dian,
+          tipo_nota
         )
         OUTPUT INSERTED.id
         VALUES (
@@ -2806,7 +2839,8 @@ app.post('/api/notas-credito', async (req, res) => {
           @subtotal,
           @iva,
           @total,
-          @estadoDian
+          @estadoDian,
+          @tipoNota
         );
       `);
 
@@ -2874,6 +2908,79 @@ app.post('/api/notas-credito', async (req, res) => {
       await tx.commit();
 
       const notaCreada = await fetchNotaCreditoById(pool, nuevaNotaId);
+
+      // --- INTEGRACIÓN DIAN ---
+      try {
+        console.log('🚀 Iniciando proceso de envío a DIAN para Nota de Crédito:', notaCreada.numero);
+
+        // 1. Obtener datos de la factura original
+        const facturaData = await DIANService.getFacturaCompleta(notaCreada.facturaId);
+
+        // 2. Obtener resolución para Notas de Crédito
+        const resolution = await DIANService.getDIANCreditNoteResolution();
+
+        // 3. Obtener parámetros DIAN
+        const dianParams = await DIANService.getDIANParameters();
+
+        // 4. Preparar datos para transformación
+        const notaData = {
+          nota: {
+            ...notaCreada,
+            tipo_nota: tipoNota // Asegurar que tipoNota esté disponible
+          },
+          detalles: notaCreada.itemsDevueltos,
+          facturaOriginal: facturaData.factura,
+          cliente: facturaData.cliente
+        };
+
+        // 5. Transformar a JSON DIAN
+        const notaJson = await DIANService.transformNotaCreditoForDIAN(notaData, resolution, dianParams);
+
+        // 6. Enviar a DIAN
+        const dianResponse = await DIANService.sendInvoiceToDIAN(
+          notaJson,
+          dianParams.testSetID,
+          dianParams.url_base
+        );
+
+        // 7. Actualizar estado en BD
+        if (dianResponse.success) {
+          console.log('✅ Nota de Crédito enviada exitosamente a DIAN. CUFE:', dianResponse.cufe);
+
+          const updateDianReq = new sql.Request(pool);
+          updateDianReq.input('notaId', sql.Int, nuevaNotaId);
+          updateDianReq.input('cufe', sql.VarChar(100), dianResponse.cufe);
+          updateDianReq.input('estadoDian', sql.VarChar(20), '1'); // 1 = Aceptada
+
+          await updateDianReq.query(`
+            UPDATE ven_notas
+            SET cufe = @cufe, estado_dian = @estadoDian, updated_at = GETDATE()
+            WHERE id = @notaId
+          `);
+
+          // Actualizar objeto de respuesta
+          notaCreada.estadoDian = '1';
+          notaCreada.cufe = dianResponse.cufe;
+        } else {
+          console.warn('⚠️ Nota de Crédito rechazada por DIAN:', dianResponse.message);
+
+          const updateDianReq = new sql.Request(pool);
+          updateDianReq.input('notaId', sql.Int, nuevaNotaId);
+          updateDianReq.input('estadoDian', sql.VarChar(20), '0'); // 0 = Rechazada
+
+          await updateDianReq.query(`
+            UPDATE ven_notas
+            SET estado_dian = @estadoDian, updated_at = GETDATE()
+            WHERE id = @notaId
+          `);
+
+          notaCreada.estadoDian = '0';
+        }
+      } catch (dianError) {
+        console.error('❌ Error en proceso DIAN para Nota de Crédito:', dianError);
+        // No fallamos el request principal, pero logueamos el error
+        // Podríamos actualizar el estado a 'Error' en BD si tuviéramos ese estado
+      }
 
       res.status(201).json({
         success: true,

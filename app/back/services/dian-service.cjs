@@ -998,6 +998,179 @@ class DIANService {
   }
 
   /**
+   * Obtiene la resolución DIAN activa para Notas de Crédito
+   * @returns {Promise<Object>} Resolución DIAN para Notas de Crédito
+   */
+  static async getDIANCreditNoteResolution() {
+    console.log('\n📊 Obteniendo resolución DIAN para Notas de Crédito...');
+
+    // Por ahora hardcoded como se sugiere en la guía, pero idealmente vendría de BD
+    // Se busca por id=99 o prefijo='NC'
+    return {
+      id: 99,
+      consecutivo: 'NC',
+      rango_inicial: 1,
+      rango_final: 99999,
+      codigo: 99,
+      id_api: 99,
+      activa: true,
+      type_document_id: 5 // Nota Crédito
+    };
+  }
+
+  /**
+   * Transforma los datos de una nota de crédito al formato JSON requerido por DIAN
+   * @param {Object} notaData - Datos completos de la nota (nota, detalles, facturaOriginal, cliente)
+   * @param {Object} resolution - Resolución DIAN para notas crédito
+   * @param {Object} config - Configuración
+   * @returns {Promise<Object>} JSON en formato DIAN
+   */
+  static async transformNotaCreditoForDIAN(notaData, resolution, config = {}) {
+    console.log('\n' + '='.repeat(100));
+    console.log('🔄 TRANSFORMANDO NOTA DE CRÉDITO PARA DIAN');
+    console.log('='.repeat(100));
+
+    const { nota, detalles, facturaOriginal, cliente } = notaData;
+
+    // Validaciones previas
+    if (!facturaOriginal.cufe && !facturaOriginal.CUFE) {
+      throw new Error('La factura original no tiene CUFE. No se puede generar Nota de Crédito.');
+    }
+
+    // Obtener datos de la empresa
+    const companyData = await this.getCompanyData();
+
+    // Fechas
+    const currentDate = new Date();
+    const issueDate = currentDate.toISOString().split('T')[0];
+
+    // Validar fecha (Regla 1: Fecha NC >= Fecha Factura)
+    const facturaDate = new Date(facturaOriginal.fecfac || facturaOriginal.fechaFactura);
+    if (currentDate < facturaDate) {
+      console.warn('⚠️ La fecha actual es anterior a la fecha de la factura. Ajustando a fecha de factura.');
+      // Esto es raro pero posible si hay relojes desincronizados. La regla dice >=
+    }
+
+    // Calcular totales
+    const lineExtensionAmount = this.roundCOP(nota.subtotal || 0);
+    const taxAmount = this.roundCOP(nota.iva || 0);
+    const totalAmount = this.roundCOP(nota.total || 0);
+
+    // Determinar concepto de corrección
+    // 1 = Devolución parcial/total
+    // 2 = Anulación por error
+    const correctionConceptId = nota.tipo_nota === 'ANULACION' ? 2 : 1;
+    const correctionDescription = nota.tipo_nota === 'ANULACION'
+      ? `ANULACIÓN FACTURA ${facturaOriginal.numfact}`
+      : `DEVOLUCIÓN PARCIAL FACTURA ${facturaOriginal.numfact}`;
+
+    // Construir líneas de nota crédito
+    const creditNoteLines = detalles.map((detalle, index) => {
+      const cantidad = parseFloat(detalle.cantidad);
+      const precio = parseFloat(detalle.precio_unitario || detalle.precioUnitario);
+      const subtotal = parseFloat(detalle.subtotal);
+      const iva = parseFloat(detalle.valor_iva || detalle.valorIva);
+      const ivaPercent = parseFloat(detalle.iva_porcentaje || detalle.ivaPorcentaje);
+
+      return {
+        unit_measure_id: 70, // Unidad estándar
+        invoiced_quantity: cantidad,
+        line_extension_amount: subtotal,
+        description: detalle.descripcion || correctionDescription,
+        price_amount: precio,
+        code: String(detalle.producto_id || detalle.productoId),
+        type_item_identification_id: 4,
+        base_quantity: cantidad,
+        free_of_charge_indicator: false,
+        tax_totals: [{
+          tax_id: 1, // IVA
+          tax_amount: iva,
+          taxable_amount: subtotal,
+          percent: ivaPercent
+        }]
+      };
+    });
+
+    // Construir JSON
+    const creditNoteJson = {
+      number: parseInt(nota.numero), // Consecutivo de la NC
+      type_document_id: 5, // Nota Crédito
+      date: issueDate,
+      time: currentDate.toTimeString().split(' ')[0],
+      resolution_number: resolution.consecutivo, // Prefijo
+      prefix: resolution.consecutivo,
+      notes: nota.motivo || correctionDescription,
+      send_email: false, // Opcional
+
+      // Referencia a Factura Original (CRÍTICO)
+      billing_reference: {
+        number: String(facturaOriginal.numfact || facturaOriginal.numeroFactura),
+        uuid: String(facturaOriginal.cufe || facturaOriginal.CUFE),
+        issue_date: (facturaOriginal.fecfac || facturaOriginal.fechaFactura).split('T')[0],
+        type_document_id: 1 // Factura de Venta
+      },
+
+      // Motivo de la Nota
+      discrepancy_response: {
+        correction_concept_id: correctionConceptId,
+        correction_type: "referenced"
+      },
+
+      // Empresa (Emisor)
+      company: companyData,
+
+      // Cliente (Receptor)
+      customer: {
+        identification_number: Number(cliente.codter),
+        name: (cliente.nomter || '').trim().toUpperCase(),
+        type_organization_id: cliente.tipter === '1' ? 1 : 2,
+        type_document_id: cliente.Tipo_documento || 13, // 13 = Cédula, 31 = NIT
+        id_location: cliente.coddane || "11001",
+        address: (cliente.dirter || '').trim(),
+        phone: (cliente.TELTER || '').replace(/[^\d]/g, ''),
+        email: (cliente.EMAIL || '').trim().toLowerCase()
+      },
+
+      // Totales
+      legal_monetary_totals: {
+        line_extension_amount: lineExtensionAmount,
+        tax_exclusive_amount: lineExtensionAmount,
+        tax_inclusive_amount: totalAmount,
+        payable_amount: totalAmount
+      },
+
+      // Impuestos Totales
+      tax_totals: [{
+        tax_id: 1,
+        tax_amount: taxAmount,
+        percent: 0, // Se calcula o se deja en 0 si es mixto? Mejor sumarizar si es posible, pero DIAN a veces acepta array.
+        // Simplificación: Si hay múltiples tarifas, esto debería ser un array. 
+        // Por ahora asumimos un total general.
+        taxable_amount: lineExtensionAmount
+      }],
+
+      // Líneas
+      credit_note_lines: creditNoteLines,
+
+      // Formas de Pago (Simplificado para NC)
+      payment_forms: [{
+        payment_form_id: 1, // Contado
+        payment_method_id: 10, // Efectivo
+        payment_due_date: issueDate,
+        duration_measure: 0
+      }]
+    };
+
+    // Configuración adicional
+    if (config.isPrueba) {
+      creditNoteJson.type_document_id = "5"; // En pruebas a veces piden string
+    }
+
+    console.log('✅ JSON de Nota de Crédito construido exitosamente');
+    return creditNoteJson;
+  }
+
+  /**
    * Envía una factura al endpoint de DIAN
    * @param {Object} invoiceJson - JSON de la factura en formato DIAN
    * @param {string} testSetID - ID del testSet para el endpoint

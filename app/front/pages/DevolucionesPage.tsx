@@ -23,15 +23,15 @@ interface DevolucionItem {
 }
 
 const DevolucionesPage: React.FC = () => {
-    const { 
-        almacenes = [], 
-        clientes = [], 
-        facturas = [], 
+    const {
+        almacenes = [],
+        clientes = [],
+        facturas = [],
         remisiones = [],
-        productos = [], 
-        motivosDevolucion = [], 
-        notasCredito = [], 
-        crearNotaCredito 
+        productos = [],
+        motivosDevolucion = [],
+        notasCredito = [],
+        crearNotaCredito
     } = useData();
 
     const DEFAULT_MOTIVOS = useMemo(() => ([
@@ -57,7 +57,7 @@ const DevolucionesPage: React.FC = () => {
     }, [motivosDevolucion, DEFAULT_MOTIVOS]);
 
     const getMotivoDefault = useCallback(() => motivosDisponibles[0] || 'Otro', [motivosDisponibles]);
-    
+
     // Component State
     const [activeTab, setActiveTab] = useState<'form' | 'history'>('form');
     const [activeSubTab, setActiveSubTab] = useState<'contable' | 'kardex'>('contable');
@@ -68,11 +68,12 @@ const DevolucionesPage: React.FC = () => {
     const [facturaId, setFacturaId] = useState('');
     const [isTotalDevolucion, setIsTotalDevolucion] = useState(false);
     const [transmisionDian, setTransmisionDian] = useState(false);
+    const [tipoNota, setTipoNota] = useState<'DEVOLUCION' | 'ANULACION'>('DEVOLUCION');
     const [devolucionItems, setDevolucionItems] = useState<DevolucionItem[]>([]);
     const [cantidadesYaDevueltas, setCantidadesYaDevueltas] = useState<Map<number, number>>(new Map());
     // Estado local para items de factura cargados dinámicamente (cuando no están en el DataContext)
     const [facturaItemsCargados, setFacturaItemsCargados] = useState<DocumentItem[]>([]);
-    
+
     // UI State
     const [isSaving, setIsSaving] = useState(false); // UPDATE: Add saving state for UX
     const [savedNota, setSavedNota] = useState<NotaCredito | null>(null);
@@ -81,12 +82,12 @@ const DevolucionesPage: React.FC = () => {
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [selectedNotaParaVer, setSelectedNotaParaVer] = useState<NotaCredito | null>(null);
     const [notaParaImprimir, setNotaParaImprimir] = useState<NotaCredito | null>(null);
-    
+
     // Hooks
     const { addNotification } = useNotifications();
-    
+
     const isFormDisabled = !!savedNota || isSaving;
-    
+
     // Memoized derived data
     // Filtrar clientes que tienen facturas timbradas a la DIAN (ya facturadas)
     const clientesConFacturasTimbradas = useMemo(() => {
@@ -96,7 +97,7 @@ const DevolucionesPage: React.FC = () => {
             if (f.estado === 'ANULADA' || f.estado === 'RECHAZADA') {
                 return false;
             }
-            
+
             // Una factura está timbrada si:
             // 1. Tiene CUFE (código único de factura electrónica)
             // 2. Tiene fechaTimbrado
@@ -104,26 +105,26 @@ const DevolucionesPage: React.FC = () => {
             const tieneCufe = !!(f.cufe && String(f.cufe).trim() !== '');
             const tieneFechaTimbrado = !!(f.fechaTimbrado);
             const estaEnviadaOAceptada = f.estado === 'ENVIADA' || f.estado === 'ACEPTADA';
-            
+
             return tieneCufe || tieneFechaTimbrado || estaEnviadaOAceptada;
         });
-        
+
         // Obtener los IDs de clientes únicos de esas facturas timbradas
         const clientesIdsConFacturasTimbradas = new Set<string>();
-        
+
         facturasTimbradas.forEach(factura => {
             // Buscar cliente de forma flexible (por id, numeroDocumento o codter)
-            const cliente = clientes.find(c => 
+            const cliente = clientes.find(c =>
                 String(c.id) === String(factura.clienteId) ||
                 c.numeroDocumento === factura.clienteId ||
                 c.codter === factura.clienteId
             );
-            
+
             if (cliente) {
                 clientesIdsConFacturasTimbradas.add(String(cliente.id));
             }
         });
-        
+
         // Filtrar clientes que están en la lista de clientes con facturas timbradas
         return clientes.filter(c => clientesIdsConFacturasTimbradas.has(String(c.id)));
     }, [facturas, clientes]);
@@ -141,30 +142,30 @@ const DevolucionesPage: React.FC = () => {
                 totalClientes: clientes.length
             });
         }
-        
+
         if (!clienteId || clienteId === '' || clienteId === 'undefined' || clienteId === 'null') {
             if (process.env.NODE_ENV === 'development') {
                 console.log('[Devoluciones] No hay clienteId seleccionado o está vacío');
             }
             return [];
         }
-        
+
         // Buscar el cliente seleccionado para obtener su ID interno y códigos relacionados
-        const clienteSeleccionado = clientes.find(c => 
+        const clienteSeleccionado = clientes.find(c =>
             String(c.id) === String(clienteId) ||
             c.numeroDocumento === clienteId ||
             c.codter === clienteId
         );
-        
+
         if (!clienteSeleccionado) {
             if (process.env.NODE_ENV === 'development') {
                 console.log('[Devoluciones] Cliente seleccionado no encontrado en la lista de clientes');
             }
             return [];
         }
-        
+
         const TOLERANCIA = 0.0001;
-        
+
         // Obtener todos los identificadores posibles del cliente (normalizados)
         const clienteIdsNormalizados = new Set<string>();
         [clienteSeleccionado.id, clienteSeleccionado.numeroDocumento, clienteSeleccionado.codter]
@@ -175,26 +176,26 @@ const DevolucionesPage: React.FC = () => {
                 // También agregar versiones sin espacios al inicio/final
                 clienteIdsNormalizados.add(idStr.trim());
             });
-        
+
         if (process.env.NODE_ENV === 'development') {
             console.log('[Devoluciones] IDs del cliente para comparar:', Array.from(clienteIdsNormalizados));
         }
-        
+
         const facturasFiltradasResult = facturas.filter(f => {
             // Comparar clienteId de la factura con todos los identificadores posibles del cliente
             // Las facturas pueden tener clienteId como codter, numeroDocumento o id interno
             const facturaClienteId = String(f.clienteId || '').trim();
-            
+
             // Comparación flexible: verificar si el clienteId de la factura coincide con cualquier identificador del cliente
             const coincideCliente = clienteIdsNormalizados.has(facturaClienteId) ||
                 facturaClienteId === String(clienteSeleccionado.id).trim() ||
                 facturaClienteId === String(clienteSeleccionado.numeroDocumento || '').trim() ||
                 facturaClienteId === String(clienteSeleccionado.codter || '').trim();
-            
+
             if (!coincideCliente) {
                 return false;
             }
-            
+
             if (process.env.NODE_ENV === 'development' && facturas.indexOf(f) < 3) {
                 console.log('[Devoluciones] Factura coincide con cliente:', {
                     facturaId: f.id,
@@ -204,7 +205,7 @@ const DevolucionesPage: React.FC = () => {
                     coincide: coincideCliente
                 });
             }
-            
+
             // Si una factura ya está seleccionada, mantenerla en la lista independientemente del estado
             if (f.id === facturaId) {
                 return true;
@@ -223,9 +224,9 @@ const DevolucionesPage: React.FC = () => {
             const tieneCufe = !!(f.cufe && String(f.cufe).trim() !== '' && String(f.cufe).trim() !== 'null');
             const tieneFechaTimbrado = !!(f.fechaTimbrado && String(f.fechaTimbrado).trim() !== '' && String(f.fechaTimbrado).trim() !== 'null');
             const estaEnviadaOAceptada = f.estado === 'ENVIADA' || f.estado === 'ACEPTADA';
-            
+
             const estaTimbrada = tieneCufe || tieneFechaTimbrado || estaEnviadaOAceptada;
-            
+
             if (!estaTimbrada) {
                 return false;
             }
@@ -266,10 +267,10 @@ const DevolucionesPage: React.FC = () => {
             if (!hayCantidadPendiente) {
                 return false;
             }
-            
+
             return true;
         });
-        
+
         if (process.env.NODE_ENV === 'development' && facturasFiltradasResult.length === 0 && clienteId) {
             console.warn('[Devoluciones] No se encontraron facturas para el cliente:', {
                 clienteId,
@@ -281,22 +282,22 @@ const DevolucionesPage: React.FC = () => {
                 facturasConCufe: facturas.filter(f => f.cufe && String(f.cufe).trim() !== '').length
             });
         }
-        
+
         return facturasFiltradasResult;
     }, [clienteId, facturaId, facturas, clientes, notasCredito]);
-    
+
     // Buscar factura de forma flexible: primero en facturasFiltradas, luego en todas las facturas
     // Si la factura tiene items cargados localmente, usarlos
     const selectedFactura = useMemo(() => {
         if (!facturaId) return undefined;
-        
+
         // Primero buscar en facturasFiltradas
         let factura = facturasFiltradas.find(f => {
             const fIdStr = String(f.id);
             const facturaIdStr = String(facturaId);
             return fIdStr === facturaIdStr;
         });
-        
+
         // Si no se encuentra, buscar en todas las facturas (comparación flexible)
         if (!factura) {
             factura = facturas.find(f => {
@@ -305,7 +306,7 @@ const DevolucionesPage: React.FC = () => {
                 return fIdStr === facturaIdStr;
             });
         }
-        
+
         // Si la factura no se encontró pero hay items cargados localmente,
         // crear un objeto factura básico para permitir mostrar los items
         if (!factura && facturaItemsCargados.length > 0) {
@@ -319,7 +320,7 @@ const DevolucionesPage: React.FC = () => {
                 items: facturaItemsCargados
             } as Factura;
         }
-        
+
         // Si la factura existe pero no tiene items, y hay items cargados localmente, usarlos
         if (factura && (!factura.items || !Array.isArray(factura.items) || factura.items.length === 0) && facturaItemsCargados.length > 0) {
             factura = {
@@ -327,15 +328,15 @@ const DevolucionesPage: React.FC = () => {
                 items: facturaItemsCargados
             };
         }
-        
+
         return factura;
     }, [facturaId, facturasFiltradas, facturas, facturaItemsCargados]);
-    
+
     const selectedCliente = useMemo(() => {
         if (!clienteId) return undefined;
-        
+
         // Búsqueda flexible de cliente
-        return clientes.find(c => 
+        return clientes.find(c =>
             String(c.id) === String(clienteId) ||
             c.numeroDocumento === clienteId ||
             c.codter === clienteId
@@ -345,14 +346,22 @@ const DevolucionesPage: React.FC = () => {
     // Items disponibles para la factura seleccionada: combinar items de selectedFactura y facturaItemsCargados
     const itemsDisponiblesFactura = useMemo(() => {
         if (!selectedFactura) return [];
-        
+
         // Priorizar items de selectedFactura, pero si no tiene o está vacío, usar facturaItemsCargados
         const itemsDeFactura = selectedFactura.items && Array.isArray(selectedFactura.items) && selectedFactura.items.length > 0
             ? selectedFactura.items
             : null;
-        
+
         const itemsCargados = facturaItemsCargados.length > 0 ? facturaItemsCargados : null;
-        
+
+        if (process.env.NODE_ENV === 'development') {
+            console.log('[Devoluciones] Calculando itemsDisponiblesFactura:', {
+                facturaId: selectedFactura.id,
+                itemsDeFacturaLength: itemsDeFactura?.length || 0,
+                itemsCargadosLength: itemsCargados?.length || 0
+            });
+        }
+
         // Si hay items en la factura, usarlos; si no, usar los cargados localmente
         return itemsDeFactura || itemsCargados || [];
     }, [selectedFactura, facturaItemsCargados]);
@@ -363,11 +372,11 @@ const DevolucionesPage: React.FC = () => {
             if (!facturaId || !selectedFactura) {
                 return;
             }
-            
+
             // Si la factura ya tiene items cargados o hay items cargados localmente, no hacer nada
             const tieneItemsEnFactura = selectedFactura.items && Array.isArray(selectedFactura.items) && selectedFactura.items.length > 0;
             const tieneItemsCargadosLocalmente = facturaItemsCargados.length > 0;
-            
+
             if (tieneItemsEnFactura || tieneItemsCargadosLocalmente) {
                 if (process.env.NODE_ENV === 'development') {
                     console.log('[Devoluciones] Factura ya tiene items cargados:', {
@@ -377,12 +386,12 @@ const DevolucionesPage: React.FC = () => {
                 }
                 return;
             }
-            
+
             // Si la factura no tiene items, intentar cargarlos desde el backend
             try {
                 // Usar el ID de la factura seleccionada directamente para mayor confiabilidad
                 const idFacturaParaBackend = selectedFactura.id;
-                
+
                 if (process.env.NODE_ENV === 'development') {
                     console.log('[Devoluciones] Cargando items de la factura desde el backend:', {
                         facturaId: facturaId,
@@ -390,16 +399,16 @@ const DevolucionesPage: React.FC = () => {
                         numeroFactura: selectedFactura.numeroFactura
                     });
                 }
-                
+
                 // Cargar detalles de facturas filtrando por facturaId
                 // Pasar directamente el facturaId como string o number, no como objeto
                 const detallesResponse = await fetchFacturasDetalle(idFacturaParaBackend);
                 if (detallesResponse.success && detallesResponse.data) {
                     // El backend ya filtra por facturaId, así que usamos directamente los datos
-                    const itemsFactura = Array.isArray(detallesResponse.data) 
+                    const itemsFactura = Array.isArray(detallesResponse.data)
                         ? detallesResponse.data
                         : [];
-                    
+
                     if (itemsFactura.length > 0) {
                         // Mapear items del backend a la estructura esperada
                         const itemsMapeados = itemsFactura.map((d: any) => ({
@@ -414,10 +423,10 @@ const DevolucionesPage: React.FC = () => {
                             total: Number(d.total || 0),
                             codProducto: d.codProducto || d.codins || ''
                         })).filter(item => item.productoId != null);
-                        
+
                         // Guardar items en estado local para usar en selectedFactura
                         setFacturaItemsCargados(itemsMapeados);
-                        
+
                         if (process.env.NODE_ENV === 'development') {
                             console.log('[Devoluciones] Items de factura cargados desde el backend y guardados en estado local:', itemsMapeados.length);
                         }
@@ -439,18 +448,18 @@ const DevolucionesPage: React.FC = () => {
                     console.error('[Devoluciones] Error en respuesta del backend al cargar items:', detallesResponse);
                     addNotification({
                         message: 'Error al cargar los productos de la factura. Por favor, intente nuevamente.',
-                        type: 'error'
+                        type: 'warning'
                     });
                 }
             } catch (error) {
                 console.error('[Devoluciones] Error cargando items de la factura:', error);
                 addNotification({
                     message: 'Error al cargar los productos de la factura. Por favor, recargue la página.',
-                    type: 'error'
+                    type: 'warning'
                 });
             }
         };
-        
+
         cargarItemsFactura();
     }, [facturaId, selectedFactura, addNotification]);
 
@@ -477,7 +486,7 @@ const DevolucionesPage: React.FC = () => {
     const handleAlmacenChange = (id: string) => {
         setAlmacenId(id);
     };
-    
+
     const handleClienteChange = (id: string) => {
         if (process.env.NODE_ENV === 'development') {
             console.log('[Devoluciones] handleClienteChange llamado con:', {
@@ -486,25 +495,25 @@ const DevolucionesPage: React.FC = () => {
                 idLength: id ? String(id).length : 0
             });
         }
-        
+
         // Asegurar que el ID se guarda correctamente
         const clienteIdValue = id && id.trim() !== '' && id !== 'undefined' && id !== 'null' ? id.trim() : '';
         setClienteId(clienteIdValue);
         setFacturaId('');
         setFacturaItemsCargados([]); // Limpiar items cargados al cambiar cliente
         resetFormPartially();
-        
+
         if (process.env.NODE_ENV === 'development') {
             console.log('[Devoluciones] clienteId actualizado a:', clienteIdValue);
         }
     };
-    
+
     const handleFacturaChange = (id: string) => {
         setFacturaId(id);
         setFacturaItemsCargados([]); // Limpiar items cargados al cambiar factura
         resetFormPartially();
     };
-    
+
     const resetFormPartially = () => {
         setDevolucionItems([]);
         setIsTotalDevolucion(false);
@@ -591,11 +600,11 @@ const DevolucionesPage: React.FC = () => {
                             productoId: item.productoId,
                             cantidadDevuelta: cantidadADevolver,
                             motivoSeleccion,
-                            motivo: motivoSeleccion === 'Otro' ? '' : motivoSeleccion, 
+                            motivo: motivoSeleccion === 'Otro' ? '' : motivoSeleccion,
                         };
                     })
                     .filter(item => item.cantidadDevuelta > 0);
-                
+
                 if (allItems.length === 0) {
                     addNotification({
                         message: 'No hay cantidades disponibles para devolver en esta factura. Puede que todos los items ya hayan sido devueltos.',
@@ -604,7 +613,7 @@ const DevolucionesPage: React.FC = () => {
                     setIsTotalDevolucion(false);
                     return;
                 }
-                
+
                 setDevolucionItems(allItems);
                 addNotification({
                     message: `Devolución total configurada: ${allItems.length} producto(s) para devolver.`,
@@ -625,31 +634,31 @@ const DevolucionesPage: React.FC = () => {
                 facturaId: selectedFactura.id,
                 numeroFactura: selectedFactura.numeroFactura
             });
-            
+
             // Intentar cargar los items desde el backend
             try {
                 addNotification({
                     message: 'Cargando productos de la factura...',
                     type: 'info'
                 });
-                
+
                 // Pasar directamente el facturaId como string o number, no como objeto
                 const detallesResponse = await fetchFacturasDetalle(selectedFactura.id);
                 if (detallesResponse.success && detallesResponse.data) {
                     // El backend ya filtra por facturaId, así que usamos directamente los datos
-                    const itemsFactura = Array.isArray(detallesResponse.data) 
+                    const itemsFactura = Array.isArray(detallesResponse.data)
                         ? detallesResponse.data
                         : [];
-                    
+
                     if (itemsFactura.length === 0) {
                         addNotification({
                             message: 'La factura seleccionada no tiene productos asociados. Por favor, seleccione otra factura.',
-                            type: 'error'
+                            type: 'warning'
                         });
                         setIsTotalDevolucion(false);
                         return;
                     }
-                    
+
                     // Mapear items del backend a la estructura esperada
                     const itemsMapeados = itemsFactura.map((d: any) => ({
                         productoId: d.productoId || null,
@@ -663,11 +672,11 @@ const DevolucionesPage: React.FC = () => {
                         total: Number(d.total || 0),
                         codProducto: d.codProducto || d.codins || ''
                     })).filter(item => item.productoId != null);
-                    
+
                     if (itemsMapeados.length === 0) {
                         addNotification({
                             message: 'La factura no tiene productos válidos asociados.',
-                            type: 'error'
+                            type: 'warning'
                         });
                         setIsTotalDevolucion(false);
                         return;
@@ -675,7 +684,7 @@ const DevolucionesPage: React.FC = () => {
 
                     // Guardar items en estado local para que selectedFactura los use
                     setFacturaItemsCargados(itemsMapeados);
-                    
+
                     // Configurar la devolución total directamente con los items cargados
                     // No usar setTimeout, configurar inmediatamente con los items cargados
                     configurarDevolucionTotal(itemsMapeados);
@@ -687,7 +696,7 @@ const DevolucionesPage: React.FC = () => {
                 console.error('[Devoluciones] Error cargando items de la factura:', error);
                 addNotification({
                     message: 'Error al cargar los productos de la factura. Por favor, recargue la página o seleccione otra factura.',
-                    type: 'error'
+                    type: 'warning'
                 });
                 setIsTotalDevolucion(false);
                 return;
@@ -696,14 +705,14 @@ const DevolucionesPage: React.FC = () => {
             setDevolucionItems([]);
         }
     };
-    
+
     const resetForm = useCallback(() => {
         setAlmacenId('');
         setClienteId('');
         setFacturaId('');
         resetFormPartially();
     }, []);
-    
+
     const summary = useMemo(() => {
         if (devolucionItems.length === 0 || itemsDisponiblesFactura.length === 0) {
             return { subtotalBruto: 0, iva: 0, total: 0, descuento: 0 };
@@ -712,13 +721,13 @@ const DevolucionesPage: React.FC = () => {
         let ivaRate = 0;
         devolucionItems.forEach(devItem => {
             const factItem = itemsDisponiblesFactura.find(i => i.productoId === devItem.productoId);
-            if(factItem) {
+            if (factItem) {
                 const itemSubtotalBruto = factItem.precioUnitario * devItem.cantidadDevuelta;
                 const itemDescuento = itemSubtotalBruto * (factItem.descuentoPorcentaje / 100);
-                
+
                 subBruto += itemSubtotalBruto;
                 disc += itemDescuento;
-                if(factItem.ivaPorcentaje > 0) ivaRate = factItem.ivaPorcentaje;
+                if (factItem.ivaPorcentaje > 0) ivaRate = factItem.ivaPorcentaje;
             }
         });
         const subNeto = subBruto - disc;
@@ -727,7 +736,7 @@ const DevolucionesPage: React.FC = () => {
 
         return { subtotalBruto: subBruto, iva: tax, total: finalTotal, descuento: disc };
     }, [devolucionItems, itemsDisponiblesFactura]);
-    
+
     const costoTotalDevolucion = useMemo(() => {
         if (devolucionItems.length === 0) return 0;
         return devolucionItems.reduce((total, devItem) => {
@@ -742,7 +751,7 @@ const DevolucionesPage: React.FC = () => {
         if (!selectedFactura) {
             addNotification({
                 message: 'Por favor, seleccione una factura para realizar la devolución.',
-                type: 'error'
+                type: 'warning'
             });
             return;
         }
@@ -750,7 +759,7 @@ const DevolucionesPage: React.FC = () => {
         if (!selectedCliente) {
             addNotification({
                 message: 'Por favor, seleccione un cliente para realizar la devolución.',
-                type: 'error'
+                type: 'warning'
             });
             return;
         }
@@ -763,7 +772,7 @@ const DevolucionesPage: React.FC = () => {
             });
             addNotification({
                 message: 'La factura seleccionada no tiene productos cargados. Por favor, recargue la página o seleccione otra factura.',
-                type: 'error'
+                type: 'warning'
             });
             return;
         }
@@ -796,7 +805,7 @@ const DevolucionesPage: React.FC = () => {
         }
 
         setIsSaving(true);
-        
+
         try {
             console.log('[Devoluciones] Iniciando guardado de nota de crédito:', {
                 facturaId: selectedFactura.id,
@@ -820,23 +829,24 @@ const DevolucionesPage: React.FC = () => {
                     ? devolucionItems[0].motivo
                     : devolucionItems[0].motivoSeleccion || 'Devolución general')
                 : 'Devolución general';
-            
-            const nuevaNota = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal);
-            
+
+            // Incluir tipoNota en la llamada
+            const nuevaNota = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal, tipoNota);
+
             if (!nuevaNota) {
                 throw new Error('No se recibió respuesta del servidor al crear la nota de crédito');
             }
-            
+
             setSavedNota(nuevaNota);
-            addNotification({ 
-                message: `Nota de Crédito ${nuevaNota.numero || nuevaNota.id} guardada con éxito.`, 
-                type: 'success' 
+            addNotification({
+                message: `Nota de Crédito ${nuevaNota.numero || nuevaNota.id} guardada con éxito.`,
+                type: 'success'
             });
-            
+
             // Limpiar formulario después de guardar exitosamente
             resetFormPartially();
             setFacturaId('');
-            
+
             // Generate accounting note after successful save
             setAccountingNote({ loading: true, text: '', error: false });
             const motivos = [...new Set(devolucionItems.map(i => i.motivo))].join(', ');
@@ -866,9 +876,9 @@ const DevolucionesPage: React.FC = () => {
         } catch (error) {
             console.error('[Devoluciones] Error al guardar nota de crédito:', error);
             const errorMessage = error instanceof Error ? error.message : 'Error desconocido al guardar la nota de crédito';
-            addNotification({ 
-                message: `Error al guardar la nota de crédito: ${errorMessage}. Por favor, verifique la consola para más detalles.`, 
-                type: 'error' 
+            addNotification({
+                message: `Error al guardar la nota de crédito: ${errorMessage}. Por favor, verifique la consola para más detalles.`,
+                type: 'warning'
             });
         } finally {
             setIsSaving(false);
@@ -885,7 +895,7 @@ const DevolucionesPage: React.FC = () => {
             setGeminiEmail({ loading: false, text: "Error al generar el correo.", modalOpen: true });
         }
     };
-    
+
     const handleOpenDetailModal = (nota: NotaCredito) => {
         setSelectedNotaParaVer(nota);
         setIsDetailModalOpen(true);
@@ -897,29 +907,31 @@ const DevolucionesPage: React.FC = () => {
 
     // ✅ Protección: Asegurar que notasCredito sea siempre un array
     const safeNotasCredito = Array.isArray(notasCredito) ? notasCredito : [];
-    const { paginatedData, requestSort, sortConfig } = useTable<NotaCredito>({ 
-        data: safeNotasCredito, 
+    const { paginatedData, requestSort, sortConfig } = useTable<NotaCredito>({
+        data: safeNotasCredito,
         searchKeys: [
-            'numero', 
-            'motivo', 
-            'estadoDian', 
+            'numero',
+            'motivo',
+            'estadoDian',
             item => clientes.find(c => c.id === item.clienteId)?.nombreCompleto || ''
-        ] 
+        ]
     });
     const historyColumns: Column<NotaCredito>[] = [
         { header: 'Devolución No.', accessor: 'numero', cell: item => <button onClick={() => handleOpenDetailModal(item)} className="text-blue-500 font-semibold hover:underline">{item.numero}</button> },
-        { header: 'Fecha', accessor: 'fechaEmision'},
-        { header: 'Factura Afectada', accessor: 'facturaId', cell: item => facturas.find(f=>f.id === item.facturaId)?.numeroFactura || 'N/A' },
-        { header: 'Cliente', accessor: 'clienteId', cell: item => clientes.find(c=>c.id === item.clienteId)?.nombreCompleto || 'N/A' },
+        { header: 'Fecha', accessor: 'fechaEmision' },
+        { header: 'Factura Afectada', accessor: 'facturaId', cell: item => facturas.find(f => f.id === item.facturaId)?.numeroFactura || 'N/A' },
+        { header: 'Cliente', accessor: 'clienteId', cell: item => clientes.find(c => c.id === item.clienteId)?.nombreCompleto || 'N/A' },
         { header: 'Valor Total', accessor: 'total', cell: item => formatCurrency(item.total) },
-        { header: 'Estado DIAN', accessor: 'estadoDian', cell: item => item.estadoDian ? <StatusBadge status={item.estadoDian}/> : <StatusBadge status={'PENDIENTE'} /> },
-        { header: 'Acciones', accessor: 'id', cell: (item) => (
-            <div className="flex items-center space-x-3 text-slate-500 dark:text-slate-400 text-lg">
-                <button onClick={() => handleOpenPrintModal(item)} className="hover:text-blue-500" title="Imprimir"><i className="fas fa-print"></i></button>
-                <button onClick={() => handleOpenDetailModal(item)} className="hover:text-blue-500" title="Ver"><i className="fas fa-eye"></i></button>
-                <button onClick={() => handleOpenPrintModal(item)} className="hover:text-blue-500" title="Descargar"><i className="fas fa-download"></i></button>
-            </div>
-        )}
+        { header: 'Estado DIAN', accessor: 'estadoDian', cell: item => item.estadoDian ? <StatusBadge status={item.estadoDian} /> : <StatusBadge status={'PENDIENTE'} /> },
+        {
+            header: 'Acciones', accessor: 'id', cell: (item) => (
+                <div className="flex items-center space-x-3 text-slate-500 dark:text-slate-400 text-lg">
+                    <button onClick={() => handleOpenPrintModal(item)} className="hover:text-blue-500" title="Imprimir"><i className="fas fa-print"></i></button>
+                    <button onClick={() => handleOpenDetailModal(item)} className="hover:text-blue-500" title="Ver"><i className="fas fa-eye"></i></button>
+                    <button onClick={() => handleOpenPrintModal(item)} className="hover:text-blue-500" title="Descargar"><i className="fas fa-download"></i></button>
+                </div>
+            )
+        }
     ];
 
 
@@ -929,7 +941,7 @@ const DevolucionesPage: React.FC = () => {
                 <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Módulo de Devoluciones</h1>
                 <p className="text-slate-500 dark:text-slate-400 mt-1">Gestione el registro y seguimiento de sus notas de crédito.</p>
             </header>
-            
+
             <div className="mb-6 border-b border-slate-200 dark:border-slate-700">
                 <nav className="-mb-px flex space-x-2" aria-label="Tabs">
                     <button onClick={() => setActiveTab('form')} className={`whitespace-nowrap py-3 px-4 border-b-2 font-semibold text-sm rounded-t-lg ${activeTab === 'form' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:border-slate-300'}`}>
@@ -942,7 +954,7 @@ const DevolucionesPage: React.FC = () => {
             </div>
 
             {activeTab === 'form' && (
-                 <Card>
+                <Card>
                     <CardContent>
                         <section>
                             <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">1. Selección de Factura</h2>
@@ -960,17 +972,17 @@ const DevolucionesPage: React.FC = () => {
                                 </div>
                                 <div>
                                     <label htmlFor="cliente-select" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cliente</label>
-                                    <select 
-                                        id="cliente-select" 
-                                        value={clienteId || ''} 
+                                    <select
+                                        id="cliente-select"
+                                        value={clienteId || ''}
                                         onChange={e => {
                                             const selectedValue = e.target.value;
                                             if (process.env.NODE_ENV === 'development') {
                                                 console.log('[Devoluciones] Select onChange - valor seleccionado:', selectedValue);
                                             }
                                             handleClienteChange(selectedValue);
-                                        }} 
-                                        disabled={isFormDisabled} 
+                                        }}
+                                        disabled={isFormDisabled}
                                         className="w-full px-3 py-2.5 text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed"
                                     >
                                         <option value="">Seleccione un cliente...</option>
@@ -1002,8 +1014,62 @@ const DevolucionesPage: React.FC = () => {
                                     </select>
                                 </div>
                             </div>
+
+                            {/* Toggle para Tipo de Nota (Devolución vs Anulación) */}
+                            <div className="mt-6 flex items-center space-x-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
+                                <div className="flex flex-col">
+                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tipo de Operación</span>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400">Seleccione si es una devolución parcial o anulación total</span>
+                                </div>
+
+                                <div className="flex items-center bg-white dark:bg-slate-900 rounded-lg p-1 border border-slate-200 dark:border-slate-700">
+                                    <button
+                                        onClick={() => setTipoNota('DEVOLUCION')}
+                                        disabled={isFormDisabled}
+                                        className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${tipoNota === 'DEVOLUCION'
+                                            ? 'bg-blue-500 text-white shadow-sm'
+                                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                            }`}
+                                    >
+                                        Devolución
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setTipoNota('ANULACION');
+                                            // Si es anulación, activar devolución total automáticamente
+                                            if (!isTotalDevolucion) {
+                                                handleTotalDevolucionToggle(true);
+                                            }
+                                        }}
+                                        disabled={isFormDisabled}
+                                        className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${tipoNota === 'ANULACION'
+                                            ? 'bg-red-500 text-white shadow-sm'
+                                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                            }`}
+                                    >
+                                        Anulación
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 border-l border-slate-200 dark:border-slate-700 pl-6">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Devolución Total</span>
+                                            <span className="text-xs text-slate-500 dark:text-slate-400">Marcar todos los items para devolver</span>
+                                        </div>
+                                        <ToggleSwitch
+                                            id="devolucion-total-toggle"
+                                            checked={isTotalDevolucion}
+                                            onChange={handleTotalDevolucionToggle}
+                                            labelLeft="Parcial"
+                                            labelRight="Total"
+                                            disabled={!selectedFactura || isFormDisabled || tipoNota === 'ANULACION'} // Deshabilitar si es anulación (siempre es total)
+                                        />
+                                    </div>
+                                </div>
+                            </div>
                         </section>
-                        
+
                         {/* Mensaje informativo cuando faltan opciones obligatorias */}
                         {(!clienteId || !facturaId || !selectedFactura) && (
                             <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
@@ -1020,72 +1086,67 @@ const DevolucionesPage: React.FC = () => {
                                 </div>
                             </div>
                         )}
-                        
+
                         {/* Mostrar la lógica de devolución cuando Cliente y Factura estén completas (Almacén es opcional) */}
                         {clienteId && facturaId && selectedFactura && (
                             <>
                                 <section className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
                                     <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">2. Detalles y Cantidades a Devolver</h2>
-                                    
-                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-lg mb-4">
-                                        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 text-sm">
-                                            <div className="space-y-3 min-w-0">
-                                                <div>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">Cliente:</p>
-                                                    <p className="font-bold uppercase truncate">{selectedCliente?.nombreCompleto}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">Fecha Factura:</p>
-                                                    <p className="font-bold">{selectedFactura.fechaFactura}</p>
+
+                                    <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 mb-6">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                            {/* Cliente Info */}
+                                            <div className="space-y-1">
+                                                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente</p>
+                                                <p className="font-bold text-slate-800 dark:text-slate-100 truncate" title={selectedCliente?.nombreCompleto}>
+                                                    {selectedCliente?.nombreCompleto}
+                                                </p>
+                                                <p className="text-sm text-slate-500 dark:text-slate-400 font-mono">
+                                                    NIT: {selectedCliente?.numeroDocumento}
+                                                </p>
+                                            </div>
+
+                                            {/* Factura Info */}
+                                            <div className="space-y-1">
+                                                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Factura</p>
+                                                <p className="font-bold text-blue-600 dark:text-blue-400 text-lg">
+                                                    {selectedFactura.numeroFactura}
+                                                </p>
+                                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                                    {new Date(selectedFactura.fechaFactura).toLocaleDateString()}
+                                                </p>
+                                            </div>
+
+                                            {/* Valores */}
+                                            <div className="space-y-1">
+                                                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Valor Total</p>
+                                                <p className="font-bold text-slate-800 dark:text-slate-100 text-lg">
+                                                    {formatCurrency(selectedFactura.total)}
+                                                </p>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-slate-500">Saldo:</span>
+                                                    <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                                        {formatCurrency(selectedFactura.total)}
+                                                    </span>
                                                 </div>
                                             </div>
-                                            <div className="space-y-3 min-w-0">
-                                                <div>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">NIT:</p>
-                                                    <p className="font-bold">{selectedCliente?.numeroDocumento}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">Factura No:</p>
-                                                    <p className="font-bold text-blue-600 dark:text-blue-400">{selectedFactura.numeroFactura}</p>
-                                                </div>
-                                                 <div>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">Valor Total:</p>
-                                                    <p className="font-bold">{formatCurrency(selectedFactura.total)}</p>
-                                                </div>
-                                                 <div>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">Saldo Actual:</p>
-                                                    <p className="font-bold">{formatCurrency(selectedFactura.total)}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col gap-4 w-full lg:w-auto shrink-0">
-                                                <div className="w-full mx-auto lg:mx-0">
-                                                    <label htmlFor="tipo-devolucion" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 text-center sm:text-left whitespace-nowrap">Tipo de Devolución</label>
-                                                    <ToggleSwitch
-                                                        id="tipo-devolucion"
-                                                        checked={isTotalDevolucion}
-                                                        onChange={handleTotalDevolucionToggle}
-                                                        disabled={isFormDisabled}
-                                                        labelLeft="Parcial"
-                                                        labelRight="Total"
-                                                        size="compact"
-                                                        width="equal"
-                                                        className="w-full max-w-[520px]"
-                                                    />
-                                                </div>
-                                                <div className="w-full mx-auto lg:mx-0">
-                                                    <label htmlFor="transmision-dian" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 text-center sm:text-left whitespace-nowrap">Transmisión DIAN</label>
-                                                    <ToggleSwitch
-                                                        id="transmision-dian"
-                                                        checked={transmisionDian}
-                                                        onChange={setTransmisionDian}
-                                                        disabled={isFormDisabled}
-                                                        labelLeft="Sin Referencias"
-                                                        labelRight="Con Referencias"
-                                                        size="compact"
-                                                        width="equal"
-                                                        className="w-full max-w-[600px]"
-                                                    />
-                                                </div>
+
+                                            {/* Configuración DIAN */}
+                                            <div className="flex flex-col justify-center">
+                                                <label htmlFor="transmision-dian" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
+                                                    Transmisión DIAN
+                                                </label>
+                                                <ToggleSwitch
+                                                    id="transmision-dian"
+                                                    checked={transmisionDian}
+                                                    onChange={setTransmisionDian}
+                                                    disabled={isFormDisabled}
+                                                    labelLeft="Sin Ref."
+                                                    labelRight="Con Ref."
+                                                    size="compact"
+                                                    width="equal"
+                                                    className="w-full"
+                                                />
                                             </div>
                                         </div>
                                     </div>
@@ -1159,7 +1220,7 @@ const DevolucionesPage: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     {devolucionItems.length > 0 && (
                                         <div className="mt-6">
                                             <div className="border-b border-slate-200 dark:border-slate-700">
@@ -1232,10 +1293,10 @@ const DevolucionesPage: React.FC = () => {
                                                     </div>
                                                 )}
                                                 {activeSubTab === 'kardex' && (
-                                                     <div>
+                                                    <div>
                                                         <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-4">Movimiento de Inventario (Entrada por Devolución)</h3>
                                                         <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                                                             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
+                                                            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
                                                                 <thead className="bg-slate-100 dark:bg-slate-800">
                                                                     <tr>
                                                                         {['CÓDIGO', 'PRODUCTO', 'CANTIDAD', 'TIPO MOVIMIENTO', 'COSTO UNITARIO', 'COSTO TOTAL'].map(header => (
@@ -1268,12 +1329,12 @@ const DevolucionesPage: React.FC = () => {
                                                                 </tfoot>
                                                             </table>
                                                         </div>
-                                                     </div>
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>
                                     )}
-                                    
+
                                     <div className="mt-8 flex items-center justify-end space-x-4">
                                         <ProtectedComponent permission='devoluciones:manage'>
                                             <button onClick={handleGenerateEmail} disabled={!savedNota} className="px-4 py-2 border border-sky-500 rounded-lg text-sm font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 disabled:cursor-not-allowed">✨ Redactar Correo</button>
@@ -1290,85 +1351,92 @@ const DevolucionesPage: React.FC = () => {
                             </>
                         )}
                     </CardContent>
-                 </Card>
-            )}
+                </Card>
+            )
+            }
 
-            {activeTab === 'history' && (
-                 <Card>
-                    <CardHeader><CardTitle>Historial de Devoluciones</CardTitle></CardHeader>
-                    <CardContent className="p-0">
-                         <Table columns={historyColumns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} />
-                    </CardContent>
-                 </Card>
-            )}
+            {
+                activeTab === 'history' && (
+                    <Card>
+                        <CardHeader><CardTitle>Historial de Devoluciones</CardTitle></CardHeader>
+                        <CardContent className="p-0">
+                            <Table columns={historyColumns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} />
+                        </CardContent>
+                    </Card>
+                )
+            }
 
             <Modal isOpen={geminiEmail.modalOpen} onClose={() => setGeminiEmail({ ...geminiEmail, modalOpen: false })} title="✨ Correo Sugerido por IA">
-                 {geminiEmail.loading ? (
+                {geminiEmail.loading ? (
                     <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-t-sky-400 border-slate-200 dark:border-slate-700 rounded-full animate-spin"></div></div>
                 ) : (
                     <div>
                         <textarea value={geminiEmail.text} readOnly rows={10} className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-md bg-slate-50 dark:bg-slate-700 dark:text-slate-200"></textarea>
-                         <div className="px-6 py-4 bg-slate-50 dark:bg-slate-900/50 flex justify-end space-x-3 rounded-b-lg -m-6 mt-4">
-                            <button onClick={() => navigator.clipboard.writeText(geminiEmail.text).then(() => addNotification({message: 'Copiado al portapapeles', type: 'info'}))} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Copiar Texto</button>
+                        <div className="px-6 py-4 bg-slate-50 dark:bg-slate-900/50 flex justify-end space-x-3 rounded-b-lg -m-6 mt-4">
+                            <button onClick={() => navigator.clipboard.writeText(geminiEmail.text).then(() => addNotification({ message: 'Copiado al portapapeles', type: 'info' }))} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Copiar Texto</button>
                             <button onClick={() => setGeminiEmail({ ...geminiEmail, modalOpen: false })} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500">Cerrar</button>
-                         </div>
+                        </div>
                     </div>
                 )}
             </Modal>
 
-            {selectedNotaParaVer && (() => {
-                const clienteNota = clientes.find(c => c.id === selectedNotaParaVer.clienteId);
-                const facturaNota = facturas.find(f => f.id === selectedNotaParaVer.facturaId);
-                return (
-                    <Modal isOpen={isDetailModalOpen} onClose={() => setIsDetailModalOpen(false)} title={`Detalle Nota de Crédito: ${selectedNotaParaVer.numero}`} size="3xl">
-                        <div className="space-y-4 text-sm">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-                                <div><p className="font-semibold text-slate-600 dark:text-slate-400">Cliente:</p><p>{clienteNota?.nombreCompleto}</p></div>
-                                <div><p className="font-semibold text-slate-600 dark:text-slate-400">Factura Afectada:</p><p>{facturaNota?.numeroFactura}</p></div>
-                                <div><p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Emisión:</p><p>{selectedNotaParaVer.fechaEmision}</p></div>
-                                <div><p className="font-semibold text-slate-600 dark:text-slate-400">Total Nota Crédito:</p><p className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(selectedNotaParaVer.total)}</p></div>
-                                <div className="col-span-1 sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Motivo:</p><p>{selectedNotaParaVer.motivo}</p></div>
-                            </div>
-                            <h4 className="text-base font-semibold pt-4 border-t border-slate-200 dark:border-slate-700">Items Devueltos</h4>
-                            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                                <table className="w-full divide-y divide-slate-200 dark:divide-slate-700">
-                                    <thead className="bg-slate-50 dark:bg-slate-700">
-                                        <tr className="text-sm font-medium text-slate-500 dark:text-slate-300 uppercase">
-                                            <th className="px-4 py-2 text-left">Producto</th>
-                                            <th className="px-4 py-2 text-right">Cantidad</th>
-                                            <th className="px-4 py-2 text-right">Precio Unit.</th>
-                                            <th className="px-4 py-2 text-right">Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
-                                        {Array.isArray(selectedNotaParaVer.itemsDevueltos) && selectedNotaParaVer.itemsDevueltos.length > 0 ? (
-                                            selectedNotaParaVer.itemsDevueltos.map((item: DocumentItem) => (
-                                                <tr key={item.productoId} className="text-sm">
-                                                    <td className="px-4 py-2">{item.descripcion || 'N/A'}</td>
-                                                    <td className="px-4 py-2 text-right whitespace-nowrap">{item.cantidad || 0}</td>
-                                                    <td className="px-4 py-2 text-right whitespace-nowrap">{formatCurrency(item.precioUnitario || 0)}</td>
-                                                    <td className="px-4 py-2 font-semibold text-right whitespace-nowrap">{formatCurrency(item.total || 0)}</td>
-                                                </tr>
-                                            ))
-                                        ) : (
-                                            <tr>
-                                                <td colSpan={4} className="px-4 py-4 text-center text-slate-500 dark:text-slate-400">
-                                                    No hay items devueltos registrados
-                                                </td>
+            {
+                selectedNotaParaVer && (() => {
+                    const clienteNota = clientes.find(c => c.id === selectedNotaParaVer.clienteId);
+                    const facturaNota = facturas.find(f => f.id === selectedNotaParaVer.facturaId);
+                    return (
+                        <Modal isOpen={isDetailModalOpen} onClose={() => setIsDetailModalOpen(false)} title={`Detalle Nota de Crédito: ${selectedNotaParaVer.numero}`} size="3xl">
+                            <div className="space-y-4 text-sm">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Cliente:</p><p>{clienteNota?.nombreCompleto}</p></div>
+                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Factura Afectada:</p><p>{facturaNota?.numeroFactura}</p></div>
+                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Emisión:</p><p>{selectedNotaParaVer.fechaEmision}</p></div>
+                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Total Nota Crédito:</p><p className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(selectedNotaParaVer.total)}</p></div>
+                                    <div className="col-span-1 sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Motivo:</p><p>{selectedNotaParaVer.motivo}</p></div>
+                                </div>
+                                <h4 className="text-base font-semibold pt-4 border-t border-slate-200 dark:border-slate-700">Items Devueltos</h4>
+                                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                                    <table className="w-full divide-y divide-slate-200 dark:divide-slate-700">
+                                        <thead className="bg-slate-50 dark:bg-slate-700">
+                                            <tr className="text-sm font-medium text-slate-500 dark:text-slate-300 uppercase">
+                                                <th className="px-4 py-2 text-left">Producto</th>
+                                                <th className="px-4 py-2 text-right">Cantidad</th>
+                                                <th className="px-4 py-2 text-right">Precio Unit.</th>
+                                                <th className="px-4 py-2 text-right">Total</th>
                                             </tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
+                                            {Array.isArray(selectedNotaParaVer.itemsDevueltos) && selectedNotaParaVer.itemsDevueltos.length > 0 ? (
+                                                selectedNotaParaVer.itemsDevueltos.map((item: DocumentItem) => (
+                                                    <tr key={item.productoId} className="text-sm">
+                                                        <td className="px-4 py-2">{item.descripcion || 'N/A'}</td>
+                                                        <td className="px-4 py-2 text-right whitespace-nowrap">{item.cantidad || 0}</td>
+                                                        <td className="px-4 py-2 text-right whitespace-nowrap">{formatCurrency(item.precioUnitario || 0)}</td>
+                                                        <td className="px-4 py-2 font-semibold text-right whitespace-nowrap">{formatCurrency(item.total || 0)}</td>
+                                                    </tr>
+                                                ))
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan={4} className="px-4 py-4 text-center text-slate-500 dark:text-slate-400">
+                                                        No hay items devueltos registrados
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
-                        </div>
-                    </Modal>
-                );
-            })()}
+                        </Modal>
+                    );
+                })()
+            }
 
-            {notaParaImprimir && (
-                <NotaCreditoPreviewModal notaCredito={notaParaImprimir} onClose={() => setNotaParaImprimir(null)} />
-            )}
-        </div>
+            {
+                notaParaImprimir && (
+                    <NotaCreditoPreviewModal notaCredito={notaParaImprimir} onClose={() => setNotaParaImprimir(null)} />
+                )
+            }
+        </div >
     );
 };
 
