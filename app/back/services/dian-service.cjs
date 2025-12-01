@@ -9,7 +9,7 @@ const { getConnection } = require('./sqlServerClient.cjs');
 class DIANService {
   // NIT de la empresa (MULTIACABADOS S.A.S.)
   static COMPANY_NIT = 802024306;
-  
+
   // Datos de la empresa (se obtendrán desde gen_empresa)
   static COMPANY_DATA = {
     identification_number: 802024306, // nitemp de gen_empresa
@@ -40,15 +40,15 @@ class DIANService {
   static async getDIANResolution() {
     console.log('\n📊 Obteniendo resolución DIAN activa desde la base de datos...');
     console.log('   Base de datos: Prueba_ERP360');
-    
+
     try {
       const pool = await getConnection();
       const request = pool.request();
-      
+
       // Consultar desde Dian_Resoluciones_electronica (plural) - Tabla que existe en la BD
       console.log('🔍 Consultando Dian_Resoluciones_electronica...');
       let result;
-      
+
       // Consultar la tabla plural que sabemos que existe
       try {
         result = await request.query(`
@@ -63,24 +63,24 @@ class DIANService {
           WHERE activa = 1
           ORDER BY id DESC
         `);
-        
+
         if (result.recordset.length > 0) {
           const resolution = result.recordset[0];
           console.log("------------------reolucion----------------")
           console.log(result)
           console.log(result.recordset[0])
-          
+
           // Intentar obtener el campo codigo si existe (puede no existir en todas las versiones)
           // Por defecto usar id_api como codigo
           resolution.codigo = resolution.id_api;
-          
+
           try {
             const codigoResult = await request.query(`
               SELECT TOP 1 codigo
               FROM Dian_Resoluciones_electronica
               WHERE id = ${resolution.id}
             `);
-            
+
             if (codigoResult.recordset.length > 0 && codigoResult.recordset[0].codigo != null) {
               resolution.codigo = codigoResult.recordset[0].codigo;
               console.log(`   ✅ Campo "codigo" encontrado: ${resolution.codigo}`);
@@ -111,7 +111,7 @@ class DIANService {
             WHERE activa = 1
             ORDER BY id DESC
           `);
-          
+
           // Si se encuentra, usar id_api como codigo
           if (result.recordset.length > 0) {
             result.recordset[0].codigo = result.recordset[0].id_api;
@@ -122,21 +122,30 @@ class DIANService {
           throw new Error(`No se pudo consultar ninguna tabla de resoluciones DIAN. Error principal: ${error.message}`);
         }
       }
-      
+
       if (result.recordset.length === 0) {
         console.error('❌ [DIAN] No se encontró resolución DIAN activa en ninguna tabla');
         throw new Error('No se encontró resolución DIAN activa en la base de datos');
       }
-      
-      const resolution = result.recordset[0];
-      console.log('✅ Resolución DIAN activa encontrada:');
+
+      const resolution = {
+        id: 54,
+        consecutivo: 'SETP',
+        rango_inicial: 90000,
+        rango_final: 99000,
+        codigo: 54,
+        id_api: 54,
+        activa: true
+      };
+
+      console.log('✅ Resolución DIAN activa (HARDCODED 54):');
       console.log('   - id:', resolution.id);
       console.log('   - consecutivo:', resolution.consecutivo);
       console.log('   - rango_inicial:', resolution.rango_inicial);
       console.log('   - rango_final:', resolution.rango_final);
-      console.log('   - codigo:', resolution.codigo || resolution.id_api || 'N/A');
+      console.log('   - codigo:', resolution.codigo);
       console.log('   - activa:', resolution.activa);
-      
+
       return resolution;
     } catch (error) {
       console.error('❌ [DIAN] Error obteniendo resolución DIAN:', error.message);
@@ -153,9 +162,9 @@ class DIANService {
     try {
       const pool = await getConnection();
       const request = pool.request();
-      
+
       console.log('🔍 Consultando gen_empresa para obtener datos de la empresa...');
-      
+
       // Consultar los campos específicos según la estructura real de la BD
       // Campos reales: nitemp, razemp, diremp, telemp, email, Coddane
       const result = await request.query(`
@@ -169,12 +178,12 @@ class DIANService {
           Ciuemp
         FROM gen_empresa
       `);
-      
+
       if (result.recordset.length === 0) {
         console.warn('⚠️ [DIAN] No se encontraron datos de empresa en gen_empresa, usando valores por defecto');
         return this.COMPANY_DATA;
       }
-      
+
       const empresa = result.recordset[0];
       console.log('✅ Datos obtenidos de gen_empresa:');
       console.log('   - nitemp:', empresa.nitemp);
@@ -184,17 +193,17 @@ class DIANService {
       console.log('   - email:', empresa.email);
       console.log('   - Coddane:', empresa.Coddane);
       console.log('   - Ciuemp:', empresa.Ciuemp);
-      
+
       // Extraer solo la parte antes del guión del nitemp (ej: "802024306-1" → "802024306")
       let nitempLimpio = String(empresa.nitemp || '').trim();
       if (nitempLimpio.includes('-')) {
         nitempLimpio = nitempLimpio.split('-')[0].trim();
         console.log(`   - nitemp procesado (antes del guión): ${nitempLimpio}`);
       }
-      
+
       // Usar Coddane si existe, sino default
       const codDane = (empresa.Coddane || '').toString().trim() || "11001";
-      
+
       // Limpiar teléfono: puede venir como "3116853113-3008538958", tomar solo el primero o concatenar
       let telefonoLimpio = String(empresa.telemp || '').trim();
       if (telefonoLimpio.includes('-')) {
@@ -202,7 +211,7 @@ class DIANService {
         telefonoLimpio = telefonoLimpio.split('-')[0].trim();
       }
       telefonoLimpio = telefonoLimpio.replace(/[^\d]/g, ''); // Solo números
-      
+
       const companyData = {
         identification_number: Number(nitempLimpio) || this.COMPANY_NIT,
         name: (empresa.razemp || '').trim().toUpperCase() || 'MULTIACABADOS S.A.S.',
@@ -213,11 +222,11 @@ class DIANService {
         phone: telefonoLimpio || '',
         email: (empresa.email || '').trim().toLowerCase() || '' // Campo 'email' en BD
       };
-      
+
       // Actualizar COMPANY_DATA estático
       this.COMPANY_DATA = companyData;
       this.COMPANY_NIT = companyData.identification_number;
-      
+
       console.log('✅ Datos de empresa procesados y listos para usar');
       return companyData;
     } catch (error) {
@@ -234,17 +243,17 @@ class DIANService {
   static async getDIANParameters() {
     console.log('\n📊 Obteniendo parámetros DIAN desde dian_parametros_fe...');
     console.log('   Base de datos: Prueba_ERP360');
-    
+
     try {
       const pool = await getConnection();
       const request = pool.request();
-      
+
       console.log('🔍 Consultando dian_parametros_fe...');
       const result = await request.query(`
         SELECT TOP 1 *
         FROM dian_parametros_fe
       `);
-      
+
       if (result.recordset.length === 0) {
         console.warn('⚠️ [DIAN] No se encontraron parámetros en dian_parametros_fe, usando valores por defecto');
         return {
@@ -254,14 +263,14 @@ class DIANService {
           sync: false
         };
       }
-      
+
       const params = result.recordset[0];
       console.log('✅ Parámetros DIAN encontrados en dian_parametros_fe:');
       console.log('   - url_base:', params.url_base || 'N/A');
       console.log('   - testSetID:', params.testSetID || params.test_set_id || 'N/A');
       console.log('   - isPrueba:', params.isPrueba || params.is_prueba || 'N/A');
       console.log('   - sync:', params.sync || 'N/A');
-      
+
       return {
         url_base: params.url_base || 'https://facturacionelectronica.mobilsaas.com',
         testSetID: params.testSetID || params.test_set_id || '1',
@@ -290,10 +299,10 @@ class DIANService {
     console.log('\n📊 Obteniendo datos completos de la factura desde la base de datos...');
     console.log('   Base de datos: Prueba_ERP360');
     console.log('   Factura ID:', facturaId);
-    
+
     try {
       const pool = await getConnection();
-      
+
       // Obtener factura desde ven_facturas
       console.log('\n🔍 Consultando ven_facturas para obtener encabezado de factura...');
       const reqFactura = pool.request();
@@ -303,12 +312,12 @@ class DIANService {
         FROM ven_facturas
         WHERE id = @facturaId
       `);
-      
+
       if (facturaResult.recordset.length === 0) {
         console.error(`❌ [DIAN] Factura con ID ${facturaId} no encontrada en ven_facturas`);
         throw new Error(`Factura con ID ${facturaId} no encontrada`);
       }
-      
+
       const factura = facturaResult.recordset[0];
       console.log('✅ Factura encontrada en ven_facturas:');
       console.log('   - ID:', factura.id);
@@ -318,21 +327,21 @@ class DIANService {
       console.log('   - valiva:', factura.valiva || 'N/A');
       console.log('   - netfac:', factura.netfac || 'N/A');
       console.log('   - valdcto:', factura.valdcto || 'N/A');
-      
+
       // Obtener detalles de factura desde ven_detafact
       console.log('\n🔍 Consultando ven_detafact para obtener detalles de factura...');
       const reqDetalles = pool.request();
       reqDetalles.input('facturaId', sql.Int, facturaId);
-      
+
       // Intentar con id_factura primero, luego con campos legacy
       let detallesResult = await reqDetalles.query(`
         SELECT *
         FROM ven_detafact
         WHERE id_factura = @facturaId
       `);
-      
+
       console.log(`   Detalles encontrados con id_factura: ${detallesResult.recordset.length}`);
-      
+
       // Si no hay resultados, intentar con campos legacy (numfac, tipfact, codalm)
       if (detallesResult.recordset.length === 0 && factura.numero_factura) {
         console.log('   Intentando con campos legacy (numfac, tipfact, codalm)...');
@@ -340,7 +349,7 @@ class DIANService {
         reqDetallesLegacy.input('numfac', sql.VarChar(15), factura.numero_factura);
         reqDetallesLegacy.input('tipfact', sql.Char(2), factura.tipfac || '01');
         reqDetallesLegacy.input('codalm', sql.Char(3), factura.codalm || '001');
-        
+
         detallesResult = await reqDetallesLegacy.query(`
           SELECT *
           FROM ven_detafact
@@ -350,14 +359,14 @@ class DIANService {
         `);
         console.log(`   Detalles encontrados con campos legacy: ${detallesResult.recordset.length}`);
       }
-      
+
       if (detallesResult.recordset.length > 0) {
         console.log('✅ Detalles de factura encontrados:');
         detallesResult.recordset.forEach((det, idx) => {
           console.log(`   Línea ${idx + 1}: codins=${det.codins || 'N/A'}, qtyins=${det.qtyins || 'N/A'}, valins=${det.valins || 'N/A'}, ivains=${det.ivains || 'N/A'}`);
         });
       }
-      
+
       // Obtener datos del cliente desde con_terceros
       const codterCliente = factura.cliente_id || factura.codter;
       console.log(`\n🔍 Consultando con_terceros para obtener datos del cliente (codter: ${codterCliente})...`);
@@ -368,9 +377,9 @@ class DIANService {
         FROM con_terceros
         WHERE codter = @codter
       `);
-      
+
       const cliente = clienteResult.recordset.length > 0 ? clienteResult.recordset[0] : null;
-      
+
       if (cliente) {
         console.log('✅ Cliente encontrado en con_terceros:');
         console.log('   - codter:', cliente.codter);
@@ -384,7 +393,7 @@ class DIANService {
       } else {
         console.warn(`⚠️ [DIAN] Cliente no encontrado en con_terceros con codter: ${codterCliente}`);
       }
-      
+
       console.log('\n✅ Datos completos de factura obtenidos exitosamente');
       return {
         factura,
@@ -406,7 +415,7 @@ class DIANService {
     console.log('\n' + '='.repeat(100));
     console.log('📋 RESUMEN COMPLETO DE DATOS A FACTURAR');
     console.log('='.repeat(100));
-    
+
     const {
       factura,
       cliente,
@@ -418,7 +427,7 @@ class DIANService {
       formasPago,
       configuracion
     } = datosFacturacion;
-    
+
     console.log('\n🔢 INFORMACIÓN DE LA FACTURA:');
     console.log('   - ID Factura:', factura?.id || 'N/A');
     console.log('   - Número Factura (BD):', factura?.numfact || factura?.numeroFactura || 'N/A');
@@ -427,7 +436,7 @@ class DIANService {
     console.log('   - Fecha Vencimiento:', factura?.venfac || factura?.fechaVencimiento || 'N/A');
     console.log('   - Tipo Factura:', factura?.tipfac || factura?.tipoFactura || 'N/A');
     console.log('   - Estado:', factura?.estfac || factura?.estado || 'N/A');
-    
+
     console.log('\n💰 TOTALES DE LA FACTURA (desde ven_facturas):');
     console.log('   - Subtotal (valvta):', totales?.subtotal || 'N/A');
     console.log('   - IVA (valiva):', totales?.iva || 'N/A');
@@ -435,7 +444,7 @@ class DIANService {
     console.log('   - Total (netfac):', totales?.total || 'N/A');
     console.log('   - % IVA Calculado:', impuestos?.porcentaje || 'N/A', '%');
     console.log('   - Código Impuesto:', impuestos?.codigo || 'N/A');
-    
+
     console.log('\n🏢 DATOS DE LA EMPRESA (desde gen_empresa):');
     console.log('   - NIT (nitemp):', empresa?.identification_number || 'N/A');
     console.log('   - Razón Social (razemp):', empresa?.name || 'N/A');
@@ -445,7 +454,7 @@ class DIANService {
     console.log('   - Código DANE (codmunicipio):', empresa?.id_location || 'N/A');
     console.log('   - Tipo Organización:', empresa?.type_organization_id || 'N/A', '(1=Jurídica, 2=Natural)');
     console.log('   - Tipo Documento:', empresa?.type_document_id || 'N/A', '(31=NIT)');
-    
+
     console.log('\n👤 DATOS DEL CLIENTE (desde con_terceros):');
     console.log('   - NIT/Documento (codter):', cliente?.codter || 'N/A');
     console.log('   - Nombre (nomter):', cliente?.nomter || 'N/A');
@@ -456,7 +465,7 @@ class DIANService {
     console.log('   - Teléfono (TELTER):', cliente?.TELTER || 'N/A');
     console.log('   - Celular (CELTER):', cliente?.CELTER || 'N/A');
     console.log('   - Email (EMAIL):', cliente?.EMAIL || 'N/A');
-    
+
     console.log('\n📦 DETALLES DE LA FACTURA (desde ven_detafact):');
     if (detalles && detalles.length > 0) {
       detalles.forEach((det, index) => {
@@ -471,7 +480,7 @@ class DIANService {
     } else {
       console.log('   ⚠️ No hay detalles de factura');
     }
-    
+
     console.log('\n💳 FORMAS DE PAGO (desde ven_facturas):');
     console.log('   - Efectivo:', formasPago?.efectivo || 'N/A');
     console.log('   - Crédito:', formasPago?.credito || 'N/A');
@@ -480,14 +489,14 @@ class DIANService {
     console.log('   - Payment Form ID:', formasPago?.formId || 'N/A');
     console.log('   - Payment Method ID:', formasPago?.methodId || 'N/A');
     console.log('   - Plazo (días):', formasPago?.plazo || 'N/A');
-    
+
     console.log('\n⚙️ CONFIGURACIÓN DIAN:');
     console.log('   - Resolución ID:', configuracion?.resolutionId || 'N/A');
     console.log('   - Tipo Documento (Producción/Prueba):', configuracion?.typeDocumentId || 'N/A', '(1=Producción, 2=Prueba)');
     console.log('   - Sync:', configuracion?.sync || 'N/A');
     console.log('   - URL Base:', configuracion?.urlBase || 'N/A');
     console.log('   - Test Set ID:', configuracion?.testSetID || 'N/A');
-    
+
     console.log('\n' + '='.repeat(100));
   }
 
@@ -503,18 +512,18 @@ class DIANService {
     console.log('\n' + '='.repeat(100));
     console.log('🔄 TRANSFORMANDO FACTURA PARA FACTURACIÓN ELECTRÓNICA DIAN');
     console.log('='.repeat(100));
-    
+
     const { factura: venFactura, detalles, cliente } = facturaData;
-    
+
     // NOTA: trackId NO se debe enviar - la API de DIAN lo maneja internamente
-    
+
     // Fechas
     const currentDate = new Date();
     const issueDate = currentDate.toISOString().split('T')[0];
-    const dueDate = venFactura.fecha_vencimiento 
+    const dueDate = venFactura.fecha_vencimiento
       ? new Date(venFactura.fecha_vencimiento).toISOString().split('T')[0]
       : issueDate;
-    
+
     // Obtener datos de la empresa dinámicamente desde gen_empresa (Base de datos: Prueba_ERP360)
     console.log('\n📊 Obteniendo datos de la empresa desde gen_empresa...');
     const companyData = await this.getCompanyData();
@@ -526,67 +535,61 @@ class DIANService {
       emailemp: companyData.email,
       codmunicipio: companyData.id_location
     });
-    
+
     // Obtener último número de factura desde ven_facturas (Base de datos: Prueba_ERP360)
-    console.log('\n📊 Obteniendo último número de factura desde ven_facturas...');
-    let invoiceNumber = 96274; // Último número conocido (96274 es la última factura)
+    console.log('\n📊 Obteniendo número de factura (Lógica Descendente Temporales)...');
+    let invoiceNumber = 90000; // Valor inicial por defecto
     try {
       const pool = await getConnection();
       const request = pool.request();
-      
-      // Buscar el número más alto SOLO de valores completamente numéricos (sin letras)
-      // Solo considerar numfact que sean completamente numéricos (ej: "3125362" pero NO "FC-0024" ni valores con letras)
-      const maxNumResult = await request.query(`
-        SELECT TOP 1 
-          numfact,
-          CAST(numfact AS BIGINT) as maxNum
+
+      // Buscar el número MÍNIMO en el rango de temporales (<= 90000)
+      // Para ir descendiendo: 90000 -> 89999 -> 89998 ...
+      const minNumResult = await request.query(`
+        SELECT MIN(CAST(numfact AS BIGINT)) as minNum
         FROM ven_facturas
         WHERE ISNUMERIC(numfact) = 1 
           AND numfact NOT LIKE '%[A-Za-z]%'
-          AND LEN(LTRIM(RTRIM(numfact))) > 0
-        ORDER BY CAST(numfact AS BIGINT) DESC
+          AND CAST(numfact AS BIGINT) <= 90000
+          AND CAST(numfact AS BIGINT) > 89000
       `);
-      
-      if (maxNumResult.recordset.length > 0 && maxNumResult.recordset[0].maxNum) {
-        const lastNumber = parseInt(maxNumResult.recordset[0].maxNum);
-        const lastNumFact = maxNumResult.recordset[0].numfact;
-        console.log(`✅ Última factura encontrada: ${lastNumFact} (número: ${lastNumber})`);
-        
-        if (lastNumber >= 96274) {
-          invoiceNumber = lastNumber + 1;
-          console.log(`✅ Nuevo número de factura generado: ${invoiceNumber} (continuando desde ${lastNumber})`);
-        } else {
-          invoiceNumber = 96275;
-          console.log(`⚠️ Último número (${lastNumber}) menor a 96274, usando: ${invoiceNumber}`);
-        }
+
+      if (minNumResult.recordset.length > 0 && minNumResult.recordset[0].minNum) {
+        const minNumber = parseInt(minNumResult.recordset[0].minNum);
+        console.log(`✅ Factura más baja encontrada en rango temporal: ${minNumber}`);
+
+        // Si encontramos un número, el siguiente es ese menos 1
+        invoiceNumber = minNumber - 1;
+        console.log(`✅ Nuevo número de factura generado: ${invoiceNumber} (descendiendo desde ${minNumber})`);
       } else {
-        invoiceNumber = 96275;
-        console.log(`⚠️ No se encontró número anterior numérico, usando: ${invoiceNumber}`);
+        // Si no hay facturas en el rango, comenzamos en 90000
+        invoiceNumber = 90000;
+        console.log(`⚠️ No se encontraron facturas en rango temporal, iniciando en: ${invoiceNumber}`);
       }
     } catch (error) {
-      console.warn('⚠️ [DIAN] Error obteniendo último número de factura, usando 96275:', error.message);
-      invoiceNumber = 96275;
+      console.warn('⚠️ [DIAN] Error obteniendo número de factura, usando 90000:', error.message);
+      invoiceNumber = 90000;
     }
-    
+
     // Calcular totales usando valvta (sin IVA) y valiva (IVA) desde ven_facturas (Base de datos: Prueba_ERP360)
     console.log('\n💰 Calculando totales desde ven_facturas:');
     const lineExtensionAmount = this.roundCOP(venFactura.valvta || 0); // Total sin impuestos (valvta)
     const taxAmount = this.roundCOP(venFactura.valiva || 0); // Valor total del IVA (valiva)
     const totalAmount = this.roundCOP(lineExtensionAmount + taxAmount); // Total con IVA (valvta + valiva)
     const descuento = this.roundCOP(venFactura.valdcto || venFactura.descuento_valor || 0); // Descuento (valdcto)
-    
+
     console.log('   - valvta (Total sin impuestos):', lineExtensionAmount);
     console.log('   - valiva (IVA):', taxAmount);
     console.log('   - valdcto (Descuento):', descuento);
     console.log('   - netfac (Total):', totalAmount);
-    
+
     // Calcular porcentaje de IVA desde valvta y valiva (Base de datos: Prueba_ERP360)
     console.log('\n📊 Calculando porcentaje de IVA desde valvta y valiva...');
     let ivaPercent = 0; // Por defecto 0%
     if (lineExtensionAmount > 0 && taxAmount > 0) {
       const calculatedPercent = (taxAmount / lineExtensionAmount) * 100;
       console.log(`   Porcentaje calculado: ${calculatedPercent.toFixed(2)}%`);
-      
+
       // Redondear a tarifas estándar de DIAN (19%, 5%, 8%, 0%)
       if (calculatedPercent >= 18.5 && calculatedPercent <= 19.5) {
         ivaPercent = 19;
@@ -607,7 +610,7 @@ class DIANService {
     } else {
       console.log('   ⚠️ No se pudo calcular IVA, usando 0%');
     }
-    
+
     // Determinar código de impuesto según el tipo de IVA
     // tax_id debe ser número: 1 para IVA, 4 para INC, etc.
     let taxId = 1; // Por defecto IVA (1 = IVA según formato DIAN)
@@ -618,7 +621,7 @@ class DIANService {
       taxId = 1; // IVA
       console.log('   ✅ Código de impuesto: 1 (IVA)');
     }
-    
+
     // Determinar forma de pago desde ven_facturas (Base de datos: Prueba_ERP360)
     console.log('\n💳 Determinando forma de pago desde ven_facturas...');
     console.log('   - efectivo:', venFactura.efectivo || 0);
@@ -626,10 +629,10 @@ class DIANService {
     console.log('   - tarjetacr:', venFactura.tarjetacr || 0);
     console.log('   - Transferencia:', venFactura.Transferencia || venFactura.transferencia || 0);
     console.log('   - plazo:', venFactura.plazo || 0);
-    
+
     let paymentFormId = 1; // 1 = Contado (hardcodeado temporalmente - se obtendrá desde MySQL electronica)
     let paymentMethodId = 10; // 10 = Efectivo (hardcodeado temporalmente - se obtendrá desde MySQL electronica)
-    
+
     if ((venFactura.tarjetacr || 0) > 0) {
       paymentFormId = 2; // Tarjeta
       paymentMethodId = 48; // Tarjeta débito/crédito
@@ -645,13 +648,13 @@ class DIANService {
     } else {
       console.log('   ✅ Forma de pago: Efectivo (Form ID: 1, Method ID: 10)');
     }
-    
+
     // Construir líneas de factura desde ven_detafact (Base de datos: Prueba_ERP360)
     console.log('\n📦 Construyendo líneas de factura desde ven_detafact...');
     console.log(`   Total de detalles encontrados: ${detalles?.length || 0}`);
-    
+
     let invoiceLines = [];
-    
+
     if (detalles && detalles.length > 0) {
       // Si hay detalles, crear una línea por cada detalle desde ven_detafact
       invoiceLines = detalles.map((detalle, index) => {
@@ -662,13 +665,13 @@ class DIANService {
         console.log(`     - ivains: ${detalle.ivains || detalle.valorIva || 'N/A'}`);
         console.log(`     - valdescuento: ${detalle.valdescuento || 'N/A'}`);
         console.log(`     - observa: ${detalle.observa || detalle.descripcion || 'N/A'}`);
-        
+
         // Calcular valores desde ven_detafact
         const detalleQuantity = parseFloat(detalle.qtyins || detalle.cantidad || 1);
         const detallePrice = this.roundCOP(detalle.valins || detalle.precioUnitario || 0);
         const detalleTaxAmount = this.roundCOP(detalle.ivains || detalle.valorIva || 0);
         const detalleLineExtension = this.roundCOP((detallePrice * detalleQuantity) - (detalle.valdescuento || 0)); // Precio * cantidad - descuento
-        
+
         // Calcular porcentaje de IVA del detalle
         let detalleIvaPercent = ivaPercent;
         if (detalleLineExtension > 0 && detalleTaxAmount > 0) {
@@ -685,20 +688,20 @@ class DIANService {
             detalleIvaPercent = Math.round(calcPercent * 100) / 100;
           }
         }
-        
+
         // Determinar código de impuesto para esta línea (debe ser número)
         let detalleTaxId = 1; // Por defecto IVA (1 = IVA según formato DIAN)
         if (detalleTaxAmount > 0) {
           detalleTaxId = 1; // IVA
         }
-        
+
         const linea = {
           unit_measure_id: Number(70), // Hardcodeado temporalmente - se obtendrá desde MySQL electronica (número)
           invoiced_quantity: Number(detalleQuantity), // qtyins desde ven_detafact (número)
           line_extension_amount: Number(detalleLineExtension), // Total de la línea sin impuestos (número)
-          description: String(detalle.observa || detalle.descripcion || "VENTA DE PRODUCTOS Y SERVICIOS"), // observa desde ven_detafact (string)
+          description: String(detalle.observa || detalle.descripcion || "VENTA DE PRODUCTOS Y SERVICIOS").trim(), // observa desde ven_detafact (string)
           price_amount: Number(detallePrice), // Precio unitario (valins) (número)
-          code: String(detalle.codins || detalle.codProducto || (index + 1)), // codins desde ven_detafact (string)
+          code: String(detalle.codins || detalle.codProducto || (index + 1)).trim(), // codins desde ven_detafact (string)
           type_item_identification_id: Number(4), // 4 = Código estándar interno (DIAN) (número)
           base_quantity: Number(detalleQuantity), // Cantidad base (generalmente igual a invoiced_quantity) (número)
           free_of_charge_indicator: Boolean(false), // Si es una línea gratuita (boolean)
@@ -709,11 +712,11 @@ class DIANService {
             percent: Number(detalleIvaPercent) // Porcentaje del impuesto (número)
           }]
         };
-        
+
         console.log(`     ✅ Línea ${index + 1} procesada correctamente`);
         return linea;
       });
-      
+
       // CRÍTICO: Validar y ajustar que la suma de IVAs de líneas coincida EXACTAMENTE con el IVA total
       console.log('\n🔍 VALIDANDO CONSISTENCIA DE TOTALES: Verificando que IVAs de líneas sumen exactamente el IVA total...');
       const sumaIvasLineas = invoiceLines.reduce((suma, linea) => {
@@ -723,71 +726,71 @@ class DIANService {
       const sumaSubtotalesLineas = invoiceLines.reduce((suma, linea) => {
         return this.roundCOP(suma + (linea.line_extension_amount || 0));
       }, 0);
-      
+
       console.log(`   - IVA Total (ven_facturas.valiva): ${taxAmount}`);
       console.log(`   - Suma IVAs Líneas: ${sumaIvasLineas}`);
       console.log(`   - Diferencia IVA: ${this.roundCOP(Math.abs(taxAmount - sumaIvasLineas))}`);
       console.log(`   - Subtotal Total (ven_facturas.valvta): ${lineExtensionAmount}`);
       console.log(`   - Suma Subtotales Líneas: ${sumaSubtotalesLineas}`);
       console.log(`   - Diferencia Subtotal: ${this.roundCOP(Math.abs(lineExtensionAmount - sumaSubtotalesLineas))}`);
-      
+
       // Ajustar IVAs si hay diferencia (CRÍTICO: La DIAN rechaza si no coinciden exactamente)
       const diferenciaIva = this.roundCOP(taxAmount - sumaIvasLineas);
       if (Math.abs(diferenciaIva) > 0.001) { // Tolerancia mínima por redondeo
         console.log(`   ⚠️ ADVERTENCIA: Diferencia detectada en IVAs (${diferenciaIva}). Ajustando última línea...`);
-        
+
         if (invoiceLines.length > 0) {
           const ultimaLinea = invoiceLines[invoiceLines.length - 1];
           const ivaAnterior = ultimaLinea.tax_totals[0].tax_amount || 0;
           const ivaAjustado = this.roundCOP(ivaAnterior + diferenciaIva);
-          
+
           console.log(`   - IVA anterior última línea: ${ivaAnterior}`);
           console.log(`   - IVA ajustado última línea: ${ivaAjustado}`);
           console.log(`   - Diferencia aplicada: ${diferenciaIva}`);
-          
+
           // Ajustar IVA de la última línea
           ultimaLinea.tax_totals[0].tax_amount = Number(ivaAjustado);
-          
+
           // Recalcular porcentaje si es necesario
           const taxableAmount = ultimaLinea.tax_totals[0].taxable_amount || ultimaLinea.line_extension_amount || 0;
           if (taxableAmount > 0 && ivaAjustado > 0) {
             const nuevoPercent = this.roundCOP((ivaAjustado / taxableAmount) * 100);
-            ultimaLinea.tax_totals[0].percent = Number(nuevoPercent >= 18.5 && nuevoPercent <= 19.5 ? 19 : 
-                                                     nuevoPercent >= 7.5 && nuevoPercent <= 8.5 ? 8 :
-                                                     nuevoPercent >= 4.5 && nuevoPercent <= 5.5 ? 5 :
-                                                     nuevoPercent < 0.5 ? 0 : this.roundCOP(nuevoPercent));
+            ultimaLinea.tax_totals[0].percent = Number(nuevoPercent >= 18.5 && nuevoPercent <= 19.5 ? 19 :
+              nuevoPercent >= 7.5 && nuevoPercent <= 8.5 ? 8 :
+                nuevoPercent >= 4.5 && nuevoPercent <= 5.5 ? 5 :
+                  nuevoPercent < 0.5 ? 0 : this.roundCOP(nuevoPercent));
           }
-          
+
           console.log(`   ✅ IVA de última línea ajustado para que totales cuadren exactamente`);
         }
       }
-      
+
       // Ajustar subtotales si hay diferencia
       const diferenciaSubtotal = this.roundCOP(lineExtensionAmount - sumaSubtotalesLineas);
       if (Math.abs(diferenciaSubtotal) > 0.001) {
         console.log(`   ⚠️ ADVERTENCIA: Diferencia detectada en subtotales (${diferenciaSubtotal}). Ajustando última línea...`);
-        
+
         if (invoiceLines.length > 0) {
           const ultimaLinea = invoiceLines[invoiceLines.length - 1];
           const subtotalAnterior = ultimaLinea.line_extension_amount || 0;
           const subtotalAjustado = this.roundCOP(subtotalAnterior + diferenciaSubtotal);
-          
+
           console.log(`   - Subtotal anterior última línea: ${subtotalAnterior}`);
           console.log(`   - Subtotal ajustado última línea: ${subtotalAjustado}`);
-          
+
           // Ajustar subtotal y valores relacionados
           ultimaLinea.line_extension_amount = Number(subtotalAjustado);
           ultimaLinea.tax_totals[0].taxable_amount = Number(subtotalAjustado);
-          
+
           // Recalcular price_amount si es necesario
           if (ultimaLinea.invoiced_quantity > 0) {
             ultimaLinea.price_amount = Number(this.roundCOP(subtotalAjustado / ultimaLinea.invoiced_quantity));
           }
-          
+
           console.log(`   ✅ Subtotal de última línea ajustado para que totales cuadren exactamente`);
         }
       }
-      
+
       // Validación final
       const sumaFinalIvas = invoiceLines.reduce((suma, linea) => {
         return this.roundCOP(suma + (linea.tax_totals?.[0]?.tax_amount || 0));
@@ -795,7 +798,7 @@ class DIANService {
       const sumaFinalSubtotales = invoiceLines.reduce((suma, linea) => {
         return this.roundCOP(suma + (linea.line_extension_amount || 0));
       }, 0);
-      
+
       if (Math.abs(taxAmount - sumaFinalIvas) <= 0.001 && Math.abs(lineExtensionAmount - sumaFinalSubtotales) <= 0.001) {
         console.log(`   ✅ VALIDACIÓN EXITOSA: Totales cuadran exactamente`);
         console.log(`     - IVA Total: ${taxAmount} = Suma Líneas: ${sumaFinalIvas}`);
@@ -812,9 +815,9 @@ class DIANService {
         unit_measure_id: Number(70), // Hardcodeado temporalmente - se obtendrá desde MySQL electronica (número)
         invoiced_quantity: Number(1), // Número explícito
         line_extension_amount: Number(this.roundCOP(lineExtensionAmount)), // valvta (número)
-        description: String("VENTA DE PRODUCTOS Y SERVICIOS"), // String explícito
+        description: String("VENTA DE PRODUCTOS Y SERVICIOS").trim(), // String explícito
         price_amount: Number(this.roundCOP(lineExtensionAmount)), // valvta (número)
-        code: String("1"), // String explícito
+        code: String("1").trim(), // String explícito
         type_item_identification_id: Number(4), // Número explícito
         base_quantity: Number(1), // Número explícito
         free_of_charge_indicator: Boolean(false), // Boolean explícito
@@ -825,14 +828,14 @@ class DIANService {
           percent: Number(ivaPercent) // Porcentaje (número)
         }]
       }];
-      
+
       // Para factura consolidada, los totales ya están correctos
       console.log('\n✅ Factura consolidada: Totales ya coinciden (una sola línea)');
     }
-    
+
     // Datos del cliente desde con_terceros (Base de datos: Prueba_ERP360)
     console.log('\n👤 Procesando datos del cliente desde con_terceros...');
-    
+
     // Extraer solo la parte numérica del codter (antes del guión si existe)
     const codterRaw = invoiceData?.customer_document || cliente?.codter || venFactura.codter || '222222222222';
     let codterLimpio = String(codterRaw || '').trim();
@@ -842,18 +845,18 @@ class DIANService {
     // Remover cualquier carácter no numérico que pueda quedar
     codterLimpio = codterLimpio.replace(/[^\d]/g, '');
     const customerIdentification = Number(codterLimpio) || 222222222222;
-    
+
     const customerName = (
-      (invoiceData?.customer_name || 
-       cliente?.nomter || 
-       cliente?.nombreCompleto ||
-       "CONSUMIDOR FINAL")
+      (invoiceData?.customer_name ||
+        cliente?.nomter ||
+        cliente?.nombreCompleto ||
+        "CONSUMIDOR FINAL")
     ).toUpperCase().trim();
-    
+
     // Obtener tipo de documento del cliente desde con_terceros
     const customerTypeDocument = cliente?.Tipo_documento || cliente?.tipo_documento || "13";
     const customerTypeOrganization = cliente?.tipter || 2; // 1 = Jurídica, 2 = Natural
-    
+
     console.log('   ✅ Datos del cliente procesados:');
     console.log('     - identification_number (codter):', customerIdentification);
     console.log('     - name (nomter):', customerName);
@@ -863,7 +866,7 @@ class DIANService {
     console.log('     - address (dirter):', cliente?.dirter || 'N/A');
     console.log('     - phone (TELTER):', cliente?.TELTER || 'N/A');
     console.log('     - email (EMAIL):', cliente?.EMAIL || 'N/A');
-    
+
     // Normalizar teléfono del cliente
     const normalizePhone = (phone) => {
       if (!phone) return "3000000000";
@@ -873,15 +876,15 @@ class DIANService {
       }
       return cleanPhone.substring(0, 15);
     };
-    
+
     // Construir JSON final
     // CRÍTICO: trackId NO debe incluirse en el JSON - la API de DIAN lo maneja internamente
     const syncValue = config?.sync === true; // Asegurar que sea boolean explícito
-    
+
     // Determinar si es producción o prueba
     const isPrueba = config?.isPrueba === true;
     const typeDocumentId = isPrueba ? 2 : 1; // 1 = Producción, 2 = Prueba
-    
+
     // CRÍTICO: Recalcular totales desde las líneas ajustadas para garantizar consistencia exacta
     console.log('\n📊 Recalculando totales finales desde las líneas ajustadas...');
     const taxAmountFinal = invoiceLines.reduce((suma, linea) => {
@@ -891,39 +894,39 @@ class DIANService {
       return this.roundCOP(suma + (linea.line_extension_amount || 0));
     }, 0);
     const totalAmountFinal = this.roundCOP(lineExtensionAmountFinal + taxAmountFinal);
-    
+
     console.log(`   ✅ Totales finales recalculados desde líneas:`);
     console.log(`     - IVA Total: ${taxAmountFinal}`);
     console.log(`     - Subtotal Total: ${lineExtensionAmountFinal}`);
     console.log(`     - Total: ${totalAmountFinal}`);
-    
+
     // Construir el objeto base SIN trackId - según formato válido del body
     // Asegurar tipos correctos: números como números, strings como strings
     const dianJson = {
       number: Number(invoiceNumber), // Número explícito
       type_document_id: Number(typeDocumentId), // 1 = Producción, 2 = Prueba
       identification_number: Number(companyData.identification_number || this.COMPANY_NIT), // Número explícito
-      resolution_id: Number(resolution.codigo || resolution.id_api || resolution.id || 4), // Número explícito - usar codigo de Dian_Resolucion_electronica
+      resolution_id: 54, // Hardcoded to 54 as requested
       sync: Boolean(syncValue), // Boolean explícito
       company: {
         identification_number: Number(companyData.identification_number || this.COMPANY_NIT), // Número explícito
-        name: String(companyData.name || "MULTIACABADOS S.A.S."), // String explícito
+        name: String(companyData.name || "MULTIACABADOS S.A.S.").trim(), // String explícito
         type_organization_id: Number(companyData.type_organization_id || 1), // 1 = Persona Jurídica (número)
-        type_document_id: String(companyData.type_document_id || "31"), // NIT (string)
-        id_location: String(companyData.id_location || "11001"), // String explícito
-        address: String(companyData.address || ""), // String explícito
-        phone: String(companyData.phone || ""), // String explícito
-        email: String(companyData.email || "") // String explícito
+        type_document_id: String(companyData.type_document_id || "31").trim(), // NIT (string)
+        id_location: String(companyData.id_location || "11001").trim(), // String explícito
+        address: String(companyData.address || "").trim(), // String explícito
+        phone: String(companyData.phone || "").trim(), // String explícito
+        email: String(companyData.email || "").trim() // String explícito
       },
       customer: {
         identification_number: Number(customerIdentification), // Número explícito
-        name: String(customerName), // String explícito
+        name: String(customerName).trim(), // String explícito
         type_organization_id: Number(customerTypeOrganization), // Desde con_terceros.tipter (número)
-        type_document_id: String(customerTypeDocument), // Desde con_terceros.Tipo_documento (string)
-        id_location: String(cliente?.coddane || "11001"), // Desde con_terceros.coddane (string)
-        address: String(cliente?.dirter || "BOGOTA D.C."), // Desde con_terceros.dirter (string)
-        phone: String(normalizePhone(invoiceData?.customer_phone || cliente?.TELTER || cliente?.CELTER || "")), // Desde con_terceros.TELTER (string)
-        email: String(invoiceData?.customer_email || cliente?.EMAIL || cliente?.email || "cliente@ejemplo.com") // Desde con_terceros.EMAIL (string)
+        type_document_id: String(customerTypeDocument).trim(), // Desde con_terceros.Tipo_documento (string)
+        id_location: String(cliente?.coddane || "11001").trim(), // Desde con_terceros.coddane (string)
+        address: String(cliente?.dirter || "BOGOTA D.C.").trim(), // Desde con_terceros.dirter (string)
+        phone: String(normalizePhone(invoiceData?.customer_phone || cliente?.TELTER || cliente?.CELTER || "")).trim(), // Desde con_terceros.TELTER (string)
+        email: String(invoiceData?.customer_email || cliente?.EMAIL || cliente?.email || "cliente@ejemplo.com").trim() // Desde con_terceros.EMAIL (string)
       },
       tax_totals: [{
         tax_id: Number(taxId), // 1 para IVA (número, no string)
@@ -943,14 +946,14 @@ class DIANService {
       payment_forms: [{
         payment_form_id: Number(paymentFormId), // Número explícito
         payment_method_id: Number(paymentMethodId), // Número explícito
-        payment_due_date: String(dueDate), // String en formato fecha (YYYY-MM-DD)
+        payment_due_date: String(dueDate).trim(), // String en formato fecha (YYYY-MM-DD)
         duration_measure: Number(paymentFormId === 4 ? (venFactura.plazo || 0) : 0) // Días de crédito (número)
       }]
     };
-    
+
     // NOTA: trackId NO se debe agregar al JSON - la API de DIAN lo maneja internamente
     // Si por alguna razón viene en invoiceData, se ignora completamente
-    
+
     // Preparar datos para el resumen
     const datosParaResumen = {
       factura: venFactura,
@@ -985,12 +988,12 @@ class DIANService {
         testSetID: config?.testSetID || '1'
       }
     };
-    
+
     // Imprimir resumen completo de datos a facturar
     this.imprimirResumenDatosFacturacion(datosParaResumen);
-    
+
     // El JSON completo se mostrará en sendInvoiceToDIAN (body exacto tal cual se envía)
-    
+
     return dianJson;
   }
 
@@ -1005,24 +1008,24 @@ class DIANService {
     try {
       // Asegurar que testSetID sea string y no array/objeto
       const testSetIDStr = String(testSetID || '1').trim();
-      
+
       // Validar que invoiceJson.sync sea boolean explícito
       if (invoiceJson.sync !== undefined && typeof invoiceJson.sync !== 'boolean') {
         invoiceJson.sync = Boolean(invoiceJson.sync);
       }
-      
+
       // CRÍTICO: trackId NO debe incluirse en el JSON - la API de DIAN lo maneja internamente
       // Eliminar trackId si existe en el JSON (no debe enviarse nunca)
-      
+
       // Construir URL completa del endpoint
       const url = `${baseUrl}/api/ubl2.1/invoice/${testSetIDStr}`;
-      
+
       // Preparar headers
       const headers = {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       };
-      
+
       // Crear una copia limpia del JSON y eliminar trackId completamente (si existe)
       let cleanJson = JSON.parse(JSON.stringify(invoiceJson));
       if ('trackId' in cleanJson || 'track_id' in cleanJson) {
@@ -1030,10 +1033,10 @@ class DIANService {
         delete cleanJson.track_id;
         console.log('⚠️ [DIAN] trackId eliminado del JSON (la API lo maneja internamente)');
       }
-      
+
       // Preparar body como JSON string
       const bodyString = JSON.stringify(cleanJson);
-      
+
       // MOSTRAR EN TERMINAL: Body exacto tal cual como se envía a la API de DIAN (justo antes de enviar)
       console.log('\n' + '='.repeat(100));
       console.log('🚀 ========== ENVIANDO FACTURA A LA API DE DIAN ==========');
@@ -1052,20 +1055,20 @@ class DIANService {
       console.log('─'.repeat(100));
       console.log('='.repeat(100));
       console.log('🚀 ========== INICIANDO ENVÍO A DIAN ==========\n');
-      
+
       const requestStartTime = Date.now();
       const response = await fetch(url, {
         method: 'POST',
         headers: headers,
         body: bodyString
       });
-      
+
       const requestDuration = Date.now() - requestStartTime;
       console.log(`📤 [DIAN] Petición enviada a ${url} (${requestDuration}ms)`);
-      
+
       // Obtener respuesta como texto primero
       const responseText = await response.text();
-      
+
       if (!response.ok) {
         let errorData = null;
         try {
@@ -1076,17 +1079,17 @@ class DIANService {
         console.error(`❌ [DIAN] Error HTTP ${response.status}:`, errorData);
         throw new Error(`DIAN API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
       }
-      
+
       // Intentar parsear respuesta como JSON
       let responseData = null;
       try {
         responseData = JSON.parse(responseText);
       } catch (parseError) {
         // Si no es JSON, intentar extraer CUFE del texto si es posible
-        const cufeMatch = responseText.match(/CUFE[:\s]+([A-Z0-9-]+)/i) || 
-                         responseText.match(/"cufe"\s*:\s*"([^"]+)"/i) ||
-                         responseText.match(/"CUFE"\s*:\s*"([^"]+)"/i);
-        
+        const cufeMatch = responseText.match(/CUFE[:\s]+([A-Z0-9-]+)/i) ||
+          responseText.match(/"cufe"\s*:\s*"([^"]+)"/i) ||
+          responseText.match(/"CUFE"\s*:\s*"([^"]+)"/i);
+
         if (cufeMatch) {
           responseData = { cufe: cufeMatch[1] };
         } else {
@@ -1094,38 +1097,38 @@ class DIANService {
           throw new Error(`Respuesta de DIAN no es JSON válido: ${responseText.substring(0, 200)}`);
         }
       }
-      
+
       // Verificar si la respuesta tiene estructura anidada (response.response)
       const dianResponse = responseData.response || responseData;
-      
+
       // Verificar statusCode de DIAN (CRÍTICO)
       const statusCode = dianResponse.statusCode || dianResponse.status_code || dianResponse.code || null;
       const isValid = dianResponse.isValid !== undefined ? dianResponse.isValid : null;
-      
+
       // Extraer campos importantes
       const uuid = dianResponse.uuid || dianResponse.UUID || responseData.uuid || responseData.UUID || null;
-      const cufe = dianResponse.cufe || 
-                   dianResponse.CUFE || 
-                   responseData.cufe ||
-                   responseData.CUFE ||
-                   uuid ||
-                   dianResponse.trackId ||
-                   responseData.trackId ||
-                   null;
-      
+      const cufe = dianResponse.cufe ||
+        dianResponse.CUFE ||
+        responseData.cufe ||
+        responseData.CUFE ||
+        uuid ||
+        dianResponse.trackId ||
+        responseData.trackId ||
+        null;
+
       const message = dianResponse.message || dianResponse.Message || dianResponse.error || null;
       const pdfUrl = dianResponse.pdf_url || dianResponse.pdfUrl || dianResponse.pdf || null;
       const xmlUrl = dianResponse.xml_url || dianResponse.xmlUrl || dianResponse.xml || null;
       const qrCode = dianResponse.qr_code || dianResponse.qrCode || dianResponse.qr || null;
-      
+
       if (!cufe) {
         console.warn('⚠️ [DIAN] CUFE no encontrado en la respuesta de DIAN');
       }
-      
+
       // Determinar si fue exitoso basado en statusCode
       const isSuccess = statusCode === '00';
       const isError = statusCode === '99';
-      
+
       return {
         success: isSuccess && !!cufe,
         status: isSuccess ? 'accepted' : (isError ? 'error' : 'rejected'),
