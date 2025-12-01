@@ -23,6 +23,8 @@ dotenv.config();
 
 // Funciones de mapeo de estados
 const mapEstadoToDb = (estado) => {
+  if (!estado) return 'B'; // Por defecto BORRADOR
+  const estadoStr = String(estado).trim().toUpperCase();
   const estadoMap = {
     'BORRADOR': 'B',
     'ENVIADA': 'E',
@@ -32,15 +34,17 @@ const mapEstadoToDb = (estado) => {
     'CONFIRMADO': 'C',
     'EN_PROCESO': 'P',
     'TIMBRANDO': 'P', // Usar 'P' para estado de timbrado en proceso
-    'PARCIALMENTE_REMITIDO': 'PR',
-    'REMITIDO': 'M',
+    'PARCIALMENTE_REMITIDO': 'P', // Si la columna es CHAR(1), usar 'P' en lugar de 'PR'
+    'REMITIDO': 'R', // Cambiar de 'M' a 'R' para REMITIDO
     'CANCELADO': 'X',
     'EN_TRANSITO': 'T',
     'ENTREGADO': 'D',
-    'ACEPTADA': 'AC',
-    'ANULADA': 'AN'
+    'ACEPTADA': 'A',
+    'ANULADA': 'X'
   };
-  return estadoMap[estado] || estado;
+  const estadoMapeado = estadoMap[estadoStr] || estadoStr.substring(0, 1).toUpperCase();
+  // Asegurar que nunca exceda 1 carácter si la columna es CHAR(1)
+  return estadoMapeado.substring(0, 1);
 };
 
 const mapEstadoFromDb = (estado) => {
@@ -1260,6 +1264,11 @@ app.get('/api/cotizaciones', async (req, res) => {
         c.fecha_vence          AS fechaVencimiento,
         c.codter               AS codter,
         COALESCE(cli.id, NULL) AS clienteId,
+        CASE 
+          WHEN cli.nomter IS NOT NULL AND LTRIM(RTRIM(cli.nomter)) != '' 
+          THEN LTRIM(RTRIM(cli.nomter))
+          ELSE NULL
+        END AS clienteNombre,
         CAST(COALESCE(v.ideven, NULL) AS VARCHAR(20)) AS vendedorId,
         LTRIM(RTRIM(c.cod_vendedor)) AS codVendedor,
         c.codalm               AS codalm,
@@ -1285,7 +1294,7 @@ app.get('/api/cotizaciones', async (req, res) => {
         NULL                   AS domicilios,
         NULL                   AS approvedItems
       FROM ${TABLE_NAMES.cotizaciones} c
-      LEFT JOIN ${TABLE_NAMES.clientes} cli ON LTRIM(RTRIM(cli.codter)) = LTRIM(RTRIM(c.codter)) AND cli.activo = 1
+      LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter)) AND cli.activo = 1
       LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, ''))) AND v.Activo = 1
       ${whereClause}
       ORDER BY c.fecha DESC
@@ -1296,7 +1305,7 @@ app.get('/api/cotizaciones', async (req, res) => {
     const countQuery = `
       SELECT COUNT(*) as total
       FROM ${TABLE_NAMES.cotizaciones} c
-      LEFT JOIN ${TABLE_NAMES.clientes} cli ON LTRIM(RTRIM(cli.codter)) = LTRIM(RTRIM(c.codter)) AND cli.activo = 1
+      LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter)) AND cli.activo = 1
       LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, ''))) AND v.Activo = 1
       ${whereClause}
     `;
@@ -1473,6 +1482,11 @@ app.get('/api/pedidos', async (req, res) => {
         p.numero_pedido as numeroPedido,
         p.fecha_pedido as fechaPedido,
         LTRIM(RTRIM(COALESCE(p.codter, ''))) as clienteId,
+        CASE 
+          WHEN cli.nomter IS NOT NULL AND LTRIM(RTRIM(cli.nomter)) != '' 
+          THEN LTRIM(RTRIM(cli.nomter))
+          ELSE NULL
+        END as clienteNombre,
         LTRIM(RTRIM(COALESCE(p.codven, ''))) as vendedorId,
         CAST(COALESCE(p.cotizacion_id, NULL) AS VARCHAR(50)) as cotizacionId,
         LTRIM(RTRIM(COALESCE(c.numcot, ''))) as numeroCotizacionOrigen,
@@ -1492,6 +1506,7 @@ app.get('/api/pedidos', async (req, res) => {
         LTRIM(RTRIM(COALESCE(p.formapago, '01'))) as formaPago
       FROM ${TABLE_NAMES.pedidos} p
       LEFT JOIN ven_cotizacion c ON c.id = p.cotizacion_id
+      LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(p.codter)) AND cli.activo = 1
       ${where}
       ORDER BY p.fecha_pedido DESC
       OFFSET ${offset} ROWS
@@ -1646,7 +1661,13 @@ app.get('/api/pedidos', async (req, res) => {
             if (nuevoEstado !== estadoActual) {
               const reqUpdate = new sql.Request(pool);
               reqUpdate.input('pedidoId', sql.Int, pedidoId);
-              reqUpdate.input('nuevoEstado', sql.VarChar(20), mapEstadoToDb(nuevoEstado));
+              const estadoDb = mapEstadoToDb(nuevoEstado);
+              // Asegurar que el estado no exceda 1 carácter (tamaño de CHAR(1) en la BD real)
+              const estadoDbTruncado = String(estadoDb || 'B').substring(0, 1);
+              // Usar CHAR(1) en lugar de VARCHAR(20) porque la columna es CHAR(1)
+              reqUpdate.input('nuevoEstado', sql.Char(1), estadoDbTruncado);
+              
+              console.log(`🔄 [Backend] Actualizando estado del pedido ${numeroPedidoStr}: ${estadoActual} -> ${nuevoEstado} (DB: ${estadoDbTruncado})`);
               
               await reqUpdate.query(`
                 UPDATE ven_pedidos
@@ -1654,7 +1675,7 @@ app.get('/api/pedidos', async (req, res) => {
                 WHERE id = @pedidoId
               `);
               
-              pedido.estado = mapEstadoToDb(nuevoEstado);
+              pedido.estado = estadoDbTruncado;
               console.log(`✅ [Backend] Estado del pedido ${numeroPedidoStr} sincronizado: ${estadoActual} -> ${nuevoEstado}`);
             } else {
               console.log(`ℹ️ [Backend] Pedido ${numeroPedidoStr}: Estado correcto (${estadoActual})`);
@@ -5711,9 +5732,12 @@ app.put('/api/pedidos/:id', async (req, res) => {
       
       if (body.estado !== undefined) {
         const estadoMapeado = mapEstadoToDb(body.estado);
+        // Asegurar que el estado no exceda 1 carácter (tamaño de CHAR(1) en la BD real)
+        const estadoMapeadoTruncado = String(estadoMapeado || 'B').substring(0, 1);
         updates.push('estado = @estado');
-        reqUpdate.input('estado', sql.VarChar(20), estadoMapeado);
-        console.log(`🔄 Actualizando estado: ${body.estado} -> ${estadoMapeado}`);
+        // Usar CHAR(1) en lugar de VARCHAR(20) porque la columna es CHAR(1)
+        reqUpdate.input('estado', sql.Char(1), estadoMapeadoTruncado);
+        console.log(`🔄 Actualizando estado: ${body.estado} -> ${estadoMapeadoTruncado}`);
       }
       
       if (body.fechaPedido !== undefined) {
@@ -5728,12 +5752,16 @@ app.put('/api/pedidos/:id', async (req, res) => {
       
       if (body.observaciones !== undefined) {
         updates.push('observaciones = @observaciones');
-        reqUpdate.input('observaciones', sql.VarChar(500), body.observaciones || '');
+        // Asegurar que no exceda 500 caracteres
+        const observacionesTruncado = String(body.observaciones || '').substring(0, 500);
+        reqUpdate.input('observaciones', sql.VarChar(500), observacionesTruncado);
       }
       
       if (body.instruccionesEntrega !== undefined) {
         updates.push('instrucciones_entrega = @instrucciones_entrega');
-        reqUpdate.input('instrucciones_entrega', sql.VarChar(500), body.instruccionesEntrega || '');
+        // Asegurar que no exceda 500 caracteres
+        const instruccionesTruncado = String(body.instruccionesEntrega || '').substring(0, 500);
+        reqUpdate.input('instrucciones_entrega', sql.VarChar(500), instruccionesTruncado);
       }
       
       if (body.formaPago !== undefined) {
@@ -6526,83 +6554,263 @@ app.post('/api/remisiones', async (req, res) => {
         }
       }
       console.log(`✅ Todos los ${items.length} items de remisión guardados`);
+      console.log(`\n🔍 ========== VERIFICACIÓN PRE-KARDEX ==========`);
+      console.log(`🔍 Remisión ID: ${newId}`);
+      console.log(`🔍 Total de items: ${items.length}`);
+      console.log(`🔍 Items recibidos:`, JSON.stringify(items.map(it => ({
+        codProducto: it.codProducto,
+        codins: it.codins,
+        cantidadEnviada: it.cantidadEnviada,
+        cantidad: it.cantidad,
+        productoId: it.productoId
+      })), null, 2));
+      console.log(`🔍 ============================================\n`);
 
-      // Registrar movimientos en inv_kardex para cada item de la remisión
-      // NOTA: Temporalmente deshabilitado - se implementará después de verificar que las remisiones se guarden correctamente
-      // NOTA: Si el kardex falla, no interrumpe la creación de la remisión
-      /*
-      console.log(`📝 Intentando registrar movimientos en inv_kardex...`);
-      let kardexRegistrados = 0;
-      for (let idx = 0; idx < items.length; idx++) {
-        const it = items[idx];
-        const codinsFinal = String(it.codProducto || it.codins || '').trim();
-        const cantidadEnviadaNum = Number(it.cantidadEnviada || it.cantidad || 0);
-        const cantidadEnviadaFinal = isFinite(cantidadEnviadaNum) ? Math.max(0, cantidadEnviadaNum) : 0;
+      // Actualizar inventario y crear registros en kardex cuando se crea la remisión
+      // Esto se hace cuando se REMITE el producto (sale del almacén), no cuando se entrega
+      console.log(`📦 ========== INICIANDO PROCESAMIENTO DE INVENTARIO Y KARDEX ==========`);
+      console.log(`📦 Remisión ID: ${newId}`);
+      console.log(`📦 Total de items: ${items.length}`);
+      
+      try {
+        const codalmRemision = String(codalmFinal || '001').trim().substring(0, 3).padEnd(3, ' ');
+        const codterRemision = String(clienteIdStr || '').trim().substring(0, 15);
+        const codusuRemision = String(codusu || 'SISTEMA').trim().substring(0, 12);
+        const numremRemision = numeroRemisionFinal ? parseInt(String(numeroRemisionFinal).replace('REM-', '').replace('REM', ''), 10) : null;
+        const fecremRemision = fechaRemisionFinal ? new Date(fechaRemisionFinal + 'T00:00:00') : new Date();
         
-        if (codinsFinal && cantidadEnviadaFinal > 0) {
+        console.log(`📦 Datos de remisión:`, {
+          codalm: codalmRemision,
+          codter: codterRemision,
+          codusu: codusuRemision,
+          numrem: numremRemision,
+          fecrem: fecremRemision
+        });
+        
+        let kardexRegistrados = 0;
+        let inventarioActualizados = 0;
+        let itemsOmitidos = 0;
+        
+        for (let idx = 0; idx < items.length; idx++) {
+          const it = items[idx];
+          console.log(`\n📦 --- Procesando item ${idx + 1}/${items.length} ---`);
+          console.log(`📦 Item completo:`, JSON.stringify(it, null, 2));
+          
+          const codinsFinal = String(it.codProducto || it.codins || '').trim();
+          const cantidadEnviadaNum = Number(it.cantidadEnviada || it.cantidad || 0);
+          const cantidadEnviadaFinal = isFinite(cantidadEnviadaNum) ? Math.max(0, cantidadEnviadaNum) : 0;
+          
+          console.log(`📦 Datos extraídos:`, {
+            codinsFinal,
+            cantidadEnviadaFinal,
+            codProducto: it.codProducto,
+            codins: it.codins
+          });
+          
+          if (!codinsFinal || codinsFinal.trim() === '' || cantidadEnviadaFinal <= 0) {
+            itemsOmitidos++;
+            console.warn(`⚠️ Item ${idx + 1} inválido omitido: codins="${codinsFinal}", cantidad=${cantidadEnviadaFinal}`);
+            continue;
+          }
+          
+          const codinsFormatted = codinsFinal.substring(0, 8).padEnd(8, ' '); // CHAR(8)
+          
           try {
-            // Obtener costo del producto desde inv_insumos
+            console.log(`🔄 Procesando item ${idx + 1}: codins="${codinsFormatted}", cantidad=${cantidadEnviadaFinal}`);
+            
+            // 1. Obtener costo y precio del producto
             const reqProducto = new sql.Request(tx);
-            reqProducto.input('codins', sql.VarChar(50), codinsFinal);
+            reqProducto.input('codins', sql.Char(8), codinsFormatted);
+            console.log(`🔍 Buscando producto con codins: "${codinsFormatted}"`);
+            
             const productoResult = await reqProducto.query(`
-              SELECT TOP 1 ultimo_costo, costo_promedio 
-              FROM inv_insumos 
-              WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(@codins))
+              SELECT TOP 1 
+                codins,
+                ultimo_costo,
+                costo_promedio,
+                precio_publico
+              FROM inv_insumos
+              WHERE codins = @codins
             `);
             
-            const costoUnitario = productoResult.recordset.length > 0 
-              ? parseFloat(productoResult.recordset[0].ultimo_costo || productoResult.recordset[0].costo_promedio || 0)
-              : 0;
-            const precioVenta = parseFloat((it.precioUnitario || 0).toFixed(2));
+            if (!productoResult.recordset || productoResult.recordset.length === 0) {
+              console.error(`❌ Producto NO encontrado en inv_insumos con codins: "${codinsFormatted}"`);
+              throw new Error(`Producto con codins "${codinsFormatted}" no encontrado en inv_insumos`);
+            }
             
-            // Insertar en inv_kardex
-            // Estructura real: codalm char(3), codins char(8), feckar datetime, tipkar char(2), dockar int, etc.
-            const codalmKardex = String(codalmFinal || '001').substring(0, 3).padEnd(3, ' '); // Exactamente 3 caracteres
-            const codinsKardex = String(codinsFinal).substring(0, 8).padEnd(8, ' '); // Exactamente 8 caracteres
-            const tipkarKardex = 'S '; // Salida - exactamente 2 caracteres
-            const dockarKardex = newId; // Usar el ID de la remisión como dockar (INT)
-            const observaKardex = String(`Rem ${numeroRemisionFinal}`).substring(0, 100); // Máximo 100 caracteres
-            const numremKardex = newId; // Usar el ID de la remisión como numrem (INT)
-            const fechaRemisionDateTime = new Date(fechaRemisionFinal + 'T00:00:00');
+            const producto = productoResult.recordset[0];
+            console.log(`✅ Producto encontrado:`, {
+              codins: producto.codins,
+              ultimo_costo: producto.ultimo_costo,
+              costo_promedio: producto.costo_promedio,
+              precio_publico: producto.precio_publico
+            });
             
+            const costoUnitario = parseFloat(producto?.ultimo_costo || producto?.costo_promedio || 0);
+            const precioVenta = parseFloat(producto?.precio_publico || 0);
+            const costoTotal = cantidadEnviadaFinal * costoUnitario;
+            
+            console.log(`💰 Costos calculados:`, {
+              costoUnitario,
+              precioVenta,
+              costoTotal
+            });
+            
+            // 2. Actualizar inventario (disminuir caninv)
+            const reqInventario = new sql.Request(tx);
+            reqInventario.input('codins', sql.Char(8), codinsFormatted);
+            reqInventario.input('codalm', sql.Char(3), codalmRemision);
+            reqInventario.input('cantidad', sql.Decimal(18, 4), cantidadEnviadaFinal);
+            reqInventario.input('costoTotal', sql.Decimal(18, 4), costoTotal);
+            
+            const inventarioCheck = await reqInventario.query(`
+              SELECT TOP 1 caninv, valinv
+              FROM inv_invent
+              WHERE codins = @codins AND codalm = @codalm
+            `);
+            
+            if (inventarioCheck.recordset.length > 0) {
+              const stockActual = parseFloat(inventarioCheck.recordset[0].caninv || 0);
+              const nuevoStock = Math.max(0, stockActual - cantidadEnviadaFinal);
+              const valorInventarioActual = parseFloat(inventarioCheck.recordset[0].valinv || 0);
+              const nuevoValorInventario = Math.max(0, valorInventarioActual - costoTotal);
+              
+              const reqUpdateInventario = new sql.Request(tx);
+              reqUpdateInventario.input('codins', sql.Char(8), codinsFormatted);
+              reqUpdateInventario.input('codalm', sql.Char(3), codalmRemision);
+              reqUpdateInventario.input('nuevoStock', sql.Decimal(18, 4), nuevoStock);
+              reqUpdateInventario.input('nuevoValor', sql.Decimal(18, 4), nuevoValorInventario);
+              
+              await reqUpdateInventario.query(`
+                UPDATE inv_invent
+                SET caninv = @nuevoStock, valinv = @nuevoValor
+                WHERE codins = @codins AND codalm = @codalm
+              `);
+              
+              inventarioActualizados++;
+              console.log(`✅ Inventario actualizado: codins="${codinsFormatted}", stock: ${stockActual} → ${nuevoStock}`);
+            } else {
+              console.warn(`⚠️ No se encontró registro en inv_invent para codins="${codinsFormatted}", codalm="${codalmRemision}". Se creará registro con stock 0.`);
+              // Crear registro con stock 0 si no existe
+              const reqInsertInventario = new sql.Request(tx);
+              reqInsertInventario.input('codins', sql.Char(8), codinsFormatted);
+              reqInsertInventario.input('codalm', sql.Char(3), codalmRemision);
+              reqInsertInventario.input('cantidad', sql.Decimal(18, 4), 0);
+              reqInsertInventario.input('valor', sql.Decimal(18, 4), 0);
+              
+              await reqInsertInventario.query(`
+                INSERT INTO inv_invent (codins, codalm, caninv, valinv)
+                VALUES (@codins, @codalm, @cantidad, @valor)
+              `);
+            }
+            
+            // 3. Crear registro en inv_kardex
+            console.log(`📝 Preparando registro en kardex...`);
             const reqKardex = new sql.Request(tx);
-            reqKardex.input('codalm', sql.Char(3), codalmKardex);
-            reqKardex.input('codins', sql.Char(8), codinsKardex);
-            reqKardex.input('feckar', sql.DateTime, fechaRemisionDateTime);
-            reqKardex.input('tipkar', sql.Char(2), tipkarKardex);
-            reqKardex.input('dockar', sql.Int, dockarKardex);
-            reqKardex.input('cankar', sql.Numeric(18, 2), -cantidadEnviadaFinal); // Negativo porque es salida
-            reqKardex.input('coskar', sql.Numeric(18, 2), costoUnitario);
-            reqKardex.input('venkar', sql.Numeric(18, 2), precioVenta);
-            reqKardex.input('codter', sql.VarChar(15), clienteIdStr ? String(clienteIdStr).substring(0, 15) : null);
-            reqKardex.input('codusu', sql.VarChar(12), codusu ? String(codusu).substring(0, 12) : 'SISTEMA');
-            reqKardex.input('numrem', sql.Int, numremKardex);
-            reqKardex.input('FECREM', sql.DateTime, fechaRemisionDateTime);
-            reqKardex.input('numcom', sql.Int, null);
+            const fechaKardex = new Date();
+            const observaKardex = `Remisión ${numeroRemisionFinal || newId}`.substring(0, 100);
+            
+            reqKardex.input('codalm', sql.Char(3), codalmRemision);
+            reqKardex.input('codins', sql.Char(8), codinsFormatted);
+            reqKardex.input('feckar', sql.DateTime, fechaKardex);
+            reqKardex.input('tipkar', sql.Char(2), 'SA'); // SA = Salida
+            reqKardex.input('dockar', sql.Int, newId); // ID de la remisión
+            reqKardex.input('cankar', sql.Decimal(18, 6), cantidadEnviadaFinal);
+            reqKardex.input('coskar', sql.Decimal(18, 2), costoUnitario);
+            
+            // Manejar campos opcionales correctamente
+            if (precioVenta > 0) {
+              reqKardex.input('venkar', sql.Decimal(18, 2), precioVenta);
+            } else {
+              reqKardex.input('venkar', sql.Decimal(18, 2), null);
+            }
+            
+            if (codterRemision && codterRemision.trim() !== '') {
+              reqKardex.input('codter', sql.VarChar(15), codterRemision);
+            } else {
+              reqKardex.input('codter', sql.VarChar(15), null);
+            }
+            
+            reqKardex.input('codusu', sql.VarChar(12), codusuRemision);
+            
+            // numrem puede ser NULL según la estructura
+            if (numremRemision !== null && numremRemision !== undefined && !isNaN(numremRemision)) {
+              reqKardex.input('numrem', sql.Int, numremRemision);
+            } else {
+              reqKardex.input('numrem', sql.Int, null);
+            }
+            
+            reqKardex.input('FECREM', sql.DateTime, fecremRemision);
             reqKardex.input('observa', sql.VarChar(100), observaKardex);
             
-            await reqKardex.query(`
+            console.log(`📝 Valores para kardex:`, {
+              codalm: codalmRemision,
+              codins: codinsFormatted,
+              feckar: fechaKardex,
+              tipkar: 'SA',
+              dockar: newId,
+              cankar: cantidadEnviadaFinal,
+              coskar: costoUnitario,
+              venkar: precioVenta > 0 ? precioVenta : null,
+              codter: codterRemision || null,
+              codusu: codusuRemision,
+              numrem: numremRemision,
+              FECREM: fecremRemision,
+              observa: observaKardex
+            });
+            
+            console.log(`📝 Ejecutando INSERT en inv_kardex...`);
+            const kardexInsertResult = await reqKardex.query(`
               INSERT INTO inv_kardex (
                 codalm, codins, feckar, tipkar, dockar, cankar, coskar, venkar,
-                codter, codusu, numrem, FECREM, numcom, observa, fecsys
+                codter, codusu, numrem, FECREM, observa, fecsys
               ) VALUES (
                 @codalm, @codins, @feckar, @tipkar, @dockar, @cankar, @coskar, @venkar,
-                @codter, @codusu, @numrem, @FECREM, @numcom, @observa, GETDATE()
-              )
+                @codter, @codusu, @numrem, @FECREM, @observa, GETDATE()
+              );
+              SELECT SCOPE_IDENTITY() AS id;
             `);
+            
+            const kardexId = kardexInsertResult.recordset[0]?.id;
             kardexRegistrados++;
-            console.log(`✅ Movimiento kardex registrado para ${codinsFinal} (cantidad: ${cantidadEnviadaFinal})`);
-          } catch (kardexError) {
-            console.error(`⚠️ Error registrando kardex para item ${idx + 1} (${codinsFinal}):`, kardexError.message);
-            if (kardexError.originalError?.info) {
-              console.error('   Info SQL:', kardexError.originalError.info.message);
+            console.log(`✅ ✅ ✅ Registro creado en kardex con ID: ${kardexId}`);
+            console.log(`✅ codins="${codinsFormatted}", cantidad=${cantidadEnviadaFinal}, tipkar=SA`);
+          } catch (itemError) {
+            console.error(`❌ ❌ ❌ Error procesando item ${idx + 1} (${codinsFormatted || 'N/A'}):`, itemError);
+            console.error(`❌ Mensaje:`, itemError.message);
+            console.error(`❌ Stack:`, itemError.stack);
+            if (itemError.originalError) {
+              console.error(`❌ Error original:`, itemError.originalError);
+              if (itemError.originalError.info) {
+                console.error(`❌ Info SQL:`, itemError.originalError.info.message);
+              }
+              if (itemError.originalError.number) {
+                console.error(`❌ Número de error SQL:`, itemError.originalError.number);
+              }
             }
             // Continuar con el siguiente item sin interrumpir la transacción
           }
         }
+        
+        console.log(`\n📊 ========== RESUMEN DE PROCESAMIENTO ==========`);
+        console.log(`📊 Items procesados: ${items.length}`);
+        console.log(`📊 Items omitidos: ${itemsOmitidos}`);
+        console.log(`📊 Inventarios actualizados: ${inventarioActualizados}`);
+        console.log(`📊 Registros en kardex: ${kardexRegistrados}`);
+        console.log(`📊 ================================================\n`);
+      } catch (kardexError) {
+        console.error(`\n❌ ❌ ❌ ERROR GENERAL procesando inventario/kardex para remisión ID ${newId}:`);
+        console.error(`❌ Mensaje:`, kardexError.message);
+        console.error(`❌ Stack:`, kardexError.stack);
+        if (kardexError.originalError) {
+          console.error(`❌ Error original:`, kardexError.originalError);
+          if (kardexError.originalError.info) {
+            console.error(`❌ Info SQL:`, kardexError.originalError.info.message);
+          }
+        }
+        // No hacer rollback aquí, solo loguear el error para que la remisión se cree
+        // El usuario puede corregir el inventario manualmente si es necesario
       }
-      console.log(`✅ Movimientos de kardex: ${kardexRegistrados}/${items.length} registrados`);
-      */
 
       // Actualizar estado del pedido si se proporcionó pedidoId
       // SOLUCIÓN: Envolver en try-catch para que no interrumpa la creación de la remisión si falla
@@ -6694,7 +6902,13 @@ app.post('/api/remisiones', async (req, res) => {
           if (nuevoEstado !== estadoActual) {
             const reqUpdatePedido = new sql.Request(tx);
             reqUpdatePedido.input('pedidoId', sql.Int, pedidoIdFinal);
-            reqUpdatePedido.input('nuevoEstado', sql.VarChar(20), mapEstadoToDb(nuevoEstado));
+            const estadoDb = mapEstadoToDb(nuevoEstado);
+            // Asegurar que el estado no exceda 1 carácter (tamaño de CHAR(1) en la BD real)
+            const estadoDbTruncado = String(estadoDb || 'B').substring(0, 1);
+            // Usar CHAR(1) en lugar de VARCHAR(20) porque la columna es CHAR(1)
+            reqUpdatePedido.input('nuevoEstado', sql.Char(1), estadoDbTruncado);
+            
+            console.log(`🔄 Actualizando estado del pedido ${pedidoActual.numero_pedido}: ${estadoActual} -> ${nuevoEstado} (DB: ${estadoDbTruncado})`);
             
             await reqUpdatePedido.query(`
               UPDATE ven_pedidos
@@ -7471,25 +7685,63 @@ app.post('/api/facturas', async (req, res) => {
       let numeroFacturaFinal = numeroFactura ? String(numeroFactura).trim() : null;
       
       if (!numeroFacturaFinal || numeroFacturaFinal === 'AUTO' || numeroFacturaFinal === '') {
-        // Generar número automático: buscar el máximo número numérico en numfact (sin prefijo)
-        // Continuar desde 96274
-        const reqMax = new sql.Request(tx);
-        const maxResult = await reqMax.query(`
-          SELECT MAX(
-            CASE 
-              WHEN ISNUMERIC(numfact) = 1 THEN CAST(numfact AS INT)
-              WHEN numfact LIKE 'FC-%' AND ISNUMERIC(SUBSTRING(numfact, 4, LEN(numfact))) = 1 
-                THEN CAST(SUBSTRING(numfact, 4, LEN(numfact)) AS INT)
-              ELSE 0
-            END
-          ) as maxNum
+        // Generar número automático: buscar el último registro ordenado por id DESC
+        // Extraer el numfact y continuar desde ahí
+        const reqLast = new sql.Request(tx);
+        const lastResult = await reqLast.query(`
+          SELECT TOP 1 numfact, doccoc
           FROM ${TABLE_NAMES.facturas}
+          ORDER BY id DESC
         `);
         
-        const maxNum = maxResult.recordset[0]?.maxNum || 96274;
-        const nextNum = maxNum >= 96274 ? maxNum + 1 : 96275;
-        numeroFacturaFinal = String(nextNum);
-        console.log(`📝 Número de factura generado automáticamente: "${numeroFacturaFinal}" (continuando desde 96274)`);
+        let nextNumFact = 80604; // Valor por defecto si no hay registros
+        
+        if (lastResult.recordset.length > 0) {
+          const lastRecord = lastResult.recordset[0];
+          const lastNumfact = String(lastRecord.numfact || '').trim();
+          const lastDoccoc = String(lastRecord.doccoc || '').trim();
+          
+          console.log(`🔍 Último registro encontrado: numfact="${lastNumfact}", doccoc="${lastDoccoc}"`);
+          
+          // Intentar extraer el número de doccoc (formato: año-numfact, ej: 2025-80604)
+          if (lastDoccoc && lastDoccoc.includes('-')) {
+            const partes = lastDoccoc.split('-');
+            if (partes.length >= 2) {
+              const numPart = partes[partes.length - 1].trim();
+              if (/^\d+$/.test(numPart)) {
+                nextNumFact = parseInt(numPart, 10);
+                console.log(`✅ Número extraído de doccoc: ${nextNumFact}`);
+              }
+            }
+          }
+          
+          // Si no se pudo extraer de doccoc, intentar desde numfact
+          if (nextNumFact === 80604 && lastNumfact) {
+            // Si numfact tiene formato año-numfact
+            if (lastNumfact.includes('-')) {
+              const partes = lastNumfact.split('-');
+              if (partes.length >= 2) {
+                const numPart = partes[partes.length - 1].trim();
+                if (/^\d+$/.test(numPart)) {
+                  nextNumFact = parseInt(numPart, 10);
+                  console.log(`✅ Número extraído de numfact: ${nextNumFact}`);
+                }
+              }
+            } else if (/^\d+$/.test(lastNumfact)) {
+              // Si numfact es solo un número
+              nextNumFact = parseInt(lastNumfact, 10);
+              console.log(`✅ Número extraído de numfact (numérico): ${nextNumFact}`);
+            }
+          }
+        }
+        
+        // Incrementar el número
+        const nuevoNumFact = nextNumFact + 1;
+        
+        // numfact es solo el número (ej: 80605)
+        numeroFacturaFinal = String(nuevoNumFact);
+        
+        console.log(`📝 Número de factura generado automáticamente: "${numeroFacturaFinal}" (continuando desde ${nextNumFact})`);
       } else {
         // Validar que no exista usando la columna numfact
         const reqExistente = new sql.Request(tx);
@@ -7568,7 +7820,18 @@ app.post('/api/facturas', async (req, res) => {
       const codalmFinalTrunc = codalmFinal; // Ya está truncado arriba (CHAR(3))
       const tipfacFinal = String(body.tipoFactura || 'FV').trim().substring(0, 2).padEnd(2, ' '); // CHAR(2) - usar 'FV' por defecto
       const codterFinal = String(clienteIdStr || '').trim().substring(0, 15);
-      const doccocFinal = body.documentoContable ? String(body.documentoContable).trim().substring(0, 12).padEnd(12, ' ') : null; // CHAR(12)
+      
+      // Generar doccoc automáticamente si no se proporciona
+      // doccoc debe ser año-numfact (ej: 2025-80605)
+      let doccocFinal = null;
+      if (body.documentoContable) {
+        doccocFinal = String(body.documentoContable).trim().substring(0, 12).padEnd(12, ' ');
+      } else {
+        // Obtener el año actual
+        const añoActual = new Date().getFullYear();
+        // doccoc = año-numfact (ej: 2025-80605)
+        doccocFinal = `${añoActual}-${numfactFinal}`.substring(0, 12).padEnd(12, ' ');
+      }
       
       // Validar que los campos requeridos no estén vacíos
       if (!numfactFinal || numfactFinal.length === 0) {

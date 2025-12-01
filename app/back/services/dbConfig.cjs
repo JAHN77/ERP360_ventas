@@ -260,6 +260,11 @@ const QUERIES = {
       c.fecha_vence          AS fechaVencimiento,
       c.codter               AS codter,
       COALESCE(cli.id, NULL) AS clienteId,
+      CASE 
+        WHEN cli.nomter IS NOT NULL AND LTRIM(RTRIM(cli.nomter)) != '' 
+        THEN LTRIM(RTRIM(cli.nomter))
+        ELSE NULL
+      END AS clienteNombre,
       -- Obtener el ID numérico del vendedor (ideven) si existe, sino usar el código como fallback
       CAST(COALESCE(v.ideven, NULL) AS VARCHAR(20)) AS vendedorId,
       LTRIM(RTRIM(c.cod_vendedor)) AS codVendedor,
@@ -287,7 +292,7 @@ const QUERIES = {
       NULL                   AS domicilios,
       NULL                   AS approvedItems
     FROM ${TABLE_NAMES.cotizaciones} c
-    LEFT JOIN ${TABLE_NAMES.clientes} cli ON LTRIM(RTRIM(cli.codter)) = LTRIM(RTRIM(c.codter)) AND cli.activo = 1
+    LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter)) AND cli.activo = 1
     LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, ''))) AND v.Activo = 1
     ORDER BY c.fecha DESC
   `,
@@ -327,6 +332,11 @@ const QUERIES = {
       p.numero_pedido as numeroPedido,
       p.fecha_pedido as fechaPedido,
       LTRIM(RTRIM(COALESCE(p.codter, ''))) as clienteId,
+      CASE 
+        WHEN cli.nomter IS NOT NULL AND LTRIM(RTRIM(cli.nomter)) != '' 
+        THEN LTRIM(RTRIM(cli.nomter))
+        ELSE NULL
+      END as clienteNombre,
       LTRIM(RTRIM(COALESCE(p.codven, ''))) as vendedorId,
       p.cotizacion_id as cotizacionId,
       COALESCE(p.subtotal, 0) as subtotal,
@@ -343,6 +353,7 @@ const QUERIES = {
       COALESCE(p.impoconsumo_valor, 0) as impoconsumoValor,
       LTRIM(RTRIM(COALESCE(p.instrucciones_entrega, ''))) as instruccionesEntrega
     FROM ${TABLE_NAMES.pedidos} p
+    LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(p.codter)) AND cli.activo = 1
     ORDER BY p.fecha_pedido DESC
   `,
 

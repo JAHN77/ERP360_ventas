@@ -208,6 +208,7 @@ export interface Cotizacion {
   fechaVencimiento: string; // date
   clienteId: string;
   codter?: string; // Código de tercero/cliente
+  clienteNombre?: string; // Nombre del cliente (nomter)
   vendedorId?: string; // ID numérico del vendedor (ideven) o código (codven) como fallback
   codVendedor?: string; // Código del vendedor (codven)
   subtotal: number;
@@ -242,6 +243,7 @@ export interface Pedido {
   numeroPedido: string;
   fechaPedido: string; // date
   clienteId: string;
+  clienteNombre?: string; // Nombre del cliente (nomter)
   vendedorId?: string;
   cotizacionId?: string;
   numeroCotizacionOrigen?: string; // Número de cotización obtenido desde el JOIN

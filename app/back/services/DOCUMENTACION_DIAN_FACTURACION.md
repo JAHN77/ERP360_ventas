@@ -94,8 +94,9 @@
   WHERE ISNUMERIC(numfact) = 1 
   ORDER BY CAST(numfact AS INT) DESC
   ```
-- **Lógica:** Busca el número más alto en `ven_facturas.numfact` y le suma 1
-- **Valor por defecto:** 80605
+- **Lógica:** Busca el número más alto en `ven_facturas.numfact` y le suma 1. Si no hay facturas o el máximo es menor a 96274, comienza desde 96275
+- **Valor por defecto:** 96275 (si no hay facturas anteriores)
+- **Número base mínimo:** 96274 (última factura conocida, las nuevas comenzarán desde 96275)
 
 #### `type_document_id` (Tipo de Documento: Producción/Prueba)
 - **Línea:** 751
@@ -381,4 +382,5 @@ Todos los logs muestran:
 - **Servicio DIAN:** `app/back/services/dian-service.cjs`
 - **Endpoint API:** `app/back/server.cjs` (líneas ~7963-8620)
 - **Base de datos:** `Prueba_ERP360` (SQL Server)
+
 

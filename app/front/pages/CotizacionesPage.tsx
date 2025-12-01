@@ -460,16 +460,12 @@ const CotizacionesPage: React.FC = () => {
       header: 'Cliente', 
       accessor: 'clienteId', 
       cell: (item) => {
-        // Buscar por ID numérico
-        const cliente = clientes.find(c => {
-          if (!item.clienteId) return false;
-          // Comparar por ID numérico
-          if (c.id === item.clienteId || String(c.id) === String(item.clienteId)) return true;
-          // Si no se encuentra, intentar buscar por numeroDocumento (codter)
-          if (String(c.numeroDocumento || c.codter || '') === String(item.clienteId)) return true;
-          return false;
-        });
-        return cliente?.nombreCompleto || cliente?.razonSocial || 'N/A';
+        // Usar el nombre del cliente que viene directamente del backend (nomter de la BD)
+        if (item.clienteNombre && item.clienteNombre.trim() !== '') {
+          return item.clienteNombre;
+        }
+        // Si no hay nombre en el backend, mostrar N/A (no inventar nombres)
+        return 'N/A';
       }
     },
     { 

@@ -1112,30 +1112,8 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                                         return (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) ? stockDisponible : undefined;
                                                     })()}
                                                     value={item.cantidad}
-                                                    onChange={(e) => {
-                                                        const newValue = e.target.value;
-                                                        if (newValue === '' || parseInt(newValue, 10) > 0) {
-                                                            handleItemChange(item.productoId, 'cantidad', newValue);
-                                                        }
-                                                    }}
-                                                    onBlur={(e) => {
-                                                        const val = parseInt(e.target.value, 10);
-                                                        if (isNaN(val) || val < 1) {
-                                                            handleItemChange(item.productoId, 'cantidad', 1);
-                                                        } else {
-                                                            // Validar contra stock máximo si aplica
-                                                            const product = productos.find(p => 
-                                                                String(p.id) === String(item.productoId) ||
-                                                                p.id === item.productoId
-                                                            );
-                                                            const stockDisponible = product?.stock ?? null;
-                                                            const controlaExistencia = product?.karins ?? false;
-                                                            if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0 && val > stockDisponible) {
-                                                                handleItemChange(item.productoId, 'cantidad', stockDisponible);
-                                                            }
-                                                        }
-                                                    }}
-                                                    className="w-20 px-2 py-1 text-right bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                    readOnly
+                                                    className="w-20 px-2 py-1 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md cursor-not-allowed opacity-75"
                                                 />
                                             </td>
                                             <td className="px-4 py-2 text-sm text-right">{formatCurrency(item.precioUnitario)}</td>

@@ -193,8 +193,14 @@ const PedidosPage: React.FC = () => {
         return acc + (itemTotalBruto * ((item.descuentoPorcentaje || 0) / 100));
     }, 0);
     const subtotalNeto = subtotalBruto - descuentoTotal;
+    // Usar valorIva directamente del backend (ya calculado), NO recalcular
     const iva = selectedPedido.items.reduce((acc, item) => {
-        const itemSubtotal = (item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100);
+        // Prioridad 1: usar valorIva del backend (ya calculado desde BD)
+        if (item.valorIva !== undefined && item.valorIva !== null) {
+            return acc + item.valorIva;
+        }
+        // Fallback: si no viene valorIva, calcular desde subtotal
+        const itemSubtotal = item.subtotal ?? ((item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100));
         const itemIva = itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
         return acc + itemIva;
     }, 0);
@@ -419,13 +425,12 @@ const PedidosPage: React.FC = () => {
         header: 'Cliente', 
         accessor: 'clienteId', 
         cell: (item) => {
-            // Buscar cliente por ID numérico o por codter/numeroDocumento
-            const cliente = clientes.find(c => 
-                String(c.id) === String(item.clienteId) ||
-                c.numeroDocumento === item.clienteId ||
-                c.codter === item.clienteId
-            );
-            return cliente?.nombreCompleto || cliente?.razonSocial || item.clienteId || 'N/A';
+            // Usar el nombre del cliente que viene directamente del backend (nomter de la BD)
+            if (item.clienteNombre && item.clienteNombre.trim() !== '') {
+                return item.clienteNombre;
+            }
+            // Si no hay nombre en el backend, mostrar N/A (no inventar nombres)
+            return 'N/A';
         }
     },
     { header: 'Fecha', accessor: 'fechaPedido', cell: (item) => formatDateOnly(item.fechaPedido) },
