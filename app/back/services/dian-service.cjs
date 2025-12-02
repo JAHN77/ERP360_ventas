@@ -913,7 +913,7 @@ class DIANService {
         name: String(companyData.name || "MULTIACABADOS S.A.S.").trim(), // String explícito
         type_organization_id: Number(companyData.type_organization_id || 1), // 1 = Persona Jurídica (número)
         type_document_id: String(companyData.type_document_id || "31").trim(), // NIT (string)
-        id_location: String(companyData.id_location || "11001").trim(), // String explícito
+        id_location: String(companyData.id_location).trim(), // String explícito
         address: String(companyData.address || "").trim(), // String explícito
         phone: String(companyData.phone || "").trim(), // String explícito
         email: String(companyData.email || "").trim() // String explícito
@@ -923,8 +923,8 @@ class DIANService {
         name: String(customerName).trim(), // String explícito
         type_organization_id: Number(customerTypeOrganization), // Desde con_terceros.tipter (número)
         type_document_id: String(customerTypeDocument).trim(), // Desde con_terceros.Tipo_documento (string)
-        id_location: String(cliente?.coddane || "11001").trim(), // Desde con_terceros.coddane (string)
-        address: String(cliente?.dirter || "BOGOTA D.C.").trim(), // Desde con_terceros.dirter (string)
+        id_location: String(cliente?.coddane).trim(), // Desde con_terceros.coddane (string)
+        address: String(cliente?.dirter).trim(), // Desde con_terceros.dirter (string)
         phone: String(normalizePhone(invoiceData?.customer_phone || cliente?.TELTER || cliente?.CELTER || "")).trim(), // Desde con_terceros.TELTER (string)
         email: String(invoiceData?.customer_email || cliente?.EMAIL || cliente?.email || "cliente@ejemplo.com").trim() // Desde con_terceros.EMAIL (string)
       },
@@ -1008,7 +1008,7 @@ class DIANService {
     // Se busca por id=99 o prefijo='NC'
     return {
       id: 99,
-      consecutivo: 'NC',
+      consecutivo: '8',
       rango_inicial: 1,
       rango_final: 99999,
       codigo: 99,
@@ -1043,12 +1043,12 @@ class DIANService {
     // Fechas
     const currentDate = new Date();
     const issueDate = currentDate.toISOString().split('T')[0];
+    const issueTime = currentDate.toTimeString().split(' ')[0];
 
     // Validar fecha (Regla 1: Fecha NC >= Fecha Factura)
     const facturaDate = new Date(facturaOriginal.fecfac || facturaOriginal.fechaFactura);
     if (currentDate < facturaDate) {
       console.warn('⚠️ La fecha actual es anterior a la fecha de la factura. Ajustando a fecha de factura.');
-      // Esto es raro pero posible si hay relojes desincronizados. La regla dice >=
     }
 
     // Calcular totales
@@ -1057,11 +1057,12 @@ class DIANService {
     const totalAmount = this.roundCOP(nota.total || 0);
 
     // Determinar concepto de corrección
-    // 1 = Devolución parcial/total
-    // 2 = Anulación por error
-    const correctionConceptId = nota.tipo_nota === 'ANULACION' ? 2 : 1;
-    const correctionDescription = nota.tipo_nota === 'ANULACION'
-      ? `ANULACIÓN FACTURA ${facturaOriginal.numfact}`
+    // 1 = Devolución parcial de los bienes y/o no aceptación parcial del servicio
+    // 2 = Anulación de factura electrónica
+    const isAnulacion = nota.tipo_nota === 'ANULACION';
+    const correctionConceptId = isAnulacion ? 2 : 1;
+    const correctionDescription = isAnulacion
+      ? `ANULACIÓN TOTAL FACTURA ${facturaOriginal.numfact}`
       : `DEVOLUCIÓN PARCIAL FACTURA ${facturaOriginal.numfact}`;
 
     // Construir líneas de nota crédito
@@ -1076,88 +1077,147 @@ class DIANService {
         unit_measure_id: 70, // Unidad estándar
         invoiced_quantity: cantidad,
         line_extension_amount: subtotal,
+        discount: 0,
+        free_of_charge_indicator: false,
         description: detalle.descripcion || correctionDescription,
-        price_amount: precio,
         code: String(detalle.producto_id || detalle.productoId),
         type_item_identification_id: 4,
+        price_amount: precio,
         base_quantity: cantidad,
-        free_of_charge_indicator: false,
         tax_totals: [{
           tax_id: 1, // IVA
           tax_amount: iva,
-          taxable_amount: subtotal,
-          percent: ivaPercent
+          percent: ivaPercent,
+          taxable_amount: subtotal
         }]
       };
     });
+
+    // Calcular diferencia de días para correction_type
+    const diffTime = currentDate.getTime() - facturaDate.getTime();
+    const diffDays = diffTime / (1000 * 3600 * 24);
+    const correctionType = diffDays > 5 ? 'substitution' : 'referenced';
+
+    // Normalizar teléfono del cliente
+    const normalizePhone = (phone) => {
+      if (!phone) return "3000000000";
+      let cleanPhone = String(phone).replace(/[^\d]/g, "");
+      if (cleanPhone.length < 7) {
+        cleanPhone = cleanPhone.padStart(7, "0");
+      }
+      return cleanPhone.substring(0, 15);
+    };
+
+    // Calcular DVs
+    const companyNit = Number(companyData.identification_number || this.COMPANY_NIT);
+    const companyDv = this.calculateDV(companyNit);
+
+    const customerNit = Number(cliente.codter);
+    const customerDv = this.calculateDV(customerNit);
 
     // Construir JSON
     const creditNoteJson = {
       number: parseInt(nota.numero), // Consecutivo de la NC
       type_document_id: 5, // Nota Crédito
-      date: issueDate,
-      time: currentDate.toTimeString().split(' ')[0],
-      resolution_number: resolution.consecutivo, // Prefijo
-      prefix: resolution.consecutivo,
-      notes: nota.motivo || correctionDescription,
-      send_email: false, // Opcional
+      identification_number: companyNit,
+      dv: companyDv,
+      resolution_id: 8, // ID de resolución
+      sync: true,
 
-      // Referencia a Factura Original (CRÍTICO)
+      date: issueDate,
+      time: issueTime,
+
+      invoice_period: {
+        start_date: issueDate,
+        start_time: "00:00:00",
+        end_date: issueDate,
+        end_time: "23:59:59",
+        type_invoice_id: 1
+      },
+
       billing_reference: {
         number: String(facturaOriginal.numfact || facturaOriginal.numeroFactura),
         uuid: String(facturaOriginal.cufe || facturaOriginal.CUFE),
-        issue_date: (facturaOriginal.fecfac || facturaOriginal.fechaFactura).split('T')[0],
+        issue_date: new Date(facturaOriginal.fecfac || facturaOriginal.fechaFactura).toISOString().split('T')[0],
         type_document_id: 1 // Factura de Venta
       },
 
-      // Motivo de la Nota
       discrepancy_response: {
         correction_concept_id: correctionConceptId,
-        correction_type: "referenced"
+        correction_type: correctionType
       },
 
-      // Empresa (Emisor)
-      company: companyData,
+      company: {
+        identification_number: companyNit,
+        dv: companyDv,
+        name: String(companyData.name || "MULTIACABADOS S.A.S.").trim(),
+        type_organization_id: Number(companyData.type_organization_id || 1),
+        type_document_id: String(companyData.type_document_id || "31").trim(),
+        id_location: String(companyData.id_location).trim(),
+        address: String(companyData.address || "").trim(),
+        phone: String(companyData.phone || "").trim(),
+        email: String(companyData.email || "").trim(),
+        merchant_registration: "0000000-00" // Default
+      },
 
-      // Cliente (Receptor)
       customer: {
-        identification_number: Number(cliente.codter),
+        identification_number: customerNit,
+        dv: customerDv,
         name: (cliente.nomter || '').trim().toUpperCase(),
         type_organization_id: cliente.tipter === '1' ? 1 : 2,
-        type_document_id: cliente.Tipo_documento || 13, // 13 = Cédula, 31 = NIT
-        id_location: cliente.coddane || "11001",
+        id_location: cliente.coddane,
         address: (cliente.dirter || '').trim(),
-        phone: (cliente.TELTER || '').replace(/[^\d]/g, ''),
-        email: (cliente.EMAIL || '').trim().toLowerCase()
+        phone: normalizePhone(cliente.TELTER || cliente.CELTER),
+        email: (cliente.EMAIL || 'cliente@ejemplo.com').trim().toLowerCase() || 'cliente@ejemplo.com',
+        type_document_id: cliente.Tipo_documento || "13",
+        type_regime_id: 1, // Responsable de IVA (común)
+        type_liability_id: 1, // Fiscal
+        tax_detail_id: 1, // IVA
+        merchant_registration: "No tiene",
+        portal_zone_location: "080020" // Default zona
       },
 
-      // Totales
       legal_monetary_totals: {
         line_extension_amount: lineExtensionAmount,
         tax_exclusive_amount: lineExtensionAmount,
         tax_inclusive_amount: totalAmount,
+        allowance_total_amount: 0,
+        charge_total_amount: 0,
         payable_amount: totalAmount
       },
 
-      // Impuestos Totales
-      tax_totals: [{
-        tax_id: 1,
-        tax_amount: taxAmount,
-        percent: 0, // Se calcula o se deja en 0 si es mixto? Mejor sumarizar si es posible, pero DIAN a veces acepta array.
-        // Simplificación: Si hay múltiples tarifas, esto debería ser un array. 
-        // Por ahora asumimos un total general.
-        taxable_amount: lineExtensionAmount
-      }],
+      // Impuestos Totales (Calculados dinámicamente desde las líneas)
+      tax_totals: creditNoteLines.reduce((acc, line) => {
+        if (line.tax_totals) {
+          line.tax_totals.forEach(tax => {
+            const existing = acc.find(t => t.tax_id === tax.tax_id && t.percent === tax.percent);
+            if (existing) {
+              existing.tax_amount += tax.tax_amount;
+              existing.taxable_amount += tax.taxable_amount;
+            } else {
+              acc.push({
+                tax_id: tax.tax_id,
+                tax_amount: tax.tax_amount,
+                percent: tax.percent,
+                taxable_amount: tax.taxable_amount
+              });
+            }
+          });
+        }
+        return acc;
+      }, []).map(t => ({
+        tax_id: t.tax_id,
+        tax_amount: this.roundCOP(t.tax_amount),
+        percent: t.percent,
+        taxable_amount: this.roundCOP(t.taxable_amount)
+      })),
 
-      // Líneas
       credit_note_lines: creditNoteLines,
 
-      // Formas de Pago (Simplificado para NC)
       payment_forms: [{
-        payment_form_id: 1, // Contado
-        payment_method_id: 10, // Efectivo
-        payment_due_date: issueDate,
-        duration_measure: 0
+        payment_form_id: 1,
+        payment_method_id: 1, // Usando 1 según ejemplo del usuario (Instrumento no definido)
+        payment_due_date: issueDate
       }]
     };
 
@@ -1191,7 +1251,9 @@ class DIANService {
       // Eliminar trackId si existe en el JSON (no debe enviarse nunca)
 
       // Construir URL completa del endpoint
-      const url = `${baseUrl}/api/ubl2.1/invoice/${testSetIDStr}`;
+      // Si es Nota Crédito (type_document_id = 5), usar /credit-note, si no /invoice
+      const endpointType = invoiceJson.type_document_id === 5 ? 'credit-note' : 'invoice';
+      const url = `${baseUrl}/api/ubl2.1/${endpointType}/${testSetIDStr}`;
 
       // Preparar headers
       const headers = {
@@ -1320,6 +1382,34 @@ class DIANService {
     } catch (error) {
       console.error('❌ [DIAN] Error enviando factura a DIAN:', error.message);
       throw error;
+    }
+  }
+  /**
+   * Calcula el Dígito de Verificación (DV) para un NIT
+   * @param {string|number} nit - Número de identificación tributaria
+   * @returns {number} Dígito de verificación (0-9)
+   */
+  static calculateDV(nit) {
+    if (!nit) return 0;
+
+    const nitString = String(nit).replace(/\D/g, ''); // Solo números
+    if (nitString.length === 0) return 0;
+
+    const primes = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71];
+    let sum = 0;
+
+    // Recorrer el NIT de derecha a izquierda
+    for (let i = 0; i < nitString.length; i++) {
+      const digit = parseInt(nitString.charAt(nitString.length - 1 - i));
+      sum += digit * primes[i];
+    }
+
+    const remainder = sum % 11;
+
+    if (remainder <= 1) {
+      return remainder;
+    } else {
+      return 11 - remainder;
     }
   }
 }

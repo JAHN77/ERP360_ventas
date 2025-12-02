@@ -414,6 +414,11 @@ const QUERIES = {
       COALESCE(pd.ivaped, 0) as valorIva,
       -- Calcular total
       ((COALESCE(pd.canped, 0) * COALESCE(pd.valins, 0)) - COALESCE(pd.dctped, 0) + COALESCE(pd.ivaped, 0)) as total,
+      -- Obtener stock actual
+      COALESCE(
+        (SELECT SUM(caninv) FROM inv_invent WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins)) AND LTRIM(RTRIM(codalm)) = LTRIM(RTRIM(pd.codalm))),
+        0
+      ) as stock,
       -- Campos adicionales de la BD real
       pd.estped as estadoItem,
       pd.codalm,
@@ -795,13 +800,8 @@ const QUERIES = {
   GET_CATEGORIAS: `
     SELECT 
       id,
-      nombre,
-      isreceta,
-      requiere_empaques,
-      estado,
-      imgruta
+      nombre
     FROM ${TABLE_NAMES.categorias}
-    WHERE estado = 1
     ORDER BY nombre
   `
   ,

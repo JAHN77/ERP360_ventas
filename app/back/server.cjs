@@ -1130,7 +1130,7 @@ app.get('/api/facturas-detalle', async (req, res) => {
       // Basado en el script de creación, la columna es factura_id.
       // Si la tabla es antigua (ven_detafacturas), podría ser numfact/tipfac.
       // Vamos a intentar usar factura_id ya que es lo correcto según el esquema nuevo.
-      whereClause = `WHERE fd.factura_id = @facturaId`;
+      whereClause = `WHERE fd.id_factura = @facturaId`;
 
       params.numfact = factura.numeroFactura;
       params.tipfac = factura.tipoFactura || '';
@@ -2228,18 +2228,19 @@ const fetchNotaCreditoById = async (connection, notaId, transaction = null) => {
   const notaResult = await runner.query(`
     SELECT 
       id,
-      numero,
-      factura_id AS facturaId,
-      cliente_id AS clienteId,
-      fecha_emision AS fechaEmision,
-      subtotal,
-      iva,
-      total,
-      motivo,
-      estado_dian AS estadoDian,
-      created_at AS createdAt,
-      updated_at AS updatedAt
-    FROM ven_notas
+      consecutivo AS numero,
+      id_factura AS facturaId,
+      codter AS clienteId,
+      fecha AS fechaEmision,
+      valor_nota AS subtotal,
+      iva_nota AS iva,
+      total_nota AS total,
+      detalle AS motivo,
+      CASE WHEN estado_envio = 1 THEN '1' ELSE '0' END AS estadoDian,
+      fecsys AS createdAt,
+      fecsys AS updatedAt,
+      cufe
+    FROM gen_movimiento_notas
     WHERE id = @notaId
   `);
 
@@ -2251,25 +2252,34 @@ const fetchNotaCreditoById = async (connection, notaId, transaction = null) => {
   detalleRunner.input('notaId', sql.Int, notaId);
   const detalleResult = await detalleRunner.query(`
     SELECT 
-      id,
-      nota_id AS notaId,
-      producto_id AS productoId,
-      cantidad,
-      precio_unitario AS precioUnitario,
-      descuento_porcentaje AS descuentoPorcentaje,
-      iva_porcentaje AS ivaPorcentaje,
-      subtotal,
-      valor_iva AS valorIva,
-      total,
-      created_at AS createdAt
-    FROM ven_detanotas
-    WHERE nota_id = @notaId
-    ORDER BY id ASC
+      id_nota,
+      Codins AS productoId, -- Ojo: esto devuelve el código, no el ID numérico
+      QTYDEV AS cantidad,
+      Venta AS precioUnitario,
+      desins AS descuentoPorcentaje,
+      Iva AS ivaPorcentaje,
+      (QTYDEV * Venta) AS subtotal, -- Calculado
+      (QTYDEV * Venta * (Iva/100)) AS valorIva, -- Calculado
+      ((QTYDEV * Venta) + (QTYDEV * Venta * (Iva/100))) AS total -- Calculado
+    FROM Ven_Devolucion
+    WHERE id_nota = @notaId
   `);
+
+  // Mapeo manual de los items ya que la estructura es diferente
+  const itemsDevueltos = (detalleResult.recordset || []).map(row => ({
+    productoId: row.productoId, // Es string (codins)
+    cantidad: Number(row.cantidad),
+    precioUnitario: Number(row.precioUnitario),
+    descuentoPorcentaje: Number(row.descuentoPorcentaje),
+    ivaPorcentaje: Number(row.ivaPorcentaje),
+    subtotal: Number(row.subtotal),
+    valorIva: Number(row.valorIva),
+    total: Number(row.total)
+  }));
 
   return {
     ...mapNotaCreditoHeader(notaResult.recordset[0]),
-    itemsDevueltos: (detalleResult.recordset || []).map(mapNotaCreditoDetalle)
+    itemsDevueltos
   };
 };
 
@@ -2303,28 +2313,29 @@ app.get('/api/notas-credito', async (req, res) => {
     const query = `
       SELECT 
         id,
-        numero,
-        factura_id AS facturaId,
-        cliente_id AS clienteId,
-        fecha_emision AS fechaEmision,
-        subtotal,
-        iva,
-        total,
-        motivo,
-        estado_dian AS estadoDian,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM ${TABLE_NAMES.notas_credito}
-      ${whereClause}
-      ORDER BY fecha_emision DESC, id DESC
+        consecutivo AS numero,
+        id_factura AS facturaId,
+        codter AS clienteId,
+        fecha AS fechaEmision,
+        valor_nota AS subtotal,
+        iva_nota AS iva,
+        total_nota AS total,
+        detalle AS motivo,
+        CASE WHEN estado_envio = 1 THEN '1' ELSE '0' END AS estadoDian,
+        fecsys AS createdAt,
+        fecsys AS updatedAt,
+        cufe
+      FROM gen_movimiento_notas
+      ${whereClause.replace('factura_id', 'id_factura').replace('cliente_id', 'codter')}
+      ORDER BY fecha DESC, id DESC
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `;
 
     // Query para contar total
     const countQuery = `
       SELECT COUNT(*) as total
-      FROM ${TABLE_NAMES.notas_credito}
-      ${whereClause}
+      FROM gen_movimiento_notas
+      ${whereClause.replace('factura_id', 'id_factura').replace('cliente_id', 'codter')}
     `;
 
     const [notasResult, countResult] = await Promise.all([
@@ -2351,20 +2362,17 @@ app.get('/api/notas-credito', async (req, res) => {
 
         const detallesQuery = `
           SELECT 
-            id,
-            nota_id AS notaId,
-            producto_id AS productoId,
-            cantidad,
-            precio_unitario AS precioUnitario,
-            descuento_porcentaje AS descuentoPorcentaje,
-            iva_porcentaje AS ivaPorcentaje,
-            subtotal,
-            valor_iva AS valorIva,
-            total,
-            created_at AS createdAt
-          FROM ven_detanotas
-          WHERE nota_id IN (${placeholders})
-          ORDER BY id ASC
+            id_nota AS notaId,
+            Codins AS productoId,
+            QTYDEV AS cantidad,
+            Venta AS precioUnitario,
+            desins AS descuentoPorcentaje,
+            Iva AS ivaPorcentaje,
+            (QTYDEV * Venta) AS subtotal,
+            (QTYDEV * Venta * (Iva/100)) AS valorIva,
+            ((QTYDEV * Venta) + (QTYDEV * Venta * (Iva/100))) AS total
+          FROM Ven_Devolucion
+          WHERE id_nota IN (${placeholders})
         `;
         const detallesResult = await request.query(detallesQuery);
         detalleMap = (detallesResult.recordset || []).reduce((acc, detalle) => {
@@ -2372,7 +2380,16 @@ app.get('/api/notas-credito', async (req, res) => {
           if (!acc.has(key)) {
             acc.set(key, []);
           }
-          acc.get(key).push(mapNotaCreditoDetalle(detalle));
+          acc.get(key).push({
+            productoId: detalle.productoId,
+            cantidad: Number(detalle.cantidad),
+            precioUnitario: Number(detalle.precioUnitario),
+            descuentoPorcentaje: Number(detalle.descuentoPorcentaje),
+            ivaPorcentaje: Number(detalle.ivaPorcentaje),
+            subtotal: Number(detalle.subtotal),
+            valorIva: Number(detalle.valorIva),
+            total: Number(detalle.total)
+          });
           return acc;
         }, new Map());
       }
@@ -2431,8 +2448,8 @@ const generateNumeroNotaCredito = async (transaction) => {
   req.input('numero', sql.VarChar(50), baseNumero);
   const existing = await req.query(`
     SELECT id 
-    FROM ven_notas 
-    WHERE numero = @numero
+    FROM gen_movimiento_notas 
+    WHERE comprobante = @numero
   `);
 
   if (existing.recordset.length === 0) {
@@ -2667,10 +2684,10 @@ app.post('/api/notas-credito', async (req, res) => {
       detalleFacturaRequest.input('facturaId', sql.Int, factura.id);
       const detalleFacturaResult = await detalleFacturaRequest.query(`
         SELECT 
-          producto_id AS productoId,
-          cantidad
+          codins AS productoId, -- Usamos codins como identificador
+          qtyins AS cantidad
         FROM ven_detafact
-        WHERE factura_id = @facturaId
+        WHERE id_factura = @facturaId
       `);
 
       if (detalleFacturaResult.recordset.length === 0) {
@@ -2686,15 +2703,17 @@ app.post('/api/notas-credito', async (req, res) => {
         cantidad: Number(row.cantidad) || 0
       }));
 
+      // 1. Obtener devoluciones previas para esta factura
+      // EXCLUYENDO las que hayan sido rechazadas por la DIAN (estado = 'RE')
       const devolucionesPreviasRequest = new sql.Request(tx);
       devolucionesPreviasRequest.input('facturaId', sql.Int, factura.id);
       const devolucionesPreviasResult = await devolucionesPreviasRequest.query(`
         SELECT 
-          dn.producto_id AS productoId,
-          dn.cantidad
-        FROM ven_detanotas dn
-        INNER JOIN ven_notas n ON n.id = dn.nota_id
-        WHERE n.factura_id = @facturaId
+          d.Codins AS productoId,
+          d.QTYDEV AS cantidad
+        FROM Ven_Devolucion d
+        INNER JOIN gen_movimiento_notas n ON n.id = d.id_nota
+        WHERE n.id_factura = @facturaId AND (n.estado IS NULL OR n.estado != 'RE')
       `);
 
       const devolucionesPrevias = (devolucionesPreviasResult.recordset || []).reduce((acc, row) => {
@@ -2791,8 +2810,10 @@ app.post('/api/notas-credito', async (req, res) => {
       } else {
         const numeroReq = new sql.Request(tx);
         numeroReq.input('numero', sql.VarChar(50), numeroNota);
+        // Verificar en gen_movimiento_notas usando comprobante o consecutivo
+        // Asumimos que numeroNota viene como comprobante
         const numeroResult = await numeroReq.query(`
-          SELECT id FROM ven_notas WHERE numero = @numero
+          SELECT id FROM gen_movimiento_notas WHERE comprobante = @numero
         `);
 
         if (numeroResult.recordset.length > 0) {
@@ -2804,43 +2825,66 @@ app.post('/api/notas-credito', async (req, res) => {
         }
       }
 
+      // --- GENERAR CONSECUTIVO (Lógica Temporal: 100000 hacia abajo) ---
+      const consecutivoRequest = new sql.Request(tx);
+      // Buscar el menor consecutivo en el rango 90000-100000
+      const minConsecutivoResult = await consecutivoRequest.query(`
+        SELECT MIN(consecutivo) as minConsecutivo 
+        FROM gen_movimiento_notas 
+        WHERE consecutivo <= 100000 AND consecutivo > 90000
+      `);
+
+      let nextConsecutivo;
+      const minConsecutivo = minConsecutivoResult.recordset[0]?.minConsecutivo;
+
+      if (minConsecutivo) {
+        nextConsecutivo = minConsecutivo - 1;
+      } else {
+        nextConsecutivo = 100000;
+      }
+
+      // Generar comprobante (formato YYYY-MM-CONSECUTIVO o similar, basado en ejemplo 2025-80481)
+      // El usuario dio ejemplo 2025-80481. Asumiremos YYYY-CONSECUTIVO o similar.
+      // Usaremos el consecutivo generado.
+      const year = fechaNota.getFullYear();
+      const comprobante = `${year}-${nextConsecutivo}`;
+
       const insertNotaRequest = new sql.Request(tx);
-      insertNotaRequest.input('numero', sql.VarChar(50), numeroNota);
-      insertNotaRequest.input('facturaId', sql.Int, factura.id);
-      insertNotaRequest.input('clienteId', sql.VarChar(20), clienteFinal);
-      insertNotaRequest.input('fechaEmision', sql.Date, fechaNota);
-      insertNotaRequest.input('motivo', sql.Text, String(motivo).trim());
-      insertNotaRequest.input('subtotal', sql.Decimal(18, 2), Number(subtotalTotal.toFixed(2)));
-      insertNotaRequest.input('iva', sql.Decimal(18, 2), Number(ivaTotal.toFixed(2)));
-      insertNotaRequest.input('total', sql.Decimal(18, 2), Number(totalTotal.toFixed(2)));
-      insertNotaRequest.input('estadoDian', sql.VarChar(20), String(estadoDian || 'PENDIENTE').trim());
-      insertNotaRequest.input('tipoNota', sql.VarChar(20), String(tipoNota || 'DEVOLUCION').trim()); // Nuevo campo
+      // Mapeo para gen_movimiento_notas
+      insertNotaRequest.input('id_factura', sql.BigInt, factura.id);
+      insertNotaRequest.input('codalm', sql.Char(3), factura.codalm || '001'); // Default a 001 si no hay
+      insertNotaRequest.input('consecutivo', sql.Int, nextConsecutivo);
+      insertNotaRequest.input('comprobante', sql.VarChar(12), comprobante); // Ajustar longitud si es necesario
+      insertNotaRequest.input('fecha', sql.Date, fechaNota);
+      insertNotaRequest.input('codter', sql.VarChar(15), clienteFinal);
+      insertNotaRequest.input('tipo_nota', sql.Char(2), 'NC'); // Asumimos NC para Nota Crédito, o usar tipoNota mapeado
+      insertNotaRequest.input('clase', sql.Int, 2); // Ejemplo usuario: 2
+      insertNotaRequest.input('codcon', sql.VarChar(3), '002'); // Ejemplo usuario: 002 (quizás concepto?)
+      insertNotaRequest.input('detalle', sql.VarChar(100), String(motivo).trim().substring(0, 100));
+      insertNotaRequest.input('valor_nota', sql.Decimal(18, 2), Number(subtotalTotal.toFixed(2)));
+      insertNotaRequest.input('iva_nota', sql.Decimal(18, 2), Number(ivaTotal.toFixed(2)));
+      insertNotaRequest.input('retencion_nota', sql.Decimal(18, 2), 0); // Default 0
+      insertNotaRequest.input('reteica_nota', sql.Decimal(18, 2), 0); // Default 0
+      insertNotaRequest.input('reteiva_nota', sql.Decimal(18, 2), 0); // Default 0
+      insertNotaRequest.input('total_nota', sql.Decimal(18, 2), Number(totalTotal.toFixed(2)));
+      insertNotaRequest.input('usuario', sql.VarChar(10), 'SISTEMA'); // O obtener del request si disponible
+      insertNotaRequest.input('estado', sql.Char(2), ''); // Ejemplo usuario vacío
+      insertNotaRequest.input('valor_descuento', sql.Decimal(18, 2), 0); // Default 0
+      insertNotaRequest.input('estado_envio', sql.Bit, 0); // Default 0
 
       const insertNotaResult = await insertNotaRequest.query(`
-        INSERT INTO ven_notas (
-          numero,
-          factura_id,
-          cliente_id,
-          fecha_emision,
-          motivo,
-          subtotal,
-          iva,
-          total,
-          estado_dian,
-          tipo_nota
+        INSERT INTO gen_movimiento_notas (
+          id_factura, codalm, consecutivo, comprobante, fecha, codter, 
+          tipo_nota, clase, codcon, detalle, valor_nota, iva_nota, 
+          retencion_nota, reteica_nota, reteiva_nota, total_nota, 
+          usuario, estado, fecsys, valor_descuento, estado_envio
         )
         OUTPUT INSERTED.id
         VALUES (
-          @numero,
-          @facturaId,
-          @clienteId,
-          @fechaEmision,
-          @motivo,
-          @subtotal,
-          @iva,
-          @total,
-          @estadoDian,
-          @tipoNota
+          @id_factura, @codalm, @consecutivo, @comprobante, @fecha, @codter,
+          @tipo_nota, @clase, @codcon, @detalle, @valor_nota, @iva_nota,
+          @retencion_nota, @reteica_nota, @reteiva_nota, @total_nota,
+          @usuario, @estado, GETDATE(), @valor_descuento, @estado_envio
         );
       `);
 
@@ -2850,48 +2894,64 @@ app.post('/api/notas-credito', async (req, res) => {
         await tx.rollback();
         return res.status(500).json({
           success: false,
-          message: 'No se pudo registrar la nota de crédito'
+          message: 'No se pudo registrar la nota de crédito en gen_movimiento_notas'
         });
       }
 
       for (const detalle of detallesNormalizados) {
+        // Obtener info adicional del producto para Ven_Devolucion
+        // Necesitamos codins (ya lo tenemos en productosCache o detalle), unddev (unidad)
+        const productoInfo = productosCache.get(detalle.productoId);
+        const codins = productoInfo?.codins || String(detalle.productoId); // Fallback
+
+        // Consultar unidad de medida del producto si no la tenemos
+        let unidadMedida = 'UND'; // Default
+        try {
+          const undReq = new sql.Request(tx);
+          undReq.input('pid', sql.Int, detalle.productoId);
+          const undRes = await undReq.query('SELECT undins FROM inv_insumos WHERE id = @pid');
+          if (undRes.recordset.length > 0) {
+            unidadMedida = undRes.recordset[0].undins;
+          }
+        } catch (e) { console.warn('No se pudo obtener unidad medida', e); }
+
         const insertDetalleRequest = new sql.Request(tx);
-        insertDetalleRequest.input('notaId', sql.Int, nuevaNotaId);
-        insertDetalleRequest.input('productoId', sql.Int, detalle.productoId);
-        insertDetalleRequest.input('cantidad', sql.Decimal(18, 4), detalle.cantidad);
-        insertDetalleRequest.input('precioUnitario', sql.Decimal(18, 4), detalle.precioUnitario);
-        insertDetalleRequest.input('descuentoPorcentaje', sql.Decimal(18, 4), detalle.descuentoPorcentaje);
-        insertDetalleRequest.input('ivaPorcentaje', sql.Decimal(18, 4), detalle.ivaPorcentaje);
-        insertDetalleRequest.input('subtotal', sql.Decimal(18, 2), detalle.subtotal);
-        insertDetalleRequest.input('valorIva', sql.Decimal(18, 2), detalle.valorIva);
-        insertDetalleRequest.input('total', sql.Decimal(18, 2), detalle.total);
+        // Mapeo para Ven_Devolucion
+        insertDetalleRequest.input('Codalm', sql.Char(3), factura.codalm || '001');
+        insertDetalleRequest.input('Numdev', sql.Int, nextConsecutivo); // Usamos el mismo consecutivo?
+        insertDetalleRequest.input('Numfac', sql.Char(8), String(factura.numeroFactura).substring(0, 8)); // Ajustar a char(8)
+        insertDetalleRequest.input('Codins', sql.Char(8), String(codins).substring(0, 8));
+        insertDetalleRequest.input('Costo', sql.Decimal(18, 2), 0); // No tenemos costo a mano, default 0 o buscar
+        insertDetalleRequest.input('Venta', sql.Decimal(18, 0), Math.round(detalle.precioUnitario)); // Numeric(18,0) en ejemplo
+        insertDetalleRequest.input('Iva', sql.Decimal(18, 0), Math.round(detalle.ivaPorcentaje)); // Numeric(18,0) en ejemplo
+        insertDetalleRequest.input('Fecdev', sql.DateTime, fechaNota);
+        insertDetalleRequest.input('comprobante', sql.VarChar(12), comprobante);
+        insertDetalleRequest.input('Estreg', sql.Char(1), ''); // Ejemplo vacío
+        insertDetalleRequest.input('Codusu', sql.VarChar(10), 'SISTEMA');
+        insertDetalleRequest.input('PC', sql.VarChar(30), 'SISTEMA'); // Nombre PC
+        insertDetalleRequest.input('QTYDEV', sql.Decimal(10, 4), detalle.cantidad);
+        insertDetalleRequest.input('TIPFAC', sql.Char(2), String(factura.tipoFactura || 'FV').substring(0, 2));
+        insertDetalleRequest.input('desins', sql.Decimal(8, 5), detalle.descuentoPorcentaje || 0);
+        insertDetalleRequest.input('unddev', sql.VarChar(3), String(unidadMedida).substring(0, 3));
+        insertDetalleRequest.input('id_nota', sql.Int, nuevaNotaId);
 
         await insertDetalleRequest.query(`
-          INSERT INTO ven_detanotas (
-            nota_id,
-            producto_id,
-            cantidad,
-            precio_unitario,
-            descuento_porcentaje,
-            iva_porcentaje,
-            subtotal,
-            valor_iva,
-            total
+          INSERT INTO Ven_Devolucion (
+            Codalm, Numdev, Numfac, Codins, Costo, Venta, Iva, Fecdev,
+            comprobante, Estreg, Codusu, Fecsys, PC, QTYDEV, TIPFAC,
+            desins, unddev, id_nota
           )
           VALUES (
-            @notaId,
-            @productoId,
-            @cantidad,
-            @precioUnitario,
-            @descuentoPorcentaje,
-            @ivaPorcentaje,
-            @subtotal,
-            @valorIva,
-            @total
+            @Codalm, @Numdev, @Numfac, @Codins, @Costo, @Venta, @Iva, @Fecdev,
+            @comprobante, @Estreg, @Codusu, GETDATE(), @PC, @QTYDEV, @TIPFAC,
+            @desins, @unddev, @id_nota
           );
         `);
       }
 
+      // El campo estado_devolucion no existe en ven_facturas según el esquema.
+      // Se omite la actualización de este campo.
+      /*
       const estadoDevolucion = determinarEstadoDevolucion(detalleFactura, devolucionesPrevias, devolucionesActuales);
 
       if (estadoDevolucion) {
@@ -2900,10 +2960,11 @@ app.post('/api/notas-credito', async (req, res) => {
         updateFacturaRequest.input('facturaId', sql.Int, factura.id);
         await updateFacturaRequest.query(`
           UPDATE ven_facturas
-          SET estado_devolucion = @estadoDevolucion, updated_at = GETDATE()
+          SET estado_devolucion = @estadoDevolucion
           WHERE id = @facturaId
         `);
       }
+      */
 
       await tx.commit();
 
@@ -2936,6 +2997,8 @@ app.post('/api/notas-credito', async (req, res) => {
         // 5. Transformar a JSON DIAN
         const notaJson = await DIANService.transformNotaCreditoForDIAN(notaData, resolution, dianParams);
 
+        console.log('📦 [DIAN] JSON de Nota de Crédito a enviar:', JSON.stringify(notaJson, null, 2));
+
         // 6. Enviar a DIAN
         const dianResponse = await DIANService.sendInvoiceToDIAN(
           notaJson,
@@ -2950,31 +3013,45 @@ app.post('/api/notas-credito', async (req, res) => {
           const updateDianReq = new sql.Request(pool);
           updateDianReq.input('notaId', sql.Int, nuevaNotaId);
           updateDianReq.input('cufe', sql.VarChar(100), dianResponse.cufe);
-          updateDianReq.input('estadoDian', sql.VarChar(20), '1'); // 1 = Aceptada
+          updateDianReq.input('estadoEnvio', sql.Bit, 1); // 1 = Enviado/Aceptado
+          updateDianReq.input('estado', sql.Char(2), 'OK'); // OK = Aprobado
 
           await updateDianReq.query(`
-            UPDATE ven_notas
-            SET cufe = @cufe, estado_dian = @estadoDian, updated_at = GETDATE()
+            UPDATE gen_movimiento_notas
+            SET cufe = @cufe, estado_envio = @estadoEnvio, estado = @estado, fecsys = GETDATE()
             WHERE id = @notaId
           `);
 
           // Actualizar objeto de respuesta
           notaCreada.estadoDian = '1';
           notaCreada.cufe = dianResponse.cufe;
+          notaCreada.estado = 'OK';
         } else {
           console.warn('⚠️ Nota de Crédito rechazada por DIAN:', dianResponse.message);
 
           const updateDianReq = new sql.Request(pool);
           updateDianReq.input('notaId', sql.Int, nuevaNotaId);
-          updateDianReq.input('estadoDian', sql.VarChar(20), '0'); // 0 = Rechazada
+          updateDianReq.input('estadoEnvio', sql.Bit, 0); // 0 = No enviado/Rechazado
+          updateDianReq.input('estado', sql.Char(2), 'RE'); // RE = Rechazado
 
-          await updateDianReq.query(`
-            UPDATE ven_notas
-            SET estado_dian = @estadoDian, updated_at = GETDATE()
-            WHERE id = @notaId
-          `);
+          // Guardar CUFE/UUID incluso si fue rechazada (para trazabilidad)
+          let query = `
+            UPDATE gen_movimiento_notas
+            SET estado_envio = @estadoEnvio, estado = @estado, fecsys = GETDATE()
+          `;
+
+          if (dianResponse.cufe) {
+            updateDianReq.input('cufe', sql.VarChar(100), dianResponse.cufe);
+            query += `, cufe = @cufe`;
+            notaCreada.cufe = dianResponse.cufe;
+          }
+
+          query += ` WHERE id = @notaId`;
+
+          await updateDianReq.query(query);
 
           notaCreada.estadoDian = '0';
+          notaCreada.estado = 'RE';
         }
       } catch (dianError) {
         console.error('❌ Error en proceso DIAN para Nota de Crédito:', dianError);
@@ -7842,8 +7919,8 @@ app.post('/api/facturas', async (req, res) => {
           }
         }
 
-        // Incrementar el número
-        const nuevoNumFact = nextNumFact + 1;
+        // Decrementar el número (secuencia descendente)
+        const nuevoNumFact = nextNumFact - 1;
 
         // numfact es solo el número (ej: 80605)
         numeroFacturaFinal = String(nuevoNumFact);
@@ -9201,7 +9278,7 @@ app.post('/api/facturas/:id/timbrar', async (req, res) => {
           // Factura aceptada y timbrada
           cufeGenerado = dianResponse.cufe;
           fechaTimbradoGenerada = dianResponse.fechaTimbrado || new Date();
-          estadoFinal = 'E'; // ENVIADA
+          estadoFinal = 'A'; // APROBADA (antes ENVIADA)
 
           console.log('\n✅ [TIMBRADO] FACTURA ACEPTADA Y TIMBRADA POR DIAN:');
           console.log('   - CUFE:', cufeGenerado);
