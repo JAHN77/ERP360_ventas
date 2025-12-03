@@ -536,39 +536,47 @@ class DIANService {
       codmunicipio: companyData.id_location
     });
 
-    // Obtener último número de factura desde ven_facturas (Base de datos: Prueba_ERP360)
-    console.log('\n📊 Obteniendo número de factura (Lógica Descendente Temporales)...');
-    let invoiceNumber = 90000; // Valor inicial por defecto
-    try {
-      const pool = await getConnection();
-      const request = pool.request();
+    // Obtener número de factura
+    // PRIORIDAD 1: Usar el número que YA está guardado en la base de datos (venFactura.numfact)
+    // Esto asegura que lo que se envía a la DIAN es exactamente lo que está en el ERP
+    console.log('\n📊 Obteniendo número de factura...');
+    let invoiceNumber = parseInt(venFactura.numfact);
 
-      // Buscar el número MÍNIMO en el rango de temporales (<= 90000)
-      // Para ir descendiendo: 90000 -> 89999 -> 89998 ...
-      const minNumResult = await request.query(`
-        SELECT MIN(CAST(numfact AS BIGINT)) as minNum
-        FROM ven_facturas
-        WHERE ISNUMERIC(numfact) = 1 
-          AND numfact NOT LIKE '%[A-Za-z]%'
-          AND CAST(numfact AS BIGINT) <= 90000
-          AND CAST(numfact AS BIGINT) > 89000
-      `);
+    if (!isNaN(invoiceNumber) && invoiceNumber > 0) {
+      console.log(`✅ Usando número de factura de la BD: ${invoiceNumber}`);
+    } else {
+      console.warn(`⚠️ [DIAN] numfact en BD ("${venFactura.numfact}") no es válido, intentando calcular...`);
 
-      if (minNumResult.recordset.length > 0 && minNumResult.recordset[0].minNum) {
-        const minNumber = parseInt(minNumResult.recordset[0].minNum);
-        console.log(`✅ Factura más baja encontrada en rango temporal: ${minNumber}`);
+      // Fallback: Calcular basado en el último número (Lógica Descendente)
+      try {
+        const pool = await getConnection();
+        const request = pool.request();
 
-        // Si encontramos un número, el siguiente es ese menos 1
-        invoiceNumber = minNumber - 1;
-        console.log(`✅ Nuevo número de factura generado: ${invoiceNumber} (descendiendo desde ${minNumber})`);
-      } else {
-        // Si no hay facturas en el rango, comenzamos en 90000
-        invoiceNumber = 90000;
-        console.log(`⚠️ No se encontraron facturas en rango temporal, iniciando en: ${invoiceNumber}`);
+        // Buscar el número MÍNIMO existente
+        const minNumResult = await request.query(`
+          SELECT MIN(CAST(numfact AS BIGINT)) as minNum
+          FROM ven_facturas
+          WHERE ISNUMERIC(numfact) = 1 
+            AND numfact NOT LIKE '%[A-Za-z]%'
+            AND CAST(numfact AS BIGINT) > 0
+        `);
+
+        if (minNumResult.recordset.length > 0 && minNumResult.recordset[0].minNum) {
+          const minNumber = parseInt(minNumResult.recordset[0].minNum);
+          console.log(`✅ Factura más baja encontrada en BD: ${minNumber}`);
+
+          // Si encontramos un número, el siguiente es ese menos 1
+          invoiceNumber = minNumber - 1;
+          console.log(`✅ Nuevo número de factura calculado: ${invoiceNumber} (descendiendo desde ${minNumber})`);
+        } else {
+          // Si no hay facturas, comenzamos en 89000
+          invoiceNumber = 89000;
+          console.log(`⚠️ No se encontraron facturas previas, iniciando en: ${invoiceNumber}`);
+        }
+      } catch (error) {
+        console.warn('⚠️ [DIAN] Error calculando número de factura, usando default 89000:', error.message);
+        invoiceNumber = 89000;
       }
-    } catch (error) {
-      console.warn('⚠️ [DIAN] Error obteniendo número de factura, usando 90000:', error.message);
-      invoiceNumber = 90000;
     }
 
     // Calcular totales usando valvta (sin IVA) y valiva (IVA) desde ven_facturas (Base de datos: Prueba_ERP360)

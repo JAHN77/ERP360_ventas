@@ -7873,59 +7873,50 @@ app.post('/api/facturas', async (req, res) => {
         // Extraer el numfact y continuar desde ahí
         const reqLast = new sql.Request(tx);
         const lastResult = await reqLast.query(`
-          SELECT TOP 1 numfact, doccoc
+          SELECT TOP 1 numfact, doccoc, estfac, CUFE
           FROM ${TABLE_NAMES.facturas}
           ORDER BY id DESC
         `);
 
-        let nextNumFact = 80604; // Valor por defecto si no hay registros
+        let nextNumFact = 89000; // Valor inicial si no hay registros
 
         if (lastResult.recordset.length > 0) {
           const lastRecord = lastResult.recordset[0];
+          // Lógica de numeración descendente corregida
+          // 1. Obtener el último número y su CUFE
           const lastNumfact = String(lastRecord.numfact || '').trim();
-          const lastDoccoc = String(lastRecord.doccoc || '').trim();
+          const lastCufe = String(lastRecord.CUFE || '').trim();
 
-          console.log(`🔍 Último registro encontrado: numfact="${lastNumfact}", doccoc="${lastDoccoc}"`);
+          console.log(`🔍 Último registro encontrado: numfact="${lastNumfact}", tieneCUFE=${lastCufe ? 'SI' : 'NO'}`);
 
-          // Intentar extraer el número de doccoc (formato: año-numfact, ej: 2025-80604)
-          if (lastDoccoc && lastDoccoc.includes('-')) {
-            const partes = lastDoccoc.split('-');
-            if (partes.length >= 2) {
-              const numPart = partes[partes.length - 1].trim();
-              if (/^\d+$/.test(numPart)) {
-                nextNumFact = parseInt(numPart, 10);
-                console.log(`✅ Número extraído de doccoc: ${nextNumFact}`);
-              }
+          if (/^\d+$/.test(lastNumfact)) {
+            const lastNum = parseInt(lastNumfact, 10);
+
+            // 2. Aplicar reglas de negocio basadas en CUFE
+            // Si tiene CUFE válido, restamos 1 (secuencia descendente)
+            // Si NO tiene CUFE (o es inválido/rechazo), reutilizamos el número
+            const tieneCufeValido = lastCufe && lastCufe.length > 20 && !lastCufe.includes('RECHAZO') && !lastCufe.includes('ERROR');
+
+            if (tieneCufeValido) {
+              nextNumFact = lastNum - 1;
+              console.log(`✅ La última factura tiene CUFE válido. Generando siguiente (descendente): ${nextNumFact}`);
+            } else {
+              nextNumFact = lastNum;
+              console.log(`⚠️ La última factura NO tiene CUFE válido. Reutilizando número: ${nextNumFact}`);
             }
+          } else {
+            // Si el último número no es numérico, fallback a default
+            console.warn(`⚠️ El último numfact "${lastNumfact}" no es numérico. Usando default: ${nextNumFact}`);
           }
-
-          // Si no se pudo extraer de doccoc, intentar desde numfact
-          if (nextNumFact === 80604 && lastNumfact) {
-            // Si numfact tiene formato año-numfact
-            if (lastNumfact.includes('-')) {
-              const partes = lastNumfact.split('-');
-              if (partes.length >= 2) {
-                const numPart = partes[partes.length - 1].trim();
-                if (/^\d+$/.test(numPart)) {
-                  nextNumFact = parseInt(numPart, 10);
-                  console.log(`✅ Número extraído de numfact: ${nextNumFact}`);
-                }
-              }
-            } else if (/^\d+$/.test(lastNumfact)) {
-              // Si numfact es solo un número
-              nextNumFact = parseInt(lastNumfact, 10);
-              console.log(`✅ Número extraído de numfact (numérico): ${nextNumFact}`);
-            }
-          }
+        } else {
+          // Si no hay registros, usar el valor inicial
+          console.log(`ℹ️ No hay facturas previas. Iniciando secuencia en: ${nextNumFact}`);
         }
 
-        // Decrementar el número (secuencia descendente)
-        const nuevoNumFact = nextNumFact - 1;
+        // Asignar el nuevo número
+        numeroFacturaFinal = String(nextNumFact);
 
-        // numfact es solo el número (ej: 80605)
-        numeroFacturaFinal = String(nuevoNumFact);
-
-        console.log(`📝 Número de factura generado automáticamente: "${numeroFacturaFinal}" (continuando desde ${nextNumFact})`);
+        console.log(`📝 Número de factura generado automáticamente: "${numeroFacturaFinal}"`);
       } else {
         // Validar que no exista usando la columna numfact
         const reqExistente = new sql.Request(tx);
@@ -8803,7 +8794,7 @@ app.put('/api/facturas/:id', async (req, res) => {
             cufeGenerado = dianResponse.cufe;
             fechaTimbradoGenerada = dianResponse.fechaTimbrado || new Date();
             fechaTimbradoGenerada = dianResponse.fechaTimbrado || new Date();
-            estadoFinal = 'E'; // ENVIADA - Solo después de que DIAN confirme el timbrado
+            estadoFinal = 'A'; // APROBADA - Cuando ya tiene CUFE es una factura Aprobada
 
             // Actualizar estado_envio a 1 (Aceptada)
             reqUpdate.input('estado_envio', sql.Bit, 1);
@@ -8816,7 +8807,7 @@ app.put('/api/facturas/:id', async (req, res) => {
             console.log(`[${requestId}]    - PDF URL:`, dianResponse.pdf_url || 'N/A');
             console.log(`[${requestId}]    - XML URL:`, dianResponse.xml_url || 'N/A');
             console.log(`[${requestId}]    - QR Code:`, dianResponse.qr_code ? 'Presente' : 'N/A');
-            console.log(`[${requestId}]    - Estado final: ENVIADA (E) - Factura timbrada exitosamente`);
+            console.log(`[${requestId}]    - Estado final: APROBADA (A) - Factura timbrada exitosamente`);
             console.log(`[${requestId}] ` + '='.repeat(80) + '\n');
           } else {
             // Factura rechazada o error en respuesta de DIAN
@@ -8870,7 +8861,8 @@ app.put('/api/facturas/:id', async (req, res) => {
       }
 
       // Construir actualizaciones dinámicamente usando las columnas reales
-      if (body.estado !== undefined) {
+      // Actualizar estfac si viene en el body O si se realizó timbrado (cambio de estado automático)
+      if (body.estado !== undefined || debeTimbrar) {
         reqUpdate.input('estfac', sql.VarChar(10), estadoFinal);
         updates.push('estfac = @estfac');
       }
