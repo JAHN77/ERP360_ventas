@@ -12,7 +12,7 @@ import { useColumnManager } from '../hooks/useColumnManager';
 import ColumnManagerModal from '../components/ui/ColumnManagerModal';
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
 }
 
 const ProductosPage: React.FC = () => {
@@ -23,7 +23,7 @@ const ProductosPage: React.FC = () => {
   const [selectedProducto, setSelectedProducto] = useState<InvProducto | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('Todos');
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
-  
+
   // Estados para paginación del servidor
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -32,7 +32,7 @@ const ProductosPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: keyof InvProducto | null; direction: 'asc' | 'desc' } | null>(null);
-  
+
   // Cargar categorías una sola vez
   useEffect(() => {
     (async () => {
@@ -49,14 +49,14 @@ const ProductosPage: React.FC = () => {
         const prodRes = await apiClient.getProductos(undefined, currentPage, pageSize, searchTerm || undefined);
         if (prodRes.success) {
           let productosData = (prodRes.data as any[]) as InvProducto[];
-          
+
           // Aplicar filtro de categoría en el cliente
           if (categoryFilter !== 'Todos') {
             productosData = productosData.filter(p => p.idCategoria === parseInt(categoryFilter));
           }
-          
+
           setProductos(productosData);
-          
+
           // Usar información de paginación del servidor
           if ((prodRes as any).pagination) {
             // Nota: El total puede no ser exacto si se aplica filtro de categoría en el cliente
@@ -71,15 +71,15 @@ const ProductosPage: React.FC = () => {
         setIsLoading(false);
       }
     };
-    
+
     // Debounce para búsqueda: esperar 500ms después de que el usuario deje de escribir
     const timeoutId = setTimeout(() => {
       loadProductos();
     }, searchTerm ? 500 : 0); // Si hay búsqueda, esperar; si no, cargar inmediatamente
-    
+
     return () => clearTimeout(timeoutId);
   }, [currentPage, pageSize, searchTerm, categoryFilter]);
-  
+
   const handleOpenModal = (producto: InvProducto) => {
     setSelectedProducto(producto);
     setIsModalOpen(true);
@@ -102,7 +102,7 @@ const ProductosPage: React.FC = () => {
       handleOpenModal(targetProduct);
     }
   }, [params?.focusId, productos]);
- 
+
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedProducto(null);
@@ -113,20 +113,71 @@ const ProductosPage: React.FC = () => {
   };
 
   const defaultColumns = useMemo<Column<InvProducto>[]>(() => [
-    { header: 'Nombre', accessor: 'nombre' },
-    { header: 'Referencia', accessor: 'referencia' },
-    { header: 'Último Costo', accessor: 'ultimoCosto', cell: (item) => formatCurrency((item as any).ultimoCosto || 0) },
-    { header: 'Stock', accessor: 'stock', cell: (item) => `${(item as any).stock ?? 0}` },
-    { header: 'Acciones', accessor: 'id', cell: (item) => (
-      <div className="space-x-3">
-        <button onClick={() => handleOpenModal(item)} className="text-sky-500 hover:underline text-sm font-medium">Ver</button>
-        <ProtectedComponent permission="productos:edit">
-            <button onClick={() => setPage('editar_producto', { id: item.id })} className="text-blue-500 hover:underline text-sm font-medium">Editar</button>
-        </ProtectedComponent>
-      </div>
-    )},
+    {
+      header: 'Nombre',
+      accessor: 'nombre',
+      cell: (item) => (
+        <div className="flex flex-col">
+          <span className="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[250px]" title={item.nombre}>{item.nombre}</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">{(item as any).descripcion || ''}</span>
+        </div>
+      )
+    },
+    {
+      header: 'Referencia',
+      accessor: 'referencia',
+      cell: (item) => <span className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">{item.referencia || 'N/A'}</span>
+    },
+    {
+      header: 'Precio (Inc. IVA)',
+      accessor: 'ultimoCosto',
+      cell: (item) => {
+        const costo = (item as any).ultimoCosto || 0;
+        const iva = (item as any).tasaIva || 0;
+        const precioConIva = costo * (1 + (iva / 100));
+        return <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{formatCurrency(precioConIva)}</span>
+      }
+    },
+    {
+      header: 'Stock',
+      accessor: 'stock',
+      cell: (item) => {
+        const stock = (item as any).stock ?? 0;
+        const isLow = stock < 10;
+        return (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isLow
+            ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+            : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+            }`}>
+            {stock}
+          </span>
+        );
+      }
+    },
+    {
+      header: 'Acciones', accessor: 'id', cell: (item) => (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleOpenModal(item)}
+            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+            title="Ver Detalles"
+          >
+            <i className="fas fa-eye"></i>
+          </button>
+          <ProtectedComponent permission="productos:edit">
+            <button
+              onClick={() => setPage('editar_producto', { id: item.id })}
+              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+              title="Editar Producto"
+            >
+              <i className="fas fa-pencil-alt"></i>
+            </button>
+          </ProtectedComponent>
+        </div>
+      )
+    },
   ], [setPage]);
-  
+
   const {
     visibleColumns,
     allManagedColumns,
@@ -166,93 +217,114 @@ const ProductosPage: React.FC = () => {
 
   const additionalFilters = (
     <div className="flex flex-col sm:flex-row gap-4">
-        <div>
-            <label htmlFor="categoryFilter" className="sr-only">Categoría</label>
-            <select
-              id="categoryFilter"
-              value={categoryFilter}
-              onChange={(e) => handleCategoryFilterChange(e.target.value)}
-              className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-                <option value="Todos">Todas las Categorías</option>
-                {categorias.filter(c => c.estado === 1).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-            </select>
-        </div>
+      <div>
+        <label htmlFor="categoryFilter" className="sr-only">Categoría</label>
+        <select
+          id="categoryFilter"
+          value={categoryFilter}
+          onChange={(e) => handleCategoryFilterChange(e.target.value)}
+          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="Todos">Todas las Categorías</option>
+          {categorias.filter(c => c.estado === 1).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+        </select>
+      </div>
     </div>
   );
 
   return (
-    <div>
-        <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Gestión de Productos</h1>
+    <div className="space-y-8 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+            Gestión de Productos
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">
+            Administra el catálogo de productos y su inventario.
+          </p>
         </div>
-        <Card>
-            <TableToolbar 
-              searchTerm={searchTerm}
-              onSearchChange={handleSearch}
-              createActionLabel="Nuevo Producto"
-              onCreateAction={() => setPage('nuevo_producto')}
-              additionalFilters={additionalFilters}
-              onCustomizeColumns={() => setIsColumnModalOpen(true)}
-            />
-            <CardContent className="p-0">
-                {isLoading ? (
-                  <div className="p-8 text-center text-slate-600 dark:text-slate-400">
-                    Cargando productos...
-                  </div>
-                ) : (
-                  <Table 
-                    columns={visibleColumns} 
-                    data={productos} 
-                    onSort={requestSort} 
-                    sortConfig={sortConfig}
-                    highlightRowId={params?.highlightId ?? params?.focusId}
-                  />
-                )}
-            </CardContent>
-             <TablePagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={handlePageChange}
-              canPreviousPage={currentPage > 1}
-              canNextPage={currentPage < totalPages}
-              onPreviousPage={() => handlePageChange(currentPage - 1)}
-              onNextPage={() => handlePageChange(currentPage + 1)}
-              totalItems={totalItems}
-              rowsPerPage={pageSize}
-              setRowsPerPage={handlePageSizeChange}
-            />
-        </Card>
+      </div>
 
-        <ColumnManagerModal
-            isOpen={isColumnModalOpen}
-            onClose={() => setIsColumnModalOpen(false)}
-            columns={allManagedColumns}
-            onSave={(newColumns) => {
-                setManagedColumns(newColumns);
-                setIsColumnModalOpen(false);
-            }}
-            onReset={() => {
-                resetManagedColumns();
-                setIsColumnModalOpen(false);
-            }}
-        />
+      <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+          <TableToolbar
+            searchTerm={searchTerm}
+            onSearchChange={handleSearch}
+            createActionLabel="Nuevo Producto"
+            onCreateAction={() => setPage('nuevo_producto')}
+            additionalFilters={additionalFilters}
+            onCustomizeColumns={() => setIsColumnModalOpen(true)}
+            placeholder="Buscar producto, referencia..."
+          />
+        </div>
 
-        {selectedProducto && (
-        <Modal 
-            isOpen={isModalOpen} 
-            onClose={handleCloseModal} 
-            title={`Detalle del Producto: ${selectedProducto.nombre}`}
-            size="xl"
+        <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+          {isLoading ? (
+            <div className="p-12 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center gap-3">
+              <i className="fas fa-spinner fa-spin text-3xl text-blue-500"></i>
+              <span className="font-medium">Cargando productos...</span>
+            </div>
+          ) : (
+            <Table
+              columns={visibleColumns}
+              data={productos}
+              onSort={requestSort}
+              sortConfig={sortConfig}
+              highlightRowId={params?.highlightId ?? params?.focusId}
+            />
+          )}
+        </CardContent>
+
+        <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/30">
+          <TablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            canPreviousPage={currentPage > 1}
+            canNextPage={currentPage < totalPages}
+            onPreviousPage={() => handlePageChange(currentPage - 1)}
+            onNextPage={() => handlePageChange(currentPage + 1)}
+            totalItems={totalItems}
+            rowsPerPage={pageSize}
+            setRowsPerPage={handlePageSizeChange}
+          />
+        </div>
+      </Card>
+
+      <ColumnManagerModal
+        isOpen={isColumnModalOpen}
+        onClose={() => setIsColumnModalOpen(false)}
+        columns={allManagedColumns}
+        onSave={(newColumns) => {
+          setManagedColumns(newColumns);
+          setIsColumnModalOpen(false);
+        }}
+        onReset={() => {
+          resetManagedColumns();
+          setIsColumnModalOpen(false);
+        }}
+      />
+
+      {selectedProducto && (
+        <Modal
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          title={`Detalle del Producto: ${selectedProducto.nombre}`}
+          size="xl"
         >
           <div className="space-y-4 text-sm">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-                <div className="sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Nombre:</p><p>{selectedProducto.nombre}</p></div>
-                <div className="sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Descripción:</p><p>{(selectedProducto as any).descripcion || selectedProducto.nombre}</p></div>
-                <div><p className="font-semibold text-slate-600 dark:text-slate-400">Unidad de Medida:</p><p>{(selectedProducto as any).unidadMedidaNombre || (selectedProducto as any).unidadMedida || 'Unidad'}</p></div>
-                <div><p className="font-semibold text-slate-600 dark:text-slate-400">Stock Actual:</p><p>{(selectedProducto as any).stock ?? 0}</p></div>
-                <div><p className="font-semibold text-slate-600 dark:text-slate-400">Impuestos:</p><p>{((selectedProducto as any).tasaIva ?? 0) > 0 ? `Aplica IVA (${(selectedProducto as any).tasaIva}%)` : 'No aplica IVA'}</p></div>
-                <div><p className="font-semibold text-slate-600 dark:text-slate-400">Último Costo:</p><p className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency((selectedProducto as any).ultimoCosto || 0)}</p></div>
+              <div className="sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Nombre:</p><p>{selectedProducto.nombre}</p></div>
+              <div className="sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Descripción:</p><p>{(selectedProducto as any).descripcion || selectedProducto.nombre}</p></div>
+              <div><p className="font-semibold text-slate-600 dark:text-slate-400">Unidad de Medida:</p><p>{(selectedProducto as any).unidadMedidaNombre || (selectedProducto as any).unidadMedida || 'Unidad'}</p></div>
+              <div><p className="font-semibold text-slate-600 dark:text-slate-400">Stock Actual:</p><p>{(selectedProducto as any).stock ?? 0}</p></div>
+              <div><p className="font-semibold text-slate-600 dark:text-slate-400">Impuestos:</p><p>{((selectedProducto as any).tasaIva ?? 0) > 0 ? `Aplica IVA (${(selectedProducto as any).tasaIva}%)` : 'No aplica IVA'}</p></div>
+              <div>
+                <p className="font-semibold text-slate-600 dark:text-slate-400">Precio (Inc. IVA):</p>
+                <p className="font-bold text-blue-600 dark:text-blue-400">
+                  {formatCurrency(((selectedProducto as any).ultimoCosto || 0) * (1 + (((selectedProducto as any).tasaIva || 0) / 100)))}
+                </p>
+              </div>
             </div>
           </div>
         </Modal>

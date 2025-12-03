@@ -23,12 +23,12 @@ class ApiClient {
         // eslint-disable-next-line no-console
         console.debug('[api] request:', url, options.method || 'GET');
       }
-      
+
       // Crear un AbortController solo si no hay uno existente en options
       let controller: AbortController | null = null;
       let timeoutId: NodeJS.Timeout | null = null;
       const existingSignal = options.signal;
-      
+
       // Solo crear un timeout si no hay un signal existente
       // Para endpoints de test-connection, usar timeout más corto (5 segundos)
       // Para otros endpoints, usar timeout más largo (30 segundos)
@@ -41,7 +41,7 @@ class ApiClient {
           }
         }, timeoutDuration);
       }
-      
+
       try {
         const response = await fetch(url, {
           headers: {
@@ -51,7 +51,7 @@ class ApiClient {
           ...options,
           signal: controller?.signal || existingSignal, // Usar el signal del controller o el existente
         });
-        
+
         // Limpiar timeout solo si lo creamos nosotros
         if (timeoutId) {
           clearTimeout(timeoutId);
@@ -73,13 +73,13 @@ class ApiClient {
           } catch (e) {
             // Si no hay JSON en la respuesta, usar el mensaje por defecto
           }
-          
+
           // Si el error viene del backend con estructura {success: false, ...}, retornarlo directamente
           // Esto permite que el frontend maneje el error sin lanzar excepción
           if (errorResponse && errorResponse.success === false) {
             return errorResponse;
           }
-          
+
           // Para otros errores HTTP, retornar estructura consistente en lugar de lanzar excepción
           return {
             success: false,
@@ -132,10 +132,10 @@ class ApiClient {
       // Detectar AbortError de múltiples formas
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorName = error instanceof Error ? error.name : '';
-      const isAbortError = errorName === 'AbortError' || 
-                          errorMessage.includes('aborted') || 
-                          errorMessage.includes('signal is aborted');
-      
+      const isAbortError = errorName === 'AbortError' ||
+        errorMessage.includes('aborted') ||
+        errorMessage.includes('signal is aborted');
+
       if (isAbortError) {
         // Si es un AbortError, retornar respuesta de error de conexión sin loguear como error crítico
         if (typeof window !== 'undefined') {
@@ -147,7 +147,7 @@ class ApiClient {
           message: 'No se pudo conectar con el servidor (timeout)'
         };
       }
-      
+
       console.error(`Error en API request ${endpoint}:`, error);
       // Retornar respuesta con estructura consistente para que el frontend pueda manejarla
       // Si es un error de red (fetch falló), indicarlo claramente
@@ -167,8 +167,13 @@ class ApiClient {
   }
 
   // Métodos para obtener datos
-  async getClientes() {
-    return this.request('/clientes');
+  async getClientes(page?: number, pageSize?: number, hasEmail?: boolean) {
+    const queryParams = new URLSearchParams();
+    if (page) queryParams.append('page', String(page));
+    if (pageSize) queryParams.append('pageSize', String(pageSize));
+    if (hasEmail) queryParams.append('hasEmail', 'true');
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/clientes${params}`);
   }
 
   async getProductos(codalm?: string, page?: number, pageSize?: number, search?: string) {
@@ -260,6 +265,10 @@ class ApiClient {
     return this.request('/bodegas');
   }
 
+  async getCiudades() {
+    return this.request('/ciudades');
+  }
+
   async registerInventoryEntry(payload: any) {
     return this.request('/inventario/entradas', {
       method: 'POST',
@@ -308,7 +317,7 @@ class ApiClient {
     }
     const params = new URLSearchParams({ search: trimmedSearch, limit: String(limit) });
     return this.request(`/buscar/vendedores?${params.toString()}`);
-    }
+  }
 
   async searchProductos(search: string, limit = 20) {
     const trimmedSearch = String(search || '').trim();
@@ -414,16 +423,16 @@ class ApiClient {
 export const apiClient = new ApiClient();
 
 // Funciones de conveniencia para usar en el DataContext
-export const fetchClientes = () => apiClient.getClientes();
+export const fetchClientes = (page?: number, pageSize?: number, hasEmail?: boolean) => apiClient.getClientes(page, pageSize, hasEmail);
 export const fetchProductos = (codalm?: string) => apiClient.getProductos(codalm);
 export const fetchFacturas = () => apiClient.getFacturas();
 export const fetchFacturasDetalle = (facturaId?: string | number) => apiClient.getFacturasDetalle(facturaId);
 export const fetchCotizaciones = () => apiClient.getCotizaciones();
 export const fetchCotizacionesDetalle = (cotizacionId?: string | number) => apiClient.getCotizacionesDetalle(cotizacionId);
-export const fetchPedidos = (page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) => 
+export const fetchPedidos = (page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) =>
   apiClient.getPedidos(page, pageSize, search, estado, codter);
 export const fetchPedidosDetalle = (pedidoId?: string) => apiClient.getPedidosDetalle(pedidoId);
-export const fetchRemisiones = (page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) => 
+export const fetchRemisiones = (page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) =>
   apiClient.getRemisiones(page, pageSize, search, codter, codalm, estrec);
 export const fetchRemisionesDetalle = () => apiClient.getRemisionesDetalle();
 export const fetchNotasCredito = () => apiClient.getNotasCredito();
@@ -431,6 +440,7 @@ export const fetchMedidas = () => apiClient.getMedidas();
 export const fetchCategorias = () => apiClient.getCategorias();
 export const fetchVendedores = () => apiClient.getVendedores();
 export const fetchBodegas = () => apiClient.getBodegas();
+export const fetchCiudades = () => apiClient.getCiudades();
 export const testApiConnection = () => apiClient.testConnection();
 export const executeCustomQuery = (query: string) => apiClient.executeQuery(query);
 export const apiRegisterInventoryEntry = (payload: any) => apiClient.registerInventoryEntry(payload);

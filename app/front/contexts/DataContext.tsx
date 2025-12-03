@@ -11,7 +11,7 @@ import {
     fetchCotizaciones, fetchCotizacionesDetalle, fetchPedidos, fetchPedidosDetalle,
     fetchRemisiones, fetchRemisionesDetalle, fetchNotasCredito, fetchMedidas, fetchCategorias,
     testApiConnection, fetchVendedores, apiCreateCliente, fetchBodegas, apiCreateNotaCredito,
-    apiRegisterInventoryEntry
+    apiRegisterInventoryEntry, fetchCiudades
 } from '../services/apiClient';
 import { generarRemisionPDFenBlob, generarFacturaPDFenBlob } from '../utils/pdfGenerator';
 import { defaultPreferences } from '../hooks/useDocumentPreferences';
@@ -268,7 +268,26 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
                 // Load mock data for other catalogs (temporary)
                 setDepartamentos([]);
-                setCiudades([]);
+                // setCiudades([]); // Replaced by actual fetching below
+                setTiposDocumento([]);
+                setTiposPersona([]);
+
+                // Cargar ciudades
+                let ciudadesResp;
+                try {
+                    ciudadesResp = await fetchCiudades();
+                } catch (error) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando ciudades:', error);
+                    ciudadesResp = { success: false, data: [] };
+                }
+                if (ciudadesResp.success) {
+                    const ciudadesData = extractArrayData(ciudadesResp);
+                    if (ciudadesData.length > 0) {
+                        setCiudades(ciudadesData);
+                    }
+                } else {
+                    setCiudades([]);
+                }
                 setTiposDocumento([]);
                 setTiposPersona([]);
                 setRegimenesFiscal([]);
@@ -332,7 +351,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
                 // Load essential data first (clientes and productos)
                 const [clientesResponse, productosResponse] = await Promise.all([
-                    fetchClientes(),
+                    fetchClientes(1, 5000),
                     fetchProductos(codalm)
                 ]);
 

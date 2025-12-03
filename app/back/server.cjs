@@ -455,6 +455,11 @@ app.get('/api/clientes', async (req, res) => {
       params.search = `%${searchTerm}%`;
     }
 
+    // Filtro por email (hasEmail=true)
+    if (req.query.hasEmail === 'true') {
+      whereClause += ` AND EMAIL IS NOT NULL AND LTRIM(RTRIM(EMAIL)) != ''`;
+    }
+
     // Query principal con paginación
     const query = `
       SELECT 
@@ -616,11 +621,29 @@ app.get('/api/clientes/:id', async (req, res) => {
         cliente.nombreCompleto = [nombres, apellidos].filter(Boolean).join(' ').trim() || cliente.razonSocial || 'Sin nombre';
       }
     }
-
     res.json({ success: true, data: cliente });
   } catch (error) {
     console.error('❌ [Backend] Error obteniendo cliente por id:', error);
     res.status(500).json({ success: false, message: 'Error obteniendo cliente', error: error.message });
+  }
+});
+
+// --- OBTENER CIUDADES ---
+app.get('/api/ciudades', async (req, res) => {
+  try {
+    const ciudades = await executeQueryWithParams(`
+      SELECT 
+        ID as id,
+        nommun as nombre,
+        coddane as codigo,
+        coddep as departamentoId
+      FROM gen_municipios
+      ORDER BY nommun ASC
+    `);
+    res.json({ success: true, data: ciudades });
+  } catch (error) {
+    console.error('Error obteniendo ciudades:', error);
+    res.status(500).json({ success: false, message: 'Error obteniendo ciudades', error: error.message });
   }
 });
 
@@ -4418,7 +4441,7 @@ app.put('/api/cotizaciones/:id', async (req, res) => {
 app.post('/api/clientes', async (req, res) => {
   try {
     const b = req.body || {};
-    const required = ['numeroDocumento', 'razonSocial', 'direccion', 'ciudadId'];
+    const required = ['numeroDocumento', 'razonSocial', 'direccion', 'ciudad', 'coddane', 'tipoDocumento'];
     for (const k of required) { if (!b[k]) return res.status(400).json({ success: false, message: `Falta ${k}` }); }
 
     // Asegurar que todos los parámetros opcionales tengan valores por defecto
@@ -4430,28 +4453,45 @@ app.post('/api/clientes', async (req, res) => {
       primerNombre: b.primerNombre || null,
       segundoNombre: b.segundoNombre || null,
       direccion: b.direccion,
-      ciudadId: b.ciudadId,
+      ciudad: b.ciudad,
       vendedorId: b.vendedorId || null,
       email: b.email || null,
       telefono: b.telefono || null,
       celular: b.celular || null,
       diasCredito: b.diasCredito || 0,
       formaPago: b.formaPago || null,
-      regimenTributario: b.regimenTributario || null
+      regimenTributario: b.regimenTributario || null,
+      // Campos requeridos
+      tipoDocumento: b.tipoDocumento,
+      coddane: b.coddane,
+      codterIni: b.numeroDocumento, // Mismo que numeroDocumento
+      idDescuento: 1 // Default descuento
     };
 
     const insert = await executeQueryWithParams(`
       INSERT INTO con_terceros (
         codter, nomter, apl1, apl2, nom1, nom2, dirter, ciudad, codven,
-        EMAIL, TELTER, CELTER, plazo, Forma_pago, regimen_tributario, activo
+        EMAIL, TELTER, CELTER, plazo, Forma_pago, regimen_tributario, activo,
+        Tipo_documento, coddane, CodterINi, id_descuento
       ) VALUES (
         @numeroDocumento, @razonSocial, @primerApellido, @segundoApellido, @primerNombre, @segundoNombre,
-        @direccion, @ciudadId, @vendedorId, @email, @telefono, @celular, @diasCredito, @formaPago, @regimenTributario, 1
+        @direccion, @ciudad, @vendedorId, @email, @telefono, @celular, @diasCredito, @formaPago, @regimenTributario, 1,
+        @tipoDocumento, @coddane, @codterIni, @idDescuento
       );
       SELECT SCOPE_IDENTITY() AS id;`, params);
     res.json({ success: true, data: insert[0] });
   } catch (error) {
     console.error('Error creando cliente:', error);
+    console.error('Detalles del error:', {
+      message: error.message,
+      code: error.code,
+      number: error.number,
+      state: error.state,
+      class: error.class,
+      serverName: error.serverName,
+      procName: error.procName,
+      lineNumber: error.lineNumber
+    });
     res.status(500).json({ success: false, message: 'Error creando cliente', error: error.message });
   }
 });
@@ -7353,8 +7393,20 @@ app.post('/api/facturas', async (req, res) => {
       clienteId, vendedorId, remisionId, pedidoId,
       subtotal, descuentoValor = 0, ivaValor = 0, total = 0,
       observaciones = '', estado = 'BORRADOR', empresaId, items = [],
-      formaPago // Forma de pago desde el frontend
+      formaPago, // Forma de pago desde el frontend
+      remisionesIds // Array de IDs de remisiones (opcional, para facturación múltiple)
     } = body;
+
+    // Normalizar lista de remisiones
+    let allRemisionIds = [];
+    if (Array.isArray(remisionesIds)) {
+      allRemisionIds = [...remisionesIds];
+    }
+    if (remisionId) {
+      allRemisionIds.push(remisionId);
+    }
+    // Eliminar duplicados y valores nulos/vacíos
+    allRemisionIds = [...new Set(allRemisionIds)].filter(id => id);
 
     // Normalizar formaPago: si viene '1' o 'Contado', guardar como '01' internamente
     // Si viene '2' o 'Crédito', guardar como '02'
@@ -7380,133 +7432,124 @@ app.post('/api/facturas', async (req, res) => {
     const tx = new sql.Transaction(pool);
     await tx.begin();
     try {
-      // Si no vienen items pero hay remisionId, obtener items desde la remisión
+      // 0. VALIDAR QUE LAS REMISIONES NO ESTÉN YA FACTURADAS
+      if (allRemisionIds.length > 0) {
+        const reqCheck = new sql.Request(tx);
+        // Sanitizar IDs para evitar inyección SQL (aunque sean int, mejor prevenir)
+        const idsList = allRemisionIds.map(id => parseInt(id)).filter(id => !isNaN(id)).join(',');
+
+        if (idsList.length > 0) {
+          const checkResult = await reqCheck.query(`
+            SELECT id, numero_remision, factura_id
+            FROM ${TABLE_NAMES.remisiones}
+            WHERE id IN (${idsList}) AND factura_id IS NOT NULL
+          `);
+
+          if (checkResult.recordset.length > 0) {
+            await tx.rollback();
+            const remisionesDuplicadas = checkResult.recordset.map(r => r.numero_remision).join(', ');
+            return res.status(400).json({
+              success: false,
+              message: 'REMISIONES_YA_FACTURADAS',
+              error: `Las siguientes remisiones ya están asociadas a una factura: ${remisionesDuplicadas}`,
+              remisiones: checkResult.recordset
+            });
+          }
+        }
+      }
+
+      // Si no vienen items pero hay remisiones, obtener items desde las remisiones
       let itemsFinales = Array.isArray(items) ? items : [];
 
-      if (itemsFinales.length === 0 && remisionId) {
-        console.log(`📦 No se proporcionaron items, obteniendo desde remisión ID: ${remisionId}...`);
+      if (itemsFinales.length === 0 && allRemisionIds.length > 0) {
+        console.log(`📦 No se proporcionaron items, obteniendo desde ${allRemisionIds.length} remisión(es)...`);
 
-        const remisionIdStr = String(remisionId).trim();
-        const remisionIdNum = parseInt(remisionIdStr, 10);
+        const idsList = allRemisionIds.map(id => parseInt(id)).filter(id => !isNaN(id)).join(',');
 
-        if (!isNaN(remisionIdNum)) {
-          // Obtener items de la remisión con precios desde el pedido relacionado
+        if (idsList.length > 0) {
+          // Obtener items de TODAS las remisiones con precios desde el pedido relacionado
           const reqRemisionItems = new sql.Request(tx);
-          reqRemisionItems.input('remisionId', sql.Int, remisionIdNum);
 
           const remisionItemsResult = await reqRemisionItems.query(`
             SELECT 
               rd.codins as codProducto,
-              rd.cantidad_enviada as cantidad,
-              rd.cantidad_facturada,
-              -- Obtener el ID del producto desde inv_insumos usando codins
-              COALESCE(
-                (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
-                NULL
-              ) as productoId,
-              -- Obtener descripción del producto
-              COALESCE(
+              SUM(rd.cantidad_enviada) as cantidad, -- Agrupar cantidades del mismo producto
+              -- Obtener precio del pedido (promedio o max si hay varios, idealmente deberían ser iguales)
+              MAX(COALESCE(
+                (SELECT TOP 1 pd.valins 
+                 FROM ven_remiciones_enc re
+                 INNER JOIN ven_detapedidos pd ON pd.pedido_id = re.pedido_id
+                 WHERE re.id = rd.remision_id 
+                   AND re.pedido_id IS NOT NULL
+                   AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+                0
+              )) as precioUnitario,
+              -- Obtener descripción
+              MAX(COALESCE(
                 (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
                 LTRIM(RTRIM(COALESCE(rd.codins, '')))
-              ) as descripcion,
-              -- Obtener precios desde el pedido relacionado
-              COALESCE(
-                (SELECT TOP 1 pd.valins 
-                 FROM ven_detapedidos pd
-                 INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
-                 WHERE re.id = rd.remision_id 
-                   AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
-                 ORDER BY pd.pedido_id DESC),
-                0
-              ) as precioUnitario,
-              -- Obtener descuento desde el pedido
-              COALESCE(
-                (SELECT TOP 1 pd.dctped 
-                 FROM ven_detapedidos pd
-                 INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
-                 WHERE re.id = rd.remision_id 
-                   AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
-                 ORDER BY pd.pedido_id DESC),
-                0
-              ) as descuentoValor,
-              -- Obtener IVA desde el pedido
-              COALESCE(
-                (SELECT TOP 1 pd.ivaped 
-                 FROM ven_detapedidos pd
-                 INNER JOIN ven_remiciones_enc re ON re.pedido_id = pd.pedido_id
-                 WHERE re.id = rd.remision_id 
-                   AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
-                 ORDER BY pd.pedido_id DESC),
-                0
-              ) as valorIva,
-              -- Obtener tasa de IVA del producto
-              COALESCE(
+              )) as descripcion,
+              -- Obtener IVA
+              MAX(COALESCE(
                 (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
                 0
-              ) as ivaPorcentaje
+              )) as ivaPorcentaje,
+              -- Obtener ID producto
+              MAX(COALESCE(
+                (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+                NULL
+              )) as productoId
             FROM ${TABLE_NAMES.remisiones_detalle} rd
-            WHERE rd.remision_id = @remisionId
-              AND rd.cantidad_enviada > 0
+            WHERE rd.remision_id IN (${idsList})
+            GROUP BY rd.codins
           `);
 
-          if (remisionItemsResult.recordset.length === 0) {
-            await tx.rollback();
-            return res.status(400).json({
-              success: false,
-              message: `La remisión con ID ${remisionIdNum} no tiene items para facturar. Verifique que la remisión tenga productos con cantidad enviada mayor a cero.`,
-              error: 'REMISION_SIN_ITEMS'
+          if (remisionItemsResult.recordset.length > 0) {
+            itemsFinales = remisionItemsResult.recordset.map(item => {
+              const cantidad = Number(item.cantidad) || 0;
+              const precioUnitario = Number(item.precioUnitario) || 0;
+              const ivaPorcentajeItem = Number(item.ivaPorcentaje) || 0;
+
+              // Calcular valores
+              const subtotalItem = precioUnitario * cantidad;
+              const ivaItem = subtotalItem * (ivaPorcentajeItem / 100);
+              const totalItem = subtotalItem + ivaItem;
+
+              return {
+                productoId: item.productoId,
+                codProducto: item.codProducto,
+                cantidad: cantidad,
+                precioUnitario: precioUnitario,
+                descuentoPorcentaje: 0, // Asumir 0 si se agrupa, o mejorar lógica si es crítico
+                descuentoValor: 0,
+                ivaPorcentaje: ivaPorcentajeItem,
+                valorIva: ivaItem,
+                subtotal: subtotalItem,
+                total: totalItem,
+                descripcion: item.descripcion || item.codProducto
+              };
             });
-          }
+            console.log(`✅ Se obtuvieron ${itemsFinales.length} items consolidados desde las remisiones`);
 
-          // Transformar items de la remisión al formato esperado para la factura
-          itemsFinales = remisionItemsResult.recordset.map(item => {
-            const cantidad = Number(item.cantidad) || 0;
-            const precioUnitario = Number(item.precioUnitario) || 0;
-            const descuentoValorItem = Number(item.descuentoValor) || 0;
-            const valorIvaItem = Number(item.valorIva) || 0;
-            const ivaPorcentajeItem = Number(item.ivaPorcentaje) || 0;
-
-            // Calcular subtotal, IVA y total
-            const subtotalItem = (precioUnitario * cantidad) - descuentoValorItem;
-            const ivaItem = valorIvaItem || (subtotalItem * (ivaPorcentajeItem / 100));
-            const totalItem = subtotalItem + ivaItem;
-
-            // Calcular descuento porcentaje
-            const descuentoPorcentajeItem = (precioUnitario * cantidad) > 0
-              ? (descuentoValorItem / (precioUnitario * cantidad)) * 100
-              : 0;
-
-            return {
-              productoId: item.productoId,
-              codProducto: item.codProducto,
-              cantidad: cantidad,
-              precioUnitario: precioUnitario,
-              descuentoPorcentaje: descuentoPorcentajeItem,
-              descuentoValor: descuentoValorItem,
-              ivaPorcentaje: ivaPorcentajeItem,
-              valorIva: ivaItem,
-              subtotal: subtotalItem,
-              total: totalItem,
-              descripcion: item.descripcion || item.codProducto
-            };
-          });
-
-          console.log(`✅ Se obtuvieron ${itemsFinales.length} items desde la remisión ${remisionIdNum}`);
-
-          // Si no venían subtotal/total en el body, calcularlos desde los items
-          if (!subtotal || subtotal === 0) {
-            const subtotalCalculado = itemsFinales.reduce((sum, item) => sum + (item.subtotal || 0), 0);
-            const ivaCalculado = itemsFinales.reduce((sum, item) => sum + (item.valorIva || 0), 0);
-            const totalCalculado = itemsFinales.reduce((sum, item) => sum + (item.total || 0), 0);
-
-            // Actualizar valores en el body para que se usen más adelante
-            body.subtotal = subtotalCalculado;
-            body.ivaValor = ivaCalculado;
-            body.total = totalCalculado;
-
-            console.log(`✅ Valores calculados desde items de remisión: subtotal=${subtotalCalculado}, iva=${ivaCalculado}, total=${totalCalculado}`);
+            // Recalcular totales generales si no venían
+            if (!subtotal || subtotal === 0) {
+              // Esto se manejará más abajo en el código existente
+            }
           }
         }
+      }
+      // Recalcular totales generales si no venían en el body y tenemos items
+      if ((!subtotal || subtotal === 0) && itemsFinales.length > 0) {
+        const subtotalCalculado = itemsFinales.reduce((sum, item) => sum + (item.subtotal || 0), 0);
+        const ivaCalculado = itemsFinales.reduce((sum, item) => sum + (item.valorIva || 0), 0);
+        const totalCalculado = itemsFinales.reduce((sum, item) => sum + (item.total || 0), 0);
+
+        // Actualizar valores en el body para que se usen en la inserción
+        body.subtotal = subtotalCalculado;
+        body.ivaValor = ivaCalculado;
+        body.total = totalCalculado;
+
+        console.log(`✅ Valores calculados desde items de remisión: subtotal=${subtotalCalculado}, iva=${ivaCalculado}, total=${totalCalculado}`);
       }
 
       // Validar que finalmente tengamos items
@@ -7535,18 +7578,18 @@ app.post('/api/facturas', async (req, res) => {
       reqCliente.input('codter', sql.VarChar(20), clienteIdStr);
       // Usar CASE para asegurar que activo se convierta correctamente a 1 o 0
       const clienteResult = await reqCliente.query(`
-        SELECT 
-          codter, 
-          nomter, 
-          activo,
-          CAST(activo AS INT) as activoInt,
-          CASE WHEN activo = 1 THEN 1 ELSE 0 END as activoCase
+SELECT
+codter,
+  nomter,
+  activo,
+  CAST(activo AS INT) as activoInt,
+  CASE WHEN activo = 1 THEN 1 ELSE 0 END as activoCase
         FROM con_terceros 
         WHERE codter = @codter
-      `);
+  `);
 
-      console.log(`🔍 [Backend] Búsqueda de cliente: codter="${clienteIdStr}"`);
-      console.log(`🔍 [Backend] Resultados encontrados: ${clienteResult.recordset.length}`);
+      console.log(`🔍[Backend] Búsqueda de cliente: codter = "${clienteIdStr}"`);
+      console.log(`🔍[Backend] Resultados encontrados: ${clienteResult.recordset.length} `);
 
       if (clienteResult.recordset.length === 0) {
         await tx.rollback();
@@ -7560,7 +7603,7 @@ app.post('/api/facturas', async (req, res) => {
           WHERE codter LIKE '%' + @codter + '%'
           ORDER BY codter
         `);
-        console.log(`   📋 Clientes similares encontrados:`, debugResult.recordset);
+        console.log(`   📋 Clientes similares encontrados: `, debugResult.recordset);
 
         return res.status(400).json({
           success: false,
@@ -7598,7 +7641,7 @@ app.post('/api/facturas', async (req, res) => {
         }
       }
 
-      console.log(`🔍 [Backend] Cliente encontrado:`, {
+      console.log(`🔍[Backend] Cliente encontrado: `, {
         codter: cliente.codter,
         nomter: cliente.nomter,
         activo: cliente.activo,
@@ -7616,7 +7659,7 @@ app.post('/api/facturas', async (req, res) => {
       // Comparar con 1 (activo) - usar comparación estricta de número
       if (Number(activoValue) !== 1) {
         await tx.rollback();
-        console.error(`❌ [Backend] Cliente inactivo detectado:`, {
+        console.error(`❌[Backend] Cliente inactivo detectado: `, {
           codter: cliente.codter,
           nomter: cliente.nomter,
           activo: cliente.activo,
@@ -7628,7 +7671,7 @@ app.post('/api/facturas', async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'CLIENTE_INACTIVO',
-          error: `Cliente "${cliente.nomter}" (${clienteIdStr}) está inactivo`,
+          error: `Cliente "${cliente.nomter}"(${clienteIdStr}) está inactivo`,
           debug: {
             codter: cliente.codter,
             activo: cliente.activo,
@@ -7643,7 +7686,7 @@ app.post('/api/facturas', async (req, res) => {
         });
       }
 
-      console.log(`✅ [Backend] Cliente válido y activo: ${cliente.nomter} (${cliente.codter})`);
+      console.log(`✅[Backend] Cliente válido y activo: ${cliente.nomter} (${cliente.codter})`);
 
       // 2. Validar vendedorId si se proporciona (buscar por ideven o codven)
       let vendedorIdFinal = null;
@@ -7657,30 +7700,30 @@ app.post('/api/facturas', async (req, res) => {
         if (isNumeric) {
           reqVendedor.input('ideven', sql.Int, idevenNum);
           vendedorQuery = `
-          SELECT 
-              CAST(ideven AS VARCHAR(20)) as codi_emple, 
-              LTRIM(RTRIM(nomven)) as nomb_emple, 
-              CAST(Activo AS INT) as activo,
-              Activo as activoBit
+SELECT
+CAST(ideven AS VARCHAR(20)) as codi_emple,
+  LTRIM(RTRIM(nomven)) as nomb_emple,
+  CAST(Activo AS INT) as activo,
+  Activo as activoBit
           FROM ven_vendedor 
             WHERE ideven = @ideven
-          `;
+  `;
         } else {
           reqVendedor.input('codven', sql.VarChar(20), vendedorIdStr);
           vendedorQuery = `
-            SELECT 
-              CAST(ideven AS VARCHAR(20)) as codi_emple, 
-              LTRIM(RTRIM(nomven)) as nomb_emple, 
-              CAST(Activo AS INT) as activo,
-              Activo as activoBit
+SELECT
+CAST(ideven AS VARCHAR(20)) as codi_emple,
+  LTRIM(RTRIM(nomven)) as nomb_emple,
+  CAST(Activo AS INT) as activo,
+  Activo as activoBit
             FROM ven_vendedor 
             WHERE codven = @codven
-          `;
+  `;
         }
 
-        console.log(`🔍 [Backend] Búsqueda de vendedor: "${vendedorIdStr}" (numeric: ${isNumeric})`);
+        console.log(`🔍[Backend] Búsqueda de vendedor: "${vendedorIdStr}"(numeric: ${isNumeric})`);
         const vendedorResult = await reqVendedor.query(vendedorQuery);
-        console.log(`🔍 [Backend] Resultados encontrados: ${vendedorResult.recordset.length}`);
+        console.log(`🔍[Backend] Resultados encontrados: ${vendedorResult.recordset.length} `);
 
         if (vendedorResult.recordset.length === 0) {
           await tx.rollback();
@@ -7700,7 +7743,7 @@ app.post('/api/facturas', async (req, res) => {
         // Activo viene como INT (0 o 1) desde CAST(Activo AS INT)
         const activoValue = Number(vendedor.activo) || 0;
 
-        console.log(`🔍 [Backend] Vendedor encontrado:`, {
+        console.log(`🔍[Backend] Vendedor encontrado: `, {
           codi_emple: vendedor.codi_emple,
           nomb_emple: vendedor.nomb_emple,
           activo: activoValue
@@ -7708,7 +7751,7 @@ app.post('/api/facturas', async (req, res) => {
 
         if (activoValue !== 1) {
           await tx.rollback();
-          console.error(`❌ [Backend] Vendedor inactivo detectado:`, {
+          console.error(`❌[Backend] Vendedor inactivo detectado: `, {
             codi_emple: vendedor.codi_emple,
             nomb_emple: vendedor.nomb_emple,
             activo: activoValue
@@ -7716,7 +7759,7 @@ app.post('/api/facturas', async (req, res) => {
           return res.status(400).json({
             success: false,
             message: 'VENDEDOR_INACTIVO',
-            error: `Vendedor "${vendedor.nomb_emple}" (${vendedorIdStr}) está inactivo`,
+            error: `Vendedor "${vendedor.nomb_emple}"(${vendedorIdStr}) está inactivo`,
             debug: {
               codi_emple: vendedor.codi_emple,
               activo: activoValue
@@ -7724,10 +7767,10 @@ app.post('/api/facturas', async (req, res) => {
           });
         }
 
-        console.log(`✅ [Backend] Vendedor válido y activo: ${vendedor.nomb_emple} (${vendedor.codi_emple})`);
+        console.log(`✅[Backend] Vendedor válido y activo: ${vendedor.nomb_emple} (${vendedor.codi_emple})`);
         vendedorIdFinal = vendedor.codi_emple; // Usar el codi_emple obtenido de la consulta
       } else {
-        console.log(`ℹ️ [Backend] Vendedor no proporcionado, continuando sin vendedor`);
+        console.log(`ℹ️[Backend] Vendedor no proporcionado, continuando sin vendedor`);
       }
 
       // 3. Validar pedidoId si se proporciona (puede ser número o string como "PED-001")
@@ -7746,7 +7789,7 @@ app.post('/api/facturas', async (req, res) => {
             SELECT id, numero_pedido, estado 
             FROM ven_pedidos 
             WHERE id = @pedidoId
-          `);
+  `);
         } else {
           // Es un string, buscar por numero_pedido
           reqPedido.input('numeroPedido', sql.VarChar(50), pedidoIdStr);
@@ -7754,7 +7797,7 @@ app.post('/api/facturas', async (req, res) => {
             SELECT id, numero_pedido, estado 
             FROM ven_pedidos 
             WHERE numero_pedido = @numeroPedido
-          `);
+  `);
         }
 
         if (pedidoResult.recordset.length === 0) {
@@ -7771,7 +7814,7 @@ app.post('/api/facturas', async (req, res) => {
           return res.status(400).json({
             success: false,
             message: 'PEDIDO_NOT_FOUND',
-            error: `Pedido con ID/código "${pedidoIdStr}" no encontrado en ven_pedidos`,
+            error: `Pedido con ID / código "${pedidoIdStr}" no encontrado en ven_pedidos`,
             debug: {
               pedidoIdProporcionado: pedidoIdStr,
               ejemplosExistentes: ejemplosResult.recordset.map(p => ({
@@ -7785,7 +7828,7 @@ app.post('/api/facturas', async (req, res) => {
         }
 
         pedidoIdFinal = pedidoResult.recordset[0].id;
-        console.log(`✅ Pedido validado: ID=${pedidoIdFinal}, numero_pedido=${pedidoResult.recordset[0].numero_pedido}`);
+        console.log(`✅ Pedido validado: ID = ${pedidoIdFinal}, numero_pedido = ${pedidoResult.recordset[0].numero_pedido} `);
       }
 
       // 4. Validar remisionId si se proporciona (puede ser número o string como "REM-001")
@@ -7804,7 +7847,7 @@ app.post('/api/facturas', async (req, res) => {
             SELECT id, numero_remision, estado 
             FROM ${TABLE_NAMES.remisiones} 
             WHERE id = @remisionId
-          `);
+  `);
         } else {
           // Es un string, buscar por numero_remision
           reqRemision.input('numeroRemision', sql.VarChar(50), remisionIdStr);
@@ -7812,7 +7855,7 @@ app.post('/api/facturas', async (req, res) => {
             SELECT id, numero_remision, estado 
             FROM ${TABLE_NAMES.remisiones} 
             WHERE numero_remision = @numeroRemision
-          `);
+  `);
         }
 
         if (remisionResult.recordset.length === 0) {
@@ -7829,7 +7872,7 @@ app.post('/api/facturas', async (req, res) => {
           return res.status(400).json({
             success: false,
             message: 'REMISION_NOT_FOUND',
-            error: `Remisión con ID/código "${remisionIdStr}" no encontrada en ${TABLE_NAMES.remisiones}`,
+            error: `Remisión con ID / código "${remisionIdStr}" no encontrada en ${TABLE_NAMES.remisiones} `,
             debug: {
               remisionIdProporcionado: remisionIdStr,
               ejemplosExistentes: ejemplosResult.recordset.map(r => ({
@@ -7849,11 +7892,11 @@ app.post('/api/facturas', async (req, res) => {
         // Solo se pueden crear facturas desde remisiones en estado ENTREGADO
         if (estadoRemision !== 'ENTREGADO' && estadoRemision !== 'ENTREGADA') {
           await tx.rollback();
-          console.error(`❌ Remisión no está entregada: remisionId="${remision.id}", estado="${estadoRemision}"`);
+          console.error(`❌ Remisión no está entregada: remisionId = "${remision.id}", estado = "${estadoRemision}"`);
 
           return res.status(400).json({
             success: false,
-            message: `No se puede crear una factura desde una remisión en estado '${estadoRemision}'. La remisión debe estar entregada (ENTREGADO) para poder crear facturas.`,
+            message: `No se puede crear una factura desde una remisión en estado '${estadoRemision}'.La remisión debe estar entregada(ENTREGADO) para poder crear facturas.`,
             error: 'REMISION_NO_ENTREGADA',
             estadoActual: estadoRemision,
             remisionId: remision.id,
@@ -7862,7 +7905,7 @@ app.post('/api/facturas', async (req, res) => {
         }
 
         remisionIdFinal = remision.id;
-        console.log(`✅ Remisión validada y entregada: ID=${remisionIdFinal}, numero_remision=${remision.numero_remision}, estado=${estadoRemision}`);
+        console.log(`✅ Remisión validada y entregada: ID = ${remisionIdFinal}, numero_remision = ${remision.numero_remision}, estado = ${estadoRemision} `);
       }
 
       // 5. Validar y generar numeroFactura
@@ -7887,7 +7930,7 @@ app.post('/api/facturas', async (req, res) => {
           const lastNumfact = String(lastRecord.numfact || '').trim();
           const lastCufe = String(lastRecord.CUFE || '').trim();
 
-          console.log(`🔍 Último registro encontrado: numfact="${lastNumfact}", tieneCUFE=${lastCufe ? 'SI' : 'NO'}`);
+          console.log(`🔍 Último registro encontrado: numfact = "${lastNumfact}", tieneCUFE = ${lastCufe ? 'SI' : 'NO'} `);
 
           if (/^\d+$/.test(lastNumfact)) {
             const lastNum = parseInt(lastNumfact, 10);
@@ -7899,18 +7942,18 @@ app.post('/api/facturas', async (req, res) => {
 
             if (tieneCufeValido) {
               nextNumFact = lastNum - 1;
-              console.log(`✅ La última factura tiene CUFE válido. Generando siguiente (descendente): ${nextNumFact}`);
+              console.log(`✅ La última factura tiene CUFE válido.Generando siguiente(descendente): ${nextNumFact} `);
             } else {
               nextNumFact = lastNum;
-              console.log(`⚠️ La última factura NO tiene CUFE válido. Reutilizando número: ${nextNumFact}`);
+              console.log(`⚠️ La última factura NO tiene CUFE válido.Reutilizando número: ${nextNumFact} `);
             }
           } else {
             // Si el último número no es numérico, fallback a default
-            console.warn(`⚠️ El último numfact "${lastNumfact}" no es numérico. Usando default: ${nextNumFact}`);
+            console.warn(`⚠️ El último numfact "${lastNumfact}" no es numérico.Usando default: ${nextNumFact} `);
           }
         } else {
           // Si no hay registros, usar el valor inicial
-          console.log(`ℹ️ No hay facturas previas. Iniciando secuencia en: ${nextNumFact}`);
+          console.log(`ℹ️ No hay facturas previas.Iniciando secuencia en: ${nextNumFact} `);
         }
 
         // Asignar el nuevo número
@@ -7925,7 +7968,7 @@ app.post('/api/facturas', async (req, res) => {
           SELECT ID, numfact, estfac 
           FROM ${TABLE_NAMES.facturas} 
           WHERE numfact = @numfact
-        `);
+  `);
 
         if (existenteResult.recordset.length > 0) {
           await tx.rollback();
@@ -7958,12 +8001,12 @@ app.post('/api/facturas', async (req, res) => {
             SELECT TOP 1 codalm
             FROM inv_almacen
             WHERE CAST(codalm AS INT) = @empresaId OR codalm = CAST(@empresaId AS VARCHAR(10))
-          `);
+  `);
           if (almacenResult.recordset.length > 0) {
             codalmFinal = almacenResult.recordset[0].codalm.trim();
           }
         } catch (err) {
-          console.warn(`⚠️ No se pudo obtener codalm del empresaId ${empresaId}, usando '001': ${err.message}`);
+          console.warn(`⚠️ No se pudo obtener codalm del empresaId ${empresaId}, usando '001': ${err.message} `);
         }
       }
       // Asegurar que codalmFinal tenga máximo 3 caracteres
@@ -8005,7 +8048,7 @@ app.post('/api/facturas', async (req, res) => {
         // Obtener el año actual
         const añoActual = new Date().getFullYear();
         // doccoc = año-numfact (ej: 2025-80605)
-        doccocFinal = `${añoActual}-${numfactFinal}`.substring(0, 12).padEnd(12, ' ');
+        doccocFinal = `${añoActual} -${numfactFinal} `.substring(0, 12).padEnd(12, ' ');
       }
 
       // Validar que los campos requeridos no estén vacíos
@@ -8049,7 +8092,7 @@ app.post('/api/facturas', async (req, res) => {
             SELECT TOP 1 plazo
             FROM con_terceros
             WHERE codter = @codter
-          `);
+  `);
 
           if (clienteCreditoResult.recordset.length > 0) {
             const clienteData = clienteCreditoResult.recordset[0];
@@ -8063,7 +8106,7 @@ app.post('/api/facturas', async (req, res) => {
           }
         } catch (err) {
           // Si hay error al consultar (columna no existe), usar 30 días por defecto
-          console.warn(`⚠️ No se pudo obtener días de crédito del cliente ${codterFinal}, usando 30 días por defecto: ${err.message}`);
+          console.warn(`⚠️ No se pudo obtener días de crédito del cliente ${codterFinal}, usando 30 días por defecto: ${err.message} `);
           diasCredito = 30;
         }
 
@@ -8120,12 +8163,12 @@ app.post('/api/facturas', async (req, res) => {
           // Contado: todo el total va a efectivo
           efectivoFinal = totalFinal;
           creditoFinal = 0;
-          console.log(`   ✅ Forma de pago: Contado (01) → efectivo=${efectivoFinal}, credito=0`);
+          console.log(`   ✅ Forma de pago: Contado(01) → efectivo = ${efectivoFinal}, credito = 0`);
         } else if (formaPagoNormalizada === '02') {
           // Crédito: todo el total va a credito
           efectivoFinal = 0;
           creditoFinal = totalFinal;
-          console.log(`   ✅ Forma de pago: Crédito (02) → efectivo=0, credito=${creditoFinal}`);
+          console.log(`   ✅ Forma de pago: Crédito(02) → efectivo = 0, credito = ${creditoFinal} `);
         }
       }
 
@@ -8172,21 +8215,35 @@ app.post('/api/facturas', async (req, res) => {
       try {
         const insertHeader = await req1.query(`
           INSERT INTO ${TABLE_NAMES.facturas} (
-            numfact, codalm, tipfac, codter, doccoc, fecfac, venfac, codven,
-            valvta, valiva, valotr, valant, valdev, abofac, valdcto, valret, valrica, valriva,
-            netfac, valcosto, codcue, efectivo, cheques, credito, tarjetacr, TarjetaDB, Transferencia,
-            valpagado, resolucion_dian, Observa, TARIFA_CREE, RETECREE, codusu, fecsys, estfac,
-            VALDOMICILIO, estado_envio, sey_key, CUFE, IdCaja, Valnotas
-          ) VALUES (
-            @numfact, @codalm, @tipfac, @codter, @doccoc, @fecfac, @venfac, @codven,
-            @valvta, @valiva, @valotr, @valant, @valdev, @abofac, @valdcto, @valret, @valrica, @valriva,
-            @netfac, @valcosto, @codcue, @efectivo, @cheques, @credito, @tarjetacr, @TarjetaDB, @Transferencia,
-            @valpagado, @resolucion_dian, @Observa, @TARIFA_CREE, @RETECREE, @codusu, @fecsys, @estfac,
-            @VALDOMICILIO, @estado_envio, @sey_key, @CUFE, @IdCaja, @Valnotas
-          );
-          SELECT SCOPE_IDENTITY() AS ID;`);
+  numfact, codalm, tipfac, codter, doccoc, fecfac, venfac, codven,
+  valvta, valiva, valotr, valant, valdev, abofac, valdcto, valret, valrica, valriva,
+  netfac, valcosto, codcue, efectivo, cheques, credito, tarjetacr, TarjetaDB, Transferencia,
+  valpagado, resolucion_dian, Observa, TARIFA_CREE, RETECREE, codusu, fecsys, estfac,
+  VALDOMICILIO, estado_envio, sey_key, CUFE, IdCaja, Valnotas
+) VALUES(
+  @numfact, @codalm, @tipfac, @codter, @doccoc, @fecfac, @venfac, @codven,
+  @valvta, @valiva, @valotr, @valant, @valdev, @abofac, @valdcto, @valret, @valrica, @valriva,
+  @netfac, @valcosto, @codcue, @efectivo, @cheques, @credito, @tarjetacr, @TarjetaDB, @Transferencia,
+  @valpagado, @resolucion_dian, @Observa, @TARIFA_CREE, @RETECREE, @codusu, @fecsys, @estfac,
+  @VALDOMICILIO, @estado_envio, @sey_key, @CUFE, @IdCaja, @Valnotas
+);
+          SELECT SCOPE_IDENTITY() AS ID; `);
         newId = insertHeader.recordset[0].ID;
-        console.log(`✅ Factura header insertada correctamente con ID: ${newId}`);
+        console.log(`✅ Factura header insertada correctamente con ID: ${newId} `);
+
+        // ACTUALIZAR REMISIONES CON EL ID DE LA FACTURA
+        if (allRemisionIds.length > 0 && newId) {
+          const idsList = allRemisionIds.map(id => parseInt(id)).filter(id => !isNaN(id)).join(',');
+          if (idsList.length > 0) {
+            const reqUpdateRem = new sql.Request(tx);
+            await reqUpdateRem.query(`
+              UPDATE ${TABLE_NAMES.remisiones}
+              SET factura_id = ${newId}
+              WHERE id IN(${idsList})
+            `);
+            console.log(`✅ Remisiones actualizadas con factura_id = ${newId}: ${idsList} `);
+          }
+        }
       } catch (insertError) {
         console.error('❌ Error insertando header de factura:', insertError);
         console.error('❌ Detalles del error SQL:', {
@@ -8221,7 +8278,7 @@ app.post('/api/facturas', async (req, res) => {
       }
 
       console.log(`📦 Guardando ${itemsFinales.length} items de factura...`);
-      console.log(`📋 Items a guardar:`, JSON.stringify(itemsFinales.map(it => ({
+      console.log(`📋 Items a guardar: `, JSON.stringify(itemsFinales.map(it => ({
         productoId: it.productoId,
         cantidad: it.cantidad,
         precioUnitario: it.precioUnitario,
@@ -8239,8 +8296,8 @@ app.post('/api/facturas', async (req, res) => {
         // Validar que el productoId sea numérico
         const productoIdNum = typeof it.productoId === 'number' ? it.productoId : parseInt(it.productoId, 10);
         if (isNaN(productoIdNum) || productoIdNum <= 0) {
-          console.error(`❌ Item ${idx + 1}: productoId inválido:`, it.productoId);
-          throw new Error(`Item ${idx + 1}: productoId inválido: ${it.productoId}`);
+          console.error(`❌ Item ${idx + 1}: productoId inválido: `, it.productoId);
+          throw new Error(`Item ${idx + 1}: productoId inválido: ${it.productoId} `);
         }
 
         // Obtener codins y tasa_iva desde inv_insumos usando el id del producto
@@ -8250,7 +8307,7 @@ app.post('/api/facturas', async (req, res) => {
           SELECT TOP 1 codins, nomins, COALESCE(tasa_iva, 0) as tasa_iva
           FROM inv_insumos
           WHERE id = @productoId
-        `);
+  `);
 
         if (productoResult.recordset.length === 0) {
           await tx.rollback();
@@ -8282,12 +8339,12 @@ app.post('/api/facturas', async (req, res) => {
 
         // Validar que sean números finitos
         if (!isFinite(cantidadNum) || isNaN(cantidadNum) || cantidadNum <= 0) {
-          console.error(`❌ Item ${idx + 1}: cantidad inválida:`, cantidadRaw, '→', cantidadNum);
-          throw new Error(`Item ${idx + 1}: cantidad inválida (${cantidadRaw})`);
+          console.error(`❌ Item ${idx + 1}: cantidad inválida: `, cantidadRaw, '→', cantidadNum);
+          throw new Error(`Item ${idx + 1}: cantidad inválida(${cantidadRaw})`);
         }
         if (!isFinite(precioUnitarioNum) || isNaN(precioUnitarioNum) || precioUnitarioNum < 0) {
-          console.error(`❌ Item ${idx + 1}: precioUnitario inválido:`, precioUnitarioRaw, '→', precioUnitarioNum);
-          throw new Error(`Item ${idx + 1}: precioUnitario inválido (${precioUnitarioRaw}). Verifique que los items de la remisión tengan precios.`);
+          console.error(`❌ Item ${idx + 1}: precioUnitario inválido: `, precioUnitarioRaw, '→', precioUnitarioNum);
+          throw new Error(`Item ${idx + 1}: precioUnitario inválido(${precioUnitarioRaw}).Verifique que los items de la remisión tengan precios.`);
         }
 
         // Normalizar valores dentro del rango válido

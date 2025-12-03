@@ -25,10 +25,10 @@ interface PedidoFormData {
 }
 
 interface PedidoFormProps {
-  onSubmit: (data: PedidoFormData) => void;
-  onCancel: () => void;
-  onDirtyChange?: (isDirty: boolean) => void;
-  isSubmitting?: boolean;
+    onSubmit: (data: PedidoFormData) => void;
+    onCancel: () => void;
+    onDirtyChange?: (isDirty: boolean) => void;
+    isSubmitting?: boolean;
 }
 
 const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChange, isSubmitting = false }) => {
@@ -58,9 +58,9 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
 
     const [currentProductId, setCurrentProductId] = useState('');
     const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
-    const [currentQuantity, setCurrentQuantity] = useState<number|string>(1);
-    const [currentDiscount, setCurrentDiscount] = useState<number|string>(0);
-    
+    const [currentQuantity, setCurrentQuantity] = useState<number | string>(1);
+    const [currentDiscount, setCurrentDiscount] = useState<number | string>(0);
+
     const searchRef = useRef<HTMLDivElement>(null);
     const clienteRef = useRef<HTMLDivElement>(null);
     const vendedorRef = useRef<HTMLDivElement>(null);
@@ -68,7 +68,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     const [productSearchTerm, setProductSearchTerm] = useState('');
     const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
     const [productResults, setProductResults] = useState<Producto[]>([]);
-    
+
     useEffect(() => {
         if (onDirtyChange) {
             const dirty = cotizacionId !== '' || clienteId !== '' || vendedorId !== '' || items.length > 0 || fechaEntregaEstimada !== '' || instruccionesEntrega !== '' || notaPago !== '' || formaPago !== '1';
@@ -83,8 +83,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             // Calcular subtotal sin IVA (después de descuento)
             const subtotal = (selectedProduct.ultimoCosto * quantityNum) * (1 - (discountNum / 100));
             // Determinar IVA: usar aplicaIva si existe, sino usar tasaIva > 0
-            const tieneIva = (selectedProduct as any).aplicaIva !== undefined 
-                ? (selectedProduct as any).aplicaIva 
+            const tieneIva = (selectedProduct as any).aplicaIva !== undefined
+                ? (selectedProduct as any).aplicaIva
                 : ((selectedProduct.tasaIva || 0) > 0);
             const ivaPorcentaje = tieneIva ? (selectedProduct.tasaIva || 19) : 0;
             // Retornar total CON IVA
@@ -121,7 +121,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             setIsCotizacionOpen(false);
             return;
         }
-        
+
         const controller = new AbortController();
         const handler = setTimeout(() => {
             const q = cotizacionSearch.trim();
@@ -155,7 +155,10 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     const resp = await apiSearchClientes(q, 20);
                     if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
-                        const clientesProcesados = dataArray.map((c: any) => ({
+                        // Filter out clients without email
+                        const clientsWithEmail = dataArray.filter(c => c.email && c.email.trim().length > 0);
+
+                        const clientesProcesados = clientsWithEmail.map((c: any) => ({
                             ...c,
                             nombreCompleto: c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || c.nomter || ''
                         }));
@@ -213,7 +216,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     const resp = await apiSearchProductos(q, 20);
                     if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
-        const productsInList = new Set(items.map(item => item.productoId));
+                        const productsInList = new Set(items.map(item => item.productoId));
                         const mappedProducts = dataArray.map((p: any) => ({
                             ...p,
                             unidadMedida: p.unidadMedidaNombre || p.unidadMedida || 'Unidad',
@@ -242,7 +245,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             console.warn('⚠️ Intento de seleccionar cliente sin ID válido:', c);
             return; // No seleccionar si no tiene ID válido
         }
-        
+
         setClienteId(c.id);
         setClienteSearch(c.nombreCompleto || c.razonSocial || '');
         setIsClienteOpen(false);
@@ -264,7 +267,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         setVendedorSearch(`${v.primerNombre || ''} ${v.primerApellido || ''}`.trim());
         setIsVendedorOpen(false);
     };
-    
+
     const handleProductSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setProductSearchTerm(e.target.value);
         setIsProductDropdownOpen(true);
@@ -273,7 +276,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             setSelectedProduct(null);
         }
     };
-    
+
     const handleProductSelect = (product: Producto) => {
         setCurrentProductId(String(product.id));
         setSelectedProduct(product);
@@ -309,7 +312,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
     const handleCotizacionChange = (cId: string) => {
         setCotizacionId(cId);
         const cotizacion = cotizaciones.find(c => c.id === cId);
-        if(cotizacion) {
+        if (cotizacion) {
             // Llenar cliente y vendedor automáticamente desde la cotización
             const cliente = clientes.find(c => c.id === cotizacion.clienteId);
             if (cliente) {
@@ -318,8 +321,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                 setClienteSearch(cliente.nombreCompleto || cliente.razonSocial || '');
             }
             if (cotizacion.vendedorId) {
-                const vendedor = vendedores.find(v => 
-                    String(v.id) === String(cotizacion.vendedorId) || 
+                const vendedor = vendedores.find(v =>
+                    String(v.id) === String(cotizacion.vendedorId) ||
                     v.codiEmple === cotizacion.vendedorId
                 );
                 if (vendedor) {
@@ -328,13 +331,13 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     setVendedorSearch(`${vendedor.primerNombre || ''} ${vendedor.primerApellido || ''}`.trim());
                 }
             }
-            
+
             // Normalizar y redondear valores de items para evitar problemas de overflow
             const roundTo2 = (value: number) => {
                 if (!isFinite(value) || isNaN(value)) return 0;
                 return Math.round(Number(value) * 100) / 100;
             };
-            
+
             const normalizedItems = cotizacion.items.map(item => {
                 // Buscar el producto para obtener unidadMedida y referencia si no están en el item
                 const product = productos.find(p => p.id === item.productoId);
@@ -353,7 +356,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     referencia: (item as any).referencia || product?.referencia || undefined
                 } as DocumentItem & { unidadMedida?: string; referencia?: string };
             });
-            
+
             setItems(normalizedItems);
         } else {
             // Limpiar campos cuando no hay cotización
@@ -371,11 +374,11 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         // Usar selectedProduct directamente, ya que se guarda cuando se selecciona del dropdown
         // Si no está disponible, buscar en productos o productResults
         let product = selectedProduct;
-        
+
         if (!product && currentProductId) {
             // Buscar primero en productos del contexto
             product = productos.find(p => p.id === Number(currentProductId));
-            
+
             // Si no se encuentra, buscar en los resultados de búsqueda
             if (!product) {
                 product = productResults.find(p => p.id === Number(currentProductId));
@@ -383,8 +386,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         }
 
         if (!product) {
-            console.error('❌ Producto no encontrado:', { 
-                currentProductId, 
+            console.error('❌ Producto no encontrado:', {
+                currentProductId,
                 hasSelectedProduct: !!selectedProduct,
                 productosCount: productos.length,
                 productResultsCount: productResults.length,
@@ -404,7 +407,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         const quantityNum = Number(currentQuantity);
         const stockDisponible = product.stock ?? null;
         const controlaExistencia = product.karins ?? false;
-        
+
         if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
             if (quantityNum > stockDisponible) {
                 alert(`La cantidad solicitada (${quantityNum}) supera el stock disponible (${stockDisponible}). Por favor, ajuste la cantidad.`);
@@ -428,8 +431,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         // Validar y obtener precio unitario
         const precioUnitario = Number(product.ultimoCosto || (product as any).precio || (product as any).precioPublico || 0);
         if (!precioUnitario || precioUnitario <= 0 || !isFinite(precioUnitario)) {
-            console.error('❌ Precio inválido para producto:', { 
-                productId: product.id, 
+            console.error('❌ Precio inválido para producto:', {
+                productId: product.id,
                 nombre: product.nombre,
                 ultimoCosto: product.ultimoCosto,
                 precio: (product as any).precio,
@@ -440,8 +443,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         }
 
         // Determinar IVA: usar aplicaIva si existe, sino usar tasaIva > 0
-        const tieneIva = (product as any).aplicaIva !== undefined 
-            ? (product as any).aplicaIva 
+        const tieneIva = (product as any).aplicaIva !== undefined
+            ? (product as any).aplicaIva
             : ((product.tasaIva || 0) > 0);
         const ivaPorcentaje = tieneIva ? (product.tasaIva || 19) : 0;
 
@@ -453,7 +456,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             if (!isFinite(value) || isNaN(value)) return 0;
             return Math.round(Number(value) * 100) / 100;
         };
-        
+
         const precioUnitarioRounded = roundTo2(precioUnitario);
         const subtotalBruto = roundTo2(precioUnitarioRounded * quantityNum);
         const descuentoValor = roundTo2(subtotalBruto * (discountNum / 100));
@@ -476,20 +479,20 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             unidadMedida: product.unidadMedida || (product as any).unidadMedidaNombre || 'Unidad',
             codigoMedida: product.unidadMedida || (product as any).unidadMedidaNombre || 'Unidad',
         };
-        
+
         // Guardar referencia en el item si está disponible
         if ((product as any).referencia) {
             (newItem as any).referencia = (product as any).referencia;
         }
         setItems([...items, newItem]);
-        
+
         setCurrentProductId('');
         setSelectedProduct(null);
         setCurrentQuantity(1);
         setCurrentDiscount(0);
         setProductSearchTerm('');
     };
-    
+
     const handleRemoveItem = (productId: number) => {
         setItems(items.filter(item => item.productoId !== productId));
     }
@@ -500,21 +503,21 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                 if (item.productoId === productId) {
                     // Procesar el valor según el campo
                     let processedValue: number;
-                    
+
                     if (field === 'cantidad') {
                         const numericString = String(value).replace(/[^0-9]/g, '');
                         const cantidadIngresada = numericString === '' ? 1 : parseInt(numericString, 10);
-                        
+
                         // Buscar el producto para obtener el stock disponible
-                        const product = productos.find(p => 
+                        const product = productos.find(p =>
                             String(p.id) === String(productId) ||
                             p.id === productId
                         );
-                        
+
                         // Obtener stock disponible y si controla existencia
                         const stockDisponible = product?.stock ?? null;
                         const controlaExistencia = product?.karins ?? false;
-                        
+
                         // Si el producto controla existencia y hay stock disponible, limitar a ese stock
                         if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
                             processedValue = Math.max(1, Math.min(cantidadIngresada, stockDisponible));
@@ -530,7 +533,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     }
 
                     const newItem = { ...item, [field]: processedValue };
-                    
+
                     // Recalcular totales
                     const roundTo2 = (val: number) => {
                         if (!isFinite(val) || isNaN(val)) return 0;
@@ -541,7 +544,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     const subtotal = roundTo2(subtotalBruto - descuentoValor);
                     const valorIva = roundTo2(subtotal * (newItem.ivaPorcentaje / 100));
                     const total = roundTo2(subtotal + valorIva);
-                    
+
                     return {
                         ...newItem,
                         subtotal: roundTo2(subtotal),
@@ -556,7 +559,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
 
     const totals = useMemo(() => {
         const roundTo2 = (value: number) => Math.round(value * 100) / 100;
-        
+
         const subtotalBruto = items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
         const descuentoTotal = items.reduce((acc, item) => {
             const itemTotalBruto = item.precioUnitario * item.cantidad;
@@ -565,72 +568,71 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         const subtotalNeto = subtotalBruto - descuentoTotal;
         const iva = items.reduce((acc, item) => acc + item.valorIva, 0);
         const total = subtotalNeto + iva;
-        
+
         // Redondear todos los totales a 2 decimales
-        return { 
-            subtotalBruto: roundTo2(subtotalBruto), 
-            descuentoTotal: roundTo2(descuentoTotal), 
-            subtotalNeto: roundTo2(subtotalNeto), 
-            iva: roundTo2(iva), 
-            total: roundTo2(total) 
+        return {
+            subtotalBruto: roundTo2(subtotalBruto),
+            descuentoTotal: roundTo2(descuentoTotal),
+            subtotalNeto: roundTo2(subtotalNeto),
+            iva: roundTo2(iva),
+            total: roundTo2(total)
         };
     }, [items]);
-    
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSubmit({ 
-            clienteId, 
+        onSubmit({
+            clienteId,
             vendedorId: vendedorId || undefined,
-            cotizacionId: cotizacionId || undefined, 
-            items, 
-            subtotal: totals.subtotalNeto, 
-            iva: totals.iva, 
-            total: totals.total, 
-            fechaEntregaEstimada, 
+            cotizacionId: cotizacionId || undefined,
+            items,
+            subtotal: totals.subtotalNeto,
+            iva: totals.iva,
+            total: totals.total,
+            fechaEntregaEstimada,
             instruccionesEntrega,
             notaPago: notaPago.trim() || undefined,
             formaPago: formaPago
         });
     }
-    
+
     const canSubmit = clienteId && items.length > 0;
 
     const isQuantityValid = isPositiveInteger(currentQuantity);
     const isDiscountValid = isWithinRange(Number(currentDiscount), 0, 100);
 
-    const getNumericInputClasses = (value: number | string, isValid: boolean) => `w-full px-3 py-2 text-sm text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 text-right ${
-      !isValid ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
-    }`;
+    const getNumericInputClasses = (value: number | string, isValid: boolean) => `w-full px-3 py-2 text-sm text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 text-right ${!isValid ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
+        }`;
     const disabledInputStyle = "w-full px-3 py-2 text-sm bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md cursor-not-allowed text-slate-500 dark:text-slate-400 text-right";
     const labelStyle = "block text-xs text-center font-medium text-slate-600 dark:text-slate-300 mb-1";
 
     // Obtener código de bodega desde la bodega seleccionada en el header
-    const bodegaCodigo = selectedSede?.codigo 
-      ? String(selectedSede.codigo).padStart(3, '0')
-      : '001'; // Fallback si no hay bodega seleccionada
+    const bodegaCodigo = selectedSede?.codigo
+        ? String(selectedSede.codigo).padStart(3, '0')
+        : '001'; // Fallback si no hay bodega seleccionada
 
     return (
         <form onSubmit={handleSubmit}>
             {/* Información de bodega seleccionada */}
             {selectedSede ? (
-              <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                  <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-200">
-                      <i className="fas fa-warehouse"></i>
-                      <span className="font-medium">Bodega:</span>
-                      <span>{selectedSede.nombre}</span>
-                      {selectedSede.codigo && (
-                        <span className="text-xs text-blue-600 dark:text-blue-400">({selectedSede.codigo})</span>
-                      )}
-                  </div>
-              </div>
+                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-200">
+                        <i className="fas fa-warehouse"></i>
+                        <span className="font-medium">Bodega:</span>
+                        <span>{selectedSede.nombre}</span>
+                        {selectedSede.codigo && (
+                            <span className="text-xs text-blue-600 dark:text-blue-400">({selectedSede.codigo})</span>
+                        )}
+                    </div>
+                </div>
             ) : (
-              <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                  <div className="flex items-center gap-2 text-sm text-yellow-800 dark:text-yellow-200">
-                      <i className="fas fa-exclamation-triangle"></i>
-                      <span className="font-medium">Advertencia:</span>
-                      <span>No hay bodega seleccionada. Por favor, selecciona una bodega en el header.</span>
-                  </div>
-              </div>
+                <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-yellow-800 dark:text-yellow-200">
+                        <i className="fas fa-exclamation-triangle"></i>
+                        <span className="font-medium">Advertencia:</span>
+                        <span>No hay bodega seleccionada. Por favor, selecciona una bodega en el header.</span>
+                    </div>
+                </div>
             )}
 
             <div className="mb-6">
@@ -639,27 +641,25 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     <button
                         type="button"
                         onClick={() => handleTipoPedidoChange('sin-cotizacion')}
-                        className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                            tipoPedido === 'sin-cotizacion'
+                        className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${tipoPedido === 'sin-cotizacion'
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-                        }`}
+                            }`}
                     >
                         Sin Cotización
                     </button>
                     <button
                         type="button"
                         onClick={() => handleTipoPedidoChange('con-cotizacion')}
-                        className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                            tipoPedido === 'con-cotizacion'
+                        className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${tipoPedido === 'con-cotizacion'
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-                        }`}
+                            }`}
                     >
                         Con Cotización
                     </button>
                 </div>
-                
+
                 {/* Campo de búsqueda de cotizaciones - Solo visible cuando se selecciona "Con Cotización" */}
                 {tipoPedido === 'con-cotizacion' && (
                     <div ref={cotizacionRef} className="relative mt-4">
@@ -719,7 +719,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     </div>
                 )}
             </div>
-            
+
             {/* Sección de Cliente y Vendedor - Solo visible cuando NO hay cotización seleccionada */}
             {tipoPedido === 'sin-cotizacion' && (
                 <div className="grid md:grid-cols-2 gap-6 mb-6">
@@ -728,13 +728,13 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         <input
                             id="cliente"
                             value={clienteSearch}
-                            onChange={(e)=>{
+                            onChange={(e) => {
                                 setClienteSearch(e.target.value);
                                 setIsClienteOpen(true);
                                 setClienteId('');
                                 setSelectedCliente(null);
                             }}
-                            onFocus={() => { if(clienteSearch.trim().length>=2) setIsClienteOpen(true); }}
+                            onFocus={() => { if (clienteSearch.trim().length >= 2) setIsClienteOpen(true); }}
                             onBlur={() => {
                                 // Solo buscar coincidencia si hay texto en el campo y no hay cliente seleccionado
                                 if (clienteSearch.trim().length >= 2 && !selectedCliente) {
@@ -762,9 +762,9 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                     setIsClienteOpen(false);
                                 }, 200);
                             }}
-                            onKeyDown={(e)=>{ 
-                                if(e.key==='Escape') setIsClienteOpen(false);
-                                if(e.key==='Enter'){ 
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') setIsClienteOpen(false);
+                                if (e.key === 'Enter') {
                                     const list = clienteResults.length > 0 ? clienteResults : clientes;
                                     const filtered = list.filter(c => {
                                         // Validar que el cliente tenga un ID válido
@@ -776,7 +776,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                         const search = clienteSearch.toLowerCase();
                                         return nombre.includes(search) || doc.includes(search);
                                     });
-                                    if(filtered.length>0){ e.preventDefault(); pickCliente(filtered[0] as any);}
+                                    if (filtered.length > 0) { e.preventDefault(); pickCliente(filtered[0] as any); }
                                 }
                             }}
                             placeholder="Buscar cliente (min 2, nombre o documento)"
@@ -785,8 +785,11 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                             <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
                                 {(() => {
                                     const listaMostrar = clienteResults.length > 0 ? clienteResults : clientes;
+                                    // Filter out clients without email
+                                    const validClients = listaMostrar.filter(c => c.email && c.email.trim().length > 0);
+
                                     // Filtrar primero por ID válido, luego por búsqueda
-                                    const filtered = listaMostrar.filter(c => {
+                                    const filtered = validClients.filter(c => {
                                         // Validar que el cliente tenga un ID válido
                                         if (!c || !c.id || String(c.id).trim() === '') {
                                             return false; // Ignorar clientes sin ID válido
@@ -807,9 +810,9 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                         const nombreDisplay = c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || 'Sin nombre';
                                         const docDisplay = c.numeroDocumento || '';
                                         return (
-                                            <div 
-                                                key={c.id} 
-                                                onMouseDown={() => pickCliente(c)} 
+                                            <div
+                                                key={c.id}
+                                                onMouseDown={() => pickCliente(c)}
                                                 className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
                                             >
                                                 <div className="font-medium">{nombreDisplay}</div>
@@ -826,17 +829,17 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         <input
                             id="vendedor"
                             value={vendedorSearch}
-                            onChange={(e)=>{
+                            onChange={(e) => {
                                 setVendedorSearch(e.target.value);
                                 setIsVendedorOpen(true);
                                 setVendedorId('');
                                 setSelectedVendedor(null);
                             }}
-                            onFocus={() => { if(vendedorSearch.trim().length>=2) setIsVendedorOpen(true); }}
+                            onFocus={() => { if (vendedorSearch.trim().length >= 2) setIsVendedorOpen(true); }}
                             onBlur={() => {
                                 const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
                                 const exactMatch = list.find(v => {
-                                    const nombre = ((v.primerNombre||'') + ' ' + (v.primerApellido||'')).trim().toLowerCase();
+                                    const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).trim().toLowerCase();
                                     const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
                                     const search = vendedorSearch.toLowerCase();
                                     return nombre === search || codigo === search;
@@ -848,17 +851,17 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                     setIsVendedorOpen(false);
                                 }, 200);
                             }}
-                            onKeyDown={(e)=>{ 
-                                if(e.key==='Escape') setIsVendedorOpen(false);
-                                if(e.key==='Enter'){ 
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') setIsVendedorOpen(false);
+                                if (e.key === 'Enter') {
                                     const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
                                     const filtered = list.filter(v => {
-                                        const nombre = ((v.primerNombre||'') + ' ' + (v.primerApellido||'')).toLowerCase();
+                                        const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).toLowerCase();
                                         const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
                                         const search = vendedorSearch.toLowerCase();
                                         return nombre.includes(search) || codigo.includes(search);
                                     });
-                                    if(filtered.length>0){ e.preventDefault(); pickVendedor(filtered[0] as any);}
+                                    if (filtered.length > 0) { e.preventDefault(); pickVendedor(filtered[0] as any); }
                                 }
                             }}
                             placeholder="Buscar vendedor (min 2, nombre o código)"
@@ -868,7 +871,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                 {(() => {
                                     const listaMostrar = vendedorResults.length > 0 ? vendedorResults : vendedores;
                                     const filtered = listaMostrar.filter(v => {
-                                        const nombre = ((v.primerNombre||'') + ' ' + (v.primerApellido||'')).toLowerCase();
+                                        const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).toLowerCase();
                                         const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
                                         const search = vendedorSearch.toLowerCase();
                                         return nombre.includes(search) || codigo.includes(search);
@@ -881,12 +884,12 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                         );
                                     }
                                     return filtered.slice(0, 20).map(v => {
-                                        const nombreCompleto = ((v.primerNombre||'') + ' ' + (v.primerApellido||'')).trim() || 'Sin nombre';
+                                        const nombreCompleto = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).trim() || 'Sin nombre';
                                         const codigoDisplay = v.codigo || v.codigoVendedor || '';
                                         return (
-                                            <div 
-                                                key={v.id} 
-                                                onMouseDown={() => pickVendedor(v)} 
+                                            <div
+                                                key={v.id}
+                                                onMouseDown={() => pickVendedor(v)}
                                                 className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
                                             >
                                                 <div className="font-medium">{nombreCompleto}</div>
@@ -953,7 +956,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     )}
                 </div>
             )}
-            
+
             {/* Mostrar información del cliente y vendedor cuando hay cotización */}
             {tipoPedido === 'con-cotizacion' && (selectedCliente || selectedVendedor) && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -1008,11 +1011,11 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     )}
                 </div>
             )}
-            
-             <div className="grid md:grid-cols-2 gap-6 mb-6">
+
+            <div className="grid md:grid-cols-2 gap-6 mb-6">
                 <div>
                     <label htmlFor="fechaEntregaEstimada" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Fecha de Entrega Estimada</label>
-                    <input 
+                    <input
                         type="date"
                         id="fechaEntregaEstimada"
                         value={fechaEntregaEstimada}
@@ -1060,107 +1063,107 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                 <h4 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-100">
                     {cotizacionId ? 'Añadir Productos Adicionales' : 'Añadir Productos'}
                 </h4>
-                    <div className="grid grid-cols-1 lg:grid-cols-8 gap-2 lg:gap-3">
-                        <div ref={searchRef} className="relative lg:col-span-3">
-                            <label htmlFor="producto-search" className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Producto</label>
-                            <input
-                                type="text"
-                                id="producto-search"
-                                value={productSearchTerm}
-                                onChange={handleProductSearchChange}
-                                onFocus={() => setIsProductDropdownOpen(true)}
-                                placeholder="Buscar por nombre..."
-                                className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                autoComplete="off"
-                            />
-                            {isProductDropdownOpen && productSearchTerm.trim().length >= 2 && (
-                                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
-                                    {productResults.length === 0 ? (
-                                        <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
-                                            {productSearchTerm.trim().length >= 2 ? `No se encontraron productos con "${productSearchTerm}"` : 'Ingrese al menos 2 caracteres'}
-                                        </div>
-                                    ) : (
-                                        productResults.map(p => (
-                                            <div
-                                                key={p.id}
-                                                onMouseDown={() => handleProductSelect(p)}
-                                                className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
-                                            >
-                                                <div className="font-medium">{p.nombre}</div>
-                                                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                                    {formatCurrency(p.ultimoCosto)} | ID: {p.id}
-                                                    {p.referencia && ` | Ref: ${p.referencia}`}
-                                                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-8 gap-2 lg:gap-3">
+                    <div ref={searchRef} className="relative lg:col-span-3">
+                        <label htmlFor="producto-search" className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Producto</label>
+                        <input
+                            type="text"
+                            id="producto-search"
+                            value={productSearchTerm}
+                            onChange={handleProductSearchChange}
+                            onFocus={() => setIsProductDropdownOpen(true)}
+                            placeholder="Buscar por nombre..."
+                            className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            autoComplete="off"
+                        />
+                        {isProductDropdownOpen && productSearchTerm.trim().length >= 2 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
+                                {productResults.length === 0 ? (
+                                    <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
+                                        {productSearchTerm.trim().length >= 2 ? `No se encontraron productos con "${productSearchTerm}"` : 'Ingrese al menos 2 caracteres'}
+                                    </div>
+                                ) : (
+                                    productResults.map(p => (
+                                        <div
+                                            key={p.id}
+                                            onMouseDown={() => handleProductSelect(p)}
+                                            className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
+                                        >
+                                            <div className="font-medium">{p.nombre}</div>
+                                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                                {formatCurrency(p.ultimoCosto)} | ID: {p.id}
+                                                {p.referencia && ` | Ref: ${p.referencia}`}
                                             </div>
-                                        ))
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                        <div className="lg:col-span-1">
-                            <label className={labelStyle}>Unidad</label>
-                            <input type="text" value={selectedProduct?.unidadMedida || ''} disabled className={`${disabledInputStyle} text-center`} />
-                        </div>
-                        <div className="lg:col-span-1">
-                            <label className={labelStyle}>Cantidad</label>
-                            <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentQuantity} onChange={e => {
-                                const val = e.target.value.replace(/[^0-9]/g, '');
-                                setCurrentQuantity(val);
-                            }} className={getNumericInputClasses(currentQuantity, isQuantityValid)} />
-                            <div className="h-5 text-center text-xs mt-0.5">
-                                {!isQuantityValid && <span className="text-red-500"> &gt; 0</span>}
-                                {isQuantityValid && selectedProduct && (
-                                    <>
-                                        <span className="text-slate-500 dark:text-slate-400">Stock: </span>
-                                        <span className={`font-semibold ${((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) < Number(currentQuantity) ? 'text-orange-500' : 'text-slate-500 dark:text-slate-400'}`}>
-                                            {selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}
-                                        </span>
-                                    </>
+                                        </div>
+                                    ))
                                 )}
                             </div>
-                        </div>
-                        <div className="lg:col-span-1">
-                            <label className={labelStyle}>Vr. Unit.</label>
-                            <input type="text" value={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} disabled className={disabledInputStyle} />
-                        </div>
-                        <div className="lg:col-span-1">
-                            <label className={labelStyle}>% Iva</label>
-                            <input type="text" value={selectedProduct ? (selectedProduct.aplicaIva ? '19' : '0') : ''} disabled className={`${disabledInputStyle} text-center`} />
-                        </div>
-                        <div className="lg:col-span-1">
-                            <label className={labelStyle}>Totales</label>
-                            <input type="text" value={formatCurrency(currentItemSubtotalForDisplay)} disabled className={`${disabledInputStyle} font-bold`} />
+                        )}
+                    </div>
+                    <div className="lg:col-span-1">
+                        <label className={labelStyle}>Unidad</label>
+                        <input type="text" value={selectedProduct?.unidadMedida || ''} disabled className={`${disabledInputStyle} text-center`} />
+                    </div>
+                    <div className="lg:col-span-1">
+                        <label className={labelStyle}>Cantidad</label>
+                        <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentQuantity} onChange={e => {
+                            const val = e.target.value.replace(/[^0-9]/g, '');
+                            setCurrentQuantity(val);
+                        }} className={getNumericInputClasses(currentQuantity, isQuantityValid)} />
+                        <div className="h-5 text-center text-xs mt-0.5">
+                            {!isQuantityValid && <span className="text-red-500"> &gt; 0</span>}
+                            {isQuantityValid && selectedProduct && (
+                                <>
+                                    <span className="text-slate-500 dark:text-slate-400">Stock: </span>
+                                    <span className={`font-semibold ${((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) < Number(currentQuantity) ? 'text-orange-500' : 'text-slate-500 dark:text-slate-400'}`}>
+                                        {selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}
+                                    </span>
+                                </>
+                            )}
                         </div>
                     </div>
-                    <div className="flex gap-2 mt-3">
-                        <div className="w-auto">
-                            <label className={labelStyle}>% Descto</label>
-                            <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentDiscount} onChange={e => {
-                                const val = e.target.value.replace(/[^0-9]/g, '');
-                                setCurrentDiscount(val === '' ? '' : Math.min(100, parseInt(val, 10) || 0));
-                            }} className={getNumericInputClasses(currentDiscount, isDiscountValid)} />
-                        </div>
-                        <div className="flex items-end">
-                            <button type="button" onClick={handleAddItem} disabled={!currentProductId || !isQuantityValid || !isDiscountValid} className="px-6 py-2 bg-sky-600 text-white font-semibold rounded-md hover:bg-sky-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed whitespace-nowrap">
-                                <i className="fas fa-plus mr-2"></i>Añadir Producto
-                            </button>
-                        </div>
+                    <div className="lg:col-span-1">
+                        <label className={labelStyle}>Vr. Unit.</label>
+                        <input type="text" value={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} disabled className={disabledInputStyle} />
                     </div>
-                    {selectedProduct && Number(currentQuantity) > ((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) && (
-                        <div className="w-full flex items-center gap-2 text-orange-500 dark:text-orange-400 text-xs mt-2 p-2 bg-orange-50 dark:bg-orange-900/30 rounded-md border border-orange-200 dark:border-orange-800">
-                            <i className="fas fa-exclamation-triangle"></i>
-                            <span>Atención: La cantidad solicitada ({currentQuantity}) supera el stock disponible ({selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}).</span>
-                        </div>
-                    )}
+                    <div className="lg:col-span-1">
+                        <label className={labelStyle}>% Iva</label>
+                        <input type="text" value={selectedProduct ? (selectedProduct.aplicaIva ? '19' : '0') : ''} disabled className={`${disabledInputStyle} text-center`} />
+                    </div>
+                    <div className="lg:col-span-1">
+                        <label className={labelStyle}>Totales</label>
+                        <input type="text" value={formatCurrency(currentItemSubtotalForDisplay)} disabled className={`${disabledInputStyle} font-bold`} />
+                    </div>
                 </div>
-            
+                <div className="flex gap-2 mt-3">
+                    <div className="w-auto">
+                        <label className={labelStyle}>% Descto</label>
+                        <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentDiscount} onChange={e => {
+                            const val = e.target.value.replace(/[^0-9]/g, '');
+                            setCurrentDiscount(val === '' ? '' : Math.min(100, parseInt(val, 10) || 0));
+                        }} className={getNumericInputClasses(currentDiscount, isDiscountValid)} />
+                    </div>
+                    <div className="flex items-end">
+                        <button type="button" onClick={handleAddItem} disabled={!currentProductId || !isQuantityValid || !isDiscountValid} className="px-6 py-2 bg-sky-600 text-white font-semibold rounded-md hover:bg-sky-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed whitespace-nowrap">
+                            <i className="fas fa-plus mr-2"></i>Añadir Producto
+                        </button>
+                    </div>
+                </div>
+                {selectedProduct && Number(currentQuantity) > ((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) && (
+                    <div className="w-full flex items-center gap-2 text-orange-500 dark:text-orange-400 text-xs mt-2 p-2 bg-orange-50 dark:bg-orange-900/30 rounded-md border border-orange-200 dark:border-orange-800">
+                        <i className="fas fa-exclamation-triangle"></i>
+                        <span>Atención: La cantidad solicitada ({currentQuantity}) supera el stock disponible ({selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}).</span>
+                    </div>
+                )}
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
                     <h4 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-100">Items del Pedido</h4>
                     {/* Table of items */}
                     <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
                         <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                             <thead className="bg-slate-50 dark:bg-slate-700">
+                            <thead className="bg-slate-50 dark:bg-slate-700">
                                 <tr>
                                     <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
                                     <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Producto</th>
@@ -1176,22 +1179,22 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                             <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
                                 {items.length > 0 ? items.map((item, index) => {
                                     // Buscar producto por ID (puede ser numérico o string)
-                                    const product = productos.find(p => 
+                                    const product = productos.find(p =>
                                         String(p.id) === String(item.productoId) ||
                                         p.id === item.productoId
                                     );
-                                    
+
                                     // Obtener nombre del producto: primero del producto encontrado, luego del item
-                                    const productoNombre = product?.nombre || 
-                                                          item.descripcion || 
-                                                          item.nombre || 
-                                                          `Producto ${index + 1}`;
-                                    
+                                    const productoNombre = product?.nombre ||
+                                        item.descripcion ||
+                                        item.nombre ||
+                                        `Producto ${index + 1}`;
+
                                     // Solo mostrar warning si el producto NO tiene un ID válido
                                     // Si el producto tiene un ID válido (numérico > 0), asumimos que existe en la BD y no mostramos warning
                                     const hasValidProductId = item.productoId && (typeof item.productoId === 'number' || typeof item.productoId === 'string') && Number(item.productoId) > 0;
                                     const shouldShowWarning = !hasValidProductId;
-                                    
+
                                     return (
                                         <tr key={item.productoId || `item-${index}`}>
                                             <td className="px-4 py-2 text-sm text-slate-600">
@@ -1211,7 +1214,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                                     type="number"
                                                     min="1"
                                                     max={(() => {
-                                                        const product = productos.find(p => 
+                                                        const product = productos.find(p =>
                                                             String(p.id) === String(item.productoId) ||
                                                             p.id === item.productoId
                                                         );
@@ -1232,7 +1235,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                                                             handleItemChange(item.productoId, 'cantidad', 1);
                                                         } else {
                                                             // Validar contra stock máximo si aplica
-                                                            const product = productos.find(p => 
+                                                            const product = productos.find(p =>
                                                                 String(p.id) === String(item.productoId) ||
                                                                 p.id === item.productoId
                                                             );
@@ -1285,9 +1288,9 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     </div>
                 </div>
 
-                 <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg space-y-1 h-fit">
+                <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg space-y-1 h-fit">
                     <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Resumen</h4>
-                     <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-sm">
                         <span className="text-slate-500 dark:text-slate-400">Subtotal Bruto:</span>
                         <span className="font-medium">{formatCurrency(totals.subtotalBruto)}</span>
                     </div>
@@ -1309,7 +1312,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     </div>
                 </div>
             </div>
-            
+
             <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-4">
                 <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-6 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Cancelar</button>
                 <button type="submit" disabled={!canSubmit || isSubmitting} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center">
@@ -1320,8 +1323,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         </>
                     ) : (
                         <>
-                    <i className="fas fa-save mr-2"></i>
-                    Crear Pedido
+                            <i className="fas fa-save mr-2"></i>
+                            Crear Pedido
                         </>
                     )}
                 </button>

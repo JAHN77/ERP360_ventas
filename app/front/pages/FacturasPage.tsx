@@ -899,7 +899,7 @@ const FacturasPage: React.FC = () => {
 
   const remisionesColumns: Column<Remision>[] = [
     {
-      header: '', accessor: 'id', cell: (item) => {
+      header: '✓', accessor: 'id', cell: (item) => {
         const isSelected = selectedRemisiones.has(item.id);
         // Buscar cliente de forma flexible para comparar
         const clienteItem = clientes.find(c =>
@@ -917,7 +917,7 @@ const FacturasPage: React.FC = () => {
 
         return (
           <div
-            className={`flex items-center justify-center transition-opacity ${!isSelectable && !isSelected ? 'opacity-50' : ''}`}
+            className={`flex items-center justify-center transition-all duration-200 ${!isSelectable && !isSelected ? 'opacity-30 grayscale' : ''}`}
             title={!isSelectable && !isSelected ? 'Solo se pueden facturar remisiones del mismo cliente.' : 'Seleccionar para facturar'}
           >
             <input
@@ -925,86 +925,154 @@ const FacturasPage: React.FC = () => {
               checked={isSelected}
               onChange={() => handleToggleRemision(item.id)}
               disabled={!isSelectable && !isSelected}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:bg-slate-200 disabled:cursor-not-allowed"
+              className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed cursor-pointer transition-colors"
             />
           </div>
         );
       }
     },
-    { header: 'Remisión', accessor: 'numeroRemision' },
-    { header: 'Pedido', accessor: 'pedidoId', cell: (item) => pedidos.find(p => p.id === item.pedidoId)?.numeroPedido || 'N/A' },
     {
-      header: 'Cliente', accessor: 'clienteId', cell: (item) => {
-        // Buscar cliente de forma flexible (por id, numeroDocumento o codter)
+      header: 'Remisión',
+      accessor: 'numeroRemision',
+      cell: (item) => (
+        <div className="flex flex-col">
+          <span className="font-bold text-slate-700 dark:text-slate-200">{item.numeroRemision}</span>
+          <span className="text-xs text-slate-500">{formatDateOnly(item.fechaRemision)}</span>
+        </div>
+      )
+    },
+    {
+      header: 'Pedido',
+      accessor: 'pedidoId',
+      cell: (item) => {
+        const pedido = pedidos.find(p => p.id === item.pedidoId);
+        return pedido ? (
+          <span className="font-mono text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+            {pedido.numeroPedido}
+          </span>
+        ) : <span className="text-slate-400 italic text-xs">N/A</span>;
+      }
+    },
+    {
+      header: 'Cliente',
+      accessor: 'clienteId',
+      cell: (item) => {
         const cliente = clientes.find(c =>
           String(c.id) === String(item.clienteId) ||
           c.numeroDocumento === item.clienteId ||
           c.codter === item.clienteId
         );
-        return cliente?.nombreCompleto || 'N/A';
+        return (
+          <div className="flex flex-col max-w-[200px]">
+            <span className="font-medium text-slate-700 dark:text-slate-200 truncate" title={cliente?.nombreCompleto}>
+              {cliente?.nombreCompleto || 'N/A'}
+            </span>
+            <span className="text-xs text-slate-500 truncate">{cliente?.numeroDocumento}</span>
+          </div>
+        );
       }
     },
     {
-      header: 'Cond. Pago', accessor: 'clienteId', cell: (item) => {
-        // Buscar cliente de forma flexible (por id, numeroDocumento o codter)
+      header: 'Cond. Pago',
+      accessor: 'clienteId',
+      cell: (item) => {
         const cliente = clientes.find(c =>
           String(c.id) === String(item.clienteId) ||
           c.numeroDocumento === item.clienteId ||
           c.codter === item.clienteId
         );
-        return <StatusBadge status={cliente?.condicionPago === 'Contado' ? 'PAGADA' : 'VENCIDA'} />;
+        const isContado = cliente?.condicionPago === 'Contado';
+        return (
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isContado
+              ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+              : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+            }`}>
+            {isContado ? 'Contado' : 'Crédito'}
+          </span>
+        );
       }
     },
     {
-      header: 'Total Pedido', accessor: 'total', cell: (item) => {
-        // Usar el total de la remisión que viene del backend (ya calculado desde items)
-        // El backend ahora calcula el total correcto desde los items de la remisión
+      header: 'Total Pedido',
+      accessor: 'total',
+      cell: (item) => {
+        let valor = 0;
         if (item.total && item.total > 0) {
-          return formatCurrency(item.total);
-        }
-        // Fallback: calcular desde items si están cargados
-        if (item.items && item.items.length > 0) {
-          const totalRemision = item.items.reduce((sum: number, itemRem: any) => {
-            // Si el item tiene total, usarlo directamente (ya incluye IVA)
-            if (itemRem.total && itemRem.total > 0) {
-              return sum + itemRem.total;
-            }
-            // Calcular manualmente si falta total
+          valor = item.total;
+        } else if (item.items && item.items.length > 0) {
+          valor = item.items.reduce((sum: number, itemRem: any) => {
+            if (itemRem.total && itemRem.total > 0) return sum + itemRem.total;
             const subtotal = (itemRem.precioUnitario || 0) * (itemRem.cantidad || itemRem.cantidadEnviada || 0) * (1 - ((itemRem.descuentoPorcentaje || 0) / 100));
             const valorIva = subtotal * ((itemRem.ivaPorcentaje || 0) / 100);
             return sum + subtotal + valorIva;
           }, 0);
-          return formatCurrency(totalRemision);
         }
-        // Último fallback: mostrar 0 o total del pedido
-        return formatCurrency(0);
+
+        return (
+          <div className="font-mono font-semibold text-slate-700 dark:text-slate-200">
+            {formatCurrency(valor)}
+          </div>
+        );
       }
     },
   ];
 
   const facturasColumns: Column<Factura>[] = [
-    { header: 'Número', accessor: 'numeroFactura' },
     {
-      header: 'Cliente', accessor: 'clienteId', cell: (item) => {
-        // Buscar cliente de forma flexible (por id, numeroDocumento o codter)
+      header: 'Número',
+      accessor: 'numeroFactura',
+      cell: (item) => (
+        <div className="flex flex-col">
+          <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroFactura}</span>
+          {item.documentoContable && (
+            <span className="text-[10px] text-slate-400 font-mono">{item.documentoContable}</span>
+          )}
+        </div>
+      )
+    },
+    {
+      header: 'Cliente',
+      accessor: 'clienteId',
+      cell: (item) => {
         const cliente = clientes.find(c =>
           String(c.id) === String(item.clienteId) ||
           c.numeroDocumento === item.clienteId ||
           c.codter === item.clienteId
         );
-        return cliente?.nombreCompleto || 'N/A';
+        return (
+          <div className="flex flex-col max-w-[200px]">
+            <span className="font-medium text-slate-700 dark:text-slate-200 truncate" title={cliente?.nombreCompleto}>
+              {cliente?.nombreCompleto || 'N/A'}
+            </span>
+            <span className="text-xs text-slate-500 truncate">{cliente?.numeroDocumento}</span>
+          </div>
+        );
       }
     },
-    { header: 'Fecha Emisión', accessor: 'fechaFactura', cell: (item) => formatDateOnly(item.fechaFactura) },
-    { header: 'Total', accessor: 'total', cell: (item) => formatCurrency(item.total) },
     {
-      header: 'Forma de Pago',
+      header: 'Fecha',
+      accessor: 'fechaFactura',
+      cell: (item) => (
+        <div className="text-sm text-slate-600 dark:text-slate-300">
+          {formatDateOnly(item.fechaFactura)}
+        </div>
+      )
+    },
+    {
+      header: 'Total',
+      accessor: 'total',
+      cell: (item) => (
+        <div className="font-mono font-bold text-slate-700 dark:text-slate-200">
+          {formatCurrency(item.total)}
+        </div>
+      )
+    },
+    {
+      header: 'Pago',
       accessor: 'formaPago',
       cell: (item) => {
-        // Intentar obtener forma de pago desde la factura, luego desde la cotización relacionada
         let formaPagoFactura = item.formaPago;
         if (!formaPagoFactura) {
-          // Buscar pedido relacionado
           const remisionRelacionada = remisiones.find(r =>
             (item.remisionesIds && item.remisionesIds.includes(r.id)) ||
             r.facturaId === item.id
@@ -1019,128 +1087,200 @@ const FacturasPage: React.FC = () => {
             }
           }
         }
-        if (!formaPagoFactura) return 'N/A';
-        // Convertir valores antiguos '01'/'02' a nuevos '1'/'2' si es necesario
+        if (!formaPagoFactura) return <span className="text-slate-400">-</span>;
+
         const formaPagoValue = formaPagoFactura === '01' ? '1' : formaPagoFactura === '02' ? '2' : formaPagoFactura;
-        const formaPagoMap: Record<string, string> = {
-          '1': 'Contado',
-          '2': 'Crédito'
-        };
-        return formaPagoMap[formaPagoValue] || formaPagoValue;
+        const isContado = formaPagoValue === '1';
+
+        return (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${isContado
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
+              : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800'
+            }`}>
+            {isContado ? 'Contado' : 'Crédito'}
+          </span>
+        );
       }
     },
     {
-      header: 'Motivo Rechazo', accessor: 'estado', cell: (item) => {
-        // Mostrar motivo de rechazo solo si la factura está rechazada
-        if (item.estado === 'RECHAZADA' && item.motivoRechazo) {
-          return (
-            <div className="flex items-center gap-2">
-              <i className="fas fa-exclamation-triangle text-red-500"></i>
-              <span className="text-red-600 dark:text-red-400 text-sm" title={item.motivoRechazo}>
-                {item.motivoRechazo.length > 50 ? `${item.motivoRechazo.substring(0, 50)}...` : item.motivoRechazo}
-              </span>
+      header: 'Estado',
+      accessor: 'estado',
+      cell: (item) => (
+        <div className="flex flex-col gap-1">
+          <StatusBadge status={item.estado as any} />
+          {item.estado === 'RECHAZADA' && item.motivoRechazo && (
+            <div className="flex items-center gap-1 text-[10px] text-red-600 dark:text-red-400 max-w-[150px] truncate" title={item.motivoRechazo}>
+              <i className="fas fa-exclamation-circle"></i>
+              <span>{item.motivoRechazo}</span>
             </div>
-          );
-        }
-        return <span className="text-slate-400 dark:text-slate-500">—</span>;
-      }
+          )}
+        </div>
+      )
     },
-    { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
     {
-      header: 'Acciones', accessor: 'id', cell: (item) => (
-        <button onClick={() => handleOpenDetailModal(item)} className="text-sky-500 hover:underline text-sm font-medium">Ver</button>
+      header: 'Acciones',
+      accessor: 'id',
+      cell: (item) => (
+        <button
+          onClick={() => handleOpenDetailModal(item)}
+          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+          title="Ver detalles"
+        >
+          <i className="fas fa-eye"></i>
+        </button>
       )
     },
   ];
 
   const additionalInvoiceFilters = (
-    <div className="flex flex-col sm:flex-row gap-4">
-      <div>
-        <label htmlFor="statusFilter" className="sr-only">Estado</label>
+    <div className="flex items-center gap-2">
+      <div className="relative">
         <select
           id="statusFilter"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="appearance-none pl-3 pr-8 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700"
         >
           {filterOptions.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
+        <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-slate-500">
+          <i className="fas fa-chevron-down text-xs"></i>
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div>
-      <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 mb-6">Tablero de Facturación</h1>
-
-      <Card className="mb-8">
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <CardTitle>Remisiones Entregadas por Facturar</CardTitle>
-            <ProtectedComponent permission="facturacion:create">
-              <button
-                onClick={handleFacturar}
-                disabled={selectedRemisiones.size === 0 || isFacturando}
-                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed w-full sm:w-auto shadow-md hover:shadow-lg"
-                title={isFacturando ? "Procesando factura..." : `Facturar ${selectedRemisiones.size} remisión(es)`}
-              >
-                {isFacturando ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin mr-2"></i>
-                    Procesando...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-file-invoice-dollar mr-2"></i>
-                    Facturar ({selectedRemisiones.size}) - {formatCurrency(totalAFacturar)}
-                  </>
-                )}
-              </button>
-            </ProtectedComponent>
-          </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-            <i className="fas fa-info-circle mr-2 text-blue-400"></i>
-            Seleccione una o más remisiones del mismo cliente para consolidarlas en una sola factura.
+    <div className="space-y-8 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+            Facturación Electrónica
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">
+            Gestione sus facturas, remisiones y estados ante la DIAN.
           </p>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table columns={remisionesColumns} data={remisionesPorFacturar} onSort={() => { }} sortConfig={{ key: null, direction: 'asc' }} />
-        </CardContent>
-      </Card>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Actions placeholder if needed */}
+        </div>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Historial de Facturas</CardTitle>
-        </CardHeader>
-        <TableToolbar
-          searchTerm={searchTermInvoices}
-          onSearchChange={handleSearchInvoices}
-          additionalFilters={additionalInvoiceFilters}
-        />
-        <CardContent className="p-0">
-          <Table
-            columns={facturasColumns}
-            data={paginatedInvoices}
-            onSort={requestSortInvoices}
-            sortConfig={sortConfigInvoices}
-            highlightRowId={params?.highlightId ?? params?.focusId}
-          />
-        </CardContent>
-        <TablePagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={goToPage}
-          canPreviousPage={currentPage > 1}
-          canNextPage={currentPage < totalPages}
-          onPreviousPage={prevPage}
-          onNextPage={nextPage}
-          totalItems={totalItems}
-          rowsPerPage={rowsPerPage}
-          setRowsPerPage={setRowsPerPage}
-        />
-      </Card>
+      {/* Sección: Remisiones Pendientes */}
+      <section>
+        <Card className="border-l-4 border-l-blue-500 shadow-md hover:shadow-lg transition-shadow duration-300 overflow-hidden">
+          <CardHeader className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700/50 pb-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-lg text-slate-800 dark:text-slate-100">
+                  <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 p-2 rounded-lg">
+                    <i className="fas fa-file-invoice"></i>
+                  </span>
+                  Remisiones Entregadas por Facturar
+                </CardTitle>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 ml-11">
+                  Seleccione remisiones del mismo cliente para consolidar.
+                </p>
+              </div>
+
+              <ProtectedComponent permission="facturacion:create">
+                <button
+                  onClick={handleFacturar}
+                  disabled={selectedRemisiones.size === 0 || isFacturando}
+                  className={`
+                    relative overflow-hidden group px-6 py-2.5 rounded-xl font-medium text-sm transition-all duration-300
+                    ${selectedRemisiones.size > 0 && !isFacturando
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 hover:bg-blue-700 hover:shadow-blue-600/40 hover:-translate-y-0.5'
+                      : 'bg-slate-100 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-600'}
+                  `}
+                >
+                  <div className="flex items-center gap-2 relative z-10">
+                    {isFacturando ? (
+                      <>
+                        <i className="fas fa-circle-notch fa-spin"></i>
+                        <span>Procesando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-magic"></i>
+                        <span>Generar Factura ({selectedRemisiones.size})</span>
+                        {totalAFacturar > 0 && (
+                          <span className="bg-blue-500/20 px-2 py-0.5 rounded text-xs border border-blue-400/20">
+                            {formatCurrency(totalAFacturar)}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </button>
+              </ProtectedComponent>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-hidden">
+              <Table
+                columns={remisionesColumns}
+                data={remisionesPorFacturar}
+                onSort={() => { }}
+                sortConfig={{ key: null, direction: 'asc' }}
+                highlightRowId={undefined}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* Sección: Historial de Facturas */}
+      <section>
+        <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardHeader className="bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 pb-4">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-lg text-slate-800 dark:text-slate-100">
+                <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 p-2 rounded-lg">
+                  <i className="fas fa-history"></i>
+                </span>
+                Historial de Facturas
+              </CardTitle>
+            </div>
+          </CardHeader>
+
+          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+            <TableToolbar
+              searchTerm={searchTermInvoices}
+              onSearchChange={handleSearchInvoices}
+              additionalFilters={additionalInvoiceFilters}
+              placeholder="Buscar por número, cliente..."
+            />
+          </div>
+
+          <CardContent className="p-0">
+            <Table
+              columns={facturasColumns}
+              data={paginatedInvoices}
+              onSort={requestSortInvoices}
+              sortConfig={sortConfigInvoices}
+              highlightRowId={params?.highlightId ?? params?.focusId}
+            />
+          </CardContent>
+
+          <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/30">
+            <TablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={goToPage}
+              canPreviousPage={currentPage > 1}
+              canNextPage={currentPage < totalPages}
+              onPreviousPage={prevPage}
+              onNextPage={nextPage}
+              totalItems={totalItems}
+              rowsPerPage={rowsPerPage}
+              setRowsPerPage={setRowsPerPage}
+            />
+          </div>
+        </Card>
+      </section>
 
       {selectedFactura && cliente && (
         <Modal

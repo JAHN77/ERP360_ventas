@@ -936,10 +936,16 @@ const DevolucionesPage: React.FC = () => {
 
 
     return (
-        <div>
-            <header className="mb-6">
-                <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Módulo de Devoluciones</h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">Gestione el registro y seguimiento de sus notas de crédito.</p>
+        <div className="animate-fade-in space-y-6">
+            <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+                        Módulo de Devoluciones
+                    </h1>
+                    <p className="text-slate-500 dark:text-slate-400 mt-1">
+                        Gestione el registro y seguimiento de sus notas de crédito.
+                    </p>
+                </div>
             </header>
 
             <div className="mb-6 border-b border-slate-200 dark:border-slate-700">

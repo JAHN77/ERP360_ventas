@@ -1,17 +1,17 @@
 import { Page } from '../contexts/NavigationContext';
 
 export const availableRoles = [
-    'vendedor', 
-    'almacenista', 
-    'logistica', 
-    'facturacion', 
-    'admin',
-    'supervisor_comercial',
-    'coordinador_pedidos',
-    'compras',
-    'contabilidad',
-    'postventa',
-    'auditor'
+  'vendedor',
+  'almacenista',
+  'logistica',
+  'facturacion',
+  'admin',
+  'supervisor_comercial',
+  'coordinador_pedidos',
+  'compras',
+  'contabilidad',
+  'postventa',
+  'auditor'
 ] as const;
 export type Role = typeof availableRoles[number];
 
@@ -38,11 +38,11 @@ type RoleConfig = {
 
 export const rolesConfig: Record<Role, RoleConfig> = {
   vendedor: {
-    can: ['dashboard:view', 'cotizaciones:view', 'cotizaciones:create', 'cotizaciones:edit', 'clientes:view', 'productos:view', 'cotizaciones:approve', 'pedidos:create', 'reportes:view'],
+    can: ['dashboard:view', 'cotizaciones:view', 'cotizaciones:create', 'cotizaciones:edit', 'clientes:view', 'clientes:create', 'clientes:edit', 'productos:view', 'cotizaciones:approve', 'pedidos:create', 'reportes:view'],
     pages: ['dashboard', 'cotizaciones', 'nueva_cotizacion', 'editar_cotizacion', 'clientes', 'productos', 'pedidos', 'nuevo_pedido', 'reportes', 'demas_informes'],
   },
   supervisor_comercial: {
-    can: ['dashboard:view', 'cotizaciones:view', 'cotizaciones:supervise', 'clientes:view', 'productos:view', 'reportes:view', 'pedidos:edit', 'pedidos:approve'],
+    can: ['dashboard:view', 'cotizaciones:view', 'cotizaciones:supervise', 'clientes:view', 'clientes:create', 'clientes:edit', 'productos:view', 'reportes:view', 'pedidos:edit', 'pedidos:approve'],
     pages: ['dashboard', 'cotizaciones', 'clientes', 'productos', 'reportes', 'pedidos', 'demas_informes'],
   },
   coordinador_pedidos: {
@@ -62,7 +62,7 @@ export const rolesConfig: Record<Role, RoleConfig> = {
     pages: ['dashboard', 'remisiones', 'editar_remision', 'reportes', 'demas_informes'],
   },
   facturacion: {
-    can: ['dashboard:view', 'facturacion:view', 'facturacion:create', 'facturacion:send', 'facturacion:stamp', 'clientes:view', 'reportes:view'],
+    can: ['dashboard:view', 'facturacion:view', 'facturacion:create', 'facturacion:send', 'facturacion:stamp', 'clientes:view', 'clientes:create', 'clientes:edit', 'reportes:view'],
     pages: ['dashboard', 'facturacion_electronica', 'nueva_factura', 'clientes', 'reportes', 'demas_informes'],
   },
   contabilidad: {
@@ -94,9 +94,9 @@ export const rolesConfig: Record<Role, RoleConfig> = {
 };
 
 export function hasPagePermission(role: Role, page: Page): boolean {
-    const roleConf = rolesConfig[role];
-    if (roleConf.can.includes('*')) {
-        return true;
-    }
-    return roleConf.pages.includes(page);
+  const roleConf = rolesConfig[role];
+  if (roleConf.can.includes('*')) {
+    return true;
+  }
+  return roleConf.pages.includes(page);
 }

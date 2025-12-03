@@ -161,7 +161,7 @@ const RemisionesPage: React.FC = () => {
       }
     } catch (error) {
       console.error('Error cargando remisiones:', error);
-      addNotification({ message: 'Error al cargar remisiones', type: 'error' });
+      addNotification({ message: 'Error al cargar remisiones', type: 'warning' });
     } finally {
       setIsLoadingRemisiones(false);
     }
@@ -385,10 +385,10 @@ const RemisionesPage: React.FC = () => {
             descuentoValor: remision.descuentoValor || 0,
             ivaValor: remision.ivaValor || 0,
             total: remision.total || 0,
-            estado: estadoFantasma,
+            estado: estadoFantasma as any,
             observaciones: pedidoIdStr ? `Remisión asociada a pedido ${pedidoIdStr} (pedido no encontrado en contexto)` : 'Remisión sin pedido asociado',
             items: remision.items || [],
-            empresaId: remision.empresaId || '001'
+            empresaId: Number(remision.empresaId) || 1
           };
 
           groups[sinPedidoKey] = {
@@ -406,11 +406,12 @@ const RemisionesPage: React.FC = () => {
     const groupsArray = Object.values(groups);
 
     // Sort remisiones within each group by date (más eficiente hacerlo aquí)
+    // Sort remisiones within each group by date (descending - newest first)
     groupsArray.forEach(group => {
       group.remisiones.sort((a, b) => {
         const dateA = new Date(a.fechaRemision).getTime();
         const dateB = new Date(b.fechaRemision).getTime();
-        return dateA - dateB;
+        return dateB - dateA; // Descending order (Newest first)
       });
     });
 
@@ -418,9 +419,10 @@ const RemisionesPage: React.FC = () => {
     const sortedGroups = groupsArray.sort((a, b) => {
       if (a.remisiones.length === 0) return 1;
       if (b.remisiones.length === 0) return -1;
-      const dateA = new Date(a.remisiones[a.remisiones.length - 1].fechaRemision).getTime();
-      const dateB = new Date(b.remisiones[b.remisiones.length - 1].fechaRemision).getTime();
-      return dateB - dateA;
+      // Since remisiones are now sorted descending, the first one is the newest
+      const dateA = new Date(a.remisiones[0].fechaRemision).getTime();
+      const dateB = new Date(b.remisiones[0].fechaRemision).getTime();
+      return dateB - dateA; // Descending order (Newest first)
     });
 
     // OPTIMIZACIÓN: Log en desarrollo para debugging
@@ -561,7 +563,7 @@ const RemisionesPage: React.FC = () => {
         const cantYaEnviada = remisionesPrevias.reduce((sum, r) => {
           return sum + (r.items?.reduce((itemSum, i) => {
             if (String(i.productoId) === productoIdStr) {
-              return itemSum + (i.cantidad || i.cantidadEnviada || 0);
+              return itemSum + (i.cantidad || (i as any).cantidadEnviada || 0);
             }
             return itemSum;
           }, 0) || 0);
@@ -571,21 +573,21 @@ const RemisionesPage: React.FC = () => {
 
         if (cantPendiente > 0) {
           // Usar stock del catálogo si está disponible, sino usar el del item del pedido
-          const cantStock = producto ? (producto.stock ?? 0) : (itemPedido.stock ?? 0);
+          const cantStock = producto ? (producto.stock ?? 0) : ((itemPedido as any).stock ?? 0);
           const cantAEnviar = Math.max(0, Math.min(cantPendiente, cantStock));
 
           // Obtener datos del producto: primero del item del pedido (fuente principal), luego del catálogo
           const productoNombre = itemPedido.descripcion ||
-            itemPedido.nombre ||
+            (itemPedido as any).nombre ||
             producto?.nombre ||
             `Producto ${itemPedido.productoId}`;
 
-          const referencia = itemPedido.referencia ||
+          const referencia = (itemPedido as any).referencia ||
             itemPedido.codProducto ||
             producto?.referencia ||
             'N/A';
 
-          const unidadMedida = itemPedido.unidadMedida ||
+          const unidadMedida = (itemPedido as any).unidadMedida ||
             producto?.unidadMedida ||
             'Unidad';
 
@@ -882,7 +884,7 @@ const RemisionesPage: React.FC = () => {
       console.error(error);
       addNotification({
         message: (error as Error).message || 'Error al marcar la remisión como entregada',
-        type: 'error'
+        type: 'warning'
       });
     } finally {
       setIsDelivering(null);
@@ -969,12 +971,37 @@ const RemisionesPage: React.FC = () => {
 
   // OPTIMIZACIÓN: Memoizar columnas para evitar recrearlas en cada render
   const remisionesGroupColumns: Column<RemisionGroup>[] = useMemo(() => [
-    { header: 'ID Pedido', accessor: 'pedido', cell: ({ pedido }) => <span className="font-mono text-sm">{pedido.id}</span> },
-    { header: 'Pedido Origen', accessor: 'pedido', cell: ({ pedido }) => <span className="font-semibold">{pedido.numeroPedido}</span> },
-    { header: 'Cliente', accessor: 'cliente', cell: ({ cliente }) => cliente?.nombreCompleto || 'N/A' },
+    {
+      header: 'ID Pedido',
+      accessor: 'pedido',
+      cell: ({ pedido }) => (
+        <span className="font-mono text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700">
+          {pedido.id}
+        </span>
+      )
+    },
+    {
+      header: 'Pedido Origen',
+      accessor: 'pedido',
+      cell: ({ pedido }) => (
+        <span className="font-bold text-slate-700 dark:text-slate-200">{pedido.numeroPedido}</span>
+      )
+    },
+    {
+      header: 'Cliente',
+      accessor: 'cliente',
+      cell: ({ cliente }) => (
+        <div className="flex flex-col max-w-[200px]">
+          <span className="font-medium text-slate-700 dark:text-slate-200 truncate" title={cliente?.nombreCompleto}>
+            {cliente?.nombreCompleto || 'N/A'}
+          </span>
+          <span className="text-xs text-slate-500 truncate">{cliente?.numeroDocumento}</span>
+        </div>
+      )
+    },
     {
       header: 'Nº Entregas', accessor: 'remisiones', cell: ({ remisiones }) => (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
           <i className="fas fa-box mr-1.5"></i>
           {remisiones.length}
         </span>
@@ -994,36 +1021,40 @@ const RemisionesPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => handleOpenDetailModal(group)}
-              className="text-sky-500 hover:underline text-sm font-medium"
+              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+              title="Ver Detalle de Entregas"
             >
-              Ver Detalle de Entregas
+              <i className="fas fa-eye"></i>
             </button>
             {puedeMarcarEntregada && (
-              <ProtectedComponent permission="remisiones:approve">
-                {group.remisiones.map(remision => {
-                  if (remision.estado === 'BORRADOR' || remision.estado === 'EN_TRANSITO') {
-                    return (
-                      <button
-                        key={remision.id}
-                        onClick={() => handleAprobarEntrega(remision.id)}
-                        disabled={isDelivering === remision.id}
-                        className="px-3 py-1 bg-teal-600 text-white text-xs font-bold rounded-md hover:bg-teal-700 disabled:bg-slate-400 transition-colors"
-                      >
-                        {isDelivering === remision.id ? (
-                          <><i className="fas fa-spinner fa-spin mr-1"></i>Marcando...</>
-                        ) : (
-                          <><i className="fas fa-check-circle mr-1"></i>Entregado</>
-                        )}
-                      </button>
-                    );
-                  }
-                  return null;
-                })}
+              <ProtectedComponent permission="remisiones:deliver">
+                <div className="flex gap-1">
+                  {group.remisiones.map(remision => {
+                    if (remision.estado === 'BORRADOR' || remision.estado === 'EN_TRANSITO') {
+                      return (
+                        <button
+                          key={remision.id}
+                          onClick={() => handleAprobarEntrega(remision.id)}
+                          disabled={isDelivering === remision.id}
+                          className="p-2 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-lg transition-all duration-200 disabled:opacity-50"
+                          title={`Marcar entrega ${remision.numeroRemision}`}
+                        >
+                          {isDelivering === remision.id ? (
+                            <i className="fas fa-spinner fa-spin"></i>
+                          ) : (
+                            <i className="fas fa-check-circle"></i>
+                          )}
+                        </button>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
               </ProtectedComponent>
             )}
             {todasEntregadas && (
-              <span className="text-xs text-teal-600 dark:text-teal-400 font-medium">
-                <i className="fas fa-check-circle mr-1"></i>Todas entregadas
+              <span className="text-xs text-teal-600 dark:text-teal-400 font-medium flex items-center gap-1 bg-teal-50 dark:bg-teal-900/20 px-2 py-1 rounded-full border border-teal-100 dark:border-teal-800">
+                <i className="fas fa-check-circle text-[10px]"></i> Completado
               </span>
             )}
           </div>
@@ -1034,23 +1065,39 @@ const RemisionesPage: React.FC = () => {
 
   // OPTIMIZACIÓN: Memoizar columnas para evitar recrearlas en cada render
   const pedidosColumns: Column<Pedido>[] = useMemo(() => [
-    { header: 'Número Pedido', accessor: 'numeroPedido' },
+    {
+      header: 'Número Pedido',
+      accessor: 'numeroPedido',
+      cell: (item) => (
+        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroPedido}</span>
+      )
+    },
     {
       header: 'Cliente',
       accessor: 'clienteId',
-      cell: (item) => getClienteNombre(item.clienteId)
+      cell: (item) => {
+        const nombre = getClienteNombre(item.clienteId);
+        return (
+          <span className="font-medium text-slate-700 dark:text-slate-200">{nombre}</span>
+        );
+      }
     },
     {
       header: 'Fecha',
       accessor: 'fechaPedido',
-      cell: (item) => formatDateOnly(item.fechaPedido)
+      cell: (item) => (
+        <span className="text-sm text-slate-600 dark:text-slate-400">{formatDateOnly(item.fechaPedido)}</span>
+      )
     },
     { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
     {
       header: 'Acciones', accessor: 'id', cell: (item) => (
         <ProtectedComponent permission="remisiones:create">
-          <button onClick={() => handleOpenCreateModal(item)} className="px-3 py-1 bg-green-600 text-white text-xs font-bold rounded-md hover:bg-green-700 transition-colors">
-            <i className="fas fa-truck mr-2"></i>
+          <button
+            onClick={() => handleOpenCreateModal(item)}
+            className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-all duration-200 shadow-sm hover:shadow hover:-translate-y-0.5 flex items-center gap-2"
+          >
+            <i className="fas fa-truck"></i>
             Remisionar
           </button>
         </ProtectedComponent>
@@ -1084,72 +1131,112 @@ const RemisionesPage: React.FC = () => {
 
 
   return (
-    <div>
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-2">
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Gestión de Remisiones</h1>
-        <p className="text-slate-500 dark:text-slate-400 text-left sm:text-right">Centro de control de entregas</p>
+    <div className="space-y-8 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+            Gestión de Remisiones
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">
+            Centro de control de entregas y despachos.
+          </p>
+        </div>
       </div>
 
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle>Pedidos Listos para Despacho</CardTitle>
-        </CardHeader>
-        <TableToolbar searchTerm={pedidosTable.searchTerm} onSearchChange={pedidosTable.handleSearch} />
-        <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
-          <Table columns={pedidosColumns} data={pedidosTable.paginatedData} onSort={pedidosTable.requestSort} sortConfig={pedidosTable.sortConfig} />
-        </CardContent>
-        <TablePagination
-          currentPage={pedidosTable.currentPage}
-          totalPages={pedidosTable.totalPages}
-          onPageChange={pedidosTable.goToPage}
-          canPreviousPage={pedidosTable.currentPage > 1}
-          canNextPage={pedidosTable.currentPage < pedidosTable.totalPages}
-          onPreviousPage={pedidosTable.prevPage}
-          onNextPage={pedidosTable.nextPage}
-          totalItems={pedidosTable.totalItems}
-          rowsPerPage={pedidosTable.rowsPerPage}
-          setRowsPerPage={pedidosTable.setRowsPerPage}
-        />
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Historial de Entregas por Pedido</CardTitle>
-        </CardHeader>
-        <TableToolbar
-          searchTerm={searchTerm}
-          onSearchChange={handleSearch}
-          additionalFilters={additionalFilters}
-        />
-        <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
-          {isLoadingRemisiones ? (
-            <div className="p-8 text-center text-slate-500 dark:text-slate-400">
-              <i className="fas fa-spinner fa-spin mr-2"></i>
-              Cargando remisiones...
+      <section>
+        <Card className="border-l-4 border-l-green-500 shadow-md hover:shadow-lg transition-shadow duration-300 overflow-hidden">
+          <CardHeader className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700/50 pb-4">
+            <div className="flex items-center gap-2">
+              <span className="bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 p-2 rounded-lg">
+                <i className="fas fa-dolly"></i>
+              </span>
+              <div>
+                <CardTitle className="text-lg text-slate-800 dark:text-slate-100">Pedidos Listos para Despacho</CardTitle>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                  Pedidos confirmados pendientes de generar remisión.
+                </p>
+              </div>
             </div>
-          ) : (
-            <Table
-              columns={remisionesGroupColumns}
-              data={remisionGroupsArray}
-              onSort={() => { }}
-              sortConfig={null}
-              highlightRowId={focusedGroupId ?? params?.highlightId ?? params?.focusId}
+          </CardHeader>
+
+          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+            <TableToolbar searchTerm={pedidosTable.searchTerm} onSearchChange={pedidosTable.handleSearch} placeholder="Buscar pedido..." />
+          </div>
+
+          <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+            <Table columns={pedidosColumns} data={pedidosTable.paginatedData} onSort={pedidosTable.requestSort} sortConfig={pedidosTable.sortConfig} />
+          </CardContent>
+
+          <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/30">
+            <TablePagination
+              currentPage={pedidosTable.currentPage}
+              totalPages={pedidosTable.totalPages}
+              onPageChange={pedidosTable.goToPage}
+              canPreviousPage={pedidosTable.currentPage > 1}
+              canNextPage={pedidosTable.currentPage < pedidosTable.totalPages}
+              onPreviousPage={pedidosTable.prevPage}
+              onNextPage={pedidosTable.nextPage}
+              totalItems={pedidosTable.totalItems}
+              rowsPerPage={pedidosTable.rowsPerPage}
+              setRowsPerPage={pedidosTable.setRowsPerPage}
             />
-          )}
-        </CardContent>
-        <TablePagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={handlePageChange}
-          canPreviousPage={currentPage > 1}
-          canNextPage={currentPage < totalPages}
-          onPreviousPage={() => handlePageChange(currentPage - 1)}
-          onNextPage={() => handlePageChange(currentPage + 1)}
-          totalItems={totalItems}
-          rowsPerPage={pageSize}
-          setRowsPerPage={handlePageSizeChange}
-        />
-      </Card>
+          </div>
+        </Card>
+      </section>
+
+      <section>
+        <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardHeader className="bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 pb-4">
+            <div className="flex items-center gap-2">
+              <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 p-2 rounded-lg">
+                <i className="fas fa-history"></i>
+              </span>
+              <CardTitle className="text-lg text-slate-800 dark:text-slate-100">Historial de Entregas por Pedido</CardTitle>
+            </div>
+          </CardHeader>
+
+          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+            <TableToolbar
+              searchTerm={searchTerm}
+              onSearchChange={handleSearch}
+              additionalFilters={additionalFilters}
+              placeholder="Buscar por pedido, cliente..."
+            />
+          </div>
+
+          <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+            {isLoadingRemisiones ? (
+              <div className="p-12 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center gap-3">
+                <i className="fas fa-circle-notch fa-spin text-3xl text-blue-500"></i>
+                <p>Cargando remisiones...</p>
+              </div>
+            ) : (
+              <Table
+                columns={remisionesGroupColumns}
+                data={remisionGroupsArray}
+                onSort={() => { }}
+                sortConfig={null}
+                highlightRowId={focusedGroupId ?? params?.highlightId ?? params?.focusId}
+              />
+            )}
+          </CardContent>
+
+          <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/30">
+            <TablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+              canPreviousPage={currentPage > 1}
+              canNextPage={currentPage < totalPages}
+              onPreviousPage={() => handlePageChange(currentPage - 1)}
+              onNextPage={() => handlePageChange(currentPage + 1)}
+              totalItems={totalItems}
+              rowsPerPage={pageSize}
+              setRowsPerPage={handlePageSizeChange}
+            />
+          </div>
+        </Card>
+      </section>
 
       {selectedGroup && (
         <Modal
@@ -1228,12 +1315,12 @@ const RemisionesPage: React.FC = () => {
                               // Obtener nombre del producto: primero del producto encontrado, luego del item
                               const productoNombre = product?.nombre ||
                                 item.descripcion ||
-                                item.nombre ||
+                                (item as any).nombre ||
                                 `Producto ${index + 1}`;
 
                               // Obtener unidad de medida: primero del producto, luego del item
                               const unidadMedida = product?.unidadMedida ||
-                                item.unidadMedida ||
+                                (item as any).unidadMedida ||
                                 'Unidad';
 
                               return (
@@ -1353,7 +1440,7 @@ const RemisionesPage: React.FC = () => {
                   </div>
                   <div className="flex items-start gap-2">
                     <i className="fas fa-phone text-slate-400 mt-1"></i>
-                    <div><p className="font-semibold text-slate-500 dark:text-slate-400">Teléfono</p><p>{currentCliente?.telefono}</p></div>
+                    <div><p className="font-semibold text-slate-500 dark:text-slate-400">Teléfono</p><p>{currentCliente?.telter || currentCliente?.celter || currentCliente?.celular}</p></div>
                   </div>
                   <div className="flex items-start gap-2">
                     <i className="fas fa-envelope text-slate-400 mt-1"></i>
@@ -1393,7 +1480,7 @@ const RemisionesPage: React.FC = () => {
                         // Obtener nombre del producto: primero del producto encontrado, luego del item
                         const productoNombre = producto?.nombre ||
                           item.descripcion ||
-                          item.nombre ||
+                          (item as any).nombre ||
                           `Producto ${index + 1}`;
 
                         return (

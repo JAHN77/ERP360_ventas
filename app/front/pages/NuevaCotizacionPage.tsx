@@ -37,7 +37,7 @@ const NuevaCotizacionPage: React.FC = () => {
     const { page, params, setPage } = useNavigation();
     const { addNotification } = useNotifications();
     const { clientes, vendedores, datosEmpresa, crearCotizacion, aprobarCotizacion, getCotizacionById, actualizarCotizacion } = useData();
-    
+
     const isEditing = page === 'editar_cotizacion';
 
     const [initialData, setInitialData] = useState<Cotizacion | null>(null);
@@ -82,8 +82,8 @@ const NuevaCotizacionPage: React.FC = () => {
                 notaPago: formData.notaPago,
             } as Partial<Cotizacion>);
             if (updatedQuote) {
-                addNotification({ 
-                    message: `Cotización ${updatedQuote.numeroCotizacion} enviada a supervisión.`, 
+                addNotification({
+                    message: `Cotización ${updatedQuote.numeroCotizacion} enviada a supervisión.`,
                     type: 'success',
                     link: { page: 'cotizaciones', params: { focusId: updatedQuote.id, highlightId: updatedQuote.id } }
                 });
@@ -145,7 +145,7 @@ const NuevaCotizacionPage: React.FC = () => {
             setQuoteToPreview(previewData);
         }
     };
-    
+
     const handleCreateAndSend = async () => {
         if (!quoteToPreview) return;
         setIsSending(true);
@@ -156,8 +156,8 @@ const NuevaCotizacionPage: React.FC = () => {
             };
             const nuevaCotizacion = await crearCotizacion(payload as Cotizacion);
             setSavedCotizacion(nuevaCotizacion);
-            addNotification({ 
-                message: 'Cotización guardada exitosamente', 
+            addNotification({
+                message: 'Cotización guardada exitosamente',
                 type: 'success',
                 link: { page: 'cotizaciones', params: { focusId: nuevaCotizacion.id, highlightId: nuevaCotizacion.id } }
             });
@@ -189,7 +189,7 @@ const NuevaCotizacionPage: React.FC = () => {
                 itemsEnCreada: cotizacionCreada.items?.length || 0,
                 itemsEnPreview: quoteToPreview.items?.length || 0
             });
-            
+
             for (let intento = 0; intento < 10; intento++) {
                 await new Promise(resolve => setTimeout(resolve, 200));
                 cotizacionCompleta = getCotizacionById(cotizacionCreada.id) || null;
@@ -202,7 +202,7 @@ const NuevaCotizacionPage: React.FC = () => {
                     break;
                 }
             }
-            
+
             // Si no se encuentra en el estado local o no tiene items, usar la cotización creada con los items originales
             if (!cotizacionCompleta || !cotizacionCompleta.items || cotizacionCompleta.items.length === 0) {
                 console.warn('⚠️ Cotización no encontrada en estado local o sin items, usando items del preview');
@@ -238,26 +238,26 @@ const NuevaCotizacionPage: React.FC = () => {
                 itemsCount: cotizacionCompleta.items?.length || 0,
                 itemsIds: itemsIds
             });
-            
+
             const resultadoAprobacion = await aprobarCotizacion(cotizacionCompleta, itemsIds);
-            
+
             console.log('🔍 Resultado de aprobarCotizacion:', {
                 resultado: resultadoAprobacion,
                 tienePedido: !!(resultadoAprobacion as any)?.pedido,
                 tipo: typeof resultadoAprobacion
             });
-            
+
             if (!resultadoAprobacion) {
                 throw new Error('No se pudo aprobar la cotización: resultadoAprobacion es null o undefined');
             }
-            
+
             if (!(resultadoAprobacion as any).pedido) {
                 console.error('❌ El resultado no contiene pedido:', resultadoAprobacion);
                 throw new Error('No se pudo generar el pedido. La cotización fue aprobada pero no se creó el pedido.');
             }
-            
+
             const { cotizacion, pedido } = resultadoAprobacion as { cotizacion: Cotizacion; pedido: Pedido };
-            
+
             console.log('✅ Aprobación exitosa:', {
                 cotizacionId: cotizacion.id,
                 pedidoId: pedido.id,
@@ -265,8 +265,8 @@ const NuevaCotizacionPage: React.FC = () => {
             });
             setApprovalResult({ cotizacion, pedido });
             // Mostrar mensaje de aprobación
-            addNotification({ 
-                message: 'Aprobado', 
+            addNotification({
+                message: 'Aprobado',
                 type: 'success',
                 link: { page: 'cotizaciones', params: { focusId: cotizacion.id, highlightId: cotizacion.id } }
             });
@@ -279,7 +279,7 @@ const NuevaCotizacionPage: React.FC = () => {
             setPreviewVendedor(null);
         }
     };
-    
+
     const handleCancel = () => {
         if (isFormDirty) {
             setCancelConfirmOpen(true);
@@ -294,15 +294,22 @@ const NuevaCotizacionPage: React.FC = () => {
     };
 
     return (
-        <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 mb-6">
-                {isEditing ? `Editar Cotización: ${initialData?.numeroCotizacion || ''}` : 'Crear Nueva Cotización'}
-            </h1>
+        <div className="animate-fade-in space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+                        {isEditing ? `Editar Cotización: ${initialData?.numeroCotizacion || ''}` : 'Crear Nueva Cotización'}
+                    </h1>
+                    <p className="text-slate-500 dark:text-slate-400 mt-1">
+                        {isEditing ? 'Modifica los detalles de la cotización existente.' : 'Diligencia el formulario para generar una nueva cotización.'}
+                    </p>
+                </div>
+            </div>
             <Card>
                 <CardContent>
-                    <CotizacionForm 
-                        onSubmit={handleFormSubmit} 
-                        onCancel={handleCancel} 
+                    <CotizacionForm
+                        onSubmit={handleFormSubmit}
+                        onCancel={handleCancel}
                         onDirtyChange={setFormDirty}
                         initialData={initialData}
                         isEditing={isEditing}
@@ -375,9 +382,9 @@ const NuevaCotizacionPage: React.FC = () => {
                 return (
                     <ApprovalSuccessModal
                         isOpen={!!approvalResult}
-                        onClose={() => { 
-                            setApprovalResult(null); 
-                            setPage('cotizaciones', { focusId: cotizacion.id }); 
+                        onClose={() => {
+                            setApprovalResult(null);
+                            setPage('cotizaciones', { focusId: cotizacion.id });
                         }}
                         title="¡Aprobación Exitosa!"
                         message={
@@ -400,9 +407,9 @@ const NuevaCotizacionPage: React.FC = () => {
                         ]}
                         primaryAction={{
                             label: 'Ir a Cotizaciones',
-                            onClick: () => { 
-                                setApprovalResult(null); 
-                                setPage('cotizaciones', { focusId: cotizacion.id }); 
+                            onClick: () => {
+                                setApprovalResult(null);
+                                setPage('cotizaciones', { focusId: cotizacion.id });
                             },
                         }}
                     />
@@ -413,7 +420,7 @@ const NuevaCotizacionPage: React.FC = () => {
                 const cotizacion = savedCotizacion;
                 const cliente = findClienteByIdentifier(clientes, cotizacion.clienteId) || previewCliente;
                 const vendedor = previewVendedor || vendedores.find(v => v.id === cotizacion.vendedorId);
-                
+
                 if (!cliente) return null;
 
                 const subtotalBruto = cotizacion.items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
@@ -425,9 +432,9 @@ const NuevaCotizacionPage: React.FC = () => {
                 return (
                     <ApprovalSuccessModal
                         isOpen={!!savedCotizacion}
-                        onClose={() => { 
-                            setSavedCotizacion(null); 
-                            setPage('cotizaciones', { focusId: cotizacion.id }); 
+                        onClose={() => {
+                            setSavedCotizacion(null);
+                            setPage('cotizaciones', { focusId: cotizacion.id });
                         }}
                         title="¡Cotización Guardada!"
                         message={
@@ -453,9 +460,9 @@ const NuevaCotizacionPage: React.FC = () => {
                         ]}
                         primaryAction={{
                             label: 'Ir a Cotizaciones',
-                            onClick: () => { 
-                                setSavedCotizacion(null); 
-                                setPage('cotizaciones', { focusId: cotizacion.id }); 
+                            onClick: () => {
+                                setSavedCotizacion(null);
+                                setPage('cotizaciones', { focusId: cotizacion.id });
                             },
                             icon: 'fa-list'
                         }}

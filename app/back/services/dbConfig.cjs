@@ -452,7 +452,7 @@ const QUERIES = {
       NULL as ivaValor,
       NULL as total,
       NULL as empresaId,
-      NULL as facturaId,
+      r.factura_id as facturaId,
       NULL as estadoEnvio,
       NULL as metodoEnvio,
       NULL as transportadoraId,
