@@ -788,12 +788,12 @@ const QUERIES = {
   // Obtener medidas
   GET_MEDIDAS: `
     SELECT 
-      id,
-      codigo,
-      nombre,
-      abreviatura
+      codmed as id,
+      codmed as codigo,
+      nommed as nombre,
+      codmed as abreviatura
     FROM ${TABLE_NAMES.medidas}
-    ORDER BY nombre
+    ORDER BY nommed
   `,
 
   // Obtener categorías

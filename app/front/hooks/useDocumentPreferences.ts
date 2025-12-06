@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { DocumentPreferences } from '../types';
 
-export type DocumentType = 'cotizacion' | 'pedido' | 'remision' | 'factura';
+export type DocumentType = 'cotizacion' | 'pedido' | 'remision' | 'factura' | 'nota_credito';
 
 // FIX: Exported defaultPreferences to be used as default props in PDF components.
 export const defaultPreferences: Record<DocumentType, DocumentPreferences> = {
@@ -23,6 +23,11 @@ export const defaultPreferences: Record<DocumentType, DocumentPreferences> = {
   factura: {
     showPrices: true,
     signatureType: 'digital',
+    detailLevel: 'full',
+  },
+  nota_credito: {
+    showPrices: true,
+    signatureType: 'physical',
     detailLevel: 'full',
   },
 };

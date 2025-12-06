@@ -33,10 +33,9 @@ const LoginPage: React.FC = () => {
       setError('Credenciales inválidas. Intente con "admin@erp360.com"');
     }
   };
-  
-  const inputClasses = `w-full px-4 py-2 mt-2 text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 ${
-      emailError ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
-  }`;
+
+  const inputClasses = `w-full px-4 py-2 mt-2 text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 ${emailError ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
+    }`;
 
   if (isLoadingBodegas) {
     return (

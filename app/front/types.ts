@@ -109,6 +109,7 @@ export interface Cliente {
   primerApellido?: string;
   // FIX: Added missing property to Cliente interface
   segundoApellido?: string;
+  telefono?: string; // Added field
   celular?: string;
   direccion?: string;
   ciudadId?: string;
@@ -341,6 +342,7 @@ export interface NotaCredito {
   motivo: string;
   estadoDian?: 'Transmitido' | 'PENDIENTE' | 'Error';
   itemsDevueltos: DocumentoDetalle[];
+  cufe?: string; // Código Único de Factura Electrónica (para la nota de crédito)
 }
 
 export interface Medida {

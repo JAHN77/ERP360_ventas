@@ -1,11 +1,13 @@
 // Cliente API para conectar con el backend SQL Server
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:3001/api';
 
-interface ApiResponse<T> {
+export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   message?: string;
   error?: string;
+  details?: any;
+  status?: number;
 }
 
 class ApiClient {
@@ -179,8 +181,9 @@ class ApiClient {
   async getProductos(codalm?: string, page?: number, pageSize?: number, search?: string) {
     const queryParams = new URLSearchParams();
     if (codalm) queryParams.append('codalm', codalm);
-    if (page) queryParams.append('page', String(page));
-    if (pageSize) queryParams.append('pageSize', String(pageSize));
+    queryParams.append('page', String(page || 1));
+    // Aumentar límite por defecto para cargar más productos
+    queryParams.append('pageSize', String(pageSize || 5000));
     if (search) queryParams.append('search', search);
     const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.request(`/productos${params}`);

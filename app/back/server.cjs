@@ -35,7 +35,7 @@ const mapEstadoToDb = (estado) => {
     'EN_PROCESO': 'P',
     'TIMBRANDO': 'P', // Usar 'P' para estado de timbrado en proceso
     'PARCIALMENTE_REMITIDO': 'P', // Si la columna es CHAR(1), usar 'P' en lugar de 'PR'
-    'REMITIDO': 'R', // Cambiar de 'M' a 'R' para REMITIDO
+    'REMITIDO': 'M', // Cambiar de 'M' a 'R' para REMITIDO -> FIXED: Usar 'M' para evitar colisión con RECHAZADA ('R')
     'CANCELADO': 'X',
     'EN_TRANSITO': 'T',
     'ENTREGADO': 'D',
@@ -323,7 +323,11 @@ const handleSearchClientes = async (req, res) => {
         ciudad,
         codven as vendedorId
       FROM con_terceros
-      WHERE activo = 1 AND (nomter LIKE @like OR codter LIKE @like OR nom1 LIKE @like OR apl1 LIKE @like)
+      WHERE activo = 1 
+        AND tipter = 2
+        AND EMAIL IS NOT NULL 
+        AND EMAIL <> ''
+        AND (nomter LIKE @like OR codter LIKE @like OR nom1 LIKE @like OR apl1 LIKE @like)
       ORDER BY nomter`;
     const data = await executeQueryWithParams(query, { like, limit: Number(limit) });
     res.json({ success: true, data });
@@ -447,7 +451,8 @@ app.get('/api/clientes', async (req, res) => {
     }
 
     // Construir query base
-    let whereClause = 'WHERE activo = 1';
+    // FIX: User requires strict filtering by email (must be present and not empty)
+    let whereClause = "WHERE activo = 1 AND tipter = 2 AND EMAIL IS NOT NULL AND EMAIL <> ''";
     const params = { offset, pageSize: pageSizeNum };
 
     if (searchTerm) {
@@ -455,10 +460,10 @@ app.get('/api/clientes', async (req, res) => {
       params.search = `%${searchTerm}%`;
     }
 
-    // Filtro por email (hasEmail=true)
-    if (req.query.hasEmail === 'true') {
-      whereClause += ` AND EMAIL IS NOT NULL AND LTRIM(RTRIM(EMAIL)) != ''`;
-    }
+    // Filtro por email (hasEmail=true) - Ya está incluido por defecto pero mantenemos la lógica por si se busca algo específico
+    // if (req.query.hasEmail === 'true') {
+    //   whereClause += ` AND EMAIL IS NOT NULL AND LTRIM(RTRIM(EMAIL)) != ''`;
+    // }
 
     // Query principal con paginación
     const query = `
@@ -1492,7 +1497,7 @@ app.get('/api/pedidos', async (req, res) => {
         'CONFIRMADO': 'C',
         'EN_PROCESO': 'P',
         'PARCIALMENTE_REMITIDO': 'P',
-        'REMITIDO': 'R',
+        'REMITIDO': 'M',
         'CANCELADO': 'X'
       };
       const estadoDb = estadoMap[estado] || estado;
@@ -1579,7 +1584,8 @@ app.get('/api/pedidos', async (req, res) => {
       return estadoMapeado === 'CONFIRMADO' ||
         estadoMapeado === 'EN_PROCESO' ||
         estadoMapeado === 'PARCIALMENTE_REMITIDO' ||
-        estadoMapeado === 'REMITIDO'; // También verificar REMITIDO por si acaso
+        estadoMapeado === 'RECHAZADA' || // Verificar RECHAZADA para auto-corregir antiguos REMITIDO ('R')
+        estadoMapeado === 'REMITIDO';
     });
 
     if (pedidosParaSincronizar.length > 0) {
@@ -2338,7 +2344,7 @@ app.get('/api/notas-credito', async (req, res) => {
         id,
         consecutivo AS numero,
         id_factura AS facturaId,
-        codter AS clienteId,
+        LTRIM(RTRIM(codter)) AS clienteId,
         fecha AS fechaEmision,
         valor_nota AS subtotal,
         iva_nota AS iva,
@@ -2385,17 +2391,20 @@ app.get('/api/notas-credito', async (req, res) => {
 
         const detallesQuery = `
           SELECT 
-            id_nota AS notaId,
-            Codins AS productoId,
-            QTYDEV AS cantidad,
-            Venta AS precioUnitario,
-            desins AS descuentoPorcentaje,
-            Iva AS ivaPorcentaje,
-            (QTYDEV * Venta) AS subtotal,
-            (QTYDEV * Venta * (Iva/100)) AS valorIva,
-            ((QTYDEV * Venta) + (QTYDEV * Venta * (Iva/100))) AS total
-          FROM Ven_Devolucion
-          WHERE id_nota IN (${placeholders})
+            g.id AS notaId,
+            d.Codins AS productoId,
+            d.QTYDEV AS cantidad,
+            d.Venta AS precioUnitario,
+            d.desins AS descuentoPorcentaje,
+            d.Iva AS ivaPorcentaje,
+            ROUND((d.QTYDEV * d.Venta), 0) AS subtotal,
+            ROUND((d.QTYDEV * d.Venta * (d.Iva/100)), 0) AS valorIva,
+            ROUND(((d.QTYDEV * d.Venta) + (d.QTYDEV * d.Venta * (d.Iva/100))), 0) AS total,
+            LTRIM(RTRIM(COALESCE(i.nomins, ''))) as descripcion
+          FROM gen_movimiento_notas g
+          INNER JOIN Ven_Devolucion d ON d.id_nota = g.id OR d.Numdev = g.consecutivo
+          LEFT JOIN inv_insumos i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.Codins))
+          WHERE g.id IN (${placeholders})
         `;
         const detallesResult = await request.query(detallesQuery);
         detalleMap = (detallesResult.recordset || []).reduce((acc, detalle) => {
@@ -2411,7 +2420,8 @@ app.get('/api/notas-credito', async (req, res) => {
             ivaPorcentaje: Number(detalle.ivaPorcentaje),
             subtotal: Number(detalle.subtotal),
             valorIva: Number(detalle.valorIva),
-            total: Number(detalle.total)
+            total: Number(detalle.total),
+            descripcion: detalle.descripcion || ''
           });
           return acc;
         }, new Map());
@@ -8447,19 +8457,9 @@ CAST(ideven AS VARCHAR(20)) as codi_emple,
         }
       }
 
-      // NOTA: ven_remiciones_enc no tiene campo factura_id
-      // Si necesitas relacionar remisiones con facturas, considera agregar este campo a la tabla
-      // o usar una tabla de relación intermedia
-      // Por ahora, se omite la actualización de factura_id en remisiones
-      if (remisionesParaActualizar.length > 0) {
-        console.log(`ℹ️ Nota: Se recibieron ${remisionesParaActualizar.length} remisión(es) para relacionar, pero ven_remiciones_enc no tiene campo factura_id.`);
-      }
-
-      // NOTA: ven_remiciones_enc no tiene campo factura_id
-      // Si necesitas relacionar remisiones con facturas, considera agregar este campo a la tabla
-      // o usar una tabla de relación intermedia
-      // Por ahora, se omite la actualización de factura_id en remisiones
-      console.log(`ℹ️ Nota: ven_remiciones_enc no tiene campo factura_id. Se omite la relación remisión-factura.`);
+      
+      // La actualización de remisiones ya se realizó anteriormente en el bloque "ACTUALIZAR REMISIONES CON EL ID DE LA FACTURA"
+      // No es necesario repetir la lógica aquí.
 
       await tx.commit();
       res.json({ success: true, data: { id: newId } });

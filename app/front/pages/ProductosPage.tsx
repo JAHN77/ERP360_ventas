@@ -258,7 +258,7 @@ const ProductosPage: React.FC = () => {
           />
         </div>
 
-        <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+        <CardContent className="p-0">
           {isLoading ? (
             <div className="p-12 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center gap-3">
               <i className="fas fa-spinner fa-spin text-3xl text-blue-500"></i>

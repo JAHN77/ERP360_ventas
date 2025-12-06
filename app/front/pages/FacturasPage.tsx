@@ -152,7 +152,10 @@ const FacturasPage: React.FC = () => {
     // Si se selecciona un estado específico, filtrar por ese estado
     // Si se selecciona 'Todos', mostrar todas las facturas sin importar el estado
     if (statusFilter !== 'Todos') {
-      sortedInvoices = sortedInvoices.filter(f => f.estado === statusFilter);
+      sortedInvoices = sortedInvoices.filter(f => {
+        const effectiveStatus = f.cufe ? 'ACEPTADA' : f.estado;
+        return effectiveStatus === statusFilter;
+      });
     }
     // SIEMPRE retornar todas las facturas (filtradas o no) para que aparezcan en el historial
     return sortedInvoices;
@@ -984,8 +987,8 @@ const FacturasPage: React.FC = () => {
         const isContado = cliente?.condicionPago === 'Contado';
         return (
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isContado
-              ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-              : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+            : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
             }`}>
             {isContado ? 'Contado' : 'Crédito'}
           </span>
@@ -1073,6 +1076,7 @@ const FacturasPage: React.FC = () => {
       cell: (item) => {
         let formaPagoFactura = item.formaPago;
         if (!formaPagoFactura) {
+          // 1. Intentar buscar en cadena: Remisión -> Pedido -> Cotización
           const remisionRelacionada = remisiones.find(r =>
             (item.remisionesIds && item.remisionesIds.includes(r.id)) ||
             r.facturaId === item.id
@@ -1086,6 +1090,24 @@ const FacturasPage: React.FC = () => {
               }
             }
           }
+
+          // 2. Si aún no se encuentra, intentar inferir del Cliente
+          if (!formaPagoFactura && item.clienteId) {
+            const cliente = clientes.find(c =>
+              String(c.id) === String(item.clienteId) ||
+              c.numeroDocumento === item.clienteId ||
+              c.codter === item.clienteId
+            );
+            if (cliente) {
+              // Si tiene días de crédito > 0 o dice Crédito, asume Crédito (2). Si no, Contado (1).
+              if ((cliente.diasCredito && cliente.diasCredito > 0) ||
+                (cliente.condicionPago && cliente.condicionPago.toLowerCase().includes('crédito'))) {
+                formaPagoFactura = '2';
+              } else {
+                formaPagoFactura = '1';
+              }
+            }
+          }
         }
         if (!formaPagoFactura) return <span className="text-slate-400">-</span>;
 
@@ -1094,8 +1116,8 @@ const FacturasPage: React.FC = () => {
 
         return (
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${isContado
-              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
-              : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800'
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
+            : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800'
             }`}>
             {isContado ? 'Contado' : 'Crédito'}
           </span>
@@ -1107,7 +1129,7 @@ const FacturasPage: React.FC = () => {
       accessor: 'estado',
       cell: (item) => (
         <div className="flex flex-col gap-1">
-          <StatusBadge status={item.estado as any} />
+          <StatusBadge status={item.cufe ? 'ACEPTADA' : item.estado as any} />
           {item.estado === 'RECHAZADA' && item.motivoRechazo && (
             <div className="flex items-center gap-1 text-[10px] text-red-600 dark:text-red-400 max-w-[150px] truncate" title={item.motivoRechazo}>
               <i className="fas fa-exclamation-circle"></i>
@@ -1300,7 +1322,7 @@ const FacturasPage: React.FC = () => {
                 <p className="text-slate-600 dark:text-slate-300">{cliente.email}</p>
               </div>
               <div className="text-right">
-                <StatusBadge status={selectedFactura.estado as any} />
+                <StatusBadge status={selectedFactura.cufe ? 'ACEPTADA' : selectedFactura.estado as any} />
                 <p className="text-slate-600 dark:text-slate-300 mt-2">
                   <span className="font-semibold">Fecha Emisión:</span> {formatDateOnly(selectedFactura.fechaFactura)}
                 </p>

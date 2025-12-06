@@ -231,7 +231,7 @@ const ClientesPage: React.FC = () => {
           />
         </div>
 
-        <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+        <CardContent className="p-0">
           <Table
             columns={visibleColumns}
             data={paginatedData}

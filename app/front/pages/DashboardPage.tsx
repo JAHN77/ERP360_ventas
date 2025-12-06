@@ -129,7 +129,7 @@ const DashboardPage: React.FC = () => {
         fechaFactura.setHours(0, 0, 0, 0);
         return fechaFactura >= firstDayOfMonth &&
           f.estado !== 'ANULADA' &&
-          f.estado !== 'BORRADOR';
+          (f.estado !== 'BORRADOR' || !!f.cufe);
       })
       .reduce((total, factura) => {
         const devolucionesTotal = notasCredito
@@ -161,7 +161,7 @@ const DashboardPage: React.FC = () => {
             fechaFactura.setHours(0, 0, 0, 0);
             return fechaFactura >= firstDayOfMonth &&
               f.estado !== 'ANULADA' &&
-              f.estado !== 'BORRADOR' &&
+              (f.estado !== 'BORRADOR' || !!f.cufe) &&
               f.items &&
               Array.isArray(f.items) &&
               f.items.length > 0;
@@ -207,7 +207,7 @@ const DashboardPage: React.FC = () => {
       facturasDelMes: facturas.filter(f => {
         const fechaFactura = new Date(f.fechaFactura);
         fechaFactura.setHours(0, 0, 0, 0);
-        return fechaFactura >= firstDayOfMonth && f.estado !== 'ANULADA' && f.estado !== 'BORRADOR';
+        return fechaFactura >= firstDayOfMonth && f.estado !== 'ANULADA' && (f.estado !== 'BORRADOR' || !!f.cufe);
       }).length
     });
     return productosTop;

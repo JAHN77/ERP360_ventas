@@ -41,7 +41,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       const savedSedeId = localStorage.getItem('selectedSedeId');
       const savedSedeData = localStorage.getItem('selectedSedeData');
-      
+
       if (savedSedeId && savedSedeData) {
         try {
           const sedeData = JSON.parse(savedSedeData);
@@ -65,19 +65,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   useEffect(() => {
     let isMounted = true;
     let abortController: AbortController | null = null;
-    
+
     const loadBodegas = async () => {
       try {
         // CRÍTICO: Establecer loading ANTES de cualquier operación
         setIsLoadingBodegas(true);
         logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔄 Iniciando carga de bodegas desde la BD...');
-        
+
         // Crear AbortController para poder cancelar la petición si el componente se desmonta
         abortController = new AbortController();
-        
+
         let response;
         let fetchError: any = null;
-        
+
         try {
           // Llamar directamente a fetchBodegas - el apiClient ya maneja timeouts (30 segundos)
           // IMPORTANTE: Esperar a que la promesa se resuelva o rechace completamente
@@ -96,27 +96,27 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             type: error instanceof Error ? error.constructor.name : typeof error,
             isAbortError: error instanceof Error && error.name === 'AbortError'
           });
-          
+
           // Si es un error de aborto (componente desmontado), no hacer nada más
           if (error instanceof Error && error.name === 'AbortError') {
             logger.log({ prefix: 'AuthContext' }, '🛑 Petición cancelada (componente desmontado)');
             return;
           }
-          
+
           // Para otros errores, establecer response como fallido pero NO usar mocks aún
-          response = { 
-            success: false, 
+          response = {
+            success: false,
             data: null,
             error: error instanceof Error ? error.message : 'Unknown error'
           };
         }
-        
+
         // Verificar que el componente aún esté montado antes de actualizar el estado
         if (!isMounted) {
           logger.log({ prefix: 'AuthContext' }, '🛑 Componente desmontado, cancelando actualización de bodegas');
           return;
         }
-        
+
         // Verificar que la respuesta sea válida y tenga datos
         if (response && response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
           // Mapear bodegas de la BD al formato Sede
@@ -138,7 +138,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               // Si no hay código, usar índice + 1 como código (formato 001, 002, etc.)
               codigoAlmacen = String(index + 1).padStart(3, '0');
             }
-            
+
             // Convertir código a número para el ID si es posible (ej: "001" -> 1, "002" -> 2)
             // Esto es solo para compatibilidad con el ID numérico, pero el código se preserva como string
             let bodegaId: number;
@@ -147,16 +147,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             } else {
               bodegaId = index + 1;
             }
-            
+
             const nombreBodega = (b.nombre || b.nomalm || '').trim();
             const direccionBodega = (b.direccion || b.diralm || '').trim();
             const ciudadBodega = (b.ciudad || b.ciualm || '').trim();
-            
+
             // CRÍTICO: Usar el código preservado directamente (ya está formateado con padStart)
             const bodegaCodigo = codigoAlmacen; // Ya está formateado como "002", "003", etc.
-            
+
             logger.log({ prefix: 'AuthContext', level: 'debug' }, `Mapeando bodega: ${nombreBodega} - ID: ${bodegaId}, Código: ${bodegaCodigo}`);
-            
+
             return {
               id: bodegaId, // ID numérico para compatibilidad (1, 2, 3, etc.)
               nombre: nombreBodega,
@@ -173,7 +173,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             id: b.id
           })));
           setBodegas(mappedBodegas);
-          
+
           // Si solo hay una bodega, seleccionarla automáticamente
           if (mappedBodegas.length === 1) {
             const unicaBodega = mappedBodegas[0];
@@ -196,15 +196,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             try {
               const savedSedeId = localStorage.getItem('selectedSedeId');
               const savedSedeData = localStorage.getItem('selectedSedeData');
-              
+
               if (savedSedeId && savedSedeData) {
                 const sedeData = JSON.parse(savedSedeData);
                 // Buscar la bodega guardada en las bodegas cargadas
-                const bodegaEncontrada = mappedBodegas.find(b => 
-                  String(b.id) === String(sedeData.id) || 
+                const bodegaEncontrada = mappedBodegas.find(b =>
+                  String(b.id) === String(sedeData.id) ||
                   String(b.codigo) === String(sedeData.codigo)
                 );
-                
+
                 if (bodegaEncontrada) {
                   setSelectedSede(bodegaEncontrada);
                   bodegaCargada = true;
@@ -219,7 +219,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             } catch (error) {
               logger.warn({ prefix: 'AuthContext' }, 'Error cargando bodega desde localStorage:', error);
             }
-            
+
             // Si no se cargó desde localStorage, no preseleccionar ninguna - el usuario debe elegir manualmente
             if (!bodegaCargada) {
               setSelectedSede(null);
@@ -228,24 +228,24 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           }
         } else {
           // Si no hay datos o la respuesta no fue exitosa
-          const reason = !response 
-            ? 'Sin respuesta del servidor' 
-            : !response.success 
-              ? 'Respuesta no exitosa del servidor' 
-              : !response.data 
-                ? 'Sin datos en la respuesta' 
+          const reason = !response
+            ? 'Sin respuesta del servidor'
+            : !response.success
+              ? 'Respuesta no exitosa del servidor'
+              : !response.data
+                ? 'Sin datos en la respuesta'
                 : Array.isArray(response.data) && response.data.length === 0
                   ? 'Array vacío'
                   : 'Datos inválidos';
-          
+
           logger.warn({ prefix: 'AuthContext' }, `❌ Sin datos válidos de bodegas desde BD: ${reason}`);
-          
+
           // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
           // Si no hay datos reales, establecer array vacío y permitir que la UI muestre el estado apropiado
           logger.warn({ prefix: 'AuthContext' }, '⚠️ No hay bodegas disponibles desde la base de datos. No se usarán datos simulados.');
           setBodegas([]);
           setSelectedSede(null);
-          
+
           // Limpiar localStorage si no hay datos reales
           try {
             localStorage.removeItem('selectedSedeId');
@@ -257,17 +257,17 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       } catch (error) {
         // Error inesperado en el procesamiento (no en la petición HTTP)
         logger.error({ prefix: 'AuthContext' }, '❌ Error inesperado procesando bodegas:', error);
-        
+
         // Verificar que el componente aún esté montado
         if (!isMounted) {
           return;
         }
-        
+
         // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
         logger.error({ prefix: 'AuthContext' }, '❌ Error procesando bodegas. No se usarán datos simulados.');
         setBodegas([]);
         setSelectedSede(null);
-        
+
         // Limpiar localStorage si hay error
         try {
           localStorage.removeItem('selectedSedeId');
@@ -284,7 +284,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         }
       }
     };
-    
+
     loadBodegas().catch((error) => {
       // Capturar cualquier error no manejado en la promesa
       logger.error({ prefix: 'AuthContext' }, '❌ Error no manejado en loadBodegas:', error);
@@ -294,7 +294,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         logger.error({ prefix: 'AuthContext' }, '❌ Error no manejado. No se usarán datos simulados.');
         setBodegas([]);
         setSelectedSede(null);
-        
+
         // Limpiar localStorage
         try {
           localStorage.removeItem('selectedSedeId');
@@ -304,7 +304,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         }
       }
     });
-    
+
     // Cleanup: marcar como desmontado y abortar peticiones pendientes
     return () => {
       isMounted = false;
@@ -325,33 +325,33 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - sedesToUse:', sedesToUse);
       // Asignar todas las bodegas a todas las empresas (ya que las bodegas son compartidas)
       const empresasWithSedes = allEmpresas.map(e => ({
-          ...e,
-          sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id })) // Asignar todas las bodegas a cada empresa
+        ...e,
+        sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id })) // Asignar todas las bodegas a cada empresa
       }));
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - empresasWithSedes:', empresasWithSedes);
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - empresasWithSedes[0].sedes:', empresasWithSedes[0]?.sedes);
       const nombreCompleto = `${foundUser.primerNombre} ${foundUser.primerApellido}`.trim();
-      const userWithRole: Usuario = { 
-        ...foundUser, 
-        rol: role, 
+      const userWithRole: Usuario = {
+        ...foundUser,
+        rol: role,
         empresas: empresasWithSedes,
-        nombre: nombreCompleto 
+        nombre: nombreCompleto
       };
       setUser(userWithRole);
-      
+
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas asignadas a empresas:', empresasWithSedes.map(e => ({
         empresa: e.razonSocial,
         sedes: e.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
       })));
-      
+
       const userPermissions = rolesConfig[role]?.can || [];
       const isAdmin = userPermissions.includes('*');
-      
+
       if (isAdmin) {
-          const allPermissions = Object.values(rolesConfig).flatMap(r => r.can) as Permission[];
-          setPermissions([...new Set(allPermissions.filter(p => p !== '*'))]);
+        const allPermissions = Object.values(rolesConfig).flatMap(r => r.can) as Permission[];
+        setPermissions([...new Set(allPermissions.filter(p => p !== '*'))]);
       } else {
-          setPermissions(userPermissions as Permission[]);
+        setPermissions(userPermissions as Permission[]);
       }
 
       if (userWithRole.empresas.length > 0) {
@@ -361,7 +361,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           sedes: firstCompany.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
         });
         setSelectedCompany(firstCompany);
-        
+
         // Si solo hay una bodega, seleccionarla automáticamente
         if (firstCompany.sedes && firstCompany.sedes.length === 1) {
           const unicaBodega = firstCompany.sedes[0];
@@ -406,7 +406,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const company = user?.empresas.find(e => e.id === companyId);
     if (company) {
       setSelectedCompany(company);
-      
+
       // Si solo hay una bodega en la nueva empresa, seleccionarla automáticamente
       if (company.sedes && company.sedes.length === 1) {
         const unicaBodega = company.sedes[0];
@@ -440,42 +440,42 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const switchSede = useCallback((sedeId: number | string, sedeData?: { codigo?: string; nombre?: string }) => {
     logger.log({ prefix: 'AuthContext', level: 'debug' }, 'switchSede llamado con ID:', sedeId, 'Tipo:', typeof sedeId, 'Datos adicionales:', sedeData);
     logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sedes disponibles:', selectedCompany?.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre })));
-    
+
     if (selectedCompany) {
       // Normalizar el ID a número si es posible, o mantener como string
       const sedeIdNum = typeof sedeId === 'string' ? (isNaN(Number(sedeId)) ? null : Number(sedeId)) : sedeId;
       const sedeIdStr = String(sedeId).trim();
-      
+
       let sede: Sede | undefined;
-      
+
       // PRIORIDAD 1: Buscar por código si está disponible (más confiable que el ID)
       if (sedeData?.codigo) {
         const codigoBuscado = String(sedeData.codigo).trim();
         // Normalizar código para comparación flexible - múltiples formatos
         const codigoBuscadoNormalizado = codigoBuscado.replace(/^0+/, '') || '0';
         const codigoBuscadoFormateado = /^\d+$/.test(codigoBuscadoNormalizado) ? codigoBuscadoNormalizado.padStart(3, '0') : codigoBuscado;
-        
+
         logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔍 Buscando por código:', {
           codigoBuscado,
           codigoBuscadoNormalizado,
           codigoBuscadoFormateado,
           sedesDisponibles: selectedCompany.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
         });
-        
+
         sede = selectedCompany.sedes?.find(s => {
           if (!s?.codigo) return false;
           const codigoSede = String(s.codigo).trim();
           const codigoSedeNormalizado = codigoSede.replace(/^0+/, '') || '0';
           const codigoSedeFormateado = /^\d+$/.test(codigoSedeNormalizado) ? codigoSedeNormalizado.padStart(3, '0') : codigoSede;
-          
+
           // Comparar códigos de múltiples formas
-          const match = codigoSede === codigoBuscado || 
-                 codigoSede === codigoBuscadoFormateado ||
-                 codigoSedeFormateado === codigoBuscadoFormateado ||
-                 codigoSedeNormalizado === codigoBuscadoNormalizado ||
-                 codigoSede.toUpperCase() === codigoBuscado.toUpperCase() ||
-                 String(codigoSede).padStart(3, '0') === String(codigoBuscado).padStart(3, '0');
-          
+          const match = codigoSede === codigoBuscado ||
+            codigoSede === codigoBuscadoFormateado ||
+            codigoSedeFormateado === codigoBuscadoFormateado ||
+            codigoSedeNormalizado === codigoBuscadoNormalizado ||
+            codigoSede.toUpperCase() === codigoBuscado.toUpperCase() ||
+            String(codigoSede).padStart(3, '0') === String(codigoBuscado).padStart(3, '0');
+
           if (match) {
             logger.log({ prefix: 'AuthContext', level: 'debug' }, `✅ Coincidencia de código encontrada:`, {
               codigoSede,
@@ -483,7 +483,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               sede: { id: s.id, codigo: s.codigo, nombre: s.nombre }
             });
           }
-          
+
           return match;
         });
         if (sede) {
@@ -492,7 +492,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           logger.warn({ prefix: 'AuthContext' }, '⚠️ No se encontró sede por código:', codigoBuscado);
         }
       }
-      
+
       // PRIORIDAD 2: Si no se encuentra por código, buscar por ID (numérico o string)
       if (!sede) {
         sede = selectedCompany.sedes?.find(s => {
@@ -515,7 +515,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por ID:', sede);
         }
       }
-      
+
       // PRIORIDAD 3: Si aún no se encuentra y el ID es numérico, intentar buscar por código formateado del ID
       if (!sede && sedeIdNum !== null) {
         const codigoFormateado = String(sedeIdNum).padStart(3, '0');
@@ -523,14 +523,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           if (!s?.codigo) return false;
           const codigoSede = String(s.codigo).trim();
           const codigoSedeNormalizado = codigoSede.replace(/^0+/, '') || '0';
-          return codigoSede === codigoFormateado || 
-                 codigoSedeNormalizado === String(sedeIdNum);
+          return codigoSede === codigoFormateado ||
+            codigoSedeNormalizado === String(sedeIdNum);
         });
         if (sede) {
           logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por código formateado del ID:', sede);
         }
       }
-      
+
       // 3. Si aún no se encuentra, buscar por nombre si está disponible
       if (!sede && sedeData?.nombre) {
         const nombreBuscado = sedeData.nombre.trim().toUpperCase();
@@ -543,7 +543,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede encontrada por nombre:', sede);
         }
       }
-      
+
       // 4. Si aún no se encuentra, buscar en todas las bodegas cargadas (no solo las de la empresa)
       if (!sede && (sedeData?.codigo || sedeData?.nombre)) {
         const bodegaEncontrada = bodegas.find(b => {
@@ -559,7 +559,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           }
           return false;
         });
-        
+
         if (bodegaEncontrada) {
           logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega encontrada en lista global, creando sede:', bodegaEncontrada);
           // Crear una sede temporal con los datos de la bodega encontrada
@@ -569,7 +569,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           };
         }
       }
-      
+
       // PRIORIDAD 4: Si aún no se encuentra, intentar por índice (último recurso)
       if (!sede && sedeIdNum !== null && sedeIdNum > 0 && sedeIdNum <= (selectedCompany.sedes?.length || 0)) {
         const sedeByIndex = selectedCompany.sedes?.[sedeIdNum - 1];
@@ -582,7 +582,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           }
         }
       }
-      
+
       if (sede) {
         // Actualizar la sede con los datos proporcionados si están disponibles
         // Esto asegura que el nombre mostrado sea el correcto (ej: "Bodega Norte", "Bodega Sur")
@@ -600,7 +600,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           // Si no hay código, usar el ID formateado como código
           codigoActualizado = String(sede.id).padStart(3, '0');
         }
-        
+
         const sedeActualizada: Sede = {
           ...sede,
           // Si se proporciona nombre en sedeData, usarlo (prioridad)
@@ -608,7 +608,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           // CRÍTICO: Usar el código preservado/formateado correctamente
           codigo: codigoActualizado
         };
-        
+
         logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede encontrada y actualizada:', {
           id: sedeActualizada.id,
           nombre: sedeActualizada.nombre,
@@ -617,11 +617,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           nombreOriginal: sede.nombre,
           nombreActualizado: sedeData?.nombre
         });
-        
+
         // Asegurar que solo esta sede esté seleccionada (limpiar cualquier otra selección)
         // Actualizar el estado inmediatamente con la sede actualizada
         setSelectedSede(sedeActualizada);
-        
+
         // Guardar en localStorage para persistencia
         try {
           localStorage.setItem('selectedSedeId', String(sedeActualizada.id));
@@ -658,8 +658,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, [selectedCompany, bodegas]);
 
   const hasPermission = (permission: Permission): boolean => {
-      if (permissions.includes('*')) return true;
-      return permissions.includes(permission);
+    if (permissions.includes('*')) return true;
+    return permissions.includes(permission);
   };
 
 

@@ -10,6 +10,8 @@ import { Factura, NotaCredito, DocumentItem } from '../types';
 import StatusBadge from '../components/ui/StatusBadge';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import NotaCreditoPreviewModal from '../components/devoluciones/NotaCreditoPreviewModal';
+import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
+import NotaCreditoPDFDocument from '../components/devoluciones/NotaCreditoPDFDocument';
 import { useData } from '../hooks/useData';
 import { fetchFacturasDetalle } from '../services/apiClient';
 
@@ -31,7 +33,8 @@ const DevolucionesPage: React.FC = () => {
         productos = [],
         motivosDevolucion = [],
         notasCredito = [],
-        crearNotaCredito
+        crearNotaCredito,
+        datosEmpresa
     } = useData();
 
     const DEFAULT_MOTIVOS = useMemo(() => ([
@@ -61,6 +64,8 @@ const DevolucionesPage: React.FC = () => {
     // Component State
     const [activeTab, setActiveTab] = useState<'form' | 'history'>('form');
     const [activeSubTab, setActiveSubTab] = useState<'contable' | 'kardex'>('contable');
+    const [draftNotaToPreview, setDraftNotaToPreview] = useState<NotaCredito | null>(null);
+    const [isConfirmingSave, setIsConfirmingSave] = useState(false);
 
     // Form State
     const [almacenId, setAlmacenId] = useState('');
@@ -242,11 +247,20 @@ const DevolucionesPage: React.FC = () => {
                 return false;
             }
 
-            // Verificar que haya cantidad pendiente para devolver
-            // Si la factura no tiene items cargados, asumir que tiene cantidad pendiente
+            // Verificar si hay notas de crédito con CUFE que sumen el total de la factura
+            // Esto cubre el caso donde la factura ya fue devuelta totalmente ante la DIAN
             const notasDeFactura = Array.isArray(notasCredito)
                 ? notasCredito.filter(nc => String(nc.facturaId) === String(f.id))
                 : [];
+
+            const totalDevueltoConCufe = notasDeFactura
+                .filter(nc => (nc.cufe && String(nc.cufe).trim() !== '') || nc.estadoDian === 'Transmitido')
+                .reduce((sum, nc) => sum + (nc.total || 0), 0);
+
+            // Si el total devuelto (con soporte DIAN) cubre el total de la factura (con margen de error), ocultarla
+            if (f.total > 0 && totalDevueltoConCufe >= (f.total - 500)) { // 500 pesos de tolerancia
+                return false;
+            }
 
             // Si no hay items cargados, aún así mostrar la factura (puede que los items se carguen después)
             if (!f.items || !Array.isArray(f.items) || f.items.length === 0) {
@@ -717,24 +731,28 @@ const DevolucionesPage: React.FC = () => {
         if (devolucionItems.length === 0 || itemsDisponiblesFactura.length === 0) {
             return { subtotalBruto: 0, iva: 0, total: 0, descuento: 0 };
         }
-        let subBruto = 0, tax = 0, disc = 0;
-        let ivaRate = 0;
+        let subBruto = 0, totalIva = 0, disc = 0;
+
         devolucionItems.forEach(devItem => {
             const factItem = itemsDisponiblesFactura.find(i => i.productoId === devItem.productoId);
             if (factItem) {
                 const itemSubtotalBruto = factItem.precioUnitario * devItem.cantidadDevuelta;
                 const itemDescuento = itemSubtotalBruto * (factItem.descuentoPorcentaje / 100);
+                const subNetoItem = itemSubtotalBruto - itemDescuento;
 
                 subBruto += itemSubtotalBruto;
                 disc += itemDescuento;
-                if (factItem.ivaPorcentaje > 0) ivaRate = factItem.ivaPorcentaje;
+
+                // Correct calculation: Sum tax per item
+                if (factItem.ivaPorcentaje > 0) {
+                    totalIva += subNetoItem * (factItem.ivaPorcentaje / 100);
+                }
             }
         });
-        const subNeto = subBruto - disc;
-        tax = subNeto * (ivaRate / 100);
-        const finalTotal = subNeto + tax;
 
-        return { subtotalBruto: subBruto, iva: tax, total: finalTotal, descuento: disc };
+        const finalTotal = (subBruto - disc) + totalIva;
+
+        return { subtotalBruto: subBruto, iva: totalIva, total: finalTotal, descuento: disc };
     }, [devolucionItems, itemsDisponiblesFactura]);
 
     const costoTotalDevolucion = useMemo(() => {
@@ -746,82 +764,36 @@ const DevolucionesPage: React.FC = () => {
         }, 0);
     }, [devolucionItems, productos]);
 
-    const handleSave = async () => {
-        // Validaciones iniciales
-        if (!selectedFactura) {
-            addNotification({
-                message: 'Por favor, seleccione una factura para realizar la devolución.',
-                type: 'warning'
-            });
-            return;
-        }
+    const executeSave = async () => {
+        if (!draftNotaToPreview || !selectedFactura || !selectedCliente) return;
 
-        if (!selectedCliente) {
-            addNotification({
-                message: 'Por favor, seleccione un cliente para realizar la devolución.',
-                type: 'warning'
-            });
-            return;
-        }
-
-        if (itemsDisponiblesFactura.length === 0) {
-            console.error('[Devoluciones] Error: La factura no tiene items cargados:', {
-                facturaId: selectedFactura.id,
-                numeroFactura: selectedFactura.numeroFactura,
-                itemsDisponibles: itemsDisponiblesFactura.length
-            });
-            addNotification({
-                message: 'La factura seleccionada no tiene productos cargados. Por favor, recargue la página o seleccione otra factura.',
-                type: 'warning'
-            });
-            return;
-        }
-
-        if (devolucionItems.length === 0) {
-            addNotification({
-                message: 'Debe seleccionar al menos un producto para devolver.',
-                type: 'warning'
-            });
-            return;
-        }
-
-        if (isFormDisabled) {
-            return;
-        }
-
-        const motivosPendientes = devolucionItems.filter(item => {
-            if (item.motivoSeleccion === 'Otro') {
-                return !item.motivo || item.motivo.trim().length === 0;
-            }
-            return !item.motivo || item.motivo.trim().length === 0;
-        });
-
-        if (motivosPendientes.length > 0) {
-            addNotification({
-                message: 'Debe especificar el motivo de la devolución en todos los items. Si elige "Otro", escriba el detalle.',
-                type: 'warning'
-            });
-            return;
-        }
-
-        setIsSaving(true);
+        setIsConfirmingSave(true);
 
         try {
-            console.log('[Devoluciones] Iniciando guardado de nota de crédito:', {
-                facturaId: selectedFactura.id,
-                clienteId: selectedCliente.id,
-                itemsCount: devolucionItems.length,
-                isTotalDevolucion
+            console.log('[Devoluciones] Confirmando guardado de nota de crédito desde preview:', {
+                numeroDraft: draftNotaToPreview.numero,
+                total: draftNotaToPreview.total
             });
+
             const itemsParaNota = devolucionItems.map(devItem => {
                 const factItem = itemsDisponiblesFactura.find(i => i.productoId === devItem.productoId);
                 if (!factItem) throw new Error(`Item de factura no encontrado para producto ${devItem.productoId}`);
+
+                // Recalculate item values for consistency
                 const itemSubtotalBruto = factItem.precioUnitario * devItem.cantidadDevuelta;
                 const itemDescuento = itemSubtotalBruto * (factItem.descuentoPorcentaje / 100);
                 const subtotal = itemSubtotalBruto - itemDescuento;
                 const valorIva = subtotal * (factItem.ivaPorcentaje / 100);
 
-                return { ...factItem, cantidad: devItem.cantidadDevuelta, motivo: devItem.motivo, motivoSeleccion: devItem.motivoSeleccion, subtotal, valorIva, total: subtotal + valorIva };
+                return {
+                    ...factItem,
+                    cantidad: devItem.cantidadDevuelta,
+                    motivo: devItem.motivo,
+                    motivoSeleccion: devItem.motivoSeleccion,
+                    subtotal,
+                    valorIva,
+                    total: subtotal + valorIva
+                };
             });
 
             const motivoPrincipal = devolucionItems.length > 0
@@ -830,7 +802,6 @@ const DevolucionesPage: React.FC = () => {
                     : devolucionItems[0].motivoSeleccion || 'Devolución general')
                 : 'Devolución general';
 
-            // Incluir tipoNota en la llamada
             const nuevaNota = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal, tipoNota);
 
             if (!nuevaNota) {
@@ -843,11 +814,15 @@ const DevolucionesPage: React.FC = () => {
                 type: 'success'
             });
 
-            // Limpiar formulario después de guardar exitosamente
+            // Close modal
+            setDraftNotaToPreview(null);
+            setIsConfirmingSave(false);
+
+            // Limpiar formulario y posterior lógica
             resetFormPartially();
             setFacturaId('');
 
-            // Generate accounting note after successful save
+            // Generate accounting note logic...
             setAccountingNote({ loading: true, text: '', error: false });
             const motivos = [...new Set(devolucionItems.map(i => i.motivo))].join(', ');
             const subtotalNeto = summary.subtotalBruto - summary.descuento;
@@ -862,26 +837,98 @@ const DevolucionesPage: React.FC = () => {
                 setAccountingNote({ loading: false, text: note, error: false });
             } catch (iaError) {
                 console.error('Error generando la nota con Gemini:', iaError);
-                setAccountingNote({
-                    loading: false,
-                    text: 'No se pudo generar la nota explicativa automáticamente. Puede intentarlo más tarde o escribirla manualmente.',
-                    error: true
-                });
-                addNotification({
-                    message: 'La nota de crédito se guardó, pero la IA no pudo generar la nota explicativa.',
-                    type: 'warning'
-                });
+                // ... error handling
+                setAccountingNote({ loading: false, text: 'Error generando nota automática.', error: true });
             }
 
         } catch (error) {
             console.error('[Devoluciones] Error al guardar nota de crédito:', error);
-            const errorMessage = error instanceof Error ? error.message : 'Error desconocido al guardar la nota de crédito';
+            setIsConfirmingSave(false);
+            const errorMessage = error instanceof Error ? error.message : 'Error desconocido al guardar';
             addNotification({
-                message: `Error al guardar la nota de crédito: ${errorMessage}. Por favor, verifique la consola para más detalles.`,
+                message: `Error al guardar: ${errorMessage}`,
                 type: 'warning'
             });
-        } finally {
-            setIsSaving(false);
+        }
+    };
+
+    const handleSave = async () => {
+        // Validaciones iniciales
+        if (!selectedFactura) {
+            addNotification({ message: 'Seleccione una factura.', type: 'warning' }); return;
+        }
+        if (!selectedCliente) {
+            addNotification({ message: 'Seleccione un cliente.', type: 'warning' }); return;
+        }
+        if (itemsDisponiblesFactura.length === 0) {
+            addNotification({ message: 'Factura sin productos.', type: 'warning' }); return;
+        }
+        if (devolucionItems.length === 0) {
+            addNotification({ message: 'Seleccione al menos un producto.', type: 'warning' }); return;
+        }
+        if (isFormDisabled) return;
+
+        const motivosPendientes = devolucionItems.filter(item => {
+            if (item.motivoSeleccion === 'Otro') return !item.motivo || item.motivo.trim().length === 0;
+            return !item.motivo || item.motivo.trim().length === 0;
+        });
+
+        if (motivosPendientes.length > 0) {
+            addNotification({ message: 'Especifique el motivo de cada item.', type: 'warning' }); return;
+        }
+
+        // Prepare Draft for Preview
+        try {
+            const itemsParaDraft: DocumentItem[] = devolucionItems.map(devItem => {
+                const factItem = itemsDisponiblesFactura.find(i => i.productoId === devItem.productoId);
+                if (!factItem) throw new Error('Item no encontrado');
+
+                const itemSubtotalBruto = factItem.precioUnitario * devItem.cantidadDevuelta;
+                const itemDescuento = itemSubtotalBruto * (factItem.descuentoPorcentaje / 100);
+                const subtotal = itemSubtotalBruto - itemDescuento;
+                const valorIva = subtotal * (factItem.ivaPorcentaje / 100);
+
+                return {
+                    id: factItem.id, // ID from factura detail
+                    productoId: factItem.productoId,
+                    producto: {
+                        id: factItem.productoId,
+                        nombre: factItem.descripcion,
+                        referencia: productos.find(p => p.id === factItem.productoId)?.referencia || '',
+                        // Add other required Produto props if necessary, mostly used for display
+                    } as any,
+                    descripcion: factItem.descripcion,
+                    cantidad: devItem.cantidadDevuelta,
+                    precioUnitario: factItem.precioUnitario,
+                    descuentoPorcentaje: factItem.descuentoPorcentaje,
+                    ivaPorcentaje: factItem.ivaPorcentaje,
+                    subtotal: subtotal, // This is explicitly the net subtotal in DocumentItem type? usually yes
+                    total: subtotal + valorIva,
+                    // Extra props for calculation display in PDF
+                    valorIva: valorIva
+                };
+            });
+
+            const draftNota: NotaCredito = {
+                id: 'draft',
+                numero: 'BORRADOR', // Will function as preview title
+                clienteId: selectedCliente.id,
+                facturaId: selectedFactura.id,
+                fechaEmision: new Date().toISOString(),
+                subtotal: summary.subtotalBruto - summary.descuento,
+                iva: summary.iva,
+                total: summary.total,
+                estadoDian: 'Borrador',
+                itemsDevueltos: itemsParaDraft,
+                motivo: devolucionItems[0]?.motivo || 'Devolución',
+                // Add any other required props
+            } as any;
+
+            setDraftNotaToPreview(draftNota);
+
+        } catch (e) {
+            console.error('Error creating draft:', e);
+            addNotification({ message: 'Error al generar vista previa.', type: 'warning' });
         }
     };
 
@@ -918,11 +965,19 @@ const DevolucionesPage: React.FC = () => {
     });
     const historyColumns: Column<NotaCredito>[] = [
         { header: 'Devolución No.', accessor: 'numero', cell: item => <button onClick={() => handleOpenDetailModal(item)} className="text-blue-500 font-semibold hover:underline">{item.numero}</button> },
-        { header: 'Fecha', accessor: 'fechaEmision' },
-        { header: 'Factura Afectada', accessor: 'facturaId', cell: item => facturas.find(f => f.id === item.facturaId)?.numeroFactura || 'N/A' },
-        { header: 'Cliente', accessor: 'clienteId', cell: item => clientes.find(c => c.id === item.clienteId)?.nombreCompleto || 'N/A' },
+        { header: 'Fecha', accessor: 'fechaEmision', cell: item => new Date(item.fechaEmision).toLocaleDateString() },
+        { header: 'Factura Afectada', accessor: 'facturaId', cell: item => facturas.find(f => String(f.id) === String(item.facturaId))?.numeroFactura || 'N/A' },
+        { 
+            header: 'Cliente', 
+            accessor: 'clienteId', 
+            cell: item => {
+                const match = clientes.find(c => String(c.id) === String(item.clienteId) || c.numeroDocumento === item.clienteId || c.codter === item.clienteId);
+                if (!match && process.env.NODE_ENV === 'development') console.log('Client match failed for:', item.clienteId, 'Available clients:', clientes.length);
+                return match?.nombreCompleto || 'N/A';
+            }
+        },
         { header: 'Valor Total', accessor: 'total', cell: item => formatCurrency(item.total) },
-        { header: 'Estado DIAN', accessor: 'estadoDian', cell: item => item.estadoDian ? <StatusBadge status={item.estadoDian} /> : <StatusBadge status={'PENDIENTE'} /> },
+        { header: 'Estado DIAN', accessor: 'estadoDian', cell: item => (String(item.estadoDian) === '1' || String(item.estadoDian) === 'Transmitido' || (item.cufe && String(item.cufe).length > 10)) ? <StatusBadge status={'APROBADA'} /> : <StatusBadge status={'RECHAZADA'} /> },
         {
             header: 'Acciones', accessor: 'id', cell: (item) => (
                 <div className="flex items-center space-x-3 text-slate-500 dark:text-slate-400 text-lg">
@@ -1172,6 +1227,15 @@ const DevolucionesPage: React.FC = () => {
                                                         </tr>
                                                     </thead>
                                                     <tbody className="bg-white dark:bg-slate-800/50 divide-y divide-slate-200 dark:divide-slate-700">
+                                                        {(() => {
+                                                            if (process.env.NODE_ENV === 'development') {
+                                                                console.log('[Devoluciones] Renderizando items:', {
+                                                                    count: itemsDisponiblesFactura.length,
+                                                                    items: itemsDisponiblesFactura
+                                                                });
+                                                            }
+                                                            return null;
+                                                        })()}
                                                         {itemsDisponiblesFactura.map(item => {
                                                             const devItem = devolucionItems.find(d => d.productoId === item.productoId);
                                                             const product = productos.find(p => p.id === item.productoId);
@@ -1394,9 +1458,19 @@ const DevolucionesPage: React.FC = () => {
                         <Modal isOpen={isDetailModalOpen} onClose={() => setIsDetailModalOpen(false)} title={`Detalle Nota de Crédito: ${selectedNotaParaVer.numero}`} size="3xl">
                             <div className="space-y-4 text-sm">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Cliente:</p><p>{clienteNota?.nombreCompleto}</p></div>
-                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Factura Afectada:</p><p>{facturaNota?.numeroFactura}</p></div>
-                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Emisión:</p><p>{selectedNotaParaVer.fechaEmision}</p></div>
+                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Cliente:</p><p>{
+                                        clientes.find(c => String(c.id) === String(selectedNotaParaVer.clienteId) || c.numeroDocumento === selectedNotaParaVer.clienteId || c.codter === selectedNotaParaVer.clienteId)?.nombreCompleto || 'N/A'
+                                    }</p></div>
+                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Factura Afectada:</p><p>{
+                                        facturas.find(f => String(f.id) === String(selectedNotaParaVer.facturaId))?.numeroFactura || 'N/A'
+                                    }</p></div>
+                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Emisión:</p><p>{new Date(selectedNotaParaVer.fechaEmision).toLocaleDateString()}</p></div>
+                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Estado DIAN:</p>
+                                        {(String(selectedNotaParaVer.estadoDian) === '1' || String(selectedNotaParaVer.estadoDian) === 'Transmitido') ?
+                                            <span className="text-green-600 font-bold">Aprobado</span> :
+                                            <span className="text-red-600 font-bold">Rechazado</span>
+                                        }
+                                    </div>
                                     <div><p className="font-semibold text-slate-600 dark:text-slate-400">Total Nota Crédito:</p><p className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(selectedNotaParaVer.total)}</p></div>
                                     <div className="col-span-1 sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Motivo:</p><p>{selectedNotaParaVer.motivo}</p></div>
                                 </div>
@@ -1415,7 +1489,12 @@ const DevolucionesPage: React.FC = () => {
                                             {Array.isArray(selectedNotaParaVer.itemsDevueltos) && selectedNotaParaVer.itemsDevueltos.length > 0 ? (
                                                 selectedNotaParaVer.itemsDevueltos.map((item: DocumentItem) => (
                                                     <tr key={item.productoId} className="text-sm">
-                                                        <td className="px-4 py-2">{item.descripcion || 'N/A'}</td>
+                                                        <td className="px-4 py-2">
+                                                            <div>
+                                                                <p className="font-medium text-slate-800 dark:text-slate-200">{item.descripcion || 'Producto sin nombre'}</p>
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400">Cód: {item.codProducto || item.productoId || 'N/A'}</p>
+                                                            </div>
+                                                        </td>
                                                         <td className="px-4 py-2 text-right whitespace-nowrap">{item.cantidad || 0}</td>
                                                         <td className="px-4 py-2 text-right whitespace-nowrap">{formatCurrency(item.precioUnitario || 0)}</td>
                                                         <td className="px-4 py-2 font-semibold text-right whitespace-nowrap">{formatCurrency(item.total || 0)}</td>
@@ -1437,6 +1516,35 @@ const DevolucionesPage: React.FC = () => {
                 })()
             }
 
+            {
+                // General Document Preview Modal for Approval Flow
+                draftNotaToPreview && selectedFactura && selectedCliente && (() => {
+                    return (
+                        <DocumentPreviewModal
+                            isOpen={true}
+                            onClose={() => setDraftNotaToPreview(null)}
+                            onEdit={() => setDraftNotaToPreview(null)}
+                            onConfirm={executeSave}
+                            confirmLabel={isConfirmingSave ? "Guardando..." : "Aprobar y Guardar"}
+                            title={`Vista Previa - Nota de Crédito Provicional`}
+                            documentType="nota_credito"
+                            clientName={selectedCliente.nombreCompleto}
+                        >
+                            <NotaCreditoPDFDocument
+                                notaCredito={draftNotaToPreview}
+                                factura={selectedFactura}
+                                cliente={selectedCliente}
+                                empresa={{
+                                    nombre: datosEmpresa.nombre || 'Mi Empresa',
+                                    nit: datosEmpresa.nit || '',
+                                    direccion: datosEmpresa.direccion || ''
+                                }}
+                                productos={productos}
+                            />
+                        </DocumentPreviewModal>
+                    );
+                })()
+            }
             {
                 notaParaImprimir && (
                     <NotaCreditoPreviewModal notaCredito={notaParaImprimir} onClose={() => setNotaParaImprimir(null)} />

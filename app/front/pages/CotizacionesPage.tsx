@@ -251,7 +251,7 @@ const CotizacionesPage: React.FC = () => {
       console.error('Error en executeApproval:', error);
       addNotification({
         message: `Error al aprobar la cotización: ${(error as Error).message}`,
-        type: 'error'
+        type: 'warning'
       });
     } finally {
       setIsApproving(false);
@@ -669,7 +669,7 @@ const CotizacionesPage: React.FC = () => {
           </div>
         )}
 
-        <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+        <CardContent className="p-0">
           <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} highlightRowId={params.highlightId ?? params.focusId} />
         </CardContent>
 

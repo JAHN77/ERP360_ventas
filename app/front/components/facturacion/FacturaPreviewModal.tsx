@@ -1,30 +1,27 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Modal from '../ui/Modal';
 import { Factura } from '../../types';
-import FacturaPDF from './FacturaPDF';
 import { useNotifications } from '../../hooks/useNotifications';
 import { useDocumentPreferences } from '../../hooks/useDocumentPreferences';
 import DocumentOptionsToolbar from '../comercial/DocumentOptionsToolbar';
 import SendEmailModal from '../comercial/SendEmailModal';
 import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
-import { descargarElementoComoPDF } from '../../utils/pdfClient';
+import { pdf, PDFViewer } from '@react-pdf/renderer';
+import FacturaPDFDocument from './FacturaPDFDocument';
 
 interface FacturaPreviewModalProps {
     factura: Factura | null;
     onClose: () => void;
 }
 
-
 const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onClose }) => {
     const { addNotification } = useNotifications();
-    const { clientes, datosEmpresa } = useData();
-    const componentRef = useRef<HTMLDivElement>(null);
+    const { clientes, datosEmpresa, productos } = useData();
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('factura');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
-    const [isDownloading, setIsDownloading] = useState(false);
-    const [isPrinting, setIsPrinting] = useState(false);
-    
+    const [isGenerating, setIsGenerating] = useState(false);
+
     const cliente = useMemo(() => {
         if (!factura) return null;
         return findClienteByIdentifier(
@@ -33,70 +30,65 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
         ) || null;
     }, [factura, clientes]);
 
-    const handlePrint = async () => {
-        if (!factura || !cliente || !componentRef.current || isPrinting) {
-            if (!isPrinting) {
-                addNotification({ message: 'No hay contenido para imprimir. Por favor, intenta nuevamente.', type: 'warning' });
-            }
-            return;
-        }
-    
-        setIsPrinting(true);
-        addNotification({ message: `Preparando impresión para ${factura.numeroFactura}...`, type: 'info' });
-    
-        try {
-            const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
-            await descargarElementoComoPDF(componentRef.current, {
-                fileName: `Factura-${factura.numeroFactura}-${safeClientName}-${factura.fechaFactura}.pdf`,
-            });
-            
-            // Abrir el PDF en una nueva ventana para imprimir
-            setTimeout(() => {
-                window.print();
-            }, 500);
-        } catch (error) {
-            console.error('Error al generar el PDF para impresión:', error);
-            addNotification({ message: 'No se pudo generar el documento para imprimir.', type: 'warning' });
-        } finally {
-            setIsPrinting(false);
-        }
-    };
+    // Use useMemo for the document component to allow PDFViewer to update correctly without unmounting/remounting
+    const documentComponent = useMemo(() => {
+        if (!factura || !cliente) return null;
+
+        return (
+            <FacturaPDFDocument
+                factura={factura}
+                cliente={cliente}
+                empresa={{
+                    nombre: datosEmpresa.nombre,
+                    nit: datosEmpresa.nit,
+                    direccion: datosEmpresa.direccion,
+                    ciudad: datosEmpresa.ciudad,
+                    telefono: datosEmpresa.telefono,
+                    resolucionDian: datosEmpresa.resolucionDian,
+                    rangoNumeracion: datosEmpresa.rangoNumeracion
+                }}
+                preferences={preferences}
+                productos={productos}
+            />
+        );
+    }, [factura, cliente, datosEmpresa, preferences, productos]);
 
     const handleDownload = async () => {
-        if (!factura || !cliente || !componentRef.current || isDownloading) {
-            if (!isDownloading) {
-                addNotification({ message: 'No hay contenido para descargar. Por favor, intenta nuevamente.', type: 'warning' });
-            }
-            return;
-        }
+        if (!documentComponent) return;
 
-        setIsDownloading(true);
-        addNotification({ message: `Generando PDF para ${factura.numeroFactura}...`, type: 'info' });
+        setIsGenerating(true);
+        addNotification({ message: `Generando PDF para factura ${factura?.numeroFactura}...`, type: 'info' });
 
         try {
-            const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
-            await descargarElementoComoPDF(componentRef.current, {
-                fileName: `Factura-${factura.numeroFactura}-${safeClientName}-${factura.fechaFactura}.pdf`,
-            });
-            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
+            const blob = await pdf(documentComponent).toBlob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const safeClientName = cliente?.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_') || 'Cliente';
+
+            link.href = url;
+            link.download = `Factura-${factura?.numeroFactura}-${safeClientName}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            addNotification({ message: 'PDF descargado correctamente.', type: 'success' });
         } catch (error) {
-            console.error('Error al generar el PDF:', error);
-            addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });
+            console.error('Error generando PDF:', error);
+            addNotification({ message: 'Error al generar el PDF.', type: 'warning' });
         } finally {
-            setIsDownloading(false);
+            setIsGenerating(false);
         }
     };
 
     const handleSendEmail = async () => {
-        if (isDownloading || isPrinting) return;
-        await handleDownload(); // Primero descarga el archivo
-        // Esperar a que termine la descarga antes de abrir el modal
+        await handleDownload();
         setTimeout(() => {
-            setIsEmailModalOpen(true); // Luego abre el modal
+            setIsEmailModalOpen(true);
         }, 100);
     };
 
-    const handleConfirmSendEmail = (emailData: { to: string; }) => {
+    const handleConfirmSendEmail = (emailData: { to: string }) => {
         if (!factura) return;
         addNotification({
             message: `PDF descargado. Se ha abierto tu cliente de correo para enviar la factura ${factura.numeroFactura}.`,
@@ -105,7 +97,6 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
         setIsEmailModalOpen(false);
     };
 
-    // ✅ Validación mejorada con mensaje de error visible
     if (!factura) {
         return (
             <Modal isOpen={true} onClose={onClose} title="Error" size="md">
@@ -129,44 +120,36 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
             </Modal>
         );
     }
-    
-    const childWithProps = <FacturaPDF 
-        ref={componentRef}
-        factura={factura}
-        cliente={cliente}
-        empresa={datosEmpresa}
-        preferences={preferences}
-    />
 
     return (
         <>
-            <Modal isOpen={!!factura} onClose={onClose} title="" size="3xl" noPadding>
+            <Modal isOpen={!!factura} onClose={onClose} title="" size="4xl" noPadding>
                 <div className="sticky top-0 z-10 bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700">
                     <div className="flex items-center justify-between p-2">
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 px-2 truncate">
                             Factura: {factura.numeroFactura}
                         </h3>
                         <div className="flex items-center space-x-1 bg-slate-200/50 dark:bg-slate-800/50 p-1 rounded-lg">
-                            <button 
+                            <button
                                 onClick={handleDownload}
-                                disabled={isDownloading || isPrinting}
-                                title={isDownloading ? "Generando PDF..." : "Descargar Borrador PDF"}
-                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={isGenerating}
+                                title="Descargar PDF"
+                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors"
                             >
-                                <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
+                                <i className={`fas ${isGenerating ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
                             </button>
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
-                             <button 
+                            <button
                                 onClick={handleSendEmail}
-                                disabled={isDownloading || isPrinting}
-                                title={isDownloading ? "Generando PDF..." : "Enviar por Correo"}
-                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={isGenerating}
+                                title="Enviar por Correo"
+                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors"
                             >
-                                <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
+                                <i className="fas fa-paper-plane"></i>
                             </button>
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
-                            <button 
-                                onClick={onClose} 
+                            <button
+                                onClick={onClose}
                                 title="Cerrar"
                                 className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-red-500 transition-colors"
                             >
@@ -174,17 +157,26 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
                             </button>
                         </div>
                     </div>
-                     <DocumentOptionsToolbar
+                    <DocumentOptionsToolbar
                         preferences={preferences}
                         onPreferenceChange={updatePreferences}
                         onReset={resetPreferences}
-                        supportedOptions={{ prices: false, signatures: true, details: true }}
+                        supportedOptions={{ prices: true, signatures: false, details: true }}
                     />
                 </div>
-                <div className="bg-slate-200 dark:bg-slate-900 p-4 sm:p-8">
-                     <div className="bg-white shadow-lg rounded-md overflow-hidden max-w-4xl mx-auto">
-                         {childWithProps}
-                     </div>
+
+                <div className="bg-slate-100 dark:bg-slate-900 h-[80vh] flex justify-center overflow-hidden">
+                    {documentComponent && (
+                        <PDFViewer
+                            key={JSON.stringify(preferences)}
+                            width="100%"
+                            height="100%"
+                            className="w-full h-full border-none"
+                            showToolbar={false}
+                        >
+                            {documentComponent}
+                        </PDFViewer>
+                    )}
                 </div>
             </Modal>
             {isEmailModalOpen && factura && cliente && (
@@ -192,18 +184,15 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
                     isOpen={isEmailModalOpen}
                     onClose={() => setIsEmailModalOpen(false)}
                     onSend={handleConfirmSendEmail}
-                    to={cliente.email}
+                    to={cliente.email || ''}
                     subject={`Factura ${factura.numeroFactura} de ${datosEmpresa.nombre}`}
-                    body={
-`Estimado ${cliente.nombreCompleto},
+                    body={`Estimado/a ${cliente.nombreCompleto},
 
 Adjuntamos su factura electrónica N° ${factura.numeroFactura}.
 
-Por favor, no dude en contactarnos si tiene alguna pregunta.
-
+Gracias por su compra.
 Atentamente,
-El equipo de ${datosEmpresa.nombre}`
-                    }
+El equipo de ${datosEmpresa.nombre}`}
                 />
             )}
         </>

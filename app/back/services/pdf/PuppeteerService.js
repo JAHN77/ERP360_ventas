@@ -57,8 +57,8 @@ class PuppeteerService {
     if (!this.page) {
       this.page = await this.browser.newPage();
       await this.page.setViewport({
-        width: 1200,
-        height: 1600,
+        width: 816, // A4 width at 96 DPI (approx)
+        height: 1056, // A4 height at 96 DPI (approx)
         deviceScaleFactor: 2
       });
     }
@@ -176,6 +176,9 @@ class PuppeteerService {
       },
       preferCSSPageSize: false,
     };
+
+    // Forzar media type 'screen' para asegurar que se vea igual que en el navegador
+    await page.emulateMediaType('screen');
 
     return await page.pdf(pdfOptions);
   }

@@ -1163,7 +1163,7 @@ const RemisionesPage: React.FC = () => {
             <TableToolbar searchTerm={pedidosTable.searchTerm} onSearchChange={pedidosTable.handleSearch} placeholder="Buscar pedido..." />
           </div>
 
-          <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+          <CardContent className="p-0">
             <Table columns={pedidosColumns} data={pedidosTable.paginatedData} onSort={pedidosTable.requestSort} sortConfig={pedidosTable.sortConfig} />
           </CardContent>
 
@@ -1204,7 +1204,7 @@ const RemisionesPage: React.FC = () => {
             />
           </div>
 
-          <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+          <CardContent className="p-0">
             {isLoadingRemisiones ? (
               <div className="p-12 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center gap-3">
                 <i className="fas fa-circle-notch fa-spin text-3xl text-blue-500"></i>
@@ -1242,163 +1242,251 @@ const RemisionesPage: React.FC = () => {
         <Modal
           isOpen={isDetailModalOpen}
           onClose={handleCloseModals}
-          title={`Detalle de Entregas: Pedido ${selectedGroup.pedido.numeroPedido}`}
-          size="2xl"
+          title={`Detalle de Entregas: ${selectedGroup.pedido.numeroPedido}`}
+          size="4xl"
         >
-          <div className="space-y-4 text-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-              <div><p className="font-semibold text-slate-600 dark:text-slate-400">ID Pedido:</p><p className="font-mono">{selectedGroup.pedido.id}</p></div>
-              <div><p className="font-semibold text-slate-600 dark:text-slate-400">Número Pedido:</p><p>{selectedGroup.pedido.numeroPedido}</p></div>
-              <div><p className="font-semibold text-slate-600 dark:text-slate-400">Cliente:</p><p>{selectedGroup.cliente?.nombreCompleto}</p></div>
-              <div><p className="font-semibold text-slate-600 dark:text-slate-400">Estado del Pedido:</p><p><StatusBadge status={selectedGroup.pedido.estado as any} /></p></div>
-            </div>
+          <div className="space-y-8 p-1">
+            {/* Header: Order & Client Info */}
+            {/* Header: Order & Client Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Pedido Info Card */}
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden group hover:shadow-md transition-all duration-300">
+                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
+                  <i className="fas fa-file-invoice-dollar text-8xl text-blue-600"></i>
+                </div>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-blue-600 dark:text-blue-400">
+                    <i className="fas fa-box text-xl"></i>
+                  </div>
+                  <h4 className="text-base font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                    Información del Pedido
+                  </h4>
+                </div>
 
-            <h4 className="text-base font-semibold pt-4 border-t border-slate-200 dark:border-slate-700">Historial de Entregas ({selectedGroup.remisiones.length})</h4>
-
-            {loadingRemisionDetails.size > 0 && (
-              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-200">
-                  <i className="fas fa-spinner fa-spin"></i>
-                  <span>Cargando detalles de remisiones...</span>
+                <div className="space-y-4 relative z-10">
+                  <div className="flex justify-between items-end border-b border-dashed border-slate-200 dark:border-slate-700 pb-3">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">Número de Pedido</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-xl font-mono tracking-tight">{selectedGroup.pedido.numeroPedido}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">ID Interno</span>
+                    <span className="font-mono text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-600">{selectedGroup.pedido.id}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">Estado Global</span>
+                    <StatusBadge status={selectedGroup.pedido.estado as any} />
+                  </div>
                 </div>
               </div>
-            )}
 
-            <div className="space-y-4">
-              {selectedGroup.remisiones.map((remision, index) => {
-                const tieneAdjunto = archivosAdjuntos.some(a => a.entidadId === remision.id && a.entidadTipo === 'REMISION');
-                const isLoadingDetails = loadingRemisionDetails.has(remision.id);
-                return (
-                  <div key={remision.id} className="border border-slate-200 dark:border-slate-700 rounded-lg">
-                    <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900/50 rounded-t-lg">
-                      <div>
-                        <h5 className="font-bold text-base text-slate-800 dark:text-slate-200">
-                          <i className="fas fa-truck text-slate-500 mr-3"></i>
-                          Entrega #{index + 1}: {remision.numeroRemision}
-                        </h5>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 ml-8">Fecha: {formatDateOnly(remision.fechaRemision)}</p>
+              {/* Cliente Info Card */}
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden group hover:shadow-md transition-all duration-300">
+                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
+                  <i className="fas fa-user-circle text-8xl text-purple-600"></i>
+                </div>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-purple-50 dark:bg-purple-900/30 rounded-lg text-purple-600 dark:text-purple-400">
+                    <i className="fas fa-user text-xl"></i>
+                  </div>
+                  <h4 className="text-base font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                    Datos del Cliente
+                  </h4>
+                </div>
+
+                <div className="space-y-4 relative z-10">
+                  <div className="flex flex-col border-b border-dashed border-slate-200 dark:border-slate-700 pb-3">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">Razón Social</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-lg leading-tight truncate" title={selectedGroup.cliente?.nombreCompleto}>
+                      {selectedGroup.cliente?.nombreCompleto || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-2">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">Identificación</span>
+                    <div className="flex items-center gap-2">
+                      <i className="far fa-id-card text-slate-400"></i>
+                      <span className="font-medium text-slate-700 dark:text-slate-200 font-mono">{selectedGroup.cliente?.numeroDocumento || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Deliveries Timeline Section */}
+            <div className="pt-2">
+              <div className="flex items-center justify-between mb-8">
+                <h4 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-3">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-900 text-white shadow-lg shadow-slate-900/20">
+                    <i className="fas fa-shipping-fast text-sm"></i>
+                  </div>
+                  <span>Historial de Entregas</span>
+                </h4>
+                <span className="text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-4 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
+                  {selectedGroup.remisiones.length} {selectedGroup.remisiones.length === 1 ? 'Registro' : 'Registros'}
+                </span>
+              </div>
+
+              {loadingRemisionDetails.size > 0 && (
+                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-xl flex items-center justify-center gap-3 animate-pulse">
+                  <i className="fas fa-spinner fa-spin text-blue-500 text-xl"></i>
+                  <span className="text-blue-700 dark:text-blue-300 font-medium">Sincronizando detalles...</span>
+                </div>
+              )}
+
+              {/* Improved Timeline */}
+              <div className="space-y-0 relative pl-4">
+                {/* The Timeline Line - Elegant and Subtle */}
+                <div className="absolute left-[27px] top-6 bottom-6 w-px bg-gradient-to-b from-slate-300 via-slate-300 to-transparent dark:from-slate-600 dark:via-slate-600"></div>
+
+                {selectedGroup.remisiones.map((remision, index) => {
+                  const tieneAdjunto = archivosAdjuntos.some(a => a.entidadId === remision.id && a.entidadTipo === 'REMISION');
+                  const isLoadingDetails = loadingRemisionDetails.has(remision.id);
+                  const isEntregado = remision.estado === 'ENTREGADO';
+                  const isLast = index === selectedGroup.remisiones.length - 1;
+
+                  return (
+                    <div key={remision.id} className={`relative pl-12 pb-10 ${isLast ? 'pb-0' : ''} group`}>
+                      {/* Timeline Dot - Premium Look */}
+                      <div className={`absolute left-0 top-0 w-[56px] flex justify-center z-10 py-1 bg-white dark:bg-slate-800 ring-4 ring-white dark:ring-slate-800`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 shadow-sm transition-all duration-300
+                          ${isEntregado
+                            ? 'bg-emerald-50 border-emerald-500 text-emerald-600 dark:bg-emerald-900/20 dark:border-emerald-500/50 dark:text-emerald-400'
+                            : 'bg-white border-slate-300 text-slate-400 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-500'}`}>
+                          <i className={`fas ${isEntregado ? 'fa-check' : 'fa-truck-moving'} text-[10px]`}></i>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={remision.estado as any} />
-                        {tieneAdjunto ? (
-                          <button onClick={() => handleDescargarAdjunto(remision.id)} className="px-3 py-1 bg-sky-600 text-white text-xs font-semibold rounded-md hover:bg-sky-700 transition-colors" title="Descargar PDF Adjunto">
-                            <i className="fas fa-paperclip"></i>
-                          </button>
-                        ) : (
-                          <button onClick={() => handlePrintRemision(remision)} className="px-3 py-1 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors" title="Imprimir Remisión">
-                            <i className="fas fa-print"></i>
-                          </button>
+
+                      {/* Content Card */}
+                      <div className={`bg-white dark:bg-slate-800 rounded-2xl border transition-all duration-300 shadow-sm hover:shadow-lg
+                        ${isEntregado ? 'border-emerald-200/60 dark:border-emerald-900/30' : 'border-slate-200 dark:border-slate-700'}`}>
+
+                        {/* Card Header - Clean Split */}
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center p-5 gap-4 border-b border-slate-100 dark:border-slate-700/50">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h5 className="font-bold text-lg text-slate-800 dark:text-slate-100 font-mono tracking-tight">
+                                {remision.numeroRemision}
+                              </h5>
+                              <StatusBadge status={remision.estado as any} />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                              <span className="flex items-center gap-1.5"><i className="far fa-calendar-alt"></i> Generado: {formatDateOnly(remision.fechaRemision)}</span>
+                              {remision.fechaDespacho && <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400"><i className="fas fa-shipping-fast"></i> Despacho: {formatDateOnly(remision.fechaDespacho)}</span>}
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2 w-full lg:w-auto">
+                            {tieneAdjunto ? (
+                              <button onClick={() => handleDescargarAdjunto(remision.id)} className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold rounded-xl hover:bg-white dark:hover:bg-slate-600 transition-all hover:border-blue-300 hover:text-blue-600 shadow-sm">
+                                <i className="fas fa-paperclip"></i> Ver Adjunto
+                              </button>
+                            ) : (
+                              <button onClick={() => handlePrintRemision(remision)} className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold rounded-xl hover:bg-white dark:hover:bg-slate-600 transition-all hover:border-slate-300 hover:text-slate-800 shadow-sm">
+                                <i className="fas fa-print"></i> Imprimir
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Card Body: Items */}
+                        <div className="p-0 bg-slate-50/30 dark:bg-slate-900/20">
+                          {isLoadingDetails ? (
+                            <div className="text-center py-10 text-slate-400 dark:text-slate-500">
+                              <i className="fas fa-circle-notch fa-spin mr-2"></i> Cargando contenido...
+                            </div>
+                          ) : remision.items && remision.items.length > 0 ? (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm text-left">
+                                <thead className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50">
+                                  <tr>
+                                    <th className="px-6 py-3 w-40 pl-8">Referencia</th>
+                                    <th className="px-6 py-3">Descripción</th>
+                                    <th className="px-6 py-3 w-32 text-right">Cant.</th>
+                                    <th className="px-6 py-3 w-32 text-right pr-8">Unidad</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50 bg-white dark:bg-slate-800">
+                                  {remision.items.map((item, idx) => {
+                                    const product = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
+                                    const productoNombre = product?.nombre || item.descripcion || (item as any).nombre || `Producto ${idx + 1}`;
+                                    const unidadMedida = product?.unidadMedida || (item as any).unidadMedida || 'Unidad';
+
+                                    return (
+                                      <tr key={item.productoId || `item-${idx}`} className="group/row hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors">
+                                        <td className="px-6 py-3.5 pl-8 font-mono text-xs text-slate-500 group-hover/row:text-slate-700 dark:group-hover/row:text-slate-300">{product?.referencia || 'N/A'}</td>
+                                        <td className="px-6 py-3.5 font-medium text-slate-700 dark:text-slate-300">
+                                          {productoNombre}
+                                          {!product && <i className="fas fa-exclamation-triangle text-amber-500 ml-2 text-xs" title="Producto no encontrado en catálogo"></i>}
+                                        </td>
+                                        <td className="px-6 py-3.5 text-right font-bold text-slate-800 dark:text-slate-100">{item.cantidad}</td>
+                                        <td className="px-6 py-3.5 text-right pr-8 text-xs font-semibold text-slate-400">{unidadMedida}</td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="text-center py-10 text-slate-400 italic bg-white dark:bg-slate-800">
+                              <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-2">
+                                <i className="fas fa-box-open text-slate-300"></i>
+                              </div>
+                              <p>Sin items registrados</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Card Footer: Actions */}
+                        {(remision.estado === 'EN_TRANSITO' || remision.estado === 'BORRADOR') && (
+                          <div className="p-4 bg-orange-50/50 dark:bg-orange-900/10 border-t border-orange-100 dark:border-orange-900/20 rounded-b-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-2.5 text-xs font-medium text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-900/30 px-3 py-1.5 rounded-full">
+                              <i className="fas fa-clock"></i>
+                              <span>Entrega pendiente de confirmación</span>
+                            </div>
+                            <div className="flex items-center gap-3 w-full sm:w-auto">
+                              {remision.estado === 'EN_TRANSITO' && (
+                                <ProtectedComponent permission="remisiones:update">
+                                  <button onClick={() => setPage('editar_remision', { id: remision.id })} className="flex-1 sm:flex-none px-4 py-2 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-600 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all text-sm shadow-sm">
+                                    <i className="fas fa-pencil-alt mr-2"></i> Editar
+                                  </button>
+                                </ProtectedComponent>
+                              )}
+                              <ProtectedComponent permission="remisiones:deliver">
+                                <button
+                                  onClick={() => handleAprobarEntrega(remision.id)}
+                                  disabled={!!isDelivering}
+                                  className="flex-1 sm:flex-none px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-200 dark:shadow-none font-bold rounded-xl transform hover:-translate-y-0.5 transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                                >
+                                  {isDelivering === remision.id ? (
+                                    <><i className="fas fa-spinner fa-spin mr-2"></i> ... </>
+                                  ) : (
+                                    <><i className="fas fa-check-double mr-2"></i> Confirmar Entrega</>
+                                  )}
+                                </button>
+                              </ProtectedComponent>
+                            </div>
+                          </div>
+                        )}
+
+                        {remision.estado === 'ENTREGADO' && (
+                          <div className="p-4 bg-emerald-50/50 dark:bg-emerald-900/10 border-t border-emerald-100 dark:border-emerald-900/20 rounded-b-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-2.5 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-3 py-1.5 rounded-full">
+                              <i className="fas fa-check-circle"></i>
+                              <span>Entregado y Verificado</span>
+                            </div>
+                            <button
+                              onClick={() => setPage('facturacion_electronica')}
+                              className="w-full sm:w-auto px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-blue-500/30 font-bold rounded-xl transition-all text-sm flex items-center justify-center gap-2 transform hover:-translate-y-0.5"
+                            >
+                              <i className="fas fa-receipt"></i> Facturar Ahora
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
-                    <div className="p-3">
-                      {isLoadingDetails ? (
-                        <div className="text-center py-4 text-slate-500 dark:text-slate-400">
-                          <i className="fas fa-spinner fa-spin mr-2"></i>
-                          Cargando items...
-                        </div>
-                      ) : remision.items && remision.items.length > 0 ? (
-                        <table className="w-full table-fixed text-xs">
-                          <thead>
-                            <tr className="border-b dark:border-slate-600">
-                              <th className="w-28 py-1 text-left font-medium whitespace-nowrap">Referencia</th>
-                              <th className="w-auto py-1 text-left font-medium whitespace-nowrap">Producto</th>
-                              <th className="w-24 py-1 text-right font-medium whitespace-nowrap">Cant. Enviada</th>
-                              <th className="w-20 py-1 text-right font-medium whitespace-nowrap">Unidad</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {remision.items.map((item, index) => {
-                              // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
-                              const product = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
-
-                              // Obtener nombre del producto: primero del producto encontrado, luego del item
-                              const productoNombre = product?.nombre ||
-                                item.descripcion ||
-                                (item as any).nombre ||
-                                `Producto ${index + 1}`;
-
-                              // Obtener unidad de medida: primero del producto, luego del item
-                              const unidadMedida = product?.unidadMedida ||
-                                (item as any).unidadMedida ||
-                                'Unidad';
-
-                              return (
-                                <tr key={item.productoId || `item-${index}`}>
-                                  <td className="py-1 font-mono">{product?.referencia || 'N/A'}</td>
-                                  <td className="py-1 break-words">
-                                    {productoNombre}
-                                    {!product && (
-                                      <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
-                                        <i className="fas fa-exclamation-triangle"></i>
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="py-1 text-right font-semibold">{item.cantidad}</td>
-                                  <td className="py-1 text-right">{unidadMedida}</td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <div className="text-center py-4 text-slate-500 dark:text-slate-400 text-sm">
-                          No hay items registrados para esta remisión.
-                        </div>
-                      )}
-                    </div>
-                    {/* Botones de acción: mostrar para remisiones en BORRADOR o EN_TRANSITO */}
-                    {(remision.estado === 'EN_TRANSITO' || remision.estado === 'BORRADOR') && (
-                      <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-b-lg border-t dark:border-slate-700 flex justify-between items-center gap-3">
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
-                          <i className="fas fa-info-circle mr-1"></i>
-                          Marca como entregada cuando el despachador confirme la entrega
-                        </div>
-                        <div className="flex gap-3">
-                          {remision.estado === 'EN_TRANSITO' && (
-                            <ProtectedComponent permission="remisiones:update">
-                              <button onClick={() => setPage('editar_remision', { id: remision.id })} className="px-3 py-1 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">
-                                <i className="fas fa-edit mr-1"></i>Editar
-                              </button>
-                            </ProtectedComponent>
-                          )}
-                          <ProtectedComponent permission="remisiones:deliver">
-                            <button
-                              onClick={() => handleAprobarEntrega(remision.id)}
-                              disabled={!!isDelivering}
-                              className="px-4 py-2 bg-green-600 text-white text-sm font-bold rounded-md hover:bg-green-700 transition-colors disabled:bg-slate-400 disabled:cursor-wait shadow-md hover:shadow-lg"
-                              title="Marcar esta remisión como entregada para que pueda ser facturada"
-                            >
-                              {isDelivering === remision.id ? (
-                                <><i className="fas fa-spinner fa-spin mr-2"></i>Procesando...</>
-                              ) : (
-                                <><i className="fas fa-check-circle mr-2"></i>Confirmar Entrega</>
-                              )}
-                            </button>
-                          </ProtectedComponent>
-                        </div>
-                      </div>
-                    )}
-                    {/* Mensaje para remisiones ya entregadas */}
-                    {remision.estado === 'ENTREGADO' && (
-                      <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-b-lg border-t dark:border-slate-700 flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
-                          <i className="fas fa-check-circle"></i>
-                          <span className="text-sm font-semibold">Remisión entregada - Lista para facturar</span>
-                        </div>
-                        <button
-                          onClick={() => setPage('facturacion_electronica')}
-                          className="px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition-colors"
-                        >
-                          <i className="fas fa-file-invoice mr-1"></i>Ir a Facturación
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+                  );
+                })}
+              </div>
             </div>
-
           </div>
         </Modal>
       )}

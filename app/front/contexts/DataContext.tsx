@@ -612,6 +612,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         tarjetaDebito: Number(f.tarjetaDebito || f.TarjetaDB || 0),
                         transferencia: Number(f.transferencia || f.Transferencia || 0),
                         // Información adicional
+                        formaPago: f.formaPago || f.formapago || f.forma_pago || f.forpag || undefined,
                         tipoFactura: f.tipoFactura || f.tipfac || '01',
                         documentoContable: f.documentoContable || f.doccoc || undefined,
                         cuenta: f.cuenta || f.codcue || undefined,
@@ -781,7 +782,22 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
                 setRemisiones(remisionesConDetalles);
 
-                setNotasCredito(notasCreditoData);
+                // Mapear Notas de Crédito
+                const notasCreditoMapeadas = (notasCreditoData as any[]).map(nc => ({
+                    id: String(nc.id || ''),
+                    numero: nc.numero || nc.nummov || '',
+                    facturaId: String(nc.facturaId || nc.factura_id || ''),
+                    clienteId: String(nc.clienteId || nc.cliente_id || ''),
+                    fechaEmision: nc.fechaEmision || nc.fecmov || new Date().toISOString(),
+                    subtotal: Number(nc.subtotal || 0),
+                    iva: Number(nc.iva || 0),
+                    total: Number(nc.total || nc.valmov || 0),
+                    motivo: nc.motivo || nc.observaciones || '',
+                    estadoDian: nc.estadoDian || nc.estado_dian || 'PENDIENTE',
+                    cufe: nc.cufe || nc.CUFE || undefined, // Mapear CUFE de la nota de crédito
+                    itemsDevueltos: Array.isArray(nc.itemsDevueltos) ? nc.itemsDevueltos : []
+                }));
+                setNotasCredito(notasCreditoMapeadas);
 
                 setArchivosAdjuntos([]);
             } catch (error) {
@@ -972,7 +988,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     return fechaFactura >= currentDayStart &&
                         fechaFactura <= currentDayEnd &&
                         f.estado !== 'ANULADA' &&
-                        f.estado !== 'BORRADOR';
+                        (f.estado !== 'BORRADOR' || !!f.cufe);
                 })
                 .reduce((total, factura) => {
                     const devolucionesTotal = notasCredito
@@ -992,7 +1008,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         const salesMap = new Map<string, { totalSales: number; orderCount: number; lastOrder: string }>();
 
         facturas
-            .filter(f => f.estado !== 'ANULADA' && f.estado !== 'BORRADOR')
+            .filter(f => f.estado !== 'ANULADA' && (f.estado !== 'BORRADOR' || !!f.cufe))
             .forEach(f => {
                 const clienteKey = String(f.clienteId ?? '').trim();
                 if (!clienteKey) {
@@ -1045,8 +1061,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const fechaFactura = new Date(f.fechaFactura);
                 return fechaFactura >= firstDayOfMonth &&
                     f.estado !== 'ANULADA' &&
-                    f.estado !== 'BORRADOR' &&
-                    f.estado !== 'BORRADOR';
+                    (f.estado !== 'BORRADOR' || !!f.cufe);
             })
             .reduce((acc, f) => {
                 // Buscar vendedor de forma flexible (por id, codiEmple, o codigoVendedor)
@@ -1111,7 +1126,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             fechaFactura.setHours(0, 0, 0, 0);
             return fechaFactura >= firstDayOfMonth &&
                 f.estado !== 'ANULADA' &&
-                f.estado !== 'BORRADOR' &&
+                (f.estado !== 'BORRADOR' || !!f.cufe) &&
                 f.items &&
                 Array.isArray(f.items) &&
                 f.items.length > 0;
@@ -3402,7 +3417,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // 1. Actualizar remisiones: agregar facturaId a las remisiones relacionadas
                 setRemisiones(prev => prev.map(r => {
                     // Si la remisión está en la lista de remisiones seleccionadas, agregar facturaId
-                    if (remisionIds.includes(r.id)) {
+                    // Comparación robusta (string vs number) para asegurar que se encuentre
+                    const esRemisionSeleccionada = remisionIds.some((id: string | number) => String(id) === String(r.id));
+
+                    if (esRemisionSeleccionada) {
                         return {
                             ...r,
                             facturaId: nuevaFactura.id // Agregar facturaId para que desaparezca de "Remisiones Entregadas por Facturar"

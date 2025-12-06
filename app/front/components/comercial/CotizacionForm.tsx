@@ -422,14 +422,14 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         }
 
         // Validar y obtener precio unitario
-        const precioUnitario = Number(product.ultimoCosto || product.precio || product.precioPublico || 0);
+        const precioUnitario = Number(product.ultimoCosto || product.precio || (product as any).precioPublico || 0);
         if (!precioUnitario || precioUnitario <= 0 || !isFinite(precioUnitario)) {
             console.error('❌ Precio inválido para producto:', {
                 productId: product.id,
                 nombre: product.nombre,
                 ultimoCosto: product.ultimoCosto,
                 precio: product.precio,
-                precioPublico: product.precioPublico
+                precioPublico: (product as any).precioPublico
             });
             alert(`El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.`);
             return;
@@ -742,7 +742,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                             const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
                             const exactMatch = list.find(v => {
                                 const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).trim().toLowerCase();
-                                const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
+                                const codigo = (v.codigoVendedor || '').toLowerCase();
                                 const search = vendedorSearch.toLowerCase();
                                 return nombre === search || codigo === search;
                             });
@@ -760,7 +760,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                 const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
                                 const filtered = list.filter(v => {
                                     const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).toLowerCase();
-                                    const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
+                                    const codigo = ((v as any).codigo || v.codigoVendedor || '').toLowerCase();
                                     const search = vendedorSearch.toLowerCase();
                                     return nombre.includes(search) || codigo.includes(search);
                                 });
@@ -775,7 +775,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                 const listaMostrar = vendedorResults.length > 0 ? vendedorResults : vendedores;
                                 const filtered = listaMostrar.filter(v => {
                                     const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).toLowerCase();
-                                    const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
+                                    const codigo = ((v as any).codigo || v.codigoVendedor || '').toLowerCase();
                                     const search = vendedorSearch.toLowerCase();
                                     return nombre.includes(search) || codigo.includes(search);
                                 });
@@ -788,7 +788,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                 }
                                 return filtered.slice(0, 20).map(v => {
                                     const nombreCompleto = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).trim() || 'Sin nombre';
-                                    const codigoDisplay = v.codigo || v.codigoVendedor || '';
+                                    const codigoDisplay = (v as any).codigo || v.codigoVendedor || '';
                                     return (
                                         <div
                                             key={v.id}
@@ -863,7 +863,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                     <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
                                         {selectedVendedor.primerNombre && selectedVendedor.primerApellido
                                             ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
-                                            : selectedVendedor.nombreCompleto || selectedVendedor.nombre || 'Sin nombre'}
+                                            : selectedVendedor.nombreCompleto || (selectedVendedor as any).nombre || 'Sin nombre'}
                                     </p>
                                     <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
                                         {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
@@ -1081,7 +1081,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                     // Obtener nombre del producto: primero del producto encontrado, luego del item
                                     const productoNombre = product?.nombre ||
                                         item.descripcion ||
-                                        item.nombre ||
+                                        (item as any).nombre ||
                                         `Producto ${index + 1}`;
 
                                     // Solo mostrar warning si el producto NO tiene un ID válido
