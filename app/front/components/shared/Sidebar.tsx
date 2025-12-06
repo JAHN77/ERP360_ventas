@@ -22,8 +22,8 @@ const NavLink: React.FC<NavLinkProps> = ({ pageName, icon, label, onNavigate }) 
         onNavigate(pageName);
       }}
       className={`flex items-center px-4 py-2.5 text-sm font-medium rounded-lg transition-colors duration-200 group ${isActive
-          ? 'bg-blue-600 text-white shadow-lg'
-          : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white'
+        ? 'bg-blue-600 text-white shadow-lg'
+        : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white'
         }`}
     >
       <i className={`fas ${icon} fa-fw w-6 text-center mr-3 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-white'}`}></i>
@@ -66,7 +66,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarOpen, setIsSidebarOpen }) =>
           <p className="px-4 pt-4 pb-2 text-xs text-slate-400 dark:text-slate-500 uppercase font-semibold">Catálogo Básico</p>
           <NavLink pageName="clientes" icon="fa-users" label="Clientes" onNavigate={handleNavigate} />
           <NavLink pageName="productos" icon="fa-box-open" label="Productos" onNavigate={handleNavigate} />
-          <NavLink pageName="categorias" icon="fa-tags" label="Categorias" onNavigate={handleNavigate} />
+
 
           <p className="px-4 pt-4 pb-2 text-xs text-slate-400 dark:text-slate-500 uppercase font-semibold">Inventario</p>
           <NavLink pageName="entrada_inventario" icon="fa-boxes-stacked" label="Entrada de Inventario" onNavigate={handleNavigate} />

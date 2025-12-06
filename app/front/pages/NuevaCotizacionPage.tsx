@@ -5,7 +5,7 @@ import { useNavigation } from '../hooks/useNavigation';
 import { DocumentItem, Cotizacion, Pedido, Cliente, Vendedor } from '../types';
 import Modal from '../components/ui/Modal';
 import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
-import CotizacionPDF from '../components/comercial/CotizacionPDF';
+import CotizacionPDFDocument from '../components/comercial/CotizacionPDFDocument';
 import { useNotifications } from '../hooks/useNotifications';
 import ApprovalSuccessModal from '../components/ui/ApprovalSuccessModal';
 import { useData } from '../hooks/useData';
@@ -36,7 +36,7 @@ interface CotizacionFormData {
 const NuevaCotizacionPage: React.FC = () => {
     const { page, params, setPage } = useNavigation();
     const { addNotification } = useNotifications();
-    const { clientes, vendedores, datosEmpresa, crearCotizacion, aprobarCotizacion, getCotizacionById, actualizarCotizacion } = useData();
+    const { clientes, vendedores, datosEmpresa, productos, crearCotizacion, aprobarCotizacion, getCotizacionById, actualizarCotizacion } = useData();
 
     const isEditing = page === 'editar_cotizacion';
 
@@ -360,11 +360,13 @@ const NuevaCotizacionPage: React.FC = () => {
                         clientEmail={cliente.email}
                         clientName={cliente.nombreCompleto}
                     >
-                        <CotizacionPDF
+                        <CotizacionPDFDocument
                             cotizacion={quoteToPreview}
                             cliente={cliente}
                             vendedor={vendedor}
                             empresa={datosEmpresa}
+                            productos={productos}
+                            preferences={{} as any}
                         />
                     </DocumentPreviewModal>
                 );

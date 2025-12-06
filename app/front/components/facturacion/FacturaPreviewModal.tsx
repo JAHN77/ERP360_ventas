@@ -13,14 +13,36 @@ import FacturaPDFDocument from './FacturaPDFDocument';
 interface FacturaPreviewModalProps {
     factura: Factura | null;
     onClose: () => void;
+    onTimbrar?: (id: string) => Promise<void>;
 }
 
-const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onClose }) => {
+const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onClose, onTimbrar }) => {
     const { addNotification } = useNotifications();
     const { clientes, datosEmpresa, productos } = useData();
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('factura');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isStamping, setIsStamping] = useState(false);
+
+    const handleTimbrarClick = async () => {
+        if (!factura || !onTimbrar) return;
+
+        // Confirmar acción
+        if (!window.confirm(`¿Está seguro de que desea timbrar la factura ${factura.numeroFactura}? Esto enviará el documento a la DIAN.`)) {
+            return;
+        }
+
+        setIsStamping(true);
+        try {
+            await onTimbrar(factura.id);
+            // El modal se cerrará o actualizará externamente tras el éxito
+        } catch (error) {
+            console.error('Error al timbrar desde modal:', error);
+            // Notificación ya manejada externamente, pero aseguramos estado
+        } finally {
+            setIsStamping(false);
+        }
+    };
 
     const cliente = useMemo(() => {
         if (!factura) return null;
@@ -128,8 +150,36 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
                     <div className="flex items-center justify-between p-2">
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 px-2 truncate">
                             Factura: {factura.numeroFactura}
+                            {factura.estado === 'BORRADOR' && (
+                                <span className="ml-2 px-2 py-0.5 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                                    BORRADOR
+                                </span>
+                            )}
                         </h3>
                         <div className="flex items-center space-x-1 bg-slate-200/50 dark:bg-slate-800/50 p-1 rounded-lg">
+                            {onTimbrar && factura.estado === 'BORRADOR' && (
+                                <>
+                                    <button
+                                        onClick={handleTimbrarClick}
+                                        disabled={isGenerating || isStamping}
+                                        title="Timbrar y Enviar a DIAN"
+                                        className="h-8 px-3 flex items-center justify-center rounded bg-green-600 text-white hover:bg-green-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed mr-1"
+                                    >
+                                        {isStamping ? (
+                                            <>
+                                                <i className="fas fa-spinner fa-spin mr-2"></i>
+                                                <span>Timbrando...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <i className="fas fa-paper-plane mr-2"></i>
+                                                <span className="font-medium text-sm">Timbrar</span>
+                                            </>
+                                        )}
+                                    </button>
+                                    <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
+                                </>
+                            )}
                             <button
                                 onClick={handleDownload}
                                 disabled={isGenerating}

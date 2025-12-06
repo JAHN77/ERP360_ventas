@@ -14,6 +14,7 @@ import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
 import NotaCreditoPDFDocument from '../components/devoluciones/NotaCreditoPDFDocument';
 import { useData } from '../hooks/useData';
 import { fetchFacturasDetalle } from '../services/apiClient';
+import { useClientesConFacturasAceptadas } from '../hooks/useClientesConFacturasAceptadas';
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 2 }).format(value);
 
@@ -26,16 +27,18 @@ interface DevolucionItem {
 
 const DevolucionesPage: React.FC = () => {
     const {
-        almacenes = [],
-        clientes = [],
-        facturas = [],
-        remisiones = [],
-        productos = [],
-        motivosDevolucion = [],
-        notasCredito = [],
         crearNotaCredito,
-        datosEmpresa
+        datosEmpresa,
+        almacenes,
+        productos,
+        motivosDevolucion,
+        notasCredito,
+        clientes, // Restoring strict needed
+        facturas // Restoring strict needed
     } = useData();
+
+    // Nueva lógica estricta para clientes y facturas
+    const { clientes: clientesEstrictos, isLoading: isLoadingClientes } = useClientesConFacturasAceptadas();
 
     const DEFAULT_MOTIVOS = useMemo(() => ([
         'Producto defectuoso',
@@ -68,7 +71,7 @@ const DevolucionesPage: React.FC = () => {
     const [isConfirmingSave, setIsConfirmingSave] = useState(false);
 
     // Form State
-    const [almacenId, setAlmacenId] = useState('');
+
     const [clienteId, setClienteId] = useState('');
     const [facturaId, setFacturaId] = useState('');
     const [isTotalDevolucion, setIsTotalDevolucion] = useState(false);
@@ -94,232 +97,63 @@ const DevolucionesPage: React.FC = () => {
     const isFormDisabled = !!savedNota || isSaving;
 
     // Memoized derived data
-    // Filtrar clientes que tienen facturas timbradas a la DIAN (ya facturadas)
-    const clientesConFacturasTimbradas = useMemo(() => {
-        // Filtrar facturas que están timbradas (tienen cufe o estado ENVIADA/ACEPTADA)
-        const facturasTimbradas = facturas.filter(f => {
-            // Excluir facturas anuladas o rechazadas
-            if (f.estado === 'ANULADA' || f.estado === 'RECHAZADA') {
-                return false;
-            }
-
-            // Una factura está timbrada si:
-            // 1. Tiene CUFE (código único de factura electrónica)
-            // 2. Tiene fechaTimbrado
-            // 3. O está en estado ENVIADA/ACEPTADA (estados que indican factura aprobada)
-            const tieneCufe = !!(f.cufe && String(f.cufe).trim() !== '');
-            const tieneFechaTimbrado = !!(f.fechaTimbrado);
-            const estaEnviadaOAceptada = f.estado === 'ENVIADA' || f.estado === 'ACEPTADA';
-
-            return tieneCufe || tieneFechaTimbrado || estaEnviadaOAceptada;
-        });
-
-        // Obtener los IDs de clientes únicos de esas facturas timbradas
-        const clientesIdsConFacturasTimbradas = new Set<string>();
-
-        facturasTimbradas.forEach(factura => {
-            // Buscar cliente de forma flexible (por id, numeroDocumento o codter)
-            const cliente = clientes.find(c =>
-                String(c.id) === String(factura.clienteId) ||
-                c.numeroDocumento === factura.clienteId ||
-                c.codter === factura.clienteId
-            );
-
-            if (cliente) {
-                clientesIdsConFacturasTimbradas.add(String(cliente.id));
-            }
-        });
-
-        // Filtrar clientes que están en la lista de clientes con facturas timbradas
-        return clientes.filter(c => clientesIdsConFacturasTimbradas.has(String(c.id)));
-    }, [facturas, clientes]);
+    // Los clientes listados son exclusivamente los que vienen del endpoint estricto
+    const clientesDisponibles = useMemo(() => {
+        return clientesEstrictos;
+    }, [clientesEstrictos]);
 
 
-    // Filtrar facturas del cliente seleccionado que estén timbradas a la DIAN
+    // Filtrar facturas del cliente seleccionado usando los datos estrictos
     const facturasFiltradas = useMemo(() => {
-        // Debug: verificar estado de clienteId
-        if (process.env.NODE_ENV === 'development') {
-            console.log('[Devoluciones] Estado del filtro:', {
-                clienteId,
-                tipoClienteId: typeof clienteId,
-                clienteIdLength: clienteId ? String(clienteId).length : 0,
-                totalFacturas: facturas.length,
-                totalClientes: clientes.length
-            });
-        }
+        if (!clienteId) return [];
 
-        if (!clienteId || clienteId === '' || clienteId === 'undefined' || clienteId === 'null') {
-            if (process.env.NODE_ENV === 'development') {
-                console.log('[Devoluciones] No hay clienteId seleccionado o está vacío');
-            }
-            return [];
-        }
+        const clienteEstricto = clientesDisponibles.find(c => String(c.id) === String(clienteId));
+        if (!clienteEstricto) return [];
 
-        // Buscar el cliente seleccionado para obtener su ID interno y códigos relacionados
-        const clienteSeleccionado = clientes.find(c =>
-            String(c.id) === String(clienteId) ||
-            c.numeroDocumento === clienteId ||
-            c.codter === clienteId
-        );
-
-        if (!clienteSeleccionado) {
-            if (process.env.NODE_ENV === 'development') {
-                console.log('[Devoluciones] Cliente seleccionado no encontrado en la lista de clientes');
-            }
-            return [];
-        }
-
-        const TOLERANCIA = 0.0001;
-
-        // Obtener todos los identificadores posibles del cliente (normalizados)
-        const clienteIdsNormalizados = new Set<string>();
-        [clienteSeleccionado.id, clienteSeleccionado.numeroDocumento, clienteSeleccionado.codter]
-            .filter(id => id != null && id !== undefined && String(id).trim() !== '')
-            .forEach(id => {
-                const idStr = String(id).trim();
-                clienteIdsNormalizados.add(idStr);
-                // También agregar versiones sin espacios al inicio/final
-                clienteIdsNormalizados.add(idStr.trim());
-            });
-
-        if (process.env.NODE_ENV === 'development') {
-            console.log('[Devoluciones] IDs del cliente para comparar:', Array.from(clienteIdsNormalizados));
-        }
-
-        const facturasFiltradasResult = facturas.filter(f => {
-            // Comparar clienteId de la factura con todos los identificadores posibles del cliente
-            // Las facturas pueden tener clienteId como codter, numeroDocumento o id interno
-            const facturaClienteId = String(f.clienteId || '').trim();
-
-            // Comparación flexible: verificar si el clienteId de la factura coincide con cualquier identificador del cliente
-            const coincideCliente = clienteIdsNormalizados.has(facturaClienteId) ||
-                facturaClienteId === String(clienteSeleccionado.id).trim() ||
-                facturaClienteId === String(clienteSeleccionado.numeroDocumento || '').trim() ||
-                facturaClienteId === String(clienteSeleccionado.codter || '').trim();
-
-            if (!coincideCliente) {
-                return false;
-            }
-
-            if (process.env.NODE_ENV === 'development' && facturas.indexOf(f) < 3) {
-                console.log('[Devoluciones] Factura coincide con cliente:', {
-                    facturaId: f.id,
-                    numeroFactura: f.numeroFactura,
-                    facturaClienteId: facturaClienteId,
-                    clienteIdSeleccionado: String(clienteSeleccionado.id),
-                    coincide: coincideCliente
-                });
-            }
-
-            // Si una factura ya está seleccionada, mantenerla en la lista independientemente del estado
-            if (f.id === facturaId) {
-                return true;
-            }
-
-            // Excluir facturas anuladas, rechazadas o en borrador
-            if (f.estado === 'ANULADA' || f.estado === 'RECHAZADA' || f.estado === 'BORRADOR') {
-                return false;
-            }
-
-            // SOLO mostrar facturas timbradas a la DIAN
-            // Una factura está timbrada si:
-            // 1. Tiene CUFE (código único de factura electrónica)
-            // 2. Tiene fechaTimbrado
-            // 3. O está en estado ENVIADA/ACEPTADA (estados que indican factura aprobada por DIAN)
-            const tieneCufe = !!(f.cufe && String(f.cufe).trim() !== '' && String(f.cufe).trim() !== 'null');
-            const tieneFechaTimbrado = !!(f.fechaTimbrado && String(f.fechaTimbrado).trim() !== '' && String(f.fechaTimbrado).trim() !== 'null');
-            const estaEnviadaOAceptada = f.estado === 'ENVIADA' || f.estado === 'ACEPTADA';
-
-            const estaTimbrada = tieneCufe || tieneFechaTimbrado || estaEnviadaOAceptada;
-
-            if (!estaTimbrada) {
-                return false;
-            }
-
-            // Verificar que no tenga devolución total
-            const estadoDevolucionFactura = String(
-                (f as any).estadoDevolucion ||
-                (f as any).estado_devolucion ||
-                ''
-            ).trim().toUpperCase();
-
-            if (estadoDevolucionFactura === 'DEVOLUCION_TOTAL') {
-                return false;
-            }
-
-            // Verificar si hay notas de crédito con CUFE que sumen el total de la factura
-            // Esto cubre el caso donde la factura ya fue devuelta totalmente ante la DIAN
-            const notasDeFactura = Array.isArray(notasCredito)
-                ? notasCredito.filter(nc => String(nc.facturaId) === String(f.id))
-                : [];
-
-            const totalDevueltoConCufe = notasDeFactura
-                .filter(nc => (nc.cufe && String(nc.cufe).trim() !== '') || nc.estadoDian === 'Transmitido')
-                .reduce((sum, nc) => sum + (nc.total || 0), 0);
-
-            // Si el total devuelto (con soporte DIAN) cubre el total de la factura (con margen de error), ocultarla
-            if (f.total > 0 && totalDevueltoConCufe >= (f.total - 500)) { // 500 pesos de tolerancia
-                return false;
-            }
-
-            // Si no hay items cargados, aún así mostrar la factura (puede que los items se carguen después)
-            if (!f.items || !Array.isArray(f.items) || f.items.length === 0) {
-                return true; // Mostrar aunque no tenga items (se cargarán después)
-            }
-
-            const hayCantidadPendiente = (f.items || []).some(factItem => {
-                const cantidadDevuelta = notasDeFactura.reduce((acc, nota) => {
-                    if (!Array.isArray(nota.itemsDevueltos)) return acc;
-                    const match = nota.itemsDevueltos.find(dev => Number(dev.productoId) === Number(factItem.productoId));
-                    return acc + (match?.cantidad || 0);
-                }, 0);
-
-                const pendiente = (factItem.cantidad || 0) - cantidadDevuelta;
-                return pendiente > TOLERANCIA;
-            });
-
-            if (!hayCantidadPendiente) {
-                return false;
-            }
-
-            return true;
-        });
-
-        if (process.env.NODE_ENV === 'development' && facturasFiltradasResult.length === 0 && clienteId) {
-            console.warn('[Devoluciones] No se encontraron facturas para el cliente:', {
-                clienteId,
-                clienteNombre: clienteSeleccionado.nombreCompleto,
-                clienteCodter: clienteSeleccionado.codter,
-                clienteNumeroDoc: clienteSeleccionado.numeroDocumento,
-                totalFacturas: facturas.length,
-                facturasConEstadoEnviada: facturas.filter(f => f.estado === 'ENVIADA' || f.estado === 'ACEPTADA').length,
-                facturasConCufe: facturas.filter(f => f.cufe && String(f.cufe).trim() !== '').length
-            });
-        }
-
-        return facturasFiltradasResult;
-    }, [clienteId, facturaId, facturas, clientes, notasCredito]);
+        return clienteEstricto.facturasAceptadas;
+    }, [clienteId, clientesDisponibles]);
 
     // Buscar factura de forma flexible: primero en facturasFiltradas, luego en todas las facturas
     // Si la factura tiene items cargados localmente, usarlos
     const selectedFactura = useMemo(() => {
         if (!facturaId) return undefined;
 
-        // Primero buscar en facturasFiltradas
-        let factura = facturasFiltradas.find(f => {
-            const fIdStr = String(f.id);
-            const facturaIdStr = String(facturaId);
-            return fIdStr === facturaIdStr;
-        });
+        // Primero buscar en facturasFiltradas (que son FacturaAceptada)
+        const facturaAceptada = facturasFiltradas.find(f => String(f.id) === String(facturaId));
 
-        // Si no se encuentra, buscar en todas las facturas (comparación flexible)
-        if (!factura) {
-            factura = facturas.find(f => {
-                const fIdStr = String(f.id);
-                const facturaIdStr = String(facturaId);
-                return fIdStr === facturaIdStr;
-            });
+        let factura: Factura | undefined;
+
+        if (facturaAceptada) {
+            // Si la encontrada es FacturaAceptada, mapear a Factura, preservando items si ya existen
+            // Intentar encontrar la factura completa en el contexto global si es posible para tener más datos
+            const facturaCompleta = facturas.find(f => String(f.id) === String(facturaId));
+
+            if (facturaCompleta) {
+                factura = facturaCompleta;
+            } else {
+                // Si no está en global, usar la data básica de FacturasAceptadas
+                factura = {
+                    id: facturaAceptada.id,
+                    numeroFactura: facturaAceptada.numeroFactura,
+                    fechaFactura: facturaAceptada.fechaFactura,
+                    total: facturaAceptada.total,
+                    codalm: facturaAceptada.codalm,
+                    cufe: facturaAceptada.cufe,
+                    clienteId: clienteId, // Asumimos cliente actual
+                    items: [], // Se cargarán los ítems
+                    subtotal: 0, // Placeholder
+                    descuentoValor: 0, // Placeholder
+                    ivaValor: 0, // Placeholder
+                    estado: 'ACEPTADA',
+                    empresaId: 1, // Default
+                    remisionesIds: []
+                } as Factura;
+            }
+        } else {
+            // Fallback antiguo
+            factura = facturas.find(f => String(f.id) === String(facturaId));
         }
+
 
         // Si la factura no se encontró pero hay items cargados localmente,
         // crear un objeto factura básico para permitir mostrar los items
@@ -348,14 +182,8 @@ const DevolucionesPage: React.FC = () => {
 
     const selectedCliente = useMemo(() => {
         if (!clienteId) return undefined;
-
-        // Búsqueda flexible de cliente
-        return clientes.find(c =>
-            String(c.id) === String(clienteId) ||
-            c.numeroDocumento === clienteId ||
-            c.codter === clienteId
-        );
-    }, [clienteId, clientes]);
+        return clientesDisponibles.find(c => String(c.id) === String(clienteId));
+    }, [clienteId, clientesDisponibles]);
 
     // Items disponibles para la factura seleccionada: combinar items de selectedFactura y facturaItemsCargados
     const itemsDisponiblesFactura = useMemo(() => {
@@ -497,9 +325,7 @@ const DevolucionesPage: React.FC = () => {
         }
     }, [selectedFactura, notasCredito]);
 
-    const handleAlmacenChange = (id: string) => {
-        setAlmacenId(id);
-    };
+
 
     const handleClienteChange = (id: string) => {
         if (process.env.NODE_ENV === 'development') {
@@ -721,7 +547,7 @@ const DevolucionesPage: React.FC = () => {
     };
 
     const resetForm = useCallback(() => {
-        setAlmacenId('');
+
         setClienteId('');
         setFacturaId('');
         resetFormPartially();
@@ -967,9 +793,9 @@ const DevolucionesPage: React.FC = () => {
         { header: 'Devolución No.', accessor: 'numero', cell: item => <button onClick={() => handleOpenDetailModal(item)} className="text-blue-500 font-semibold hover:underline">{item.numero}</button> },
         { header: 'Fecha', accessor: 'fechaEmision', cell: item => new Date(item.fechaEmision).toLocaleDateString() },
         { header: 'Factura Afectada', accessor: 'facturaId', cell: item => facturas.find(f => String(f.id) === String(item.facturaId))?.numeroFactura || 'N/A' },
-        { 
-            header: 'Cliente', 
-            accessor: 'clienteId', 
+        {
+            header: 'Cliente',
+            accessor: 'clienteId',
             cell: item => {
                 const match = clientes.find(c => String(c.id) === String(item.clienteId) || c.numeroDocumento === item.clienteId || c.codter === item.clienteId);
                 if (!match && process.env.NODE_ENV === 'development') console.log('Client match failed for:', item.clienteId, 'Available clients:', clientes.length);
@@ -1019,18 +845,8 @@ const DevolucionesPage: React.FC = () => {
                     <CardContent>
                         <section>
                             <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">1. Selección de Factura</h2>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div>
-                                    <label htmlFor="almacen-select" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Almacén (Opcional)</label>
-                                    <select id="almacen-select" value={almacenId} onChange={e => handleAlmacenChange(e.target.value)} disabled={isFormDisabled} className="w-full px-3 py-2.5 text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed">
-                                        <option value="">Seleccione un almacén...</option>
-                                        {almacenes && almacenes.length > 0 ? (
-                                            almacenes.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)
-                                        ) : (
-                                            <option value="" disabled>Cargando almacenes...</option>
-                                        )}
-                                    </select>
-                                </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
                                 <div>
                                     <label htmlFor="cliente-select" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cliente</label>
                                     <select
@@ -1038,26 +854,25 @@ const DevolucionesPage: React.FC = () => {
                                         value={clienteId || ''}
                                         onChange={e => {
                                             const selectedValue = e.target.value;
-                                            if (process.env.NODE_ENV === 'development') {
-                                                console.log('[Devoluciones] Select onChange - valor seleccionado:', selectedValue);
-                                            }
                                             handleClienteChange(selectedValue);
                                         }}
-                                        disabled={isFormDisabled}
+                                        disabled={isFormDisabled || isLoadingClientes}
                                         className="w-full px-3 py-2.5 text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed"
                                     >
-                                        <option value="">Seleccione un cliente...</option>
-                                        {clientesConFacturasTimbradas.length > 0 ? (
-                                            clientesConFacturasTimbradas.map(c => {
+                                        <option value="">
+                                            {isLoadingClientes ? 'Cargando clientes...' : 'Seleccione un cliente...'}
+                                        </option>
+                                        {clientesDisponibles && clientesDisponibles.length > 0 ? (
+                                            clientesDisponibles.map(c => {
                                                 const clienteValue = String(c.id || '');
                                                 return (
                                                     <option key={c.id} value={clienteValue}>
-                                                        {c.nombreCompleto || c.razonSocial || 'Sin nombre'}
+                                                        {c.nombreCompleto || c.numeroDocumento}
                                                     </option>
                                                 );
                                             })
                                         ) : (
-                                            <option value="" disabled>No hay clientes con facturas timbradas a la DIAN</option>
+                                            !isLoadingClientes && <option value="" disabled>No hay clientes con facturas ACEPTADAS</option>
                                         )}
                                     </select>
                                 </div>
@@ -1066,7 +881,7 @@ const DevolucionesPage: React.FC = () => {
                                     <select id="factura-select" value={facturaId} onChange={e => handleFacturaChange(e.target.value)} disabled={!clienteId || isFormDisabled} className="w-full px-3 py-2.5 text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed">
                                         <option value="">Seleccione una factura...</option>
                                         {facturasFiltradas && facturasFiltradas.length > 0 ? (
-                                            facturasFiltradas.map(f => <option key={f.id} value={f.id}>{f.numeroFactura} - {f.fechaFactura}</option>)
+                                            facturasFiltradas.map(f => <option key={f.id} value={f.id}>{f.numeroFactura} - {new Date(f.fechaFactura).toLocaleDateString()}</option>)
                                         ) : clienteId ? (
                                             <option value="" disabled>No hay facturas disponibles para este cliente</option>
                                         ) : (
@@ -1333,7 +1148,7 @@ const DevolucionesPage: React.FC = () => {
                                                                             <td className="px-4 py-2 text-left">{row.puc}</td>
                                                                             <td className="px-4 py-2 text-left">{row.desc}</td>
                                                                             <td className="px-4 py-2 text-center">{selectedCliente?.numeroDocumento}</td>
-                                                                            <td className="px-4 py-2 text-center">{almacenId || '001'}</td>
+                                                                            <td className="px-4 py-2 text-center">{selectedFactura?.codalm || '001'}</td>
                                                                             <td className="px-4 py-2 text-right">{formatCurrency(row.deb)}</td>
                                                                             <td className="px-4 py-2 text-right">{formatCurrency(row.cred)}</td>
                                                                         </tr>
@@ -1533,7 +1348,7 @@ const DevolucionesPage: React.FC = () => {
                             <NotaCreditoPDFDocument
                                 notaCredito={draftNotaToPreview}
                                 factura={selectedFactura}
-                                cliente={selectedCliente}
+                                cliente={selectedCliente as any}
                                 empresa={{
                                     nombre: datosEmpresa.nombre || 'Mi Empresa',
                                     nit: datosEmpresa.nit || '',

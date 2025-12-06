@@ -178,6 +178,10 @@ class ApiClient {
     return this.request(`/clientes${params}`);
   }
 
+  async getClientesConFacturasAceptadas() {
+    return this.request('/devoluciones/clientes-con-facturas-aceptadas');
+  }
+
   async getProductos(codalm?: string, page?: number, pageSize?: number, search?: string) {
     const queryParams = new URLSearchParams();
     if (codalm) queryParams.append('codalm', codalm);
@@ -465,5 +469,6 @@ export const apiSetClienteListaPrecios = (id: number | string, listaPrecioId: nu
 export const apiGetClienteById = (id: number | string) => apiClient.getClienteById(id);
 export const apiCreateNotaCredito = (payload: any) => apiClient.createNotaCredito(payload);
 export const apiUpdateNotaCredito = (id: number | string, payload: any) => apiClient.updateNotaCredito(id, payload);
+export const apiGetClientesConFacturasAceptadas = () => apiClient.getClientesConFacturasAceptadas();
 
 export default apiClient;

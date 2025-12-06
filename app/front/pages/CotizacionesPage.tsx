@@ -12,7 +12,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import ApprovalSuccessModal from '../components/ui/ApprovalSuccessModal';
 import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
-import CotizacionPDF from '../components/comercial/CotizacionPDF';
+import CotizacionPDFDocument from '../components/comercial/CotizacionPDFDocument';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
@@ -1042,11 +1042,13 @@ const CotizacionesPage: React.FC = () => {
             clientEmail={cliente.email}
             clientName={cliente.nombreCompleto}
           >
-            <CotizacionPDF
+            <CotizacionPDFDocument
               cotizacion={quoteToPreview}
               cliente={cliente}
               vendedor={vendedor}
               empresa={datosEmpresa}
+              preferences={{} as any}
+              productos={productos}
             />
           </DocumentPreviewModal>
         );

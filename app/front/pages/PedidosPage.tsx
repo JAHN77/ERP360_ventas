@@ -12,8 +12,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import ApprovalSuccessModal from '../components/ui/ApprovalSuccessModal';
 import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
-// FIX: Changed to a named import as PedidoPDF is now a named export.
-import { PedidoPDF } from '../components/comercial/PedidoPDF';
+import PedidoPDFDocument from '../components/comercial/PedidoPDFDocument';
 import PedidoEditForm from '../components/comercial/PedidoEditForm';
 import { useAuth } from '../hooks/useAuth';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
@@ -890,10 +889,13 @@ const PedidosPage: React.FC = () => {
             clientEmail={cliente.email}
             clientName={cliente.nombreCompleto}
           >
-            <PedidoPDF
+            <PedidoPDFDocument
               pedido={orderToPreview}
               cliente={cliente}
               empresa={datosEmpresa}
+              preferences={{} as any}
+              productos={productos}
+              cotizacionOrigen={cotizaciones.find(c => c.id === orderToPreview.cotizacionId)}
             />
           </DocumentPreviewModal>
         );

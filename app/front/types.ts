@@ -327,6 +327,7 @@ export interface Factura {
   motivoRechazo?: string; // Motivo del rechazo cuando la factura es rechazada
   formaPago?: string; // Forma de pago: 1=Contado, 2=Crédito
   documentoContable?: string; // Documento contable (doccoc)
+  codalm?: string; // Código de almacén
 }
 
 

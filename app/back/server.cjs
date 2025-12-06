@@ -2312,6 +2312,89 @@ const fetchNotaCreditoById = async (connection, notaId, transaction = null) => {
   };
 };
 
+
+// Obtener clientes con facturas aceptadas (para devoluciones)
+app.get('/api/devoluciones/clientes-con-facturas-aceptadas', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        t.id AS clienteId,
+        t.codter AS numeroDocumento,
+        t.nomter AS razonSocial,
+        t.nom1 AS primerNombre,
+        t.nom2 AS segundoNombre,
+        t.apl1 AS primerApellido,
+        t.apl2 AS segundoApellido,
+        t.EMAIL as email,
+        t.TELTER as telefono,
+        f.id AS facturaId,
+        f.numfact AS numeroFactura,
+        f.fecfac AS fechaFactura,
+        f.netfac AS total,
+        f.codalm AS codalm,
+        f.CUFE as cufe
+      FROM ven_facturas f
+      INNER JOIN con_terceros t ON t.codter = f.codter
+      WHERE f.estfac = 'A'
+      ORDER BY t.nomter, f.fecfac DESC
+    `;
+
+    const result = await executeQuery(query);
+
+    // Agrupar resultados por cliente
+    const clientesMap = new Map();
+
+    result.forEach(row => {
+      const clienteId = row.clienteId;
+      if (!clientesMap.has(clienteId)) {
+        // Construir nombre completo
+        let nombreCompleto = row.razonSocial;
+        if (!nombreCompleto) {
+          const nombres = [row.primerNombre, row.segundoNombre].filter(Boolean).join(' ');
+          const apellidos = [row.primerApellido, row.segundoApellido].filter(Boolean).join(' ');
+          nombreCompleto = [nombres, apellidos].filter(Boolean).join(' ').trim();
+        }
+
+        clientesMap.set(clienteId, {
+          id: String(clienteId),
+          numeroDocumento: row.numeroDocumento,
+          nombreCompleto: nombreCompleto || 'Sin Nombre',
+          telefono: row.telefono,
+          email: row.email,
+          facturasAceptadas: []
+        });
+      }
+
+      const cliente = clientesMap.get(clienteId);
+      cliente.facturasAceptadas.push({
+        id: String(row.facturaId),
+        numeroFactura: row.numeroFactura,
+        fechaFactura: row.fechaFactura,
+        total: row.total,
+        codalm: row.codalm,
+        cufe: row.cufe
+      });
+    });
+
+    const clientes = Array.from(clientesMap.values());
+
+    console.log(`✅ [Backend] Clientes con facturas aceptadas encontrados: ${clientes.length}`);
+
+    res.json({
+      success: true,
+      data: clientes
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo clientes para devolución:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo clientes para devolución',
+      error: error.message
+    });
+  }
+});
+
 // Ruta para obtener notas de crédito (optimizado con paginación)
 app.get('/api/notas-credito', async (req, res) => {
   try {
@@ -3567,7 +3650,7 @@ app.post('/api/cotizaciones', async (req, res) => {
       const clienteResult = await reqCliente.query(`
         SELECT codter, id, nomter, activo 
         FROM con_terceros 
-        WHERE codter = @codter AND activo = 1
+        WHERE LTRIM(RTRIM(codter)) = @codter AND activo = 1
       `);
 
       if (clienteResult.recordset.length === 0) {
@@ -3632,7 +3715,7 @@ app.post('/api/cotizaciones', async (req, res) => {
         var vendedorQuery = `
           SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, LTRIM(RTRIM(nomven)) as nomb_emple, CAST(Activo AS INT) as activo, codven
           FROM ven_vendedor 
-          WHERE codven = @codven AND Activo = 1
+          WHERE LTRIM(RTRIM(codven)) = @codven AND Activo = 1
         `;
       }
       const vendedorResult = await reqVendedor.query(vendedorQuery);
@@ -3685,7 +3768,7 @@ app.post('/api/cotizaciones', async (req, res) => {
       const almacenResult = await reqAlmacen.query(`
         SELECT codalm, nomalm, activo 
         FROM inv_almacen 
-        WHERE codalm = @codalm AND activo = 1
+        WHERE LTRIM(RTRIM(codalm)) = @codalm AND activo = 1
       `);
 
       if (almacenResult.recordset.length === 0) {
@@ -5022,7 +5105,7 @@ app.post('/api/pedidos', async (req, res) => {
                    LTRIM(RTRIM(nomven)) as nomb_emple, 
                    CAST(Activo AS INT) as activo 
             FROM ven_vendedor 
-            WHERE codven = @codven AND Activo = 1
+            WHERE LTRIM(RTRIM(codven)) = @codven AND Activo = 1
           `;
         }
         const vendedorResult = await reqCheckVendedor.query(vendedorQuery);
@@ -6380,7 +6463,7 @@ app.post('/api/inventario/entrada', async (req, res) => {
       
       // Verificar si existe registro en inv_invent
       const stockCheck = await reqStock.query(`
-        SELECT caninv FROM inv_invent WHERE codins = @codins AND codalm = @codalm
+        SELECT caninv FROM inv_invent WHERE codins = @codins AND LTRIM(RTRIM(codalm)) = @codalm
       `);
       
       const reqUpdateStock = new sql.Request(tx);
@@ -6396,7 +6479,7 @@ app.post('/api/inventario/entrada', async (req, res) => {
           SET caninv = caninv + @cantidad,
               valinv = valinv + (@cantidad * @costo),
               ultima_actualizacion = GETDATE()
-          WHERE codins = @codins AND codalm = @codalm
+          WHERE codins = @codins AND LTRIM(RTRIM(codalm)) = @codalm
         `);
       } else {
         // Insertar nuevo

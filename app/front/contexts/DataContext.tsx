@@ -90,6 +90,7 @@ interface DataContextType {
     getSalesByCliente: () => Array<{ id: string; clientName: string; totalSales: number; orderCount: number; lastOrder: string }>;
     getSalesDataByClient: () => Array<{ id: string; clientName: string; totalSales: number; orderCount: number; lastOrder: string }>; // Alias para compatibilidad
     getSalesByVendedor: () => Array<{ id: string; name: string; totalSales: number; orderCount: number }>;
+    getProductoById: (id: string | number) => InvProducto | undefined;
     getTopProductos: (limit?: number) => Array<{ producto: InvProducto; cantidad: number }>;
     getGlobalSearchResults: (query: string) => GlobalSearchResults;
     globalSearch: (query: string) => GlobalSearchResults; // Alias para compatibilidad
@@ -1072,12 +1073,12 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         String(v.id) === vendedorIdStr ||
                         String(v.codiEmple || '') === vendedorIdStr ||
                         String(v.codigoVendedor || '') === vendedorIdStr ||
-                        String(v.codigo || '') === vendedorIdStr
+                        String((v as any).codigo || '') === vendedorIdStr
                     );
                 }
 
                 const vendedorKey = vendedorEncontrado
-                    ? String(vendedorEncontrado.id || vendedorEncontrado.codiEmple || 'sin_vendedor')
+                    ? String(vendedorEncontrado.id || (vendedorEncontrado as any).codiEmple || 'sin_vendedor')
                     : 'sin_vendedor';
 
                 if (!acc[vendedorKey]) {
@@ -1737,6 +1738,12 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     const getCotizacionById = useCallback((id: string) => cotizaciones.find(c => c.id === id), [cotizaciones]);
 
+    const getProductoById = useCallback((id: string | number) => {
+        // Normalizar ID a string para comparación flexible
+        const idStr = String(id);
+        return productos.find(p => String(p.id) === idStr);
+    }, [productos]);
+
     const crearCotizacion = useCallback(async (data: Cotizacion): Promise<Cotizacion> => {
         try {
             const { apiCreateCotizacion } = await import('../services/apiClient');
@@ -2021,7 +2028,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 valorIva: roundTo2Decimals(item.valorIva),
                 total: roundTo2Decimals(item.total),
                 // Asegurar que descuentoValor también esté normalizado si existe
-                descuentoValor: item.descuentoValor ? roundTo2Decimals(item.descuentoValor) : 0
+                descuentoValor: (item as any).descuentoValor ? roundTo2Decimals((item as any).descuentoValor) : 0
             })) || [];
 
             const payload = {
@@ -2387,7 +2394,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     fechaPedido: new Date().toISOString().split('T')[0],
                     clienteId: clienteCodter, // Usar codter en lugar de ID numérico
                     vendedorId: vendedorCodiEmple, // Ya debería ser codi_emple
-                    cotizacionId: cotizacionIdParaPedido,
+                    cotizacionId: String(cotizacionIdParaPedido),
                     subtotal: itemsParaPedido.reduce((sum, item) => sum + (item.subtotal || 0), 0),
                     descuentoValor: itemsParaPedido.reduce((sum, item) => {
                         const itemTotal = (item.precioUnitario || 0) * (item.cantidad || 0);
@@ -2399,7 +2406,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     observaciones: `Pedido creado desde cotización ${cotizacion.numeroCotizacion}`,
                     items: itemsMapeados,
                     fechaEntregaEstimada: cotizacion.fechaVencimiento,
-                    empresaId: empresaIdParaPedido,
+                    empresaId: parseInt(empresaIdParaPedido, 10),
                     formaPago: formaPagoPedido
                 };
 
@@ -3721,10 +3728,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             console.log('   - success:', resp.success);
             console.log('   - message:', resp.message || 'N/A');
             console.log('   - data:', resp.data ? {
-                id: resp.data.id,
-                numeroFactura: resp.data.numeroFactura,
-                estado: resp.data.estado,
-                cufe: resp.data.cufe ? `${resp.data.cufe.substring(0, 20)}...` : 'No generado'
+                id: (resp.data as any).id,
+                numeroFactura: (resp.data as any).numeroFactura,
+                estado: (resp.data as any).estado,
+                cufe: (resp.data as any).cufe ? `${(resp.data as any).cufe.substring(0, 20)}...` : 'No generado'
             } : 'No data');
             console.log('='.repeat(80) + '\n');
 
@@ -3854,7 +3861,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         crearFacturaDesdeRemisiones,
         timbrarFactura,
         refreshFacturasYRemisiones,
-        motivosDevolucion
+        motivosDevolucion,
+        getProductoById
     }), [
         isLoading,
         isMainDataLoaded,
