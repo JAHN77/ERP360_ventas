@@ -441,7 +441,7 @@ app.get('/api/clientes', async (req, res) => {
   try {
     const { page = '1', pageSize = '100', search } = req.query;
     const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
-    const pageSizeNum = Math.min(500, Math.max(10, parseInt(String(pageSize), 10) || 100)); // Máximo 500, mínimo 10
+    const pageSizeNum = Math.min(10000, Math.max(10, parseInt(String(pageSize), 10) || 100)); // Máximo 10000, mínimo 10
     const offset = (pageNum - 1) * pageSizeNum;
 
     // Normalizar búsqueda
@@ -660,7 +660,7 @@ app.get('/api/productos', async (req, res) => {
 
     // Convertir a números
     const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
-    const pageSizeNum = Math.min(100, Math.max(10, parseInt(String(pageSize), 10) || 50)); // Máximo 100, mínimo 10
+    const pageSizeNum = Math.min(10000, Math.max(10, parseInt(String(pageSize), 10) || 50)); // Máximo 10000, mínimo 10
     const offset = (pageNum - 1) * pageSizeNum;
 
     // Normalizar parámetro de búsqueda (puede venir como string, array, o objeto)
@@ -936,7 +936,7 @@ app.post('/api/inventario/entradas', async (req, res) => {
           producto: productoActualizado || null,
           movimiento: {
             productoId: producto.id,
-            codins,
+            codins: producto.codins,
             codalm: codalmNormalized,
             cantidad: cantidadDecimal,
             costoUnitario: costoDecimal,
@@ -1283,7 +1283,7 @@ app.get('/api/cotizaciones', async (req, res) => {
   try {
     const { page = '1', pageSize = '100', search, estado } = req.query;
     const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
-    const pageSizeNum = Math.min(500, Math.max(10, parseInt(String(pageSize), 10) || 100)); // Máximo 500, mínimo 10
+    const pageSizeNum = Math.min(10000, Math.max(10, parseInt(String(pageSize), 10) || 100)); // Máximo 10000, mínimo 10
     const offset = (pageNum - 1) * pageSizeNum;
 
     // Normalizar búsqueda y estado
@@ -6300,6 +6300,153 @@ app.put('/api/pedidos/:id', async (req, res) => {
       message: `Error actualizando pedido: ${error.message}`,
       error: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// --- ENTRADA DE INVENTARIO ---
+app.post('/api/inventario/entrada', async (req, res) => {
+  const body = req.body || {};
+  console.log('📥 Recibida solicitud POST /api/inventario/entrada');
+  console.log('📥 Body recibido:', JSON.stringify(body, null, 2));
+
+  try {
+    const { 
+      productoId, cantidad, costoUnitario, 
+      documentoRef, motivo, codalm = '001', codusu = '0' 
+    } = body;
+
+    // Validación básica
+    if (!productoId || !cantidad || !costoUnitario) {
+      return res.status(400).json({
+        success: false,
+        message: 'Faltan campos obligatorios: productoId, cantidad, costoUnitario'
+      });
+    }
+
+    const cantidadNum = parseFloat(cantidad);
+    const costoNum = parseFloat(costoUnitario);
+    
+    if (isNaN(cantidadNum) || cantidadNum <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'La cantidad debe ser mayor a 0'
+      });
+    }
+    
+    if (isNaN(costoNum) || costoNum < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El costo unitario debe ser mayor o igual a 0'
+      });
+    }
+
+    const pool = await getConnection();
+    const tx = new sql.Transaction(pool);
+    await tx.begin();
+
+    try {
+      // 1. Obtener producto para verificar existencia y obtener codins
+      const reqProd = new sql.Request(tx);
+      reqProd.input('productoId', sql.Int, productoId);
+      const prodResult = await reqProd.query(`
+        SELECT codins, nomins, ultimo_costo
+        FROM inv_insumos
+        WHERE id = @productoId
+      `);
+
+      if (prodResult.recordset.length === 0) {
+        throw new Error('Producto no encontrado');
+      }
+
+      const producto = prodResult.recordset[0];
+      const codins = producto.codins;
+
+      // 2. Actualizar inv_insumos (Último Costo)
+      const reqUpdateProd = new sql.Request(tx);
+      reqUpdateProd.input('ultimoCosto', sql.Decimal(18, 2), costoNum);
+      reqUpdateProd.input('codins', sql.Char(8), codins);
+      await reqUpdateProd.query(`
+        UPDATE inv_insumos
+        SET ultimo_costo = @ultimoCosto, fecsys = GETDATE()
+        WHERE codins = @codins
+      `);
+      console.log(`✅ Costo actualizado para producto ${codins}`);
+
+      // 3. Actualizar inv_invent (Stock en Bodega)
+      const reqStock = new sql.Request(tx);
+      reqStock.input('codins', sql.Char(8), codins);
+      reqStock.input('codalm', sql.Char(3), codalm); // Asumimos bodega principal '001' si no viene
+      
+      // Verificar si existe registro en inv_invent
+      const stockCheck = await reqStock.query(`
+        SELECT caninv FROM inv_invent WHERE codins = @codins AND codalm = @codalm
+      `);
+      
+      const reqUpdateStock = new sql.Request(tx);
+      reqUpdateStock.input('codins', sql.Char(8), codins);
+      reqUpdateStock.input('codalm', sql.Char(3), codalm);
+      reqUpdateStock.input('cantidad', sql.Decimal(18, 2), cantidadNum);
+      reqUpdateStock.input('costo', sql.Decimal(18, 2), costoNum);
+
+      if (stockCheck.recordset.length > 0) {
+        // Actualizar existente
+        await reqUpdateStock.query(`
+          UPDATE inv_invent
+          SET caninv = caninv + @cantidad,
+              valinv = valinv + (@cantidad * @costo),
+              ultima_actualizacion = GETDATE()
+          WHERE codins = @codins AND codalm = @codalm
+        `);
+      } else {
+        // Insertar nuevo
+        await reqUpdateStock.query(`
+          INSERT INTO inv_invent (codins, codalm, caninv, valinv, ultima_actualizacion)
+          VALUES (@codins, @codalm, @cantidad, @cantidad * @costo, GETDATE())
+        `);
+      }
+      console.log(`✅ Stock actualizado para producto ${codins} en bodega ${codalm}`);
+
+      // 4. Insertar en inv_kardex (Registro de Movimiento)
+      // Ajuste de columnas según inspección:
+      // id, codalm, codins, feckar, tipkar, dockar, cankar, coskar, venkar, codter, codusu, numrem, FECREM, numcom, observa, fecsys
+      const reqKardex = new sql.Request(tx);
+      reqKardex.input('codalm', sql.Char(3), codalm);
+      reqKardex.input('codins', sql.Char(8), codins);
+      reqKardex.input('tipkar', sql.Char(1), 'E'); // 'E' para Entrada
+      reqKardex.input('dockar', sql.VarChar(50), documentoRef || 'AJUSTE');
+      reqKardex.input('cankar', sql.Decimal(18, 2), cantidadNum);
+      reqKardex.input('coskar', sql.Decimal(18, 2), costoNum);
+      reqKardex.input('venkar', sql.Decimal(18, 2), 0); // Precio de venta 0 para entrada de almacén
+      reqKardex.input('observa', sql.VarChar(255), motivo || 'Entrada manual de inventario');
+      reqKardex.input('codusu', sql.Char(10), codusu.substring(0, 10)); // Usuario
+
+      await reqKardex.query(`
+        INSERT INTO inv_kardex (
+          codalm, codins, feckar, tipkar, 
+          dockar, cankar, coskar, venkar, 
+          codter, codusu, observa, fecsys
+        ) VALUES (
+          @codalm, @codins, GETDATE(), @tipkar, 
+          @dockar, @cankar, @coskar, @venkar, 
+          '', @codusu, @observa, GETDATE()
+        )
+      `);
+      console.log(`✅ Movimiento registrado en Kardex`);
+
+      await tx.commit();
+      res.json({ success: true, message: 'Entrada de inventario registrada correctamente' });
+
+    } catch (innerError) {
+      await tx.rollback();
+      throw innerError;
+    }
+
+  } catch (error) {
+    console.error('❌ Error en entrada de inventario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error registrando entrada de inventario: ' + error.message
     });
   }
 });

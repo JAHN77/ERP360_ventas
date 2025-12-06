@@ -215,22 +215,7 @@ const ProductosPage: React.FC = () => {
     // TODO: Implementar ordenamiento en el servidor si es necesario
   };
 
-  const additionalFilters = (
-    <div className="flex flex-col sm:flex-row gap-4">
-      <div>
-        <label htmlFor="categoryFilter" className="sr-only">Categoría</label>
-        <select
-          id="categoryFilter"
-          value={categoryFilter}
-          onChange={(e) => handleCategoryFilterChange(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="Todos">Todas las Categorías</option>
-          {categorias.filter(c => c.estado === 1).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-        </select>
-      </div>
-    </div>
-  );
+  const additionalFilters = null;
 
   return (
     <div className="space-y-8 animate-fade-in">
