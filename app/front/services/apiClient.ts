@@ -182,13 +182,16 @@ class ApiClient {
     return this.request('/devoluciones/clientes-con-facturas-aceptadas');
   }
 
-  async getProductos(codalm?: string, page?: number, pageSize?: number, search?: string) {
+  async getProductos(codalm?: string, page?: number, pageSize?: number, search?: string, sortColumn?: string, sortDirection?: 'asc' | 'desc') {
     const queryParams = new URLSearchParams();
     if (codalm) queryParams.append('codalm', codalm);
     queryParams.append('page', String(page || 1));
     // Aumentar límite por defecto para cargar más productos
     queryParams.append('pageSize', String(pageSize || 5000));
     if (search) queryParams.append('search', search);
+    if (sortColumn) queryParams.append('sortColumn', sortColumn);
+    if (sortDirection) queryParams.append('sortDirection', sortDirection);
+
     const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.request(`/productos${params}`);
   }
@@ -335,6 +338,26 @@ class ApiClient {
     return this.request(`/buscar/productos?${params.toString()}`);
   }
 
+  async getProductStock(id: number | string) {
+    return this.request<{ codalm: string; nombreBodega: string; cantidad: number }[]>(`/productos/${id}/stock`);
+  }
+
+  async getStock(productoId: number | string, codalm: string) {
+    const queryParams = new URLSearchParams({ codalm });
+    return this.request<{ stock: number; codalm: string; productoId: string }>(`/inventario/stock/${productoId}?${queryParams.toString()}`);
+  }
+
+  async getInventoryMovements(page: number = 1, pageSize: number = 20, search: string = '', sortBy: string = 'fecha', sortOrder: 'asc' | 'desc' = 'desc') {
+    const queryParams = new URLSearchParams({
+      page: page.toString(),
+      pageSize: pageSize.toString(),
+      search,
+      sortBy,
+      sortOrder
+    });
+    return this.request<any>(`/inventario/movimientos?${queryParams.toString()}`);
+  }
+
   // --- Crear documentos ---
   async createCotizacion(payload: any) {
     return this.request('/cotizaciones', {
@@ -414,6 +437,13 @@ class ApiClient {
     });
   }
 
+  async updateCliente(id: string | number, payload: any) {
+    return this.request(`/clientes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async getClienteById(id: string | number) {
     return this.request(`/clientes/${id}`);
   }
@@ -431,7 +461,7 @@ export const apiClient = new ApiClient();
 
 // Funciones de conveniencia para usar en el DataContext
 export const fetchClientes = (page?: number, pageSize?: number, hasEmail?: boolean) => apiClient.getClientes(page, pageSize, hasEmail);
-export const fetchProductos = (codalm?: string) => apiClient.getProductos(codalm);
+export const fetchProductos = (codalm?: string, page?: number, pageSize?: number, search?: string) => apiClient.getProductos(codalm, page, pageSize, search);
 export const fetchFacturas = () => apiClient.getFacturas();
 export const fetchFacturasDetalle = (facturaId?: string | number) => apiClient.getFacturasDetalle(facturaId);
 export const fetchCotizaciones = () => apiClient.getCotizaciones();
@@ -465,10 +495,14 @@ export const apiUpdateRemision = (id: string | number, payload: any) => apiClien
 export const apiCreateFactura = (payload: any) => apiClient.createFactura(payload);
 export const apiUpdateFactura = (id: string | number, payload: any) => apiClient.updateFactura(id, payload);
 export const apiCreateCliente = (payload: any) => apiClient.createCliente(payload);
+export const apiUpdateCliente = (id: string | number, payload: any) => apiClient.updateCliente(id, payload);
+
 export const apiSetClienteListaPrecios = (id: number | string, listaPrecioId: number | string) => apiClient.setClienteListaPrecios(id, listaPrecioId);
 export const apiGetClienteById = (id: number | string) => apiClient.getClienteById(id);
 export const apiCreateNotaCredito = (payload: any) => apiClient.createNotaCredito(payload);
 export const apiUpdateNotaCredito = (id: number | string, payload: any) => apiClient.updateNotaCredito(id, payload);
 export const apiGetClientesConFacturasAceptadas = () => apiClient.getClientesConFacturasAceptadas();
+export const fetchStock = (productoId: number | string, codalm: string) => apiClient.getStock(productoId, codalm);
+export const fetchInventoryMovements = (page?: number, pageSize?: number, search?: string, sortBy?: string, sortOrder?: 'asc' | 'desc') => apiClient.getInventoryMovements(page, pageSize, search, sortBy, sortOrder);
 
 export default apiClient;

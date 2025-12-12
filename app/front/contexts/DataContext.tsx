@@ -1,5 +1,6 @@
 import React, { createContext, useState, ReactNode, useMemo, useCallback, useEffect, useRef } from 'react';
 import { initialActivityLog } from '../data/activityLog';
+import { tiposDocumento as mockTiposDocumento, tiposPersona as mockTiposPersona } from '../data/mockData';
 import {
     Cliente, InvProducto, Factura, Pedido, Cotizacion, Remision, NotaCredito, Vendedor, DocumentItem,
     Departamento, Ciudad, TipoDocumento, TipoPersona, RegimenFiscal, Usuario, Producto, Medida,
@@ -270,8 +271,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // Load mock data for other catalogs (temporary)
                 setDepartamentos([]);
                 // setCiudades([]); // Replaced by actual fetching below
-                setTiposDocumento([]);
-                setTiposPersona([]);
+                setTiposDocumento(mockTiposDocumento);
+                setTiposPersona(mockTiposPersona);
 
                 // Cargar ciudades
                 let ciudadesResp;
@@ -289,8 +290,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 } else {
                     setCiudades([]);
                 }
-                setTiposDocumento([]);
-                setTiposPersona([]);
+                setTiposDocumento(mockTiposDocumento);
+                setTiposPersona(mockTiposPersona);
                 setRegimenesFiscal([]);
 
                 // Vendedores desde la BD (con manejo de errores individual)
@@ -353,7 +354,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // Load essential data first (clientes and productos)
                 const [clientesResponse, productosResponse] = await Promise.all([
                     fetchClientes(1, 5000),
-                    fetchProductos(codalm)
+                    fetchProductos(codalm, 1, 6100)
                 ]);
 
 
@@ -393,6 +394,12 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     } as InvProducto;
                 });
                 productosConMedida.sort((a: InvProducto, b: InvProducto) => (a.nombre || '').trim().localeCompare((b.nombre || '').trim()));
+
+                // DEPURACIÓN: Verificar si el producto problemático llegó
+                const debugProd = productosConMedida.find((p: any) => String(p.id) === '1948' || String(p.codigo) === '02660001');
+                console.log('🔍 [DataContext] Debug Producto 1948/02660001:', debugProd || 'NO ENCONTRADO');
+                console.log('🔍 [DataContext] Total productos cargados:', productosConMedida.length);
+
                 setProductos(productosConMedida);
 
                 // Process clientes
@@ -1718,15 +1725,24 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     }, [refreshData]);
 
     const actualizarCliente = useCallback(async (id: string, data: Partial<Cliente>) => {
-        logger.warn({ prefix: 'actualizarCliente' }, 'No implementado aún en backend');
-        await refreshData();
-        const found = clientes.find(c => c.id === id) || null;
-        return found;
-    }, [refreshData, clientes]);
+        try {
+            const { apiUpdateCliente } = await import('../services/apiClient');
+            const resp = await apiUpdateCliente(id, data);
+
+            if (resp.success && resp.data) {
+                await refreshData();
+                return resp.data as Cliente;
+            }
+            throw new Error(resp.message || 'Error al actualizar cliente');
+        } catch (e) {
+            logger.error({ prefix: 'actualizarCliente' }, 'Error al actualizar cliente:', e);
+            throw e;
+        }
+    }, [refreshData]);
 
     const datosEmpresa = useMemo(() => ({
         id: 1,
-        nombre: 'Innovatech Colombia SAS',
+        nombre: 'MULTIACABADOS',
         nit: '900.123.456-7',
         direccion: 'Avenida Siempre Viva 123',
         ciudad: 'Bogotá D.C.',
@@ -2221,6 +2237,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     const aprobarCotizacion = useCallback(async (idOrCotizacion: string | Cotizacion, itemIds?: number[]): Promise<{ cotizacion: Cotizacion, pedido: Pedido } | Cotizacion | undefined> => {
         try {
+            // Importar directamente el cliente API para acceder a la respuesta completa (incluyendo pedido creado automáticamente)
+            // No usamos actualizarCotizacion porque su firma no retorna el pedido, aunque el backend sí lo envía
+            const { apiUpdateCotizacion } = await import('../services/apiClient');
+
             // Obtener la cotización
             const cotizacion = typeof idOrCotizacion === 'string'
                 ? cotizaciones.find(c => c.id === idOrCotizacion)
@@ -2237,273 +2257,46 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 throw new Error('La cotización no tiene items para aprobar');
             }
 
-            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Aprobando cotización:', {
+            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Aprobando cotización y esperando creación automática de pedido por backend:', {
                 id: cotizacion.id,
-                numero: cotizacion.numeroCotizacion,
-                itemsCount: cotizacion.items?.length || 0,
-                itemIds: itemIds?.length || 0,
-                itemIdsArray: itemIds
+                numero: cotizacion.numeroCotizacion
             });
 
-            // Guardar los items originales antes de actualizar el estado
-            const itemsOriginales = cotizacion.items || [];
-            logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Items originales guardados:', {
-                count: itemsOriginales.length,
-                productoIds: itemsOriginales.map(i => i.productoId)
-            });
+            // Preparar payload para actualización
+            const payload = { estado: 'APROBADA' };
 
-            // Primero actualizar el estado de la cotización a APROBADA en el backend
-            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Actualizando estado de cotización a APROBADA...');
-            const cotizacionActualizada = await actualizarCotizacion(cotizacion.id, { estado: 'APROBADA' }, cotizacion);
-            if (!cotizacionActualizada) {
-                logger.error({ prefix: 'aprobarCotizacion' }, 'No se pudo actualizar el estado de la cotización');
-                throw new Error('No se pudo actualizar el estado de la cotización');
+            // Asegurar que el ID sea convertido a número si es necesario para el backend
+            const idParaBackend = typeof cotizacion.id === 'number' ? cotizacion.id : (isNaN(Number(cotizacion.id)) ? cotizacion.id : Number(cotizacion.id));
+
+            // Llamar al backend para actualizar estado (esto disparará la creación automática del pedido en el backend)
+            const resp = await apiUpdateCotizacion(idParaBackend, payload);
+
+            if (!resp.success || !resp.data) {
+                const errorMsg = resp.message || 'No se pudo actualizar el estado de la cotización';
+                logger.error({ prefix: 'aprobarCotizacion' }, 'Error del backend:', errorMsg);
+                throw new Error(errorMsg);
             }
-            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Cotización actualizada exitosamente');
 
-            // Actualizar el estado local, asegurando que se mantengan los items originales
+            // Procesar respuesta exitosa
+            // El backend devuelve { data: Cotizacion, pedido: Pedido }
+            const cotizacionActualizadaData = resp.data as any; // Cast flexible por si acaso
+            const pedidoCreadoBackend = (resp as any).pedido as Pedido | undefined;
+
+            // Construir objeto cotización actualizado para estado local
             const cotizacionAprobada: Cotizacion = {
-                ...cotizacionActualizada,
+                ...cotizacion,
+                ...cotizacionActualizadaData,
                 estado: 'APROBADA',
-                items: cotizacionActualizada.items && cotizacionActualizada.items.length > 0
-                    ? cotizacionActualizada.items
-                    : itemsOriginales
+                // Mantener items vigentes si el backend no los devuelve completos
+                items: (cotizacionActualizadaData.items && cotizacionActualizadaData.items.length > 0)
+                    ? cotizacionActualizadaData.items
+                    : (cotizacion.items || [])
             };
-            logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Cotización aprobada preparada:', {
-                id: cotizacionAprobada.id,
-                numero: cotizacionAprobada.numeroCotizacion,
-                itemsCount: cotizacionAprobada.items?.length || 0
-            });
-            setCotizaciones(prev => prev.map(c => (c.id === cotizacion.id ? cotizacionAprobada : c)));
 
-            // Si se proporcionan itemIds, crear un pedido con esos items
-            // IMPORTANTE: Si se proporcionan itemIds, SIEMPRE debemos crear el pedido
-            if (itemIds && itemIds.length > 0) {
-                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, '🚀 INICIANDO CREACIÓN DE PEDIDO...', {
-                    itemIdsCount: itemIds.length,
-                    itemIds: itemIds,
-                    cotizacionId: cotizacion.id,
-                    numeroCotizacion: cotizacion.numeroCotizacion
-                });
-
-                // Usar los items de la cotización aprobada (que incluyen los originales si es necesario)
-                const itemsDisponibles = cotizacionAprobada.items || itemsOriginales;
-                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Items disponibles para pedido:', {
-                    count: itemsDisponibles.length,
-                    productoIds: itemsDisponibles.map(i => i.productoId)
-                });
-
-                const itemsParaPedido = itemsDisponibles.filter(item => itemIds.includes(item.productoId));
-                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Items filtrados para pedido:', {
-                    count: itemsParaPedido.length,
-                    productoIds: itemsParaPedido.map(i => i.productoId)
-                });
-
-                if (itemsParaPedido.length === 0) {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'No se encontraron items para crear el pedido', {
-                        itemsDisponibles: itemsDisponibles.length,
-                        itemIdsBuscados: itemIds,
-                        itemsDisponiblesIds: itemsDisponibles.map(i => i.productoId)
-                    });
-                    throw new Error('No se encontraron items para crear el pedido. Verifique que los items de la cotización estén correctamente cargados.');
-                }
-
-                // Obtener el codter del cliente desde la lista de clientes
-                // Buscar por ID numérico o por codter/numeroDocumento
-                const cliente = clientes.find(c =>
-                    String(c.id) === String(cotizacion.clienteId) ||
-                    c.numeroDocumento === cotizacion.clienteId ||
-                    (c as any).codter === cotizacion.clienteId
-                );
-                const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || cotizacion.clienteId;
-
-                // El vendedorId de la cotización ya debería ser el codi_emple, pero verificamos
-                const vendedorCodiEmple = cotizacion.vendedorId || '';
-
-                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Mapeando datos:', {
-                    clienteIdOriginal: cotizacion.clienteId,
-                    clienteCodter: clienteCodter,
-                    clienteEncontrado: cliente ? { id: cliente.id, nombre: cliente.nombreCompleto || cliente.razonSocial } : null,
-                    vendedorIdOriginal: cotizacion.vendedorId,
-                    vendedorCodiEmple: vendedorCodiEmple,
-                    itemsCount: itemsParaPedido.length
-                });
-
-                // Mapear items asegurando que tengan toda la información necesaria
-                const itemsMapeados = itemsParaPedido.map(item => {
-                    // Buscar el producto en el catálogo para obtener información adicional
-                    const producto = productos.find(p =>
-                        String(p.id) === String(item.productoId) ||
-                        p.id === item.productoId
-                    );
-
-                    return {
-                        ...item,
-                        pedidoId: '',
-                        // Asegurar que la descripción tenga el nombre del producto si está disponible
-                        descripcion: item.descripcion || producto?.nombre || (item as any).nombre || `Producto ${item.productoId}`,
-                        // Asegurar que la unidad de medida esté disponible
-                        unidadMedida: (item as any).unidadMedida || producto?.unidadMedida || 'Unidad'
-                    };
-                });
-
-                // Asegurar que el cotizacionId sea un número si es posible, o el ID como string
-                let cotizacionIdParaPedido: string | number = cotizacion.id;
-                if (typeof cotizacion.id === 'string') {
-                    const idNum = parseInt(cotizacion.id, 10);
-                    if (!isNaN(idNum)) {
-                        cotizacionIdParaPedido = idNum;
-                    }
-                }
-
-                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Preparando pedido con cotizacionId:', {
-                    cotizacionIdOriginal: cotizacion.id,
-                    cotizacionIdParaPedido: cotizacionIdParaPedido,
-                    tipo: typeof cotizacionIdParaPedido
-                });
-
-                // Obtener el código de almacén correcto
-                // Prioridad: 1) selectedSede, 2) codalm de la cotización, 3) empresaId de la cotización
-                let empresaIdParaPedido: string | number;
-                if (selectedSede?.codigo) {
-                    empresaIdParaPedido = String(selectedSede.codigo).padStart(3, '0');
-                    logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Usando almacén de selectedSede:', {
-                        codigo: empresaIdParaPedido,
-                        nombre: selectedSede.nombre
-                    });
-                } else if ((cotizacion as any).codalm) {
-                    empresaIdParaPedido = String((cotizacion as any).codalm).padStart(3, '0');
-                    logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Usando codalm de la cotización:', empresaIdParaPedido);
-                } else if (cotizacion.empresaId) {
-                    empresaIdParaPedido = typeof cotizacion.empresaId === 'string'
-                        ? String(cotizacion.empresaId).padStart(3, '0')
-                        : String(cotizacion.empresaId).padStart(3, '0');
-                    logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Usando empresaId de la cotización:', empresaIdParaPedido);
-                } else {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'No se pudo determinar el almacén para el pedido');
-                    throw new Error('No se pudo determinar el almacén para crear el pedido. Por favor, seleccione una bodega en el header.');
-                }
-
-                // Obtener forma de pago de la cotización, normalizando valores antiguos
-                let formaPagoPedido = cotizacion.formaPago || '1';
-                formaPagoPedido = formaPagoPedido === '01' ? '1' : formaPagoPedido === '02' ? '2' : formaPagoPedido;
-
-                const nuevoPedido: Pedido = {
-                    id: '', // Se asignará cuando se cree
-                    numeroPedido: `PED-${cotizacionAprobada.numeroCotizacion}`,
-                    fechaPedido: new Date().toISOString().split('T')[0],
-                    clienteId: clienteCodter, // Usar codter en lugar de ID numérico
-                    vendedorId: vendedorCodiEmple, // Ya debería ser codi_emple
-                    cotizacionId: String(cotizacionIdParaPedido),
-                    subtotal: itemsParaPedido.reduce((sum, item) => sum + (item.subtotal || 0), 0),
-                    descuentoValor: itemsParaPedido.reduce((sum, item) => {
-                        const itemTotal = (item.precioUnitario || 0) * (item.cantidad || 0);
-                        return sum + (itemTotal * ((item.descuentoPorcentaje || 0) / 100));
-                    }, 0),
-                    ivaValor: itemsParaPedido.reduce((sum, item) => sum + ((item as any).ivaValor || item.valorIva || 0), 0),
-                    total: itemsParaPedido.reduce((sum, item) => sum + (item.total || 0), 0),
-                    estado: 'BORRADOR', // Estado inicial: pedido creado desde cotización aprobada, necesita aprobación
-                    observaciones: `Pedido creado desde cotización ${cotizacion.numeroCotizacion}`,
-                    items: itemsMapeados,
-                    fechaEntregaEstimada: cotizacion.fechaVencimiento,
-                    empresaId: parseInt(empresaIdParaPedido, 10),
-                    formaPago: formaPagoPedido
-                };
-
-                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Llamando a crearPedido con:', {
-                    numeroPedido: nuevoPedido.numeroPedido,
-                    clienteId: nuevoPedido.clienteId,
-                    vendedorId: nuevoPedido.vendedorId,
-                    cotizacionId: nuevoPedido.cotizacionId,
-                    itemsCount: nuevoPedido.items.length,
-                    total: nuevoPedido.total,
-                    empresaId: nuevoPedido.empresaId,
-                    items: nuevoPedido.items.map(i => ({ productoId: i.productoId, cantidad: i.cantidad }))
-                });
-
-                let pedidoCreado: Pedido | null = null;
-                try {
-                    pedidoCreado = await crearPedido(nuevoPedido);
-                    logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'crearPedido retornó:', {
-                        success: !!pedidoCreado,
-                        pedidoId: pedidoCreado?.id,
-                        numeroPedido: pedidoCreado?.numeroPedido,
-                        tieneItems: !!(pedidoCreado?.items && pedidoCreado.items.length > 0)
-                    });
-                } catch (errorCrearPedido) {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'Error al crear pedido:', {
-                        error: errorCrearPedido,
-                        message: errorCrearPedido instanceof Error ? errorCrearPedido.message : 'Error desconocido',
-                        stack: errorCrearPedido instanceof Error ? errorCrearPedido.stack : undefined,
-                        nuevoPedido: {
-                            numeroPedido: nuevoPedido.numeroPedido,
-                            clienteId: nuevoPedido.clienteId,
-                            itemsCount: nuevoPedido.items.length
-                        }
-                    });
-                    // IMPORTANTE: Si falla la creación del pedido, revertir el estado de la cotización
-                    // o al menos lanzar un error claro
-                    throw new Error(`Error al crear el pedido: ${errorCrearPedido instanceof Error ? errorCrearPedido.message : 'Error desconocido'}`);
-                }
-
-                if (!pedidoCreado) {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'crearPedido retornó null o undefined', {
-                        nuevoPedido: {
-                            numeroPedido: nuevoPedido.numeroPedido,
-                            clienteId: nuevoPedido.clienteId,
-                            itemsCount: nuevoPedido.items.length
-                        }
-                    });
-                    throw new Error('No se pudo crear el pedido: crearPedido retornó null o undefined. Verifique los logs del servidor para más detalles.');
-                }
-
-                if (!pedidoCreado.id) {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'Pedido creado pero sin ID', {
-                        pedidoCreado: pedidoCreado
-                    });
-                    throw new Error('El pedido se creó pero no tiene ID. Esto indica un problema en el backend.');
-                }
-
-                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, '✅ Pedido creado exitosamente:', {
-                    id: pedidoCreado.id,
-                    numeroPedido: pedidoCreado.numeroPedido,
-                    itemsCount: pedidoCreado.items?.length || 0
-                });
-
-                if (user?.nombre) {
-                    addActivityLog(
-                        'Aprobación Cotización y Creación Pedido',
-                        `Cotización ${cotizacionAprobada.numeroCotizacion} aprobada y pedido ${pedidoCreado.numeroPedido} creado`,
-                        { type: 'Cotización', id: cotizacionAprobada.id, name: cotizacionAprobada.numeroCotizacion }
-                    );
-                }
-
-                // NO recargar todos los datos automáticamente para evitar bucles
-                // Solo recargar pedidos y cotizaciones específicamente si es necesario
-                // await refreshData(); // Comentado para evitar bucles
-
-                // Validación final antes de retornar
-                if (!pedidoCreado || !pedidoCreado.id) {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'ERROR CRÍTICO: Intentando retornar pedido sin ID');
-                    throw new Error('Error crítico: El pedido no tiene ID válido');
-                }
-
-                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, '✅ Retornando resultado con cotización y pedido:', {
-                    cotizacionId: cotizacionAprobada.id,
-                    pedidoId: pedidoCreado.id,
-                    numeroPedido: pedidoCreado.numeroPedido
-                });
-
-                return { cotizacion: cotizacionAprobada, pedido: pedidoCreado };
-            }
-
-            // Si no se proporcionan itemIds, solo aprobar la cotización
-            // PERO si se llamó desde handleCreateAndApprove, siempre debería haber itemIds
-            logger.log({ prefix: 'aprobarCotizacion', level: 'warn' }, '⚠️ No se proporcionaron itemIds, solo aprobando cotización sin crear pedido', {
-                itemIds: itemIds,
-                itemIdsLength: itemIds?.length || 0,
-                cotizacionId: cotizacion.id
-            });
+            // 1. Actualizar estado de Cotizaciones
+            setCotizaciones(prev => prev.map(c =>
+                String(c.id) === String(cotizacion.id) ? cotizacionAprobada : c
+            ));
 
             if (user?.nombre) {
                 addActivityLog(
@@ -2513,32 +2306,51 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 );
             }
 
-            // Recargar datos para asegurar sincronización
-            await refreshData();
+            // 2. Procesar el pedido creado automáticamente (si existe)
+            if (pedidoCreadoBackend) {
+                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, '✅ Backend retornó pedido creado automáticamente:', {
+                    id: pedidoCreadoBackend.id,
+                    numero: pedidoCreadoBackend.numeroPedido
+                });
 
-            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Retornando solo cotización (sin pedido)');
-            return cotizacionAprobada;
+                // Actualizar estado de Pedidos
+                setPedidos(prev => {
+                    const exists = prev.some(p => String(p.id) === String(pedidoCreadoBackend.id));
+                    if (exists) return prev.map(p => String(p.id) === String(pedidoCreadoBackend.id) ? pedidoCreadoBackend : p);
+                    return [pedidoCreadoBackend, ...prev];
+                });
+
+                if (user?.nombre) {
+                    addActivityLog(
+                        'Creación Pedido Automática',
+                        `Pedido ${pedidoCreadoBackend.numeroPedido} creado automáticamente desde cotización ${cotizacionAprobada.numeroCotizacion}`,
+                        { type: 'Pedido', id: pedidoCreadoBackend.id, name: pedidoCreadoBackend.numeroPedido }
+                    );
+                }
+
+                // Retornar ambos objetos para que el UI pueda mostrar el modal
+                // Recargar datos en background para asegurar sincronización total
+                refreshData().catch(e => console.error('Error refreshing data async:', e));
+
+                return { cotizacion: cotizacionAprobada, pedido: pedidoCreadoBackend };
+            } else {
+                logger.warn({ prefix: 'aprobarCotizacion' }, '⚠️ Backend actualizó cotización pero NO retornó objeto pedido. Es posible que el trigger fallara o la lógica de backend sea diferente.');
+
+                // Recargar datos obligatoriamente para ver si el pedido aparece
+                await refreshData();
+
+                return cotizacionAprobada;
+            }
+
         } catch (e) {
             logger.error({ prefix: 'aprobarCotizacion' }, '❌ ERROR EN aprobarCotizacion:', {
                 error: e,
-                message: e instanceof Error ? e.message : 'Error desconocido',
-                stack: e instanceof Error ? e.stack : undefined,
-                itemIds: itemIds,
-                itemIdsLength: itemIds?.length || 0
+                message: e instanceof Error ? e.message : 'Error desconocido'
             });
-
-            // Si se proporcionaron itemIds pero falló, el error debe ser claro
-            if (itemIds && itemIds.length > 0) {
-                const errorMsg = e instanceof Error ? e.message : 'Error desconocido';
-                throw new Error(`Error al aprobar la cotización y crear el pedido: ${errorMsg}`);
-            }
-
-            if (e instanceof Error) {
-                throw e;
-            }
+            if (e instanceof Error) throw e;
             throw new Error('Error desconocido al aprobar cotización');
         }
-    }, [cotizaciones, clientes, productos, user, addActivityLog, crearPedido, actualizarCotizacion, refreshData]);
+    }, [cotizaciones, clientes, productos, user, addActivityLog, refreshData]);
 
     const aprobarRemision = useCallback(async (id: string | number): Promise<Remision | undefined> => {
         try {
@@ -2692,9 +2504,18 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         String(ip.productoId) === String(item.productoId)
                     );
 
-                    const precioUnitario = itemPedido?.precioUnitario || producto?.ultimoCosto || 0;
+                    // CRÍTICO: Priorizar precio del pedido, pero si es 0, usar precio de lista (NO costo)
+                    // El usuario solicitó precios de base de datos si es necesario
+                    const precioUnitario = (itemPedido?.precioUnitario && itemPedido.precioUnitario > 0)
+                        ? itemPedido.precioUnitario
+                        : (producto?.precio || 0);
+
                     const descuentoPorcentaje = itemPedido?.descuentoPorcentaje || 0;
-                    const ivaPorcentaje = itemPedido?.ivaPorcentaje || producto?.tasaIva || 0;
+
+                    // CRÍTICO: El IVA debe salir SIEMPRE de la base de datos (producto catalogado)
+                    // Ignorar lo que venga en el pedido si difiere, para corregir errores históricos
+                    const ivaPorcentaje = producto?.tasaIva ?? 0;
+
                     const subtotal = precioUnitario * item.cantidad;
                     const descuentoValor = subtotal * (descuentoPorcentaje / 100);
                     const subtotalConDescuento = subtotal - descuentoValor;
@@ -2765,7 +2586,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     total: total,
                     observaciones: logisticData?.observaciones || '',
                     estado: 'BORRADOR',
-                    empresaId: bodegaCodigo, // CRÍTICO: Incluir empresaId (código de bodega)
+                    empresaId: bodegaCodigo, // Se mantiene por compatibilidad
+                    codalm: bodegaCodigo,    // NUEVO: Se envía explícitamente para el backend
                     items: itemsCompletos
                 };
 
@@ -2782,7 +2604,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 payload = {
                     ...data,
                     observaciones: data.observaciones || '',
-                    empresaId: bodegaCodigo
+                    empresaId: bodegaCodigo,
+                    codalm: bodegaCodigo // NUEVO: Se envía explícitamente para el backend
                 };
             }
 
@@ -2809,10 +2632,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // El backend actualiza automáticamente el estado del pedido cuando se crea una remisión
                 await refreshPedidosYRemisiones();
 
-                const responseData = resp.data as { id: string };
+                const responseData = resp.data as { id: string, numeroRemision?: string };
                 const nuevaRemision = {
                     ...payload,
                     id: responseData.id,
+                    numeroRemision: responseData.numeroRemision, // Capturar número generado por backend
                     pedidoId: payload.pedidoId // Asegurar que pedidoId esté presente
                 } as Remision;
 
@@ -2858,7 +2682,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 ...data,
                 observaciones: data.observaciones || '',
                 // Usar código de bodega desde la bodega seleccionada en el header
-                empresaId: bodegaCodigo
+                empresaId: bodegaCodigo,
+                codalm: bodegaCodigo // NUEVO: Se envía explícitamente para el backend
             };
             const resp = await apiCreateFactura(payload);
             if (resp.success && resp.data) {
@@ -3276,6 +3101,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 })(),
                 estado: 'BORRADOR',
                 empresaId: bodegaCodigo,
+                codalm: bodegaCodigo, // NUEVO: Se envía explícitamente para el backend
                 items: itemsConsolidados.map(item => {
                     // Asegurar que productoId sea válido (número mayor que 0)
                     const productoId = typeof item.productoId === 'number' ? item.productoId : parseInt(String(item.productoId || 0), 10);

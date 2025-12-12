@@ -10,6 +10,7 @@ import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { apiClient } from '../services/apiClient';
 import { useColumnManager } from '../hooks/useColumnManager';
 import ColumnManagerModal from '../components/ui/ColumnManagerModal';
+import ProductDetails from '../components/productos/ProductDetails';
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -46,7 +47,14 @@ const ProductosPage: React.FC = () => {
     const loadProductos = async () => {
       setIsLoading(true);
       try {
-        const prodRes = await apiClient.getProductos(undefined, currentPage, pageSize, searchTerm || undefined);
+        const prodRes = await apiClient.getProductos(
+          undefined,
+          currentPage,
+          pageSize,
+          searchTerm || undefined,
+          sortConfig?.key as string,
+          sortConfig?.direction
+        );
         if (prodRes.success) {
           let productosData = (prodRes.data as any[]) as InvProducto[];
 
@@ -78,7 +86,7 @@ const ProductosPage: React.FC = () => {
     }, searchTerm ? 500 : 0); // Si hay búsqueda, esperar; si no, cargar inmediatamente
 
     return () => clearTimeout(timeoutId);
-  }, [currentPage, pageSize, searchTerm, categoryFilter]);
+  }, [currentPage, pageSize, searchTerm, categoryFilter, sortConfig]);
 
   const handleOpenModal = (producto: InvProducto) => {
     setSelectedProducto(producto);
@@ -297,21 +305,7 @@ const ProductosPage: React.FC = () => {
           title={`Detalle del Producto: ${selectedProducto.nombre}`}
           size="xl"
         >
-          <div className="space-y-4 text-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-              <div className="sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Nombre:</p><p>{selectedProducto.nombre}</p></div>
-              <div className="sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Descripción:</p><p>{(selectedProducto as any).descripcion || selectedProducto.nombre}</p></div>
-              <div><p className="font-semibold text-slate-600 dark:text-slate-400">Unidad de Medida:</p><p>{(selectedProducto as any).unidadMedidaNombre || (selectedProducto as any).unidadMedida || 'Unidad'}</p></div>
-              <div><p className="font-semibold text-slate-600 dark:text-slate-400">Stock Actual:</p><p>{(selectedProducto as any).stock ?? 0}</p></div>
-              <div><p className="font-semibold text-slate-600 dark:text-slate-400">Impuestos:</p><p>{((selectedProducto as any).tasaIva ?? 0) > 0 ? `Aplica IVA (${(selectedProducto as any).tasaIva}%)` : 'No aplica IVA'}</p></div>
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Precio (Inc. IVA):</p>
-                <p className="font-bold text-blue-600 dark:text-blue-400">
-                  {formatCurrency(((selectedProducto as any).ultimoCosto || 0) * (1 + (((selectedProducto as any).tasaIva || 0) / 100)))}
-                </p>
-              </div>
-            </div>
-          </div>
+          <ProductDetails producto={selectedProducto} />
         </Modal>
       )}
     </div>

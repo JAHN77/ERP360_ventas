@@ -133,7 +133,37 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 setVendedorSearch(initialData.vendedorId || '');
             }
 
-            setItems(initialData.items);
+            // Sanitize and recalculate items based on catalog data
+            const sanitizedItems = (initialData.items || []).map(item => {
+                const product = productos.find(p => p.id === item.productoId);
+                if (product) {
+                    // Recalculate with canonical tax rate
+                    const tieneIva = (product as any).aplicaIva !== undefined ? (product as any).aplicaIva : ((product.tasaIva || 0) > 0);
+                    const ivaPorcentaje = tieneIva ? (product.tasaIva || 19) : 0;
+
+                    // Use existing quantity/discount
+                    const quantity = item.cantidad || 0;
+                    const discount = item.descuentoPorcentaje || 0;
+                    const price = item.precioUnitario || 0; // Keep original price, or could update to current? Keep original for quotes usually.
+
+                    const roundTo2 = (val: number) => Math.round(val * 100) / 100;
+                    const subtotalBruto = price * quantity;
+                    const descuentoValor = roundTo2(subtotalBruto * (discount / 100));
+                    const subtotal = roundTo2(subtotalBruto - descuentoValor);
+                    const valorIva = roundTo2(subtotal * (ivaPorcentaje / 100));
+                    const total = roundTo2(subtotal + valorIva);
+
+                    return {
+                        ...item,
+                        ivaPorcentaje,
+                        valorIva,
+                        subtotal,
+                        total
+                    };
+                }
+                return item;
+            });
+            setItems(sanitizedItems);
             setObservacionesInternas(initialData.observacionesInternas || '');
             // Convertir valores antiguos '01'/'02' a nuevos '1'/'2' si es necesario
             const formaPagoValue = initialData.formaPago || '1';
@@ -307,16 +337,17 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         try {
             const resp = await apiGetClienteById(c.id);
             if (resp.success && resp.data) {
-                setSelectedCliente({ ...c, ...(resp.data as any) });
-                // Lista de precios comentado temporalmente
-                // setListaPrecioTemp(String((resp.data as any).listaPrecioId ?? ''));
+                const clienteData = { ...c, ...(resp.data as any) };
+                setSelectedCliente(clienteData);
+
+                // Auto-selección removida a petición del usuario (quiere selección manual obligatoria)
+                // if (codVendedorCliente) { ... }
             } else {
                 setSelectedCliente(c);
-                // setListaPrecioTemp('');
             }
-        } catch {
+        } catch (err) {
+            console.error('Error al obtener detalles del cliente:', err);
             setSelectedCliente(c);
-            // setListaPrecioTemp('');
         }
     };
 
@@ -335,8 +366,9 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     //     }
     // };
     const pickVendedor = (v: Vendedor) => {
-        // Usar el ID o codiEmple como vendedorId
-        const vendedorIdToUse = v.id || v.codiEmple || '';
+        // Usar código de vendedor (codven) preferiblemente para evitar problemas de ID vs Código
+        // El backend espera el código '015' para hacer el join, no el ID '15'
+        const vendedorIdToUse = v.codigoVendedor || v.id || v.codiEmple || '';
         setVendedorId(vendedorIdToUse);
         setSelectedVendedor(v);
         // Establecer el nombre completo en el campo de búsqueda
@@ -523,16 +555,24 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
 
                     const newItem = { ...item, [field]: processedValue };
 
+                    // Recalculate with robust tax rate logic
+                    const product = productos.find(p => p.id === productId);
+                    const ivaPorcentaje = product ? ((product.tasaIva || 0) > 0 ? (product.tasaIva || 19) : 0) : newItem.ivaPorcentaje;
+
+                    // Asegurar que si tenemos el producto, usamos su tasa, si no, mantenemos la que tiene el item
+                    const finalIvaPorcentaje = (product && (product as any).tasaIva !== undefined) ? product.tasaIva : ivaPorcentaje;
+
                     // Recalcular totales
                     const roundTo2 = (val: number) => Math.round(val * 100) / 100;
                     const subtotalBruto = newItem.precioUnitario * newItem.cantidad;
-                    const descuentoValor = roundTo2(subtotalBruto * (newItem.descuentoPorcentaje / 100));
+                    const descuentoValor = roundTo2(subtotalBruto * ({ ...newItem, ivaPorcentaje: finalIvaPorcentaje }.descuentoPorcentaje / 100));
                     const subtotal = roundTo2(subtotalBruto - descuentoValor);
-                    const valorIva = roundTo2(subtotal * (newItem.ivaPorcentaje / 100));
+                    const valorIva = roundTo2(subtotal * (finalIvaPorcentaje / 100));
                     const total = roundTo2(subtotal + valorIva);
 
                     return {
                         ...newItem,
+                        ivaPorcentaje: finalIvaPorcentaje,
                         subtotal: roundTo2(subtotal),
                         valorIva: roundTo2(valorIva),
                         total: roundTo2(total)
@@ -544,16 +584,31 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     }
 
     const totals = useMemo(() => {
-        const subtotalBruto = items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
-        const descuentoTotal = items.reduce((acc, item) => {
+        // Calculate totals using catalog tax rates for accuracy
+        let subtotalBruto = 0;
+        let descuentoTotal = 0;
+        let subtotalNeto = 0;
+        let ivaValor = 0;
+
+        items.forEach(item => {
+            const product = productos.find(p => p.id === item.productoId);
+            // Default to item's rate if product not found, but prefer product catalog rate
+            const tasaIva = product ? ((product.tasaIva || 0) > 0 ? (product.tasaIva || 19) : 0) : (item.ivaPorcentaje || 0);
+
             const itemTotalBruto = item.precioUnitario * item.cantidad;
-            return acc + (itemTotalBruto * (item.descuentoPorcentaje / 100));
-        }, 0);
-        const subtotalNeto = subtotalBruto - descuentoTotal;
-        const ivaValor = items.reduce((acc, item) => acc + item.valorIva, 0);
+            const itemDescuento = itemTotalBruto * ((item.descuentoPorcentaje || 0) / 100);
+            const itemSubtotal = itemTotalBruto - itemDescuento;
+            const itemIva = itemSubtotal * (tasaIva / 100);
+
+            subtotalBruto += itemTotalBruto;
+            descuentoTotal += itemDescuento;
+            subtotalNeto += itemSubtotal;
+            ivaValor += itemIva;
+        });
+
         const total = subtotalNeto + ivaValor;
         return { subtotalBruto, descuentoTotal, subtotalNeto, ivaValor, total };
-    }, [items]);
+    }, [items, productos]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -572,13 +627,13 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             subtotal: totals.subtotalNeto,
             ivaValor: totals.ivaValor,
             total: totals.total,
-            observacionesInternas,
+            observacionesInternas: observacionesInternas.trim(),
             cliente: selectedCliente,
             vendedor: selectedVendedor,
             formaPago,
             valorAnticipo: Number(valorAnticipo) || 0,
-            numOrdenCompra: numOrdenCompra.trim() || undefined,
-            notaPago: notaPago.trim() || undefined,
+            numOrdenCompra: (numOrdenCompra || '').trim() || undefined,
+            notaPago: (notaPago || '').trim() || undefined,
         } as any);
     }
 
@@ -636,8 +691,14 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         }}
                         onFocus={() => { if (clienteSearch.trim().length >= 2) setIsClienteOpen(true); }}
                         onBlur={() => {
+                            // Sanitizar entrada
+                            const trimmed = clienteSearch.trim();
+                            if (clienteSearch !== trimmed) {
+                                setClienteSearch(trimmed);
+                            }
+
                             // Solo buscar coincidencia si hay texto en el campo y no hay cliente seleccionado
-                            if (clienteSearch.trim().length >= 2 && !selectedCliente) {
+                            if (trimmed.length >= 2 && !selectedCliente) {
                                 const list = clienteResults.length > 0 ? clienteResults : clientes;
                                 const exactMatch = list.find(c => {
                                     // Validar que el cliente tenga un ID válido
@@ -738,6 +799,12 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         }}
                         onFocus={() => { if (vendedorSearch.trim().length >= 2) setIsVendedorOpen(true); }}
                         onBlur={() => {
+                            // Sanitizar entrada
+                            const trimmed = vendedorSearch.trim();
+                            if (vendedorSearch !== trimmed) {
+                                setVendedorSearch(trimmed);
+                            }
+
                             // Auto-seleccionar si hay coincidencia exacta
                             const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
                             const exactMatch = list.find(v => {
@@ -786,7 +853,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                         </div>
                                     );
                                 }
-                                return filtered.slice(0, 20).map(v => {
+                                return filtered.slice(0, 500).map(v => {
                                     const nombreCompleto = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).trim() || 'Sin nombre';
                                     const codigoDisplay = (v as any).codigo || v.codigoVendedor || '';
                                     return (
@@ -969,6 +1036,12 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                             placeholder="Buscar por nombre..."
                             className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                             autoComplete="off"
+                            onBlur={() => {
+                                const trimmed = productSearchTerm.trim();
+                                if (productSearchTerm !== trimmed) {
+                                    setProductSearchTerm(trimmed);
+                                }
+                            }}
                         />
                         {isProductDropdownOpen && productSearchTerm.trim().length >= 2 && (
                             <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">

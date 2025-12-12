@@ -1,8 +1,9 @@
 
 export const isEmail = (email: string): boolean => {
   if (!email) return false;
-  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return re.test(String(email).toLowerCase());
+  // Regex más robusto para emails
+  const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  return re.test(String(email).trim().toLowerCase());
 };
 
 export const isNotEmpty = (value: string | null | undefined): boolean => {
@@ -27,7 +28,7 @@ export const isInteger = (value: any): boolean => {
 };
 
 export const isPositiveInteger = (value: any): boolean => {
-    return isInteger(value) && Number(value) > 0;
+  return isInteger(value) && Number(value) > 0;
 }
 
 export const isNonNegativeInteger = (value: any): boolean => {
@@ -35,9 +36,9 @@ export const isNonNegativeInteger = (value: any): boolean => {
 };
 
 export const hasMinLength = (value: string, min: number): boolean => {
-    return String(value).length >= min;
+  return String(value).length >= min;
 }
 
 export const isWithinRange = (value: number, min: number, max: number): boolean => {
-    return isNumber(value) && value >= min && value <= max;
+  return isNumber(value) && value >= min && value <= max;
 }

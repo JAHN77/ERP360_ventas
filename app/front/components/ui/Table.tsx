@@ -84,7 +84,7 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
                         <th
                           key={`header-${colIndex}-${String(col.accessor)}`}
                           scope="col"
-                          className={`px-3 xs:px-4 sm:px-6 py-2.5 sm:py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider select-none hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors whitespace-normal ${col.header === '✓' ? '' : 'cursor-pointer'
+                          className={`px-2 py-2 sm:py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider select-none hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors whitespace-normal ${col.header === '✓' ? '' : 'cursor-pointer'
                             }`}
                           onClick={col.header === '✓' ? undefined : () => onSort(col.accessor)}
                         >
@@ -102,7 +102,7 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
                       return (
                         <tr key={item.id} className={`hover:bg-slate-50 dark:hover:bg-slate-900/20 transition-colors ${isHighlighted ? resolvedHighlightClass : ''}`}>
                           {columns.map((col, colIndex) => (
-                            <td key={`cell-${item.id}-${colIndex}-${String(col.accessor)}`} className="px-3 xs:px-4 sm:px-6 py-3 sm:py-4 whitespace-normal break-words text-sm text-slate-700 dark:text-slate-300">
+                            <td key={`cell-${item.id}-${colIndex}-${String(col.accessor)}`} className="px-2 py-2 sm:py-3 whitespace-normal break-words text-sm text-slate-700 dark:text-slate-300 max-w-[200px]">
                               {col.cell ? col.cell(item) : (item[col.accessor] as React.ReactNode)}
                             </td>
                           ))}

@@ -32,9 +32,10 @@ const getPedidoProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'inco
 }
 
 const getRemisionProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'incomplete' => {
-  if (!pedido || pedido.estado === 'CANCELADO' || pedido.estado === 'REMITIDO') return 'incomplete';
+  if (!pedido || pedido.estado === 'CANCELADO') return 'incomplete';
+  if (pedido.estado === 'REMITIDO' || pedido.estado === 'ENTREGADO') return 'complete';
   if (pedido.estado === 'EN_PROCESO' || pedido.estado === 'PARCIALMENTE_REMITIDO') return 'current';
-  return 'complete';
+  return 'incomplete';
 }
 
 const filterOptions = [
@@ -186,27 +187,47 @@ const PedidosPage: React.FC = () => {
     if (!selectedPedido) {
       return { subtotalBruto: 0, descuentoTotal: 0, subtotalNeto: 0, iva: 0, total: 0 };
     }
-    const subtotalBruto = selectedPedido.items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
-    const descuentoTotal = selectedPedido.items.reduce((acc, item) => {
-      const itemTotalBruto = item.precioUnitario * item.cantidad;
-      return acc + (itemTotalBruto * ((item.descuentoPorcentaje || 0) / 100));
-    }, 0);
-    const subtotalNeto = subtotalBruto - descuentoTotal;
-    // Usar valorIva directamente del backend (ya calculado), NO recalcular
-    const iva = selectedPedido.items.reduce((acc, item) => {
-      // Prioridad 1: usar valorIva del backend (ya calculado desde BD)
-      if (item.valorIva !== undefined && item.valorIva !== null) {
-        return acc + item.valorIva;
-      }
-      // Fallback: si no viene valorIva, calcular desde subtotal
-      const itemSubtotal = item.subtotal ?? ((item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100));
-      const itemIva = itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
-      return acc + itemIva;
-    }, 0);
-    const total = subtotalNeto + iva;
 
-    return { subtotalBruto, descuentoTotal, subtotalNeto, iva, total };
-  }, [selectedPedido]);
+    let calculatedSubtotalBruto = 0;
+    let calculatedDescuentoTotal = 0;
+    let calculatedIvaTotal = 0;
+
+    selectedPedido.items.forEach(item => {
+      // Find product to get true tax rate
+      const product = productos.find(p =>
+        String(p.id) === String(item.productoId) || p.id === item.productoId
+      );
+
+      // Use product tax rate if available, else item tax rate (fallback)
+      const taxRate = (product && product.tasaIva !== undefined && product.tasaIva !== null)
+        ? Number(product.tasaIva)
+        : Number(item.ivaPorcentaje || 0);
+
+      const qty = Number(item.cantidad || 0);
+      const price = Number(item.precioUnitario || 0);
+      const discountPct = Number(item.descuentoPorcentaje || 0);
+
+      const itemSubtotalBruto = price * qty;
+      const itemDiscount = itemSubtotalBruto * (discountPct / 100);
+      const itemSubtotalNeto = itemSubtotalBruto - itemDiscount;
+      const itemIva = itemSubtotalNeto * (taxRate / 100);
+
+      calculatedSubtotalBruto += itemSubtotalBruto;
+      calculatedDescuentoTotal += itemDiscount;
+      calculatedIvaTotal += itemIva;
+    });
+
+    const calculatedSubtotalNeto = calculatedSubtotalBruto - calculatedDescuentoTotal;
+    const calculatedTotal = calculatedSubtotalNeto + calculatedIvaTotal;
+
+    return {
+      subtotalBruto: calculatedSubtotalBruto,
+      descuentoTotal: calculatedDescuentoTotal,
+      subtotalNeto: calculatedSubtotalNeto,
+      iva: calculatedIvaTotal,
+      total: calculatedTotal
+    };
+  }, [selectedPedido, productos]);
 
 
   const handleOpenDetailModal = async (pedido: Pedido) => {
@@ -597,181 +618,253 @@ const PedidosPage: React.FC = () => {
         <Modal
           isOpen={isDetailModalOpen}
           onClose={handleCloseModals}
-          title={`Detalle Pedido: ${selectedPedido.numeroPedido}`}
-          size="3xl"
+          title=""
+          size="5xl"
+          className="bg-slate-50 dark:bg-slate-900"
         >
+          {/* Header Personalizado del Modal */}
+          <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 -mx-6 -mt-6 px-6 py-4 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-lg text-blue-600 dark:text-blue-400">
+                  <i className="fas fa-file-invoice-dollar text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">
+                    Pedido {selectedPedido.numeroPedido}
+                  </h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Detalles y seguimiento
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <StatusBadge status={selectedPedido.estado as any} className="text-sm px-3 py-1" />
+              <div className="text-right hidden sm:block">
+                <p className="text-xs text-slate-500 dark:text-slate-400">Total Pedido</p>
+                <p className="text-lg font-bold text-slate-800 dark:text-slate-200">{formatCurrency(selectedPedidoTotals.total)}</p>
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-6 text-sm">
-            <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg">
-              <h4 className="text-base font-semibold mb-4 text-center text-slate-700 dark:text-slate-300">Progreso del Ciclo de Venta</h4>
+            {/* ... Contenido del modal ... */}
+
+            {/* Botones de acción (Cerrar y Vista Previa PDF) en la parte superior derecha o inferior */}
+            {/* En este diseño, vamos a poner los botones al final, como en Cotizaciones */}
+
+            {/* Cards de Información Principal */}
+            {/* Progress Section (Top) */}
+            <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+              <h4 className="text-sm font-semibold mb-4 text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Progreso del Ciclo de Venta</h4>
               <ProgressFlow>
-                <ProgressStep title="Cotización" status={selectedPedido.cotizacionId ? 'complete' : 'incomplete'} />
-                <ProgressStep title="Pedido" status={getPedidoProgressStatus(selectedPedido)}><StatusBadge status={selectedPedido.estado as any} /></ProgressStep>
-                <ProgressStep title="Remisión" status={getRemisionProgressStatus(selectedPedido)}>
+                <ProgressStep title="Cotización" status={selectedPedido.cotizacionId ? 'complete' : 'incomplete'}>
+                  {selectedPedido.numeroCotizacionOrigen && (
+                    <span className="text-[10px] font-mono text-slate-500 block mt-1">{selectedPedido.numeroCotizacionOrigen}</span>
+                  )}
+                </ProgressStep>
+                <ProgressStep title="Pedido" status={getPedidoProgressStatus(selectedPedido)}>
                   <StatusBadge status={selectedPedido.estado as any} />
+                </ProgressStep>
+                <ProgressStep title="Remisión" status={getRemisionProgressStatus(selectedPedido)}>
+                  <div className="flex flex-col items-center">
+                    {selectedPedido.estado === 'REMITIDO' || selectedPedido.estado === 'PARCIALMENTE_REMITIDO' ? (
+                      <span className="text-xs font-bold text-green-600 dark:text-green-400">Generada</span>
+                    ) : (
+                      <span className="text-xs text-slate-400 italic">Pendiente</span>
+                    )}
+                  </div>
                 </ProgressStep>
               </ProgressFlow>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Cliente</p>
-                <p className="text-slate-800 dark:text-slate-200">
-                  {(() => {
-                    // Buscar cliente por ID numérico o por codter/numeroDocumento
-                    const cliente = clientes.find(c =>
-                      String(c.id) === String(selectedPedido.clienteId) ||
-                      c.numeroDocumento === selectedPedido.clienteId ||
-                      c.codter === selectedPedido.clienteId
-                    );
-                    return cliente?.nombreCompleto || cliente?.razonSocial || selectedPedido.clienteId || 'N/A';
-                  })()}
-                </p>
-              </div>
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Cotización Origen</p>
-                <p className="text-slate-800 dark:text-slate-200">
-                  {selectedPedido.numeroCotizacionOrigen ||
-                    (selectedPedido.cotizacionId ? cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId))?.numeroCotizacion : 'N/A') ||
-                    'N/A'}
-                </p>
-              </div>
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Emisión</p>
-                <p className="text-slate-800 dark:text-slate-200">{formatDateOnly(selectedPedido.fechaPedido)}</p>
-              </div>
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Fecha Entrega Estimada</p>
-                <p className="text-slate-800 dark:text-slate-200">{formatDateOnly(selectedPedido.fechaEntregaEstimada)}</p>
-              </div>
-              {(selectedPedido.formaPago || (() => {
-                let formaPagoPedido = selectedPedido.formaPago;
-                if (!formaPagoPedido && selectedPedido.cotizacionId) {
-                  const cotizacion = cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId));
-                  if (cotizacion && cotizacion.formaPago) {
-                    formaPagoPedido = cotizacion.formaPago;
-                  }
-                }
-                return formaPagoPedido;
-              })()) && (
+            {/* Information Grid (Middle) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+              {/* Card 1: Información del Cliente */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700 p-5">
+                <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200 mb-4 pb-3 border-b border-slate-100 dark:border-slate-700">
+                  <i className="fas fa-user-circle text-blue-500"></i>
+                  Información del Cliente
+                </h4>
+                <div className="space-y-4">
                   <div>
-                    <p className="font-semibold text-slate-600 dark:text-slate-400">Forma de Pago</p>
-                    <p className="text-slate-800 dark:text-slate-200">
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Cliente</p>
+                    <p className="text-base font-medium text-slate-800 dark:text-slate-200 mt-1">
                       {(() => {
-                        const formaPagoValue = selectedPedido.formaPago || (() => {
-                          if (selectedPedido.cotizacionId) {
-                            const cotizacion = cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId));
-                            if (cotizacion && cotizacion.formaPago) {
-                              return cotizacion.formaPago;
-                            }
-                          }
-                          return undefined;
-                        })();
-                        if (!formaPagoValue) return 'N/A';
-                        const normalizedValue = formaPagoValue === '01' ? '1' : formaPagoValue === '02' ? '2' : formaPagoValue;
-                        return normalizedValue === '1' ? 'Contado' : normalizedValue === '2' ? 'Crédito' : formaPagoValue;
+                        const cliente = clientes.find(c =>
+                          String(c.id) === String(selectedPedido.clienteId) ||
+                          c.numeroDocumento === selectedPedido.clienteId ||
+                          c.codter === selectedPedido.clienteId
+                        );
+                        return cliente?.nombreCompleto || cliente?.razonSocial || selectedPedido.clienteId || 'N/A';
                       })()}
                     </p>
                   </div>
-                )}
-              <div className="sm:col-span-2">
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Instrucciones de Entrega</p>
-                <p className="text-slate-800 dark:text-slate-200">{selectedPedido.instruccionesEntrega || 'Sin instrucciones.'}</p>
+                  {(selectedPedido.instruccionesEntrega) && (
+                    <div className="bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg border border-amber-100 dark:border-amber-900/30">
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1">
+                        <i className="fas fa-comment-alt mr-1"></i> Instrucciones
+                      </p>
+                      <p className="text-slate-700 dark:text-slate-300 italic">
+                        {selectedPedido.instruccionesEntrega}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-col items-start">
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Estado</p>
-                <StatusBadge status={selectedPedido.estado as any} />
+
+              {/* Card 2: Detalles del Pedido */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700 p-5">
+                <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200 mb-4 pb-3 border-b border-slate-100 dark:border-slate-700">
+                  <i className="fas fa-info-circle text-purple-500"></i>
+                  Detalles Generales
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Cotización</p>
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mt-1">
+                      {selectedPedido.numeroCotizacionOrigen ||
+                        (selectedPedido.cotizacionId ? cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId))?.numeroCotizacion : 'N/A') ||
+                        'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Forma Pago</p>
+                    <div className="mt-1">
+                      {(selectedPedido.formaPago || (() => {
+                        let formaPagoPedido = selectedPedido.formaPago;
+                        if (!formaPagoPedido && selectedPedido.cotizacionId) {
+                          const cotizacion = cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId));
+                          if (cotizacion && cotizacion.formaPago) {
+                            formaPagoPedido = cotizacion.formaPago;
+                          }
+                        }
+                        return formaPagoPedido;
+                      })()) ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                          {(() => {
+                            const val = selectedPedido.formaPago || 'N/A';
+                            return val === '01' || val === '1' ? 'Contado' : val === '02' || val === '2' ? 'Crédito' : val;
+                          })()}
+                        </span>
+                      ) : 'N/A'}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Emisión</p>
+                    <p className="text-sm text-slate-800 dark:text-slate-200 mt-1">{formatDateOnly(selectedPedido.fechaPedido)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Entrega Est.</p>
+                    <p className="text-sm text-slate-800 dark:text-slate-200 mt-1">{formatDateOnly(selectedPedido.fechaEntregaEstimada)}</p>
+                  </div>
+                </div>
               </div>
+
+
+
             </div>
 
-            <div>
-              <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-2">Items del Pedido</h4>
-              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                <table className="w-full divide-y divide-slate-200 dark:divide-slate-700 table-auto">
-                  <thead className="bg-slate-50 dark:bg-slate-700">
+            {/* Tabla de Items */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <i className="fas fa-box-open text-slate-400"></i> Items del Pedido
+                </h4>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded-full">
+                  {selectedPedido.items?.length || 0} items
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full divide-y divide-slate-100 dark:divide-slate-700/50">
+                  <thead className="bg-slate-50 dark:bg-slate-700/30">
                     <tr>
-                      <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Producto</th>
-                      <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Unidad</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Cant.</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">P. Unit.</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Desc. %</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">IVA %</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Subtotal</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase">Valor IVA</th>
+                      <th scope="col" className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Producto</th>
+                      <th scope="col" className="px-5 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Unidad</th>
+                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Cant.</th>
+                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-32">P. Unit.</th>
+                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Desc.</th>
+                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">IVA</th>
+                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-32">Subtotal</th>
+                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-28">Total IVA</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
+                  <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-100 dark:divide-slate-700/50">
                     {selectedPedido.items && Array.isArray(selectedPedido.items) && selectedPedido.items.length > 0 ? (
                       selectedPedido.items.map((item: DocumentItem, index: number) => {
-                        // Buscar producto por ID (puede ser numérico o string)
                         const product = productos.find(p =>
                           String(p.id) === String(item.productoId) ||
                           p.id === item.productoId
                         );
 
-                        // Obtener nombre del producto: primero del producto encontrado, luego del item
+                        const qty = Number(item.cantidad || 0);
+                        const price = Number(item.precioUnitario || 0);
+                        const discountPct = Number(item.descuentoPorcentaje || 0);
+
+                        const ivaPct = (product && product.tasaIva !== undefined && product.tasaIva !== null)
+                          ? Number(product.tasaIva)
+                          : Number(item.ivaPorcentaje || 0);
+
+                        const itemSubtotal = price * qty * (1 - discountPct / 100);
+                        const itemIva = itemSubtotal * (ivaPct / 100);
+
                         const productoNombre = product?.nombre ||
-                          item.descripcion ||
                           item.descripcion ||
                           (item as any).nombre ||
                           `Producto ${index + 1}`;
 
-                        // Obtener unidad de medida: primero del producto, luego del item
-                        const unidadMedida = product?.unidadMedida ||
-                          (item as any).unidadMedida ||
+                        const unidadMedida = (item as any).unidadMedida ||
+                          product?.unidadMedida ||
                           'Unidad';
 
-                        // Usar valores del backend directamente (igual que en cotizaciones)
-                        const itemSubtotal = item.subtotal ?? ((item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100));
-                        const itemIva = item.valorIva ?? (itemSubtotal * ((item.ivaPorcentaje || 0) / 100));
-
                         return (
-                          <tr key={item.productoId || `item-${index}`}>
-                            <td className="px-4 py-3 break-words text-sm text-slate-700 dark:text-slate-300">
-                              {productoNombre}
+                          <tr key={item.productoId || `item-${index}`} className="group hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                            <td className="px-5 py-4">
+                              <div className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-0.5">{productoNombre}</div>
                               {!product && (
-                                <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
-                                  <i className="fas fa-exclamation-triangle"></i>
+                                <span className="inline-flex items-center text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">
+                                  <i className="fas fa-exclamation-triangle mr-1"></i> No catálogo
                                 </span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{unidadMedida}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{item.cantidad}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{formatCurrency(item.precioUnitario)}</td>
-                            <td className="px-4 py-3 text-sm text-red-600 dark:text-red-500 text-right">{(item.descuentoPorcentaje || 0).toFixed(2)}%</td>
-                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">
-                              {(() => {
-                                // Redondear a porcentajes estándar de IVA (19%, 5%, 8%, 0%)
-                                const ivaPct = Number(item.ivaPorcentaje || 0);
-                                if (ivaPct >= 18.5 && ivaPct <= 19.5) {
-                                  return '19.00%';
-                                } else if (ivaPct >= 7.5 && ivaPct <= 8.5) {
-                                  return '8.00%';
-                                } else if (ivaPct >= 4.5 && ivaPct <= 5.5) {
-                                  return '5.00%';
-                                } else if (ivaPct < 0.5) {
-                                  return '0.00%';
-                                } else {
-                                  // Si no coincide con valores estándar, mostrar con 2 decimales
-                                  return Number(ivaPct.toFixed(2)) + '%';
-                                }
-                              })()}
+                            <td className="px-5 py-4 text-sm text-center text-slate-500 dark:text-slate-400">{unidadMedida}</td>
+                            <td className="px-5 py-4 text-sm text-right font-medium text-slate-700 dark:text-slate-300 bg-slate-50/30 dark:bg-slate-800/30">{item.cantidad}</td>
+                            <td className="px-5 py-4 text-sm text-right text-slate-600 dark:text-slate-400">{formatCurrency(item.precioUnitario)}</td>
+                            <td className="px-5 py-4 text-sm text-right">
+                              {item.descuentoPorcentaje && item.descuentoPorcentaje > 0 ? (
+                                <span className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded font-medium text-xs">
+                                  -{item.descuentoPorcentaje.toFixed(0)}%
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
                             </td>
-                            <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-200 text-right">{formatCurrency(itemSubtotal)}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 text-right">{formatCurrency(itemIva)}</td>
+                            <td className="px-5 py-4 text-sm text-right text-slate-500 dark:text-slate-400">
+                              {ivaPct > 0 ? `${ivaPct.toFixed(0)}%` : '-'}
+                            </td>
+                            <td className="px-5 py-4 text-sm text-right font-semibold text-slate-700 dark:text-slate-200">{formatCurrency(itemSubtotal)}</td>
+                            <td className="px-5 py-4 text-sm text-right text-slate-500 dark:text-slate-400">{formatCurrency(itemIva)}</td>
                           </tr>
                         );
                       })
                     ) : (
                       <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
-                          {selectedPedido.items === undefined ? (
-                            <div className="flex flex-col items-center justify-center">
-                              <i className="fas fa-spinner fa-spin text-2xl mb-2"></i>
-                              <span>Cargando productos...</span>
-                            </div>
-                          ) : (
-                            <span>No hay productos en este pedido</span>
-                          )}
+                        <td colSpan={8} className="px-5 py-12 text-center">
+                          <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
+                            {selectedPedido.items === undefined ? (
+                              <>
+                                <i className="fas fa-spinner fa-spin text-3xl mb-3 text-blue-500"></i>
+                                <span>Cargando productos...</span>
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-box-open text-4xl mb-3 opacity-50"></i>
+                                <span>No hay productos en este pedido</span>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -780,76 +873,124 @@ const PedidosPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex justify-end pt-4">
-              <div className="w-full max-w-sm space-y-2 text-slate-700 dark:text-slate-300 text-sm">
-                <div className="flex justify-between">
-                  <span>Subtotal Bruto</span>
-                  <span>{formatCurrency(selectedPedidoTotals.subtotalBruto)}</span>
-                </div>
-                <div className="flex justify-between text-red-600 dark:text-red-500">
-                  <span>Descuento</span>
-                  <span>-{formatCurrency(selectedPedidoTotals.descuentoTotal)}</span>
-                </div>
-                <div className="flex justify-between font-semibold border-t border-slate-300 dark:border-slate-600 pt-2 mt-2">
-                  <span>Subtotal Neto</span>
-                  <span>{formatCurrency(selectedPedidoTotals.subtotalNeto)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>IVA</span>
-                  <span>{formatCurrency(selectedPedidoTotals.iva)}</span>
-                </div>
-                <div className="flex justify-between font-bold text-base border-t-2 border-slate-400 dark:border-slate-500 pt-2 mt-2 text-blue-600 dark:text-blue-400">
-                  <span>TOTAL</span>
-                  <span>{formatCurrency(selectedPedidoTotals.total)}</span>
+            {/* Resumen Totales */}
+            <div className="flex flex-col sm:flex-row justify-end gap-6">
+              <div className="w-full sm:w-80 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                <h5 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">
+                  Resumen Económico
+                </h5>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>Subtotal Bruto</span>
+                    <span className="font-medium">{formatCurrency(selectedPedidoTotals.subtotalBruto)}</span>
+                  </div>
+                  {selectedPedidoTotals.descuentoTotal > 0 && (
+                    <div className="flex justify-between text-red-600 dark:text-red-400">
+                      <span>Descuento</span>
+                      <span className="font-medium">-{formatCurrency(selectedPedidoTotals.descuentoTotal)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-slate-800 dark:text-slate-200 pt-2 border-t border-slate-100 dark:border-slate-700">
+                    <span className="font-medium">Subtotal Neto</span>
+                    <span className="font-bold">{formatCurrency(selectedPedidoTotals.subtotalNeto)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>IVA</span>
+                    <span>{formatCurrency(selectedPedidoTotals.iva)}</span>
+                  </div>
+                  <div className="flex justify-between items-end pt-3 mt-1 border-t-2 border-slate-100 dark:border-slate-700">
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-lg">Total</span>
+                    <span className="font-bold text-2xl text-blue-600 dark:text-blue-400">{formatCurrency(selectedPedidoTotals.total)}</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {selectedPedido.historial && selectedPedido.historial.length > 0 && (
-              <div>
-                <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-2">Historial de Cambios</h4>
-                <div className="max-h-40 overflow-y-auto bg-slate-50 dark:bg-slate-700/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2">
+              <div className="mt-4">
+                <button
+                  onClick={(e) => {
+                    const el = e.currentTarget.nextElementSibling;
+                    el?.classList.toggle('hidden');
+                  }}
+                  className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                >
+                  <i className="fas fa-history"></i> Ver historial de cambios
+                </button>
+                <div className="hidden mt-2 max-h-40 overflow-y-auto bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2">
                   {selectedPedido.historial.slice().reverse().map((log, index) => (
-                    <div key={index} className="text-xs">
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">{new Date(log.timestamp).toLocaleString('es-CO')} - {log.usuario}: </span>
-                      <span className="text-slate-600 dark:text-slate-300">{log.accion}</span>
+                    <div key={index} className="text-xs flex gap-2">
+                      <span className="font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap">{new Date(log.timestamp).toLocaleString('es-CO')}: </span>
+                      <span className="text-slate-600 dark:text-slate-300">{log.accion} <span className="text-slate-400 mx-1">•</span> {log.usuario}</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center">
+            {/* Footer de Acciones (Botones Inferiores) */}
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-6 mt-6 border-t border-slate-200 dark:border-slate-700">
               <div>
                 <ProtectedComponent permission="pedidos:edit">
                   {(selectedPedido.estado === 'ENVIADA' || selectedPedido.estado === 'BORRADOR') && (
-                    <button onClick={() => { handleCloseModals(); setPedidoToEdit(selectedPedido); }} className="px-4 py-2 bg-yellow-500 text-white font-semibold rounded-lg hover:bg-yellow-600 transition-colors">
-                      <i className="fas fa-pencil-alt mr-2"></i>Editar Pedido
+                    <button
+                      onClick={() => { handleCloseModals(); setPedidoToEdit(selectedPedido); }}
+                      className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all text-sm font-medium flex items-center gap-2"
+                    >
+                      <i className="fas fa-pencil-alt"></i> Editar Pedido
                     </button>
                   )}
                 </ProtectedComponent>
               </div>
-              <div className="flex items-center gap-3">
-                <button onClick={handleCloseModals} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">
+
+              <div className="flex flex-wrap justify-end gap-3 w-full sm:w-auto">
+                <button
+                  onClick={handleCloseModals}
+                  className="px-5 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-medium rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm"
+                >
                   Cerrar
                 </button>
+
+                <button
+                  onClick={() => {
+                    setDetailModalOpen(false);
+                    setOrderToPreview(selectedPedido);
+                  }}
+                  className="px-5 py-2.5 bg-white dark:bg-slate-800 border-2 border-blue-100 dark:border-blue-900 text-blue-700 dark:text-blue-300 font-semibold rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors shadow-sm flex items-center gap-2"
+                >
+                  <i className="fas fa-file-pdf"></i> Vista Previa PDF
+                </button>
+
                 <ProtectedComponent permission="pedidos:approve">
                   {(selectedPedido.estado === 'ENVIADA' || selectedPedido.estado === 'BORRADOR') && (
-                    <button onClick={handleApproveFromModal} disabled={isApproving} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-slate-400">
-                      {isApproving ? <><i className="fas fa-spinner fa-spin mr-2"></i>Aprobando...</> : <><i className="fas fa-check mr-2"></i>Aprobar Pedido</>}
+                    <button
+                      onClick={handleApproveFromModal}
+                      disabled={isApproving}
+                      className="px-6 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-lg hover:shadow-lg hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex items-center gap-2"
+                    >
+                      {isApproving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check-circle"></i>}
+                      {isApproving ? 'Procesando...' : 'Aprobar Pedido'}
                     </button>
                   )}
                 </ProtectedComponent>
+
                 {(selectedPedido.estado === 'EN_PROCESO' || selectedPedido.estado === 'PARCIALMENTE_REMITIDO') && (
-                  <button onClick={() => handleCreateRemision(selectedPedido.id)} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
-                    <i className="fas fa-truck mr-2"></i>Crear Remisión
+                  <button
+                    onClick={() => handleCreateRemision(selectedPedido.id)}
+                    className="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 hover:shadow-lg transition-all flex items-center gap-2"
+                  >
+                    <i className="fas fa-truck-loading"></i> Crear Remisión
                   </button>
                 )}
               </div>
             </div>
+
           </div>
         </Modal>
       )}
+
+
+
 
       {pedidoToEdit && (
         <Modal
@@ -879,7 +1020,11 @@ const PedidosPage: React.FC = () => {
             isOpen={!!orderToPreview}
             onClose={() => setOrderToPreview(null)}
             title={`Previsualizar Pedido: ${orderToPreview.numeroPedido}`}
-            onConfirm={executeApproval}
+            onConfirm={
+              (orderToPreview.estado === 'BORRADOR' || orderToPreview.estado === 'ENVIADA')
+                ? executeApproval
+                : undefined
+            }
             onEdit={() => {
               setOrderToPreview(null);
               setPedidoToEdit(orderToPreview);

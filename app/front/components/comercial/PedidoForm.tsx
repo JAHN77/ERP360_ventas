@@ -341,15 +341,28 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
             const normalizedItems = cotizacion.items.map(item => {
                 // Buscar el producto para obtener unidadMedida y referencia si no están en el item
                 const product = productos.find(p => p.id === item.productoId);
+
+                const cantidad = Number(item.cantidad) || 0;
+                const precioUnitario = roundTo2(item.precioUnitario || 0);
+                const descuentoPorcentaje = roundTo2(item.descuentoPorcentaje || 0);
+                const ivaPorcentaje = roundTo2(item.ivaPorcentaje || 0);
+
+                // Recalculate values to ensure consistency (fix for inconsistent DB data)
+                const subtotalBruto = precioUnitario * cantidad;
+                const descuentoValor = subtotalBruto * (descuentoPorcentaje / 100);
+                const subtotal = subtotalBruto - descuentoValor;
+                const valorIva = subtotal * (ivaPorcentaje / 100);
+                const total = subtotal + valorIva;
+
                 return {
                     ...item,
-                    cantidad: Number(item.cantidad) || 0,
-                    precioUnitario: roundTo2(item.precioUnitario || 0),
-                    descuentoPorcentaje: roundTo2(item.descuentoPorcentaje || 0),
-                    ivaPorcentaje: roundTo2(item.ivaPorcentaje || 0),
-                    subtotal: roundTo2(item.subtotal || 0),
-                    valorIva: roundTo2(item.valorIva || 0),
-                    total: roundTo2(item.total || 0),
+                    cantidad,
+                    precioUnitario,
+                    descuentoPorcentaje,
+                    ivaPorcentaje,
+                    subtotal: roundTo2(subtotal),
+                    valorIva: roundTo2(valorIva),
+                    total: roundTo2(total),
                     // Preservar unidadMedida y referencia del item, o buscarlas en el producto
                     unidadMedida: (item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'Unidad',
                     codigoMedida: item.codigoMedida || (item as any).unidadMedida || product?.unidadMedida || 'Unidad',
@@ -642,8 +655,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         type="button"
                         onClick={() => handleTipoPedidoChange('sin-cotizacion')}
                         className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${tipoPedido === 'sin-cotizacion'
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
                             }`}
                     >
                         Sin Cotización
@@ -652,8 +665,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         type="button"
                         onClick={() => handleTipoPedidoChange('con-cotizacion')}
                         className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${tipoPedido === 'con-cotizacion'
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
                             }`}
                     >
                         Con Cotización
@@ -1303,7 +1316,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         <span className="">{formatCurrency(totals.subtotalNeto)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                        <span className="text-slate-500 dark:text-slate-400">IVA (19%):</span>
+                        <span className="text-slate-500 dark:text-slate-400">IVA:</span>
                         <span className="font-medium">{formatCurrency(totals.iva)}</span>
                     </div>
                     <div className="flex justify-between text-lg font-bold border-t border-slate-200 dark:border-slate-600 pt-2 mt-2">

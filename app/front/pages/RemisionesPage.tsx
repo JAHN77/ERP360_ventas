@@ -262,7 +262,8 @@ const RemisionesPage: React.FC = () => {
       }
 
       // Solo mostrar pedidos CONFIRMADO (listos para ser remitidos por primera vez)
-      return p.estado === 'CONFIRMADO';
+      // O PARCIALMENTE_REMITIDO (tienen saldo pendiente)
+      return p.estado === 'CONFIRMADO' || p.estado === 'PARCIALMENTE_REMITIDO';
     });
 
     return filtrados;
@@ -411,7 +412,11 @@ const RemisionesPage: React.FC = () => {
       group.remisiones.sort((a, b) => {
         const dateA = new Date(a.fechaRemision).getTime();
         const dateB = new Date(b.fechaRemision).getTime();
-        return dateB - dateA; // Descending order (Newest first)
+        if (dateA !== dateB) {
+          return dateB - dateA; // Descending order (Newest first)
+        }
+        // Tie-breaker: ID descending (assuming higher ID = newer)
+        return Number(b.id) - Number(a.id);
       });
     });
 
@@ -419,10 +424,19 @@ const RemisionesPage: React.FC = () => {
     const sortedGroups = groupsArray.sort((a, b) => {
       if (a.remisiones.length === 0) return 1;
       if (b.remisiones.length === 0) return -1;
-      // Since remisiones are now sorted descending, the first one is the newest
-      const dateA = new Date(a.remisiones[0].fechaRemision).getTime();
-      const dateB = new Date(b.remisiones[0].fechaRemision).getTime();
-      return dateB - dateA; // Descending order (Newest first)
+
+      const remA = a.remisiones[0];
+      const remB = b.remisiones[0];
+
+      const dateA = new Date(remA.fechaRemision).getTime();
+      const dateB = new Date(remB.fechaRemision).getTime();
+
+      if (dateA !== dateB) {
+        return dateB - dateA; // Descending order (Newest first)
+      }
+
+      // Tie-breaker: Remission ID descending
+      return Number(remB.id) - Number(remA.id);
     });
 
     // OPTIMIZACIÓN: Log en desarrollo para debugging
@@ -1507,103 +1521,157 @@ const RemisionesPage: React.FC = () => {
               <ProgressStep title="Entregado" status="incomplete" />
             </ProgressFlow>
 
-            {/* Order and Client Info Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Información del Pedido y Cliente</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                  <div className="flex items-start gap-2">
-                    <i className="fas fa-hashtag text-slate-400 mt-1"></i>
-                    <div><p className="font-semibold text-slate-500 dark:text-slate-400">ID Pedido</p><p className="font-mono">{pedidoToRemisionar.id}</p></div>
+            {/* Order and Client Info Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Pedido Details */}
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-3 opacity-5">
+                  <i className="fas fa-file-invoice text-6xl text-blue-600"></i>
+                </div>
+                <h4 className="flex items-center gap-2 text-sm font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-4">
+                  <i className="fas fa-cube"></i> Datos del Pedido
+                </h4>
+                <div className="space-y-3 relative z-10">
+                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-700/50 pb-2">
+                    <span className="text-slate-500 dark:text-slate-400 text-xs font-medium">Nº Pedido</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-lg font-mono">{pedidoToRemisionar.numeroPedido}</span>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <i className="fas fa-hashtag text-slate-400 mt-1"></i>
-                    <div><p className="font-semibold text-slate-500 dark:text-slate-400">Nº Pedido</p><p>{pedidoToRemisionar.numeroPedido}</p></div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 dark:text-slate-400 text-xs font-medium">ID Interno</span>
+                    <span className="font-mono text-xs text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{pedidoToRemisionar.id}</span>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <i className="fas fa-user text-slate-400 mt-1"></i>
-                    <div><p className="font-semibold text-slate-500 dark:text-slate-400">Cliente</p><p>{currentCliente?.nombreCompleto}</p></div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <i className="fas fa-phone text-slate-400 mt-1"></i>
-                    <div><p className="font-semibold text-slate-500 dark:text-slate-400">Teléfono</p><p>{currentCliente?.telter || currentCliente?.celter || currentCliente?.celular}</p></div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <i className="fas fa-envelope text-slate-400 mt-1"></i>
-                    <div><p className="font-semibold text-slate-500 dark:text-slate-400">Email</p><p>{currentCliente?.email}</p></div>
-                  </div>
-                  <div className="flex items-start gap-2 md:col-span-2">
-                    <i className="fas fa-map-marker-alt text-slate-400 mt-1"></i>
-                    <div><p className="font-semibold text-slate-500 dark:text-slate-400">Dirección de Envío</p><p>{currentCliente?.direccion}, {currentCliente?.ciudadId}</p></div>
+                  <div className="pt-2">
+                    <StatusBadge status={pedidoToRemisionar.estado as any} />
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
 
-            {/* Items to Remit Table */}
-            <Card>
-              <CardHeader><CardTitle className="text-base">Ítems a Remitir</CardTitle></CardHeader>
-              <CardContent className="p-0">
-                <div>
-                  <table className="w-full table-fixed divide-y divide-slate-200 dark:divide-slate-700">
-                    <thead className="bg-slate-50 dark:bg-slate-700/50">
-                      <tr>
-                        <th scope="col" className="px-4 py-2 w-24 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
-                        <th scope="col" className="px-4 py-2 w-auto text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Producto</th>
-                        <th scope="col" className="px-4 py-2 w-16 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Pedido</th>
-                        <th scope="col" className="px-4 py-2 w-20 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Pendiente</th>
-                        <th scope="col" className="px-4 py-2 w-16 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Stock</th>
-                        <th scope="col" className="px-4 py-2 w-28 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Cant. a Enviar</th>
-                        <th scope="col" className="px-4 py-2 w-20 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
-                      {remisionItems.map((item, index) => {
-                        // Buscar producto en el catálogo para verificar si existe
-                        // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
-                        const producto = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
+              {/* Client Details */}
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-3 opacity-5">
+                  <i className="fas fa-users text-6xl text-purple-600"></i>
+                </div>
+                <h4 className="flex items-center gap-2 text-sm font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wide mb-4">
+                  <i className="fas fa-user-circle"></i> Datos del Cliente
+                </h4>
+                <div className="space-y-3 relative z-10">
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400 text-xs font-medium block mb-0.5">Cliente / Razón Social</span>
+                    <p className="font-bold text-slate-800 dark:text-slate-100 truncate" title={currentCliente?.nombreCompleto}>
+                      {currentCliente?.nombreCompleto || 'Sin Nombre'}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400 text-xs font-medium block mb-0.5">Identificación</span>
+                      <p className="text-sm font-mono text-slate-600 dark:text-slate-300">{currentCliente?.numeroDocumento || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400 text-xs font-medium block mb-0.5">Contacto</span>
+                      <p className="text-sm text-slate-600 dark:text-slate-300 truncate">{currentCliente?.telter || currentCliente?.celter || currentCliente?.celular || 'N/A'}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400 text-xs font-medium block mb-0.5">Dirección de Envío</span>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 truncate">
+                      <i className="fas fa-map-marker-alt text-slate-400 mr-1"></i>
+                      {currentCliente?.direccion}{currentCliente?.ciudadId ? `, ${currentCliente?.ciudadId}` : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-                        // Obtener nombre del producto: primero del producto encontrado, luego del item
-                        const productoNombre = producto?.nombre ||
-                          item.descripcion ||
-                          (item as any).nombre ||
-                          `Producto ${index + 1}`;
+            {/* Items to Remit Table - Redesigned */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm flex items-center gap-2">
+                  <i className="fas fa-boxes text-slate-400"></i> Ítems a Remitir
+                </h4>
+                <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-2.5 py-0.5 rounded-full font-medium">
+                  {remisionItems.length} ítems
+                </span>
+              </div>
 
-                        return (
-                          <tr key={item.productoId || `item-${index}`}>
-                            <td className="px-4 py-2 text-sm font-mono text-slate-500 break-words">{item.referencia || producto?.referencia || 'N/A'}</td>
-                            <td className="px-4 py-2 text-sm break-words">
-                              {productoNombre}
-                              {!producto && (
-                                <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
-                                  <i className="fas fa-exclamation-triangle"></i>
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-right">{item.cantPedida}</td>
-                            <td className="px-4 py-2 text-sm text-right font-medium">{item.cantPendiente}</td>
-                            <td className={`px-4 py-2 text-sm text-right font-bold ${item.cantStock < item.cantPendiente ? 'text-orange-500' : 'text-green-500'}`}>{item.cantStock}</td>
-                            <td className="px-4 py-2 text-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50/50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-xs uppercase font-semibold text-slate-500 dark:text-slate-400">
+                    <tr>
+                      <th className="px-5 py-3 w-32">Referencia</th>
+                      <th className="px-5 py-3">Producto</th>
+                      <th className="px-5 py-3 w-24 text-center">Und</th>
+                      <th className="px-5 py-3 w-28 text-right bg-slate-100/50 dark:bg-slate-900/20">Solicitado</th>
+                      <th className="px-5 py-3 w-28 text-right bg-slate-100/50 dark:bg-slate-900/20 border-l border-white dark:border-slate-700">Pendiente</th>
+                      <th className="px-5 py-3 w-24 text-right">Stock</th>
+                      <th className="px-5 py-3 w-36 text-center bg-blue-50/30 dark:bg-blue-900/10">A Enviar</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {remisionItems.map((item, index) => {
+                      const producto = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
+                      const productoNombre = producto?.nombre || item.descripcion || (item as any).nombre || `Producto ${index + 1}`;
+                      const isLowStock = item.cantStock < item.cantPendiente;
+                      const isPartial = item.cantAEnviar > 0 && item.cantAEnviar < item.cantPendiente;
+                      const isComplete = item.cantAEnviar === item.cantPendiente;
+
+                      return (
+                        <tr key={item.productoId || `item-${index}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors group">
+                          <td className="px-5 py-3">
+                            <span className="font-mono text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                              {item.referencia || producto?.referencia || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 font-medium text-slate-700 dark:text-slate-200">
+                            {productoNombre}
+                            {!producto && <i className="fas fa-exclamation-triangle text-amber-500 ml-2 text-xs" title="Producto no encontrado"></i>}
+                          </td>
+                          <td className="px-5 py-3 text-center text-xs text-slate-500">{item.unidadMedida}</td>
+
+                          <td className="px-5 py-3 text-right bg-slate-50/30 dark:bg-slate-900/10 font-medium text-slate-600 dark:text-slate-300">
+                            {item.cantPedida}
+                          </td>
+
+                          <td className="px-5 py-3 text-right bg-slate-50/30 dark:bg-slate-900/10 border-l border-white dark:border-slate-800 font-medium text-slate-800 dark:text-slate-100">
+                            {item.cantPendiente}
+                          </td>
+
+                          <td className={`px-5 py-3 text-right font-bold text-xs ${isLowStock ? 'text-orange-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            {item.cantStock}
+                          </td>
+
+                          <td className="px-5 py-3 bg-blue-50/20 dark:bg-blue-900/5 text-center">
+                            <div className="relative inline-block w-24">
                               <input
                                 type="number"
                                 value={item.cantAEnviar}
                                 onChange={(e) => handleItemQuantityChange(item.productoId, parseInt(e.target.value) || 0)}
                                 max={Math.min(item.cantPendiente, item.cantStock)}
                                 min="0"
-                                className="w-24 px-2 py-1 text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                className={`w-full px-2 py-1.5 text-center text-sm font-bold bg-white dark:bg-slate-800 border rounded-lg focus:outline-none focus:ring-2 transition-all shadow-sm
+                                             ${isComplete ? 'border-emerald-300 text-emerald-700 focus:ring-emerald-500/30 focus:border-emerald-500' :
+                                    isPartial ? 'border-blue-300 text-blue-700 focus:ring-blue-500/30 focus:border-blue-500' :
+                                      'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 focus:ring-blue-500/30'}`}
                               />
-                            </td>
-                            <td className="px-4 py-2 text-sm text-right">{item.unidadMedida}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              {isComplete && <div className="absolute -right-2 -top-2 text-emerald-500 bg-white dark:bg-slate-800 rounded-full w-4 h-4 text-[10px] flex items-center justify-center border border-emerald-200 shadow-sm"><i className="fas fa-check"></i></div>}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Summary Footer */}
+              <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-6 text-sm">
+                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                  <div className="w-3 h-3 bg-emerald-500 rounded-full opacity-20"></div> Stock Suficiente
                 </div>
-              </CardContent>
-            </Card>
+                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                  <div className="w-3 h-3 bg-orange-500 rounded-full opacity-20"></div> Stock Bajo
+                </div>
+              </div>
+            </div>
 
             {/* Logistic Details Form */}
             <Card>

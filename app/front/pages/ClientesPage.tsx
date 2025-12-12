@@ -13,6 +13,7 @@ import { useColumnManager } from '../hooks/useColumnManager';
 import ColumnManagerModal from '../components/ui/ColumnManagerModal';
 
 import ClienteCreateModal from '../components/clientes/ClienteCreateModal';
+import ClientDetails from '../components/clientes/ClientDetails';
 
 const ClientesPage: React.FC = () => {
   const { params, setPage } = useNavigation();
@@ -286,72 +287,7 @@ const ClientesPage: React.FC = () => {
           title={`Detalle del Cliente: ${selectedCliente.nombreCompleto}`}
           size="xl"
         >
-          <div className="space-y-4 text-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-              <div className="sm:col-span-2 flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-slate-600 dark:text-slate-400">Nombre / Razón Social:</p>
-                  <p>{selectedCliente.nombreCompleto}</p>
-                </div>
-                <div>
-                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${selectedCliente.activo ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'}`}>
-                    {selectedCliente.activo ? 'Activo' : 'Inactivo'}
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Documento:</p>
-                <p>{(() => { const tipoDoc = tiposDocumento.find(td => td.id === selectedCliente.tipoDocumentoId); return `${tipoDoc ? tipoDoc.codigo : ''} ${selectedCliente.numeroDocumento}`; })()}</p>
-              </div>
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Tipo Persona:</p>
-                <p>{tiposPersona.find(tp => tp.id === selectedCliente.tipoPersonaId)?.nombre || selectedCliente.tipoPersonaId}</p>
-              </div>
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Régimen Fiscal:</p>
-                <p>{selectedCliente.regimenFiscalId || 'N/A'}</p>
-              </div>
-              <div className="sm:col-span-2">
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Dirección:</p>
-                <p>{selectedCliente.direccion}{selectedCliente.ciudadId ? `, ${(() => { const val = selectedCliente.ciudadId || ''; const isCode = /^\d{4,6}$/.test(String(val)); return isCode ? (ciudades.find(c => String(c.codigo) === String(val))?.nombre || val) : val; })()}` : ''}</p>
-              </div>
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Email:</p>
-                <p>{selectedCliente.email || '—'}</p>
-              </div>
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Celular:</p>
-                <p>{selectedCliente.celular || '—'}</p>
-              </div>
-              <div>
-                <p className="font-semibold text-slate-600 dark:text-slate-400">Teléfono Fijo:</p>
-                <p>{selectedCliente.telter || '—'}</p>
-              </div>
-            </div>
-
-            <div className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg">
-              <p className="font-semibold text-slate-700 dark:text-slate-200 mb-2">Condiciones Comerciales</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <p className="text-slate-600 dark:text-slate-400">Límite de Crédito:</p>
-                  <p>{new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(Number(selectedCliente.limiteCredito || 0))}</p>
-                </div>
-                <div>
-                  <p className="text-slate-600 dark:text-slate-400">Días de Crédito:</p>
-                  <p>{selectedCliente.diasCredito ?? '—'} días</p>
-                </div>
-                <div>
-                  <p className="text-slate-600 dark:text-slate-400">Condición de Pago:</p>
-                  <p>{selectedCliente.condicionPago || '—'}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Cliente desde: {selectedCliente.createdAt ? new Date(selectedCliente.createdAt).toLocaleDateString('es-CO') : '—'}
-            </div>
-          </div>
+          <ClientDetails cliente={selectedCliente} />
         </Modal>
       )}
     </div>

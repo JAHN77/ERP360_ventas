@@ -16,13 +16,9 @@ const FormClientePage: React.FC = () => {
 
   const isEditing = page === 'editar_cliente';
 
-  if (isEditing && !isMainDataLoaded) {
-    return <div className="flex justify-center items-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div></div>;
-  }
-
   useEffect(() => {
     if (isEditing && params.id) {
-      const fetchedCliente = clientes.find(c => c.id === params.id);
+      const fetchedCliente = clientes.find(c => String(c.id) === String(params.id));
       if (fetchedCliente) {
         setCliente(fetchedCliente);
       } else {
@@ -55,6 +51,10 @@ const FormClientePage: React.FC = () => {
     setCancelConfirmOpen(false);
     setPage('clientes');
   };
+
+  if (isEditing && !isMainDataLoaded) {
+    return <div className="flex justify-center items-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div></div>;
+  }
 
   return (
     <div>

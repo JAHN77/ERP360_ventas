@@ -102,6 +102,15 @@ const DevolucionesPage: React.FC = () => {
         return clientesEstrictos;
     }, [clientesEstrictos]);
 
+    useEffect(() => {
+        if (!isLoadingClientes && clientesDisponibles.length === 0) {
+            addNotification({
+                message: 'No hay clientes ni facturas disponibles para devolución.',
+                type: 'warning'
+            });
+        }
+    }, [isLoadingClientes, clientesDisponibles, addNotification]);
+
 
     // Filtrar facturas del cliente seleccionado usando los datos estrictos
     const facturasFiltradas = useMemo(() => {

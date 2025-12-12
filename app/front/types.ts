@@ -166,6 +166,7 @@ export interface InvProducto {
   // Campos adicionales de tarifa de precios
   precioConIva?: number; // Precio CON IVA (para referencia/visualización)
   margenTarifa?: number; // Margen de la tarifa
+  codigo?: string; // Mapeado de codins desde backend
 }
 export type Producto = InvProducto;
 
@@ -197,6 +198,7 @@ export interface DocumentoDetalle {
   cantFacturada?: number; // Cantidad facturada
   numFactura?: string; // Número de factura relacionada
   codigoMedida?: string; // Código de medida
+  unidadMedida?: string; // Nombre de la unidad (enviado por backend)
   estado?: string; // Estado del item
   qtycot?: number; // Cantidad cotizada
 }
@@ -213,12 +215,13 @@ export interface Cotizacion {
   clienteNombre?: string; // Nombre del cliente (nomter)
   vendedorId?: string; // ID numérico del vendedor (ideven) o código (codven) como fallback
   codVendedor?: string; // Código del vendedor (codven)
+  vendedorNombre?: string; // Nombre del vendedor (nomven)
   subtotal: number;
   descuentoValor: number;
   ivaValor: number;
   total: number;
   observaciones?: string;
-  estado: 'ENVIADA' | 'APROBADA' | 'RECHAZADA' | 'VENCIDA';
+  estado: 'BORRADOR' | 'ENVIADA' | 'APROBADA' | 'RECHAZADA' | 'VENCIDA';
   empresaId: number;
   codalm?: string; // Código de almacén
   items: DocumentoDetalle[];
