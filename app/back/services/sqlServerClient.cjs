@@ -22,8 +22,8 @@ const config = {
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   options: {
-    encrypt: process.env.DB_ENCRYPT === 'true',
-    trustServerCertificate: process.env.NODE_ENV !== 'production', // Solo en desarrollo
+    encrypt: process.env.DB_ENCRYPT !== 'false', // Default to true (secure by default for cloud)
+    trustServerCertificate: process.env.DB_TRUST_CERT === 'true' || process.env.NODE_ENV !== 'production',
     enableArithAbort: true,
     requestTimeout: parseInt(process.env.DB_REQUEST_TIMEOUT || '30000', 10),
     connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || '30000', 10),

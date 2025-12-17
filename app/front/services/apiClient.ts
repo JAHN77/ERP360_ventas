@@ -1,5 +1,6 @@
 // Cliente API para conectar con el backend SQL Server
-const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:3001/api';
+const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) ||
+  ((typeof import.meta !== 'undefined' && (import.meta as any).env?.PROD) ? '/api' : 'http://localhost:3001/api');
 
 export interface ApiResponse<T> {
   success: boolean;
