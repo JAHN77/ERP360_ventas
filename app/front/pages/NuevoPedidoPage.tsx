@@ -17,6 +17,8 @@ interface PedidoFormData {
     total: number;
     fechaEntregaEstimada?: string;
     instruccionesEntrega?: string;
+    notaPago?: string;
+    formaPago?: string;
 }
 
 const NuevoPedidoPage: React.FC = () => {
@@ -42,7 +44,9 @@ const NuevoPedidoPage: React.FC = () => {
                 total: formData.total,
                 fechaEntregaEstimada: formData.fechaEntregaEstimada,
                 instruccionesEntrega: formData.instruccionesEntrega,
-            });
+                notaPago: formData.notaPago,
+                formaPago: formData.formaPago,
+            } as any);
             addNotification({ message: 'Pedido creado exitosamente.', type: 'success' });
             setPage('pedidos');
         } catch (error) {
@@ -52,7 +56,7 @@ const NuevoPedidoPage: React.FC = () => {
             setIsCreating(false);
         }
     };
-    
+
     const handleCancel = () => {
         if (isFormDirty) {
             setCancelConfirmOpen(true);
@@ -60,22 +64,29 @@ const NuevoPedidoPage: React.FC = () => {
             setPage('pedidos');
         }
     };
-    
+
     const executeCancel = () => {
         setCancelConfirmOpen(false);
         setPage('pedidos');
     };
 
     return (
-        <div>
-            <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Crear Nuevo Pedido</h1>
+        <div className="animate-fade-in space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+                        Crear Nuevo Pedido
+                    </h1>
+                    <p className="text-slate-500 dark:text-slate-400 mt-1">
+                        Diligencia el formulario para generar un nuevo pedido de venta.
+                    </p>
+                </div>
             </div>
             <Card>
                 <CardContent>
-                    <PedidoForm 
-                        onSubmit={handleCreatePedido} 
-                        onCancel={handleCancel} 
+                    <PedidoForm
+                        onSubmit={handleCreatePedido}
+                        onCancel={handleCancel}
                         onDirtyChange={setFormDirty}
                         isSubmitting={isCreating}
                     />
@@ -93,8 +104,8 @@ const NuevoPedidoPage: React.FC = () => {
                         <button onClick={() => setCancelConfirmOpen(false)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">
                             Volver
                         </button>
-                        <button 
-                            onClick={executeCancel} 
+                        <button
+                            onClick={executeCancel}
                             className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors"
                         >
                             Sí, cancelar

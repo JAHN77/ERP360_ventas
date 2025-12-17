@@ -1,17 +1,18 @@
-import React, { createContext, useState, ReactNode, useMemo, useCallback, useEffect } from 'react';
+import React, { createContext, useState, ReactNode, useMemo, useCallback, useEffect, useRef } from 'react';
 import { initialActivityLog } from '../data/activityLog';
+import { tiposDocumento as mockTiposDocumento, tiposPersona as mockTiposPersona } from '../data/mockData';
 import {
     Cliente, InvProducto, Factura, Pedido, Cotizacion, Remision, NotaCredito, Vendedor, DocumentItem,
     Departamento, Ciudad, TipoDocumento, TipoPersona, RegimenFiscal, Usuario, Producto, Medida,
-    ActivityLog,Categoria,DocumentoDetalle,GlobalSearchResults,Transportadora,ArchivoAdjunto
+    ActivityLog, Categoria, DocumentoDetalle, GlobalSearchResults, Transportadora, ArchivoAdjunto
 } from '../types';
 import { Role } from '../config/rolesConfig';
-import { 
-  fetchClientes, fetchProductos, fetchFacturas, fetchFacturasDetalle,
-  fetchCotizaciones, fetchCotizacionesDetalle, fetchPedidos, fetchPedidosDetalle,
-  fetchRemisiones, fetchRemisionesDetalle, fetchNotasCredito, fetchMedidas, fetchCategorias,
-  testApiConnection, fetchVendedores, apiCreateCliente, fetchBodegas, apiCreateNotaCredito,
-  apiRegisterInventoryEntry
+import {
+    fetchClientes, fetchProductos, fetchFacturas, fetchFacturasDetalle,
+    fetchCotizaciones, fetchCotizacionesDetalle, fetchPedidos, fetchPedidosDetalle,
+    fetchRemisiones, fetchRemisionesDetalle, fetchNotasCredito, fetchMedidas, fetchCategorias,
+    testApiConnection, fetchVendedores, apiCreateCliente, fetchBodegas, apiCreateNotaCredito,
+    apiRegisterInventoryEntry, fetchCiudades
 } from '../services/apiClient';
 import { generarRemisionPDFenBlob, generarFacturaPDFenBlob } from '../utils/pdfGenerator';
 import { defaultPreferences } from '../hooks/useDocumentPreferences';
@@ -56,7 +57,7 @@ interface DataContextType {
     // Loading states
     isLoading: boolean;
     isMainDataLoaded: boolean;
-    
+
     // Core data
     clientes: Cliente[];
     productos: InvProducto[];
@@ -66,7 +67,7 @@ interface DataContextType {
     remisiones: Remision[];
     notasCredito: NotaCredito[];
     archivosAdjuntos: ArchivoAdjunto[];
-    
+
     // Catalogs
     medidas: Medida[];
     categorias: Categoria[];
@@ -78,22 +79,23 @@ interface DataContextType {
     vendedores: Vendedor[];
     transportadoras: Transportadora[];
     almacenes: Array<{ id: string | number; nombre: string; codigo?: string }>;
-    
+
     // Activity log
     activityLog: ActivityLog[];
-    
+
     // Company data
     datosEmpresa: any;
-    
+
     // Computed data
     getSalesDataByPeriod: (start: Date, end: Date) => Array<{ date: string; sales: number }>;
     getSalesByCliente: () => Array<{ id: string; clientName: string; totalSales: number; orderCount: number; lastOrder: string }>;
     getSalesDataByClient: () => Array<{ id: string; clientName: string; totalSales: number; orderCount: number; lastOrder: string }>; // Alias para compatibilidad
     getSalesByVendedor: () => Array<{ id: string; name: string; totalSales: number; orderCount: number }>;
+    getProductoById: (id: string | number) => InvProducto | undefined;
     getTopProductos: (limit?: number) => Array<{ producto: InvProducto; cantidad: number }>;
     getGlobalSearchResults: (query: string) => GlobalSearchResults;
     globalSearch: (query: string) => GlobalSearchResults; // Alias para compatibilidad
-    
+
     // Actions
     addActivityLog: (action: string, details: string, entity: { type: string; id: string | number; name: string }) => void;
     refreshData: () => Promise<void>;
@@ -111,10 +113,11 @@ interface DataContextType {
     aprobarRemision: (id: string) => Promise<Remision | undefined>;
     crearRemision: ((data: Remision) => Promise<Remision>) & ((pedido: Pedido, items: Array<{ productoId: number; cantidad: number }>, logisticData?: any) => Promise<{ nuevaRemision: Remision; mensaje: string }>);
     crearFactura: (data: Factura) => Promise<Factura>;
-    crearNotaCredito: (factura: Factura, items: DocumentItem[], motivo: string) => Promise<NotaCredito>;
+    crearNotaCredito: (factura: Factura, items: DocumentItem[], motivo: string, tipoNota?: 'DEVOLUCION' | 'ANULACION') => Promise<NotaCredito>;
     crearFacturaDesdeRemisiones: (remisionIds: string[]) => Promise<{ nuevaFactura: Factura } | null>;
     timbrarFactura: (facturaId: string) => Promise<Factura | undefined>;
     refreshFacturasYRemisiones: () => Promise<void>;
+    motivosDevolucion: string[];
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -137,10 +140,10 @@ const generateTempId = () => {
 
 export const DataProvider = ({ children }: DataProviderProps) => {
     // DataProvider depende de AuthProvider, así que debe estar dentro de AuthProvider
-    const { user, selectedSede } = useAuth();
+    const { user, selectedSede, isLoadingBodegas } = useAuth();
     const [isLoading, setIsLoading] = useState(true);
     const [isMainDataLoaded, setIsMainDataLoaded] = useState(false);
-    
+
     // Core data states
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [productos, setProductos] = useState<InvProducto[]>([]);
@@ -150,7 +153,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const [remisiones, setRemisiones] = useState<Remision[]>([]);
     const [notasCredito, setNotasCredito] = useState<NotaCredito[]>([]);
     const [archivosAdjuntos, setArchivosAdjuntos] = useState<ArchivoAdjunto[]>([]);
-    
+
     // Catalog states
     const [medidas, setMedidas] = useState<Medida[]>([]);
     const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -167,21 +170,18 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const [activityLog, setActivityLog] = useState<ActivityLog[]>(initialActivityLog);
 
     // Phase 1: Load essential catalogs first
+    // PRIORIDAD: Esperar a que las bodegas se carguen primero en AuthContext antes de cargar otros datos
     useEffect(() => {
+        // No cargar nada hasta que las bodegas estén listas
+        if (isLoadingBodegas) {
+            logger.log({ prefix: 'DataContext' }, '⏳ Esperando a que se carguen las bodegas en AuthContext...');
+            return;
+        }
+
         const fetchEssentialCatalogs = async () => {
             try {
-                // Test API connection first (pero no fallar si no hay conexión, solo continuar)
-                try {
-                    const connectionTest = await testApiConnection();
-                    if (!connectionTest.success) {
-                        logger.warn({ prefix: 'DataContext' }, 'No se puede conectar con el servidor API, continuando con datos mock');
-                        // No lanzar error, solo continuar sin cargar datos del servidor
-                    }
-                } catch (connectionError) {
-                    logger.warn({ prefix: 'DataContext' }, 'Error al probar conexión API, continuando con datos mock:', connectionError);
-                    // Continuar sin lanzar error
-                }
-                
+                logger.log({ prefix: 'DataContext' }, '🚀 Iniciando carga de catálogos esenciales (bodegas ya cargadas)');
+
                 // Helper para extraer datos de estructura anidada
                 const extractArrayData = (response: any): any[] => {
                     if (!response.success) return [];
@@ -193,37 +193,110 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     return [];
                 };
 
-                // Load medidas (con manejo de errores individual)
+                // PRIORIDAD 1: Cargar almacenes (bodegas) PRIMERO - son críticos para el resto de la aplicación
+                logger.log({ prefix: 'DataContext' }, '📦 Cargando almacenes (bodegas) como prioridad...');
+                let bodegasResp;
                 try {
-                    const medidasResponse = await fetchMedidas();
-                    if (medidasResponse && medidasResponse.success) {
-                        const medidasData = extractArrayData(medidasResponse);
-                        if (medidasData.length > 0) {
-                            setMedidas(medidasData);
-                        }
-                    }
-                } catch (error) {
-                    logger.warn({ prefix: 'DataContext' }, 'Error cargando medidas:', error);
+                    bodegasResp = await fetchBodegas();
+                } catch (fetchError) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error de red al cargar almacenes (backend puede no estar disponible):', fetchError);
+                    bodegasResp = { success: false, data: [] };
                 }
-                
-                // Load categorias (con manejo de errores individual)
+
+                if (bodegasResp && bodegasResp.success && bodegasResp.data && Array.isArray(bodegasResp.data) && bodegasResp.data.length > 0) {
+                    const bodegasData = extractArrayData(bodegasResp);
+                    // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
+                    const processedAlmacenes = (bodegasData as any[]).map((b: any) => ({
+                        id: b.id || b.codigo || b.codalm || String(b.id),
+                        nombre: b.nombre || b.nomalm || 'Sin nombre',
+                        codigo: b.codigo || b.codalm || String(b.id).padStart(3, '0'),
+                        direccion: b.direccion || b.diralm || '',
+                        ciudad: b.ciudad || b.ciualm || ''
+                    }));
+                    // Ordenar almacenes por código (001, 002, 003, etc.)
+                    const almacenesOrdenados = processedAlmacenes.sort((a, b) => {
+                        const codigoA = String(a.codigo || '').padStart(3, '0');
+                        const codigoB = String(b.codigo || '').padStart(3, '0');
+                        return codigoA.localeCompare(codigoB);
+                    });
+                    logger.log({ prefix: 'DataContext' }, `✅ Almacenes cargados desde BD: ${almacenesOrdenados.length}`, almacenesOrdenados.map(a => `${a.codigo} - ${a.nombre}`));
+                    setAlmacenes(almacenesOrdenados);
+                } else {
+                    const reason = !bodegasResp ? 'Sin respuesta' : !bodegasResp.success ? 'Respuesta no exitosa' : !bodegasResp.data ? 'Sin datos' : 'Array vacío';
+                    logger.warn({ prefix: 'DataContext' }, `⚠️ No se pudieron cargar almacenes desde la BD (${reason}). Continuando sin almacenes.`);
+                    setAlmacenes([]);
+                }
+
+                // PRIORIDAD 2: Cargar otros catálogos esenciales en paralelo (después de bodegas)
+                // Test API connection (pero no fallar si no hay conexión, solo continuar)
                 try {
-                    const categoriasResponse = await fetchCategorias();
-                    if (categoriasResponse && categoriasResponse.success) {
-                        const categoriasData = extractArrayData(categoriasResponse);
-                        if (categoriasData.length > 0) {
-                            setCategorias(categoriasData);
-                        }
+                    const connectionTest = await testApiConnection();
+                    if (!connectionTest.success) {
+                        logger.warn({ prefix: 'DataContext' }, 'No se puede conectar con el servidor API, continuando con datos mock');
+                        // No lanzar error, solo continuar sin cargar datos del servidor
                     }
-                } catch (error) {
-                    logger.warn({ prefix: 'DataContext' }, 'Error cargando categorías:', error);
+                } catch (connectionError) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error al probar conexión API, continuando con datos mock:', connectionError);
+                    // Continuar sin lanzar error
                 }
-                
+
+                // Cargar medidas y categorías en paralelo (después de bodegas)
+                const [medidasResponse, categoriasResponse] = await Promise.all([
+                    fetchMedidas().catch(err => {
+                        logger.warn({ prefix: 'DataContext' }, 'Error cargando medidas:', err);
+                        return { success: false, data: [] };
+                    }),
+                    fetchCategorias().catch(err => {
+                        logger.warn({ prefix: 'DataContext' }, 'Error cargando categorías:', err);
+                        return { success: false, data: [] };
+                    })
+                ]);
+
+                // Procesar medidas
+                if (medidasResponse && medidasResponse.success) {
+                    const medidasData = extractArrayData(medidasResponse);
+                    if (medidasData.length > 0) {
+                        setMedidas(medidasData);
+                    }
+                }
+
+                // Procesar categorías
+                if (categoriasResponse && categoriasResponse.success) {
+                    const categoriasData = extractArrayData(categoriasResponse);
+                    if (categoriasData.length > 0) {
+                        setCategorias(categoriasData);
+                    }
+                }
+
                 // Load mock data for other catalogs (temporary)
                 setDepartamentos([]);
-                setCiudades([]);
-                setTiposDocumento([]);
-                setTiposPersona([]);
+                // setCiudades([]); // Replaced by actual fetching below
+                setTiposDocumento(mockTiposDocumento);
+                setTiposPersona(mockTiposPersona);
+
+                // Cargar ciudades
+                let ciudadesResp;
+                try {
+                    ciudadesResp = await fetchCiudades();
+                } catch (error) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando ciudades:', error);
+                    ciudadesResp = { success: false, data: [] };
+                }
+                if (ciudadesResp.success) {
+                    const ciudadesData = extractArrayData(ciudadesResp);
+                    if (ciudadesData.length > 0) {
+                        const processedCiudades = ciudadesData.map((c: any) => ({
+                            ...c,
+                            codigo: String(c.codigo || c.coddpto + c.codmun).trim().padStart(5, '0'), // TRIM HERE!
+                            nombre: c.nombre || c.ciudad || 'Ciudad Desconocida'
+                        }));
+                        setCiudades(processedCiudades);
+                    }
+                } else {
+                    setCiudades([]);
+                }
+                setTiposDocumento(mockTiposDocumento);
+                setTiposPersona(mockTiposPersona);
                 setRegimenesFiscal([]);
 
                 // Vendedores desde la BD (con manejo de errores individual)
@@ -250,7 +323,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                                 activoNormalizado = Number(v.activo) || 1; // Default a 1 si no se puede convertir
                             }
                         }
-                        
+
                         return {
                             ...v,
                             activo: activoNormalizado, // Siempre número: 1 (activo) o 0 (inactivo)
@@ -262,42 +335,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 } else {
                     setVendedores([]);
                 }
-                
-                // Cargar almacenes (bodegas) desde la BD
-                let bodegasResp;
-                try {
-                    bodegasResp = await fetchBodegas();
-                } catch (fetchError) {
-                    logger.warn({ prefix: 'DataContext' }, 'Error de red al cargar almacenes (backend puede no estar disponible):', fetchError);
-                    bodegasResp = { success: false, data: [] };
-                }
-                
-                if (bodegasResp && bodegasResp.success && bodegasResp.data && Array.isArray(bodegasResp.data) && bodegasResp.data.length > 0) {
-                    const bodegasData = extractArrayData(bodegasResp);
-                    // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
-                    const processedAlmacenes = (bodegasData as any[]).map((b: any) => ({
-                        id: b.id || b.codigo || b.codalm || String(b.id),
-                        nombre: b.nombre || b.nomalm || 'Sin nombre',
-                        codigo: b.codigo || b.codalm || String(b.id).padStart(3, '0'),
-                        direccion: b.direccion || b.diralm || '',
-                        ciudad: b.ciudad || b.ciualm || ''
-                    }));
-                    // Ordenar almacenes por código (001, 002, 003, etc.)
-                    const almacenesOrdenados = processedAlmacenes.sort((a, b) => {
-                        const codigoA = String(a.codigo || '').padStart(3, '0');
-                        const codigoB = String(b.codigo || '').padStart(3, '0');
-                        return codigoA.localeCompare(codigoB);
-                    });
-                    logger.log({ prefix: 'DataContext' }, `✅ Almacenes cargados desde BD: ${almacenesOrdenados.length}`, almacenesOrdenados.map(a => `${a.codigo} - ${a.nombre}`));
-                    setAlmacenes(almacenesOrdenados);
-                } else {
-                    const reason = !bodegasResp ? 'Sin respuesta' : !bodegasResp.success ? 'Respuesta no exitosa' : !bodegasResp.data ? 'Sin datos' : 'Array vacío';
-                    logger.warn({ prefix: 'DataContext' }, `⚠️ No se pudieron cargar almacenes desde la BD (${reason}). Continuando sin almacenes.`);
-                    setAlmacenes([]);
-                }
-                
+
                 setTransportadoras([]);
-                
+
+                logger.log({ prefix: 'DataContext' }, '✅ Catálogos esenciales cargados');
                 setIsLoading(false);
             } catch (error) {
                 logger.error({ prefix: 'DataContext' }, 'Error cargando catálogos esenciales:', error);
@@ -306,7 +347,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         };
 
         fetchEssentialCatalogs();
-    }, []);
+    }, [isLoadingBodegas]);
 
     // Phase 2: Load heavy transactional data in the background with pagination
     useEffect(() => {
@@ -314,11 +355,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             try {
                 // Obtener código de bodega seleccionada
                 const codalm = selectedSede?.codigo ? String(selectedSede.codigo).padStart(3, '0') : undefined;
-                
+
                 // Load essential data first (clientes and productos)
                 const [clientesResponse, productosResponse] = await Promise.all([
-                    fetchClientes(),
-                    fetchProductos(codalm)
+                    fetchClientes(1, 5000),
+                    fetchProductos(codalm, 1, 6100)
                 ]);
 
 
@@ -358,8 +399,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     } as InvProducto;
                 });
                 productosConMedida.sort((a: InvProducto, b: InvProducto) => (a.nombre || '').trim().localeCompare((b.nombre || '').trim()));
+
+                // DEPURACIÓN: Verificar si el producto problemático llegó
+                const debugProd = productosConMedida.find((p: any) => String(p.id) === '1948' || String(p.codigo) === '02660001');
+                console.log('🔍 [DataContext] Debug Producto 1948/02660001:', debugProd || 'NO ENCONTRADO');
+                console.log('🔍 [DataContext] Total productos cargados:', productosConMedida.length);
+
                 setProductos(productosConMedida);
-                
+
                 // Process clientes
                 // Normalizar el campo activo: convertir boolean a number (true -> 1, false -> 0)
                 const processedClientes = (clientesData as any[]).map((c: Cliente) => {
@@ -378,12 +425,16 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         // Intentar convertir a número
                         activoNormalizado = Number(activoValor) || 0;
                     }
-                    
+
+                    // Mapear fecha de ingreso: puede venir como fechaIngreso, FECING, o createdAt
+                    const fechaIngreso = c.createdAt || (c as any).fechaIngreso || (c as any).FECING;
+
                     return {
-                        ...c, 
+                        ...c,
                         activo: activoNormalizado, // Siempre número: 1 (activo) o 0 (inactivo)
-                        nombreCompleto: c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim(), 
-                        condicionPago: c.diasCredito > 0 ? `Crédito ${c.diasCredito} días` : 'Contado' 
+                        nombreCompleto: c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim(),
+                        condicionPago: c.diasCredito > 0 ? `Crédito ${c.diasCredito} días` : 'Contado',
+                        createdAt: fechaIngreso || new Date().toISOString() // Asegurar que siempre haya una fecha
                     };
                 });
                 processedClientes.sort((a: Cliente, b: Cliente) => (a.nombreCompleto || '').trim().localeCompare((b.nombreCompleto || '').trim()));
@@ -394,7 +445,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     const savedLog = localStorage.getItem('erp360_activityLog');
                     setActivityLog(savedLog ? JSON.parse(savedLog) : initialActivityLog);
                 } catch (error) {
-                    setActivityLog(initialActivityLog); 
+                    setActivityLog(initialActivityLog);
                 }
 
                 setIsMainDataLoaded(true);
@@ -410,26 +461,38 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
         const loadTransactionalData = async (productosConMedida: InvProducto[]) => {
             try {
+                // OPTIMIZACIÓN: Cargar datos transaccionales con paginación y lazy loading
+                // No cargar todos los datos al inicio, solo cargar cuando sea necesario
                 const [
-                    facturasResponse, facturasDetalleResponse, cotizacionesResponse, 
-                    cotizacionesDetalleResponse, pedidosResponse, pedidosDetalleResponse, 
-                    remisionesResponse, remisionesDetalleResponse, notasCreditoResponse
+                    facturasResponse, cotizacionesResponse,
+                    pedidosResponse, notasCreditoResponse
                 ] = await Promise.all([
-                    fetchFacturas(),
-                    fetchFacturasDetalle(),
-                    fetchCotizaciones(),
-                    fetchCotizacionesDetalle(),
-                    // Cargar pedidos inicialmente (con pageSize alto para obtener todos los pedidos disponibles)
-                    fetchPedidos(1, 10000), // Solicitar página 1 con 10000 items para obtener todos
-                    fetchPedidosDetalle(),
-                    // Remisiones ahora se cargan con paginación desde RemisionesPage
-                    // fetchRemisiones(),
-                    // fetchRemisionesDetalle(),
-                    Promise.resolve({ success: true, data: [] }),
-                    Promise.resolve({ success: true, data: [] }),
-                    fetchNotasCredito()
+                    // Cargar solo primera página de facturas (optimización: no cargar todos)
+                    fetchFacturas().catch(() => ({ success: false, data: [] })),
+                    // Cargar solo primera página de cotizaciones
+                    fetchCotizaciones().catch(() => ({ success: false, data: [] })),
+                    // Cargar pedidos con paginación razonable (100 items en lugar de 10000)
+                    fetchPedidos(1, 100).catch(() => ({ success: false, data: [], pagination: {} })),
+                    // Cargar notas de crédito con paginación
+                    fetchNotasCredito().catch(() => ({ success: false, data: [] }))
                 ]);
-                
+
+                // Cargar detalles de cotizaciones, pedidos y facturas para que los items se muestren correctamente
+                // Los detalles de remisiones se pueden cargar bajo demanda
+                const [
+                    cotizacionesDetalleResponse,
+                    pedidosDetalleResponse,
+                    facturasDetalleResponse
+                ] = await Promise.all([
+                    fetchCotizacionesDetalle().catch(() => ({ success: false, data: [] })),
+                    fetchPedidosDetalle().catch(() => ({ success: false, data: [] })),
+                    fetchFacturasDetalle().catch(() => ({ success: false, data: [] }))
+                ]);
+
+                // Remisiones detalles se cargan bajo demanda
+                const remisionesResponse = { success: true, data: [] };
+                const remisionesDetalleResponse = { success: true, data: [] };
+
                 if (!pedidosResponse.success) {
                     logger.error({ prefix: 'DataContext' }, 'Error en pedidos:', pedidosResponse);
                 } else {
@@ -506,14 +569,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     if (remisionesIds.length === 0 && f.remisionId) {
                         remisionesIds = [String(f.remisionId)];
                     }
-                    
+
                     // Buscar items que pertenezcan a esta factura (matching flexible por ID)
                     const facturaIdStr = String(f.id || f.ID || '');
                     const items = (facturasDetalleData as any[]).filter(d => {
                         const detalleFacturaId = String(d.facturaId || d.factura_id || d.id_factura || '');
                         // Comparar tanto por ID numérico como por string
-                        return facturaIdStr === detalleFacturaId || 
-                               (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
+                        return facturaIdStr === detalleFacturaId ||
+                            (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
                     }).map(d => ({
                         // Mapear campos del detalle a la estructura esperada
                         productoId: d.productoId || null,
@@ -527,7 +590,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         total: Number(d.total || 0),
                         codProducto: d.codProducto || d.codins || ''
                     }));
-                    
+
                     // Mapear todos los campos de la tabla ven_facturas
                     return {
                         // Campos principales
@@ -562,6 +625,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         tarjetaDebito: Number(f.tarjetaDebito || f.TarjetaDB || 0),
                         transferencia: Number(f.transferencia || f.Transferencia || 0),
                         // Información adicional
+                        formaPago: f.formaPago || f.formapago || f.forma_pago || f.forpag || undefined,
                         tipoFactura: f.tipoFactura || f.tipfac || '01',
                         documentoContable: f.documentoContable || f.doccoc || undefined,
                         cuenta: f.cuenta || f.codcue || undefined,
@@ -577,11 +641,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         cufe: f.cufe || f.CUFE || undefined,
                         cajaId: f.cajaId || f.IdCaja || undefined,
                         // Extraer motivo de rechazo de observaciones si existe
-                        motivoRechazo: (() => {
-                            const obs = f.observaciones || f.Observa || '';
-                            const match = obs.match(/MOTIVO RECHAZO:\s*(.+?)(?:\s*\||$)/i);
-                            return match ? match[1].trim() : undefined;
-                        })(),
+                        motivoRechazo: f.motivoRechazo || (f.estado === 'RECHAZADA' ? (f.observaciones || f.Observa || null) : null),
                         // Items y relaciones
                         items: items,
                         remisionesIds: remisionesIds,
@@ -591,20 +651,47 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         fechaTimbrado: f.fechaTimbrado || f.fecha_timbrado || undefined
                     };
                 });
-                
+
                 logger.log({ prefix: 'DataContext', level: 'debug' }, 'Facturas procesadas con detalles:', {
                     facturasCount: facturasConDetalles.length,
                     facturasConItems: facturasConDetalles.filter(f => f.items && f.items.length > 0).length,
                     totalItems: facturasConDetalles.reduce((sum, f) => sum + (f.items?.length || 0), 0)
                 });
-                
+
                 setFacturas(facturasConDetalles);
 
                 // Process cotizaciones with detalles
-                const cotizacionesConDetalles = (cotizacionesData as any[]).map(c => ({
-                    ...c,
-                    items: (cotizacionesDetalleData as any[]).filter(d => d.cotizacionId === c.id)
-                }));
+                // CRÍTICO: Comparar IDs como strings para evitar problemas de tipo
+                const cotizacionesConDetalles = (cotizacionesData as any[]).map(c => {
+                    const cotizacionIdStr = String(c.id || '').trim();
+                    const items = (cotizacionesDetalleData as any[]).filter(d => {
+                        const detalleCotizacionIdStr = String(d.cotizacionId || '').trim();
+                        // Comparar como strings para evitar problemas de tipo
+                        const match = cotizacionIdStr === detalleCotizacionIdStr ||
+                            String(c.id) === String(d.cotizacionId) ||
+                            Number(c.id) === Number(d.cotizacionId);
+                        return match;
+                    });
+
+                    logger.log({ prefix: 'DataContext', level: 'debug' }, `Cotización ${cotizacionIdStr} - Items encontrados: ${items.length}`, {
+                        cotizacionId: cotizacionIdStr,
+                        itemsCount: items.length,
+                        totalDetalles: cotizacionesDetalleData.length,
+                        itemsIds: items.map(i => i.id).slice(0, 5)
+                    });
+
+                    return {
+                        ...c,
+                        items: items
+                    };
+                });
+
+                logger.log({ prefix: 'DataContext', level: 'debug' }, 'Cotizaciones procesadas con detalles:', {
+                    cotizacionesCount: cotizacionesConDetalles.length,
+                    cotizacionesConItems: cotizacionesConDetalles.filter(c => c.items && c.items.length > 0).length,
+                    totalItems: cotizacionesConDetalles.reduce((sum, c) => sum + (c.items?.length || 0), 0)
+                });
+
                 setCotizaciones(cotizacionesConDetalles);
 
                 // Process pedidos with detalles
@@ -625,7 +712,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // Process remisiones with detalles
                 logger.log({ prefix: 'DataContext', level: 'debug' }, 'Remisiones recibidas del backend:', remisionesData?.length || 0);
                 logger.log({ prefix: 'DataContext', level: 'debug' }, 'Detalles de remisiones recibidos:', remisionesDetalleData?.length || 0);
-                
+
                 // Mapear remisiones con sus items de productos
                 const remisionesConDetalles = (remisionesData as any[]).map(r => {
                     // Buscar items que pertenezcan a esta remisión
@@ -636,8 +723,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         const detalleRemisionId = String(d.remisionId || d.numrec || '');
                         const detalleNumrec = d.numrec;
                         // Match por ID o por numrec
-                        return detalleRemisionId === remisionIdStr || 
-                               (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
+                        return detalleRemisionId === remisionIdStr ||
+                            (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
                     }).map(d => ({
                         // Mapear campos del detalle de remisión a la estructura esperada
                         productoId: d.productoId || null,
@@ -654,7 +741,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         total: Number(d.total) || 0,
                         codProducto: d.codProducto || ''
                     }));
-                    
+
                     // Mapear campos de la remisión a la estructura esperada por el frontend
                     return {
                         id: String(r.id || r.numrec || ''),
@@ -696,7 +783,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         codUsuario: r.codUsuario || r.codusu || undefined
                     };
                 });
-                
+
                 logger.log({ prefix: 'DataContext', level: 'debug' }, 'Remisiones procesadas con detalles:', remisionesConDetalles.length);
                 logger.log({ prefix: 'DataContext', level: 'debug' }, 'Ejemplo de remisión procesada:', remisionesConDetalles[0] ? {
                     id: remisionesConDetalles[0].id,
@@ -705,10 +792,25 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     clienteId: remisionesConDetalles[0].clienteId,
                     itemsCount: remisionesConDetalles[0].items?.length || 0
                 } : 'No hay remisiones');
-                
+
                 setRemisiones(remisionesConDetalles);
 
-                setNotasCredito(notasCreditoData);
+                // Mapear Notas de Crédito
+                const notasCreditoMapeadas = (notasCreditoData as any[]).map(nc => ({
+                    id: String(nc.id || ''),
+                    numero: nc.numero || nc.nummov || '',
+                    facturaId: String(nc.facturaId || nc.factura_id || ''),
+                    clienteId: String(nc.clienteId || nc.cliente_id || ''),
+                    fechaEmision: nc.fechaEmision || nc.fecmov || new Date().toISOString(),
+                    subtotal: Number(nc.subtotal || 0),
+                    iva: Number(nc.iva || 0),
+                    total: Number(nc.total || nc.valmov || 0),
+                    motivo: nc.motivo || nc.observaciones || '',
+                    estadoDian: nc.estadoDian || nc.estado_dian || 'PENDIENTE',
+                    cufe: nc.cufe || nc.CUFE || undefined, // Mapear CUFE de la nota de crédito
+                    itemsDevueltos: Array.isArray(nc.itemsDevueltos) ? nc.itemsDevueltos : []
+                }));
+                setNotasCredito(notasCreditoMapeadas);
 
                 setArchivosAdjuntos([]);
             } catch (error) {
@@ -722,12 +824,44 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     }, [isLoading, isMainDataLoaded, medidas, selectedSede?.codigo]);
 
     // Recargar productos cuando cambie la bodega seleccionada (useEffect independiente)
+    // IMPORTANTE: Usar useRef para evitar recargas múltiples de la misma bodega
+    const lastLoadedSedeRef = useRef<string | null>(null);
+    const isLoadingProductsRef = useRef<boolean>(false);
+
     useEffect(() => {
-        if (!isMainDataLoaded) return; // Esperar a que se carguen los datos iniciales
-        
-        const codalm = selectedSede?.codigo ? String(selectedSede.codigo).padStart(3, '0') : undefined;
-        
+        // Solo proceder si hay una bodega seleccionada y tenemos las medidas cargadas
+        if (!selectedSede?.codigo || !medidas || medidas.length === 0) {
+            // Si no hay bodega seleccionada, limpiar productos o mantener los actuales
+            lastLoadedSedeRef.current = null; // Reset cuando no hay bodega
+            return;
+        }
+
+        const codalm = String(selectedSede.codigo).padStart(3, '0');
+        const sedeKey = `${selectedSede.id}-${codalm}`;
+
+        // Evitar recargar si ya cargamos esta bodega O si ya estamos cargando
+        if (lastLoadedSedeRef.current === sedeKey || isLoadingProductsRef.current) {
+            logger.log({ prefix: 'DataContext', level: 'debug' }, 'Productos ya cargados o cargando para esta bodega, omitiendo recarga:', {
+                codalm,
+                nombre: selectedSede.nombre,
+                yaCargado: lastLoadedSedeRef.current === sedeKey,
+                cargando: isLoadingProductsRef.current
+            });
+            return;
+        }
+
+        // Marcar que estamos cargando esta bodega
+        lastLoadedSedeRef.current = sedeKey;
+        isLoadingProductsRef.current = true;
+
+        logger.log({ prefix: 'DataContext', level: 'debug' }, 'Recargando productos para bodega:', {
+            codalm,
+            nombre: selectedSede.nombre,
+            id: selectedSede.id
+        });
+
         fetchProductos(codalm).then(productosResponse => {
+            isLoadingProductsRef.current = false;
             if (productosResponse.success) {
                 // Helper para extraer datos de estructura anidada
                 const extractArrayData = (response: any): any[] => {
@@ -759,33 +893,127 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 });
                 productosConMedida.sort((a: InvProducto, b: InvProducto) => (a.nombre || '').trim().localeCompare((b.nombre || '').trim()));
                 setProductos(productosConMedida);
+                logger.log({ prefix: 'DataContext', level: 'debug' }, 'Productos recargados para bodega:', {
+                    codalm,
+                    cantidad: productosConMedida.length
+                });
+            } else {
+                logger.warn({ prefix: 'DataContext' }, 'No se pudieron cargar productos para la bodega:', codalm);
             }
         }).catch(error => {
+            isLoadingProductsRef.current = false;
             logger.error({ prefix: 'DataContext' }, 'Error actualizando productos por bodega:', error);
+            // Si hay error, resetear la referencia para permitir reintento
+            if (lastLoadedSedeRef.current === sedeKey) {
+                lastLoadedSedeRef.current = null;
+            }
         });
-    }, [selectedSede?.codigo, isMainDataLoaded, medidas]);
+    }, [selectedSede?.codigo, selectedSede?.id, medidas]);
+
+    // Definir refreshData ANTES del useEffect que lo usa
+    // IMPORTANTE: refreshData NO debe depender de selectedSede para evitar bucles
+    const refreshData = useCallback(async (codalmOverride?: string) => {
+        setIsMainDataLoaded(false);
+        setIsLoading(true);
+
+        // Helper para extraer datos de estructura anidada
+        const extractArrayData = (response: any): any[] => {
+            if (!response.success) return [];
+            const raw = response.data;
+            if (Array.isArray(raw)) return raw;
+            if (raw && typeof raw === 'object' && 'data' in raw && Array.isArray((raw as any).data)) {
+                return (raw as any).data;
+            }
+            return [];
+        };
+
+        // Reload essential catalogs
+        try {
+            const medidasResponse = await fetchMedidas();
+            if (medidasResponse.success) {
+                const medidasData = extractArrayData(medidasResponse);
+                if (medidasData.length > 0) {
+                    setMedidas(medidasData);
+                }
+            }
+
+            const categoriasResponse = await fetchCategorias();
+            if (categoriasResponse.success) {
+                const categoriasData = extractArrayData(categoriasResponse);
+                if (categoriasData.length > 0) {
+                    setCategorias(categoriasData);
+                }
+            }
+
+            // Recargar productos con filtro de bodega actual o el override
+            // Usar codalmOverride si está disponible, sino usar selectedSede?.codigo
+            const codalm = codalmOverride || (selectedSede?.codigo ? String(selectedSede.codigo).padStart(3, '0') : undefined);
+            const productosResponse = await fetchProductos(codalm);
+            if (productosResponse.success) {
+                const productosData = extractArrayData(productosResponse);
+                const productosConMedida = (productosData as any[]).map((p: InvProducto) => ({
+                    ...p,
+                    unidadMedida: medidas.find((m) => m.id === p.idMedida)?.nombre || 'Unidad',
+                    stock: p.stock ?? 0,
+                    controlaExistencia: p.stock ?? p.controlaExistencia ?? 0
+                }));
+                productosConMedida.sort((a: InvProducto, b: InvProducto) => (a.nombre || '').trim().localeCompare((b.nombre || '').trim()));
+                setProductos(productosConMedida);
+            }
+
+            setIsLoading(false);
+        } catch (error) {
+            logger.error({ prefix: 'refreshData' }, 'Error refreshing data:', error);
+            setIsLoading(false);
+        }
+    }, [medidas]); // Removido selectedSede?.codigo para evitar bucle
+
+    // ✅ ELIMINADO: useEffect que recargaba todos los datos al cambiar bodega
+    // Esto causaba un bucle infinito porque:
+    // 1. selectedSede cambia -> useEffect se dispara
+    // 2. refreshData() se llama -> actualiza productos
+    // 3. Esto causa re-render -> useEffect se dispara de nuevo
+    // Los productos ya se recargan automáticamente en el useEffect independiente más abajo
+    // cuando cambia selectedSede?.codigo, así que no necesitamos este efecto redundante
 
     // --- COMPUTED DATA FUNCTIONS ---
 
     const getSalesDataByPeriod = useCallback((start: Date, end: Date) => {
         const salesData: Array<{ date: string; sales: number }> = [];
         const currentDate = new Date(start);
-        
-        while (currentDate <= end) {
+        currentDate.setHours(0, 0, 0, 0);
+
+        const endDate = new Date(end);
+        endDate.setHours(23, 59, 59, 999);
+
+        while (currentDate <= endDate) {
             const dateStr = currentDate.toISOString().split('T')[0];
+            const currentDayStart = new Date(currentDate);
+            currentDayStart.setHours(0, 0, 0, 0);
+            const currentDayEnd = new Date(currentDate);
+            currentDayEnd.setHours(23, 59, 59, 999);
+
             const daySales = facturas
-                .filter(f => f.fechaFactura.startsWith(dateStr) && f.estado !== 'ANULADA' && f.estado !== 'BORRADOR')
+                .filter(f => {
+                    if (!f.fechaFactura) return false;
+                    const fechaFactura = new Date(f.fechaFactura);
+                    fechaFactura.setHours(0, 0, 0, 0);
+                    return fechaFactura >= currentDayStart &&
+                        fechaFactura <= currentDayEnd &&
+                        f.estado !== 'ANULADA' &&
+                        (f.estado !== 'BORRADOR' || !!f.cufe);
+                })
                 .reduce((total, factura) => {
                     const devolucionesTotal = notasCredito
-                        .filter(nc => nc.facturaId === factura.id)
-                        .reduce((sum, nc) => sum + nc.total, 0);
-                    return total + (factura.total - devolucionesTotal);
+                        .filter(nc => String(nc.facturaId) === String(factura.id))
+                        .reduce((sum, nc) => sum + (nc.total || 0), 0);
+                    return total + ((factura.total || 0) - devolucionesTotal);
                 }, 0);
-            
-            salesData.push({ date: dateStr, sales: daySales });
+
+            salesData.push({ date: dateStr, sales: Math.round(daySales) });
             currentDate.setDate(currentDate.getDate() + 1);
         }
-        
+
         return salesData;
     }, [facturas, notasCredito]);
 
@@ -793,7 +1021,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         const salesMap = new Map<string, { totalSales: number; orderCount: number; lastOrder: string }>();
 
         facturas
-            .filter(f => f.estado !== 'ANULADA' && f.estado !== 'BORRADOR')
+            .filter(f => f.estado !== 'ANULADA' && (f.estado !== 'BORRADOR' || !!f.cufe))
             .forEach(f => {
                 const clienteKey = String(f.clienteId ?? '').trim();
                 if (!clienteKey) {
@@ -839,54 +1067,164 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     const getSalesByVendedor = useCallback(() => {
         const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        
+
         const vendedorSales = facturas
-            .filter(f => new Date(f.fechaFactura) >= firstDayOfMonth && f.estado !== 'ANULADA' && f.estado !== 'BORRADOR')
+            .filter(f => {
+                // Filtrar facturas del mes actual y válidas
+                const fechaFactura = new Date(f.fechaFactura);
+                return fechaFactura >= firstDayOfMonth &&
+                    f.estado !== 'ANULADA' &&
+                    (f.estado !== 'BORRADOR' || !!f.cufe);
+            })
             .reduce((acc, f) => {
-                const vendedorId = f.vendedorId || 'sin_vendedor';
-                if (!acc[vendedorId]) {
-                    acc[vendedorId] = { totalSales: 0, orderCount: 0 };
+                // Buscar vendedor de forma flexible (por id, codiEmple, o codigoVendedor)
+                let vendedorEncontrado = null;
+                if (f.vendedorId) {
+                    const vendedorIdStr = String(f.vendedorId).trim();
+                    vendedorEncontrado = vendedores.find(v =>
+                        String(v.id) === vendedorIdStr ||
+                        String(v.codiEmple || '') === vendedorIdStr ||
+                        String(v.codigoVendedor || '') === vendedorIdStr ||
+                        String((v as any).codigo || '') === vendedorIdStr
+                    );
                 }
-                
+
+                const vendedorKey = vendedorEncontrado
+                    ? String(vendedorEncontrado.id || (vendedorEncontrado as any).codiEmple || 'sin_vendedor')
+                    : 'sin_vendedor';
+
+                if (!acc[vendedorKey]) {
+                    acc[vendedorKey] = {
+                        totalSales: 0,
+                        orderCount: 0,
+                        vendedor: vendedorEncontrado
+                    };
+                }
+
                 const devolucionesTotal = notasCredito
-                    .filter(nc => nc.facturaId === f.id)
-                    .reduce((sum, nc) => sum + nc.total, 0);
-                
-                acc[vendedorId].totalSales += f.total - devolucionesTotal;
-                acc[vendedorId].orderCount += 1;
-                
+                    .filter(nc => String(nc.facturaId) === String(f.id))
+                    .reduce((sum, nc) => sum + (nc.total || 0), 0);
+
+                acc[vendedorKey].totalSales += (f.total || 0) - devolucionesTotal;
+                acc[vendedorKey].orderCount += 1;
+
                 return acc;
-            }, {} as Record<string, { totalSales: number; orderCount: number }>);
-        
+            }, {} as Record<string, { totalSales: number; orderCount: number; vendedor: any }>);
+
         return Object.entries(vendedorSales)
-            .map(([vendedorId, salesData]) => ({
-                id: vendedorId,
-                name: vendedores.find(v => v.id === vendedorId)?.primerNombre || 'Sin Vendedor',
-                totalSales: (salesData as { totalSales: number; orderCount: number }).totalSales,
-                orderCount: (salesData as { totalSales: number; orderCount: number }).orderCount
-            }))
+            .map(([vendedorKey, salesData]) => {
+                const vendedor = salesData.vendedor;
+                const nombreVendedor = vendedor
+                    ? `${vendedor.primerNombre || ''} ${vendedor.primerApellido || ''}`.trim() || vendedor.nombre || 'Sin Nombre'
+                    : 'Sin Vendedor';
+
+                return {
+                    id: vendedorKey,
+                    name: nombreVendedor,
+                    totalSales: salesData.totalSales,
+                    orderCount: salesData.orderCount
+                };
+            })
             .sort((a, b) => b.totalSales - a.totalSales);
     }, [facturas, notasCredito, vendedores]);
 
     const getTopProductos = useCallback((limit = 5) => {
         const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        
-        const productSales = facturas
-            .filter(f => new Date(f.fechaFactura) >= firstDayOfMonth)
-            .flatMap(f => f.items)
-            .reduce((acc, item) => {
-            acc[item.productoId] = (acc[item.productoId] || 0) + item.cantidad;
-            return acc;
-            }, {} as Record<number, number>);
-        
-        return Object.entries(productSales)
-            .map(([productoId, cantidad]) => ({
-                producto: productos.find(p => p.id === Number(productoId)),
-                cantidad
+        firstDayOfMonth.setHours(0, 0, 0, 0);
+
+        // Filtrar facturas del mes actual, válidas y con items
+        const facturasValidas = facturas.filter(f => {
+            if (!f.fechaFactura) return false;
+            const fechaFactura = new Date(f.fechaFactura);
+            fechaFactura.setHours(0, 0, 0, 0);
+            return fechaFactura >= firstDayOfMonth &&
+                f.estado !== 'ANULADA' &&
+                (f.estado !== 'BORRADOR' || !!f.cufe) &&
+                f.items &&
+                Array.isArray(f.items) &&
+                f.items.length > 0;
+        });
+
+        const facturasConItems = facturasValidas.filter(f => f.items && f.items.length > 0);
+        const totalItems = facturasConItems.reduce((sum, f) => sum + (f.items?.length || 0), 0);
+
+        logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Facturas válidas del mes:', {
+            totalFacturas: facturas.length,
+            facturasValidas: facturasValidas.length,
+            facturasConItems: facturasConItems.length,
+            totalItems: totalItems,
+            primeraFactura: facturasValidas[0] ? {
+                id: facturasValidas[0].id,
+                fechaFactura: facturasValidas[0].fechaFactura,
+                estado: facturasValidas[0].estado,
+                tieneItems: !!(facturasValidas[0].items && facturasValidas[0].items.length > 0),
+                itemsCount: facturasValidas[0].items?.length || 0
+            } : null
+        });
+
+        // Agrupar ventas por producto
+        const itemsValidos = facturasConItems
+            .flatMap(f => f.items || [])
+            .filter(item => {
+                const tieneProductoId = item.productoId != null && item.productoId !== undefined;
+                const tieneCantidad = item.cantidad != null && Number(item.cantidad) > 0;
+                if (!tieneProductoId || !tieneCantidad) {
+                    logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Item inválido:', {
+                        tieneProductoId,
+                        tieneCantidad,
+                        productoId: item.productoId,
+                        cantidad: item.cantidad
+                    });
+                }
+                return tieneProductoId && tieneCantidad;
+            });
+
+        logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Items válidos:', {
+            totalItems: itemsValidos.length,
+            primerosItems: itemsValidos.slice(0, 3).map(item => ({
+                productoId: item.productoId,
+                cantidad: item.cantidad
             }))
-            .filter((item): item is { producto: InvProducto; cantidad: number } => Boolean(item.producto))
+        });
+
+        const productSales = itemsValidos.reduce((acc, item) => {
+            const productoId = Number(item.productoId);
+            if (!isNaN(productoId) && productoId > 0) {
+                const cantidad = Number(item.cantidad || 0);
+                acc[productoId] = (acc[productoId] || 0) + cantidad;
+            }
+            return acc;
+        }, {} as Record<number, number>);
+
+        logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Ventas por producto:', {
+            productosConVentas: Object.keys(productSales).length,
+            totalProductos: productos.length,
+            productosIds: Object.keys(productSales).slice(0, 10)
+        });
+
+        const resultados = Object.entries(productSales)
+            .map(([productoId, cantidad]) => {
+                const producto = productos.find(p => {
+                    const pId = Number(p.id);
+                    const itemId = Number(productoId);
+                    return pId === itemId;
+                });
+                return {
+                    producto,
+                    cantidad: Number(cantidad),
+                    productoId: Number(productoId)
+                };
+            })
+            .filter((item): item is { producto: InvProducto; cantidad: number; productoId: number } => Boolean(item.producto))
             .sort((a, b) => b.cantidad - a.cantidad)
             .slice(0, limit);
+
+        logger.log({ prefix: 'getTopProductos', level: 'debug' }, 'Top productos resultantes:', {
+            cantidad: resultados.length,
+            productos: resultados.map(r => ({ nombre: r.producto.nombre, cantidad: r.cantidad }))
+        });
+
+        return resultados;
     }, [facturas, productos]);
 
     const getGlobalSearchResults = useCallback((query: string): GlobalSearchResults => {
@@ -902,7 +1240,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         }
 
         const searchTerm = String(query).toLowerCase().trim();
-        
+
         // Función helper para hacer búsqueda segura con toLowerCase
         const safeToLowerCase = (value: any): string => {
             if (value === null || value === undefined) return '';
@@ -930,7 +1268,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             }
             return '';
         };
-        
+
         const results: GlobalSearchResults = {
             cotizaciones: (Array.isArray(cotizaciones) ? cotizaciones : []).filter(c => {
                 if (!c) return false;
@@ -939,38 +1277,38 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const clienteNombre = findClienteNombre(c.clienteId || (c as any).codter || (c as any).cliente_id);
                 return numeroCotizacion.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
-            
+
             pedidos: (Array.isArray(pedidos) ? pedidos : []).filter(p => {
                 if (!p) return false;
                 const numeroPedido = getNumeroDocumento(p, 'numeroPedido', 'numero_pedido', 'numeroPedido');
                 const clienteNombre = findClienteNombre(p.clienteId || (p as any).cliente_id);
                 return numeroPedido.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
-            
+
             facturas: (Array.isArray(facturas) ? facturas : []).filter(f => {
                 if (!f) return false;
                 const numeroFactura = getNumeroDocumento(f, 'numeroFactura', 'numero_factura', 'numeroFactura');
                 const clienteNombre = findClienteNombre(f.clienteId || (f as any).cliente_id);
                 return numeroFactura.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
-            
+
             remisiones: (Array.isArray(remisiones) ? remisiones : []).filter(r => {
                 if (!r) return false;
                 const numeroRemision = getNumeroDocumento(r, 'numeroRemision', 'numero_remision', 'numeroRemision');
                 const clienteNombre = findClienteNombre(r.clienteId || (r as any).cliente_id);
                 return numeroRemision.includes(searchTerm) || clienteNombre.includes(searchTerm);
             }).slice(0, 5),
-            
+
             productos: (Array.isArray(productos) ? productos : []).filter(p => {
                 if (!p) return false;
                 const nombre = safeToLowerCase(p.nombre || p.nomins);
                 const codigo = safeToLowerCase((p as any).codigo || p.codins);
                 const referencia = safeToLowerCase(p.referencia);
-                return nombre.includes(searchTerm) || 
-                       codigo.includes(searchTerm) || 
-                       referencia.includes(searchTerm);
+                return nombre.includes(searchTerm) ||
+                    codigo.includes(searchTerm) ||
+                    referencia.includes(searchTerm);
             }).slice(0, 5),
-            
+
             clientes: (Array.isArray(clientes) ? clientes : []).filter(c => {
                 if (!c) return false;
                 const nombreCompleto = safeToLowerCase(c.nombreCompleto || c.razonSocial || c.nomter);
@@ -986,7 +1324,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     const addActivityLog = useCallback((action: string, details: string, entity: { type: string; id: string | number; name: string }) => {
         if (!user) return;
-        
+
         const newLog: ActivityLog = {
             id: Date.now().toString(),
             timestamp: Date.now(),
@@ -999,9 +1337,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             details,
             entity
         };
-        
+
         setActivityLog(prev => [newLog, ...prev.slice(0, 99)]);
-        
+
         // Save to localStorage
         try {
             const updatedLog = [newLog, ...activityLog.slice(0, 99)];
@@ -1125,61 +1463,6 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         return productoNormalizado;
     }, [selectedSede?.codigo, productos, medidas, addActivityLog]);
 
-    const refreshData = useCallback(async () => {
-        setIsMainDataLoaded(false);
-        setIsLoading(true);
-        
-        // Helper para extraer datos de estructura anidada
-        const extractArrayData = (response: any): any[] => {
-            if (!response.success) return [];
-            const raw = response.data;
-            if (Array.isArray(raw)) return raw;
-            if (raw && typeof raw === 'object' && 'data' in raw && Array.isArray((raw as any).data)) {
-                return (raw as any).data;
-            }
-            return [];
-        };
-        
-        // Reload essential catalogs
-        try {
-            const medidasResponse = await fetchMedidas();
-            if (medidasResponse.success) {
-                const medidasData = extractArrayData(medidasResponse);
-                if (medidasData.length > 0) {
-                    setMedidas(medidasData);
-                }
-            }
-            
-            const categoriasResponse = await fetchCategorias();
-            if (categoriasResponse.success) {
-                const categoriasData = extractArrayData(categoriasResponse);
-                if (categoriasData.length > 0) {
-                    setCategorias(categoriasData);
-                }
-            }
-            
-            // Recargar productos con filtro de bodega actual
-            const codalm = selectedSede?.codigo ? String(selectedSede.codigo).padStart(3, '0') : undefined;
-            const productosResponse = await fetchProductos(codalm);
-            if (productosResponse.success) {
-                const productosData = extractArrayData(productosResponse);
-                const productosConMedida = (productosData as any[]).map((p: InvProducto) => ({ 
-                    ...p, 
-                    unidadMedida: medidas.find((m) => m.id === p.idMedida)?.nombre || 'Unidad',
-                    stock: p.stock ?? 0,
-                    controlaExistencia: p.stock ?? p.controlaExistencia ?? 0
-                }));
-                productosConMedida.sort((a: InvProducto, b: InvProducto) => (a.nombre || '').trim().localeCompare((b.nombre || '').trim()));
-                setProductos(productosConMedida);
-            }
-
-            setIsLoading(false);
-        } catch (error) {
-            logger.error({ prefix: 'refreshData' }, 'Error refreshing data:', error);
-            setIsLoading(false);
-        }
-    }, [selectedSede?.codigo, medidas]);
-
     // Función específica para recargar facturas y remisiones después de timbrar una factura
     const refreshFacturasYRemisiones = useCallback(async () => {
         try {
@@ -1226,14 +1509,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 if (remisionesIds.length === 0 && f.remisionId) {
                     remisionesIds = [String(f.remisionId)];
                 }
-                
+
                 // Buscar items que pertenezcan a esta factura (matching flexible por ID)
                 const facturaIdStr = String(f.id || f.ID || '');
                 const items = (facturasDetalleData as any[]).filter(d => {
                     const detalleFacturaId = String(d.facturaId || d.factura_id || d.id_factura || '');
                     // Comparar tanto por ID numérico como por string
-                    return facturaIdStr === detalleFacturaId || 
-                           (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
+                    return facturaIdStr === detalleFacturaId ||
+                        (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
                 }).map(d => ({
                     // Mapear campos del detalle a la estructura esperada
                     productoId: d.productoId || null,
@@ -1247,7 +1530,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     total: Number(d.total || 0),
                     codProducto: d.codProducto || d.codins || ''
                 }));
-                
+
                 return {
                     ...f,
                     items: items,
@@ -1255,13 +1538,13 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     estadoDevolucion: f.estadoDevolucion || f.estado_devolucion || undefined
                 };
             });
-            
+
             logger.log({ prefix: 'refreshFacturasYRemisiones', level: 'debug' }, 'Facturas procesadas con detalles:', {
                 facturasCount: facturasConDetalles.length,
                 facturasConItems: facturasConDetalles.filter(f => f.items && f.items.length > 0).length,
                 totalItems: facturasConDetalles.reduce((sum, f) => sum + (f.items?.length || 0), 0)
             });
-            
+
             setFacturas(facturasConDetalles);
 
             // Process remisiones with detalles
@@ -1272,8 +1555,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     const remisionNumrec = r.numrec;
                     const detalleNumrec = d.numrec;
                     // Match por ID o por numrec
-                    return remisionId === detalleRemisionId || 
-                           (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
+                    return remisionId === detalleRemisionId ||
+                        (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
                 }).map(d => {
                     // Mapear campos del detalle de remisión a la estructura esperada
                     return {
@@ -1294,7 +1577,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         detaPedidoId: d.detaPedidoId || d.deta_pedido_id || null
                     };
                 });
-                
+
                 // Mapear estado: si viene como 'D' de la BD, convertirlo a 'ENTREGADO'
                 const estadoMapeado = (() => {
                     const estadoRaw = r.estado || 'BORRADOR';
@@ -1306,7 +1589,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     // Para otros estados, usar el mapeo estándar o el valor original
                     return estadoRaw;
                 })();
-                
+
                 return {
                     ...r,
                     estado: estadoMapeado,
@@ -1328,9 +1611,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const refreshPedidosYRemisiones = useCallback(async () => {
         try {
             const [
-                pedidosResponse, 
-                pedidosDetalleResponse, 
-                remisionesResponse, 
+                pedidosResponse,
+                pedidosDetalleResponse,
+                remisionesResponse,
                 remisionesDetalleResponse
             ] = await Promise.all([
                 fetchPedidos(),
@@ -1377,8 +1660,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     const remisionNumrec = r.numrec;
                     const detalleNumrec = d.numrec;
                     // Match por ID o por numrec
-                    return remisionId === detalleRemisionId || 
-                           (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
+                    return remisionId === detalleRemisionId ||
+                        (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
                 }).map(d => {
                     // Mapear campos del detalle de remisión a la estructura esperada
                     return {
@@ -1447,15 +1730,24 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     }, [refreshData]);
 
     const actualizarCliente = useCallback(async (id: string, data: Partial<Cliente>) => {
-        logger.warn({ prefix: 'actualizarCliente' }, 'No implementado aún en backend');
-        await refreshData();
-        const found = clientes.find(c => c.id === id) || null;
-        return found;
-    }, [refreshData, clientes]);
+        try {
+            const { apiUpdateCliente } = await import('../services/apiClient');
+            const resp = await apiUpdateCliente(id, data);
+
+            if (resp.success && resp.data) {
+                await refreshData();
+                return resp.data as Cliente;
+            }
+            throw new Error(resp.message || 'Error al actualizar cliente');
+        } catch (e) {
+            logger.error({ prefix: 'actualizarCliente' }, 'Error al actualizar cliente:', e);
+            throw e;
+        }
+    }, [refreshData]);
 
     const datosEmpresa = useMemo(() => ({
         id: 1,
-        nombre: 'Innovatech Colombia SAS',
+        nombre: 'MULTIACABADOS',
         nit: '900.123.456-7',
         direccion: 'Avenida Siempre Viva 123',
         ciudad: 'Bogotá D.C.',
@@ -1467,25 +1759,31 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     const getCotizacionById = useCallback((id: string) => cotizaciones.find(c => c.id === id), [cotizaciones]);
 
+    const getProductoById = useCallback((id: string | number) => {
+        // Normalizar ID a string para comparación flexible
+        const idStr = String(id);
+        return productos.find(p => String(p.id) === idStr);
+    }, [productos]);
+
     const crearCotizacion = useCallback(async (data: Cotizacion): Promise<Cotizacion> => {
         try {
             const { apiCreateCotizacion } = await import('../services/apiClient');
-            
+
             // Obtener código de bodega desde la bodega seleccionada en el header
-            const bodegaCodigo = selectedSede?.codigo 
-              ? String(selectedSede.codigo).padStart(3, '0')
-              : '001'; // Fallback si no hay bodega seleccionada
-            
+            const bodegaCodigo = selectedSede?.codigo
+                ? String(selectedSede.codigo).padStart(3, '0')
+                : '001'; // Fallback si no hay bodega seleccionada
+
             if (!selectedSede) {
                 logger.warn({ prefix: 'crearCotizacion' }, 'No hay bodega seleccionada, usando fallback:', bodegaCodigo);
             } else {
                 logger.log({ prefix: 'crearCotizacion', level: 'debug' }, 'Usando bodega seleccionada:', selectedSede.nombre, 'Código:', bodegaCodigo);
             }
-            
+
             // Buscar el cliente para obtener su codter (numeroDocumento)
             const cliente = clientes.find(c => c.id === data.clienteId || String(c.id) === String(data.clienteId));
             const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || data.clienteId;
-            
+
             logger.log({ prefix: 'crearCotizacion', level: 'debug' }, 'Datos del cliente:', {
                 clienteIdRecibido: data.clienteId,
                 clienteEncontrado: cliente ? {
@@ -1496,7 +1794,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 } : 'NO ENCONTRADO',
                 codterAUsar: clienteCodter
             });
-            
+
             // Mapear observacionesInternas a observaciones para el backend
             // Si el numeroCotizacion es 'COT-PREVIEW', no enviarlo para que el backend genere uno automáticamente
             const { numeroCotizacion, id: _tempId, ...dataSinNumero } = data as any;
@@ -1513,21 +1811,21 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // Usar código de bodega desde la bodega seleccionada en el header
                 empresaId: bodegaCodigo
             };
-            
+
             // Validación final: asegurar que nunca se envíe "AUTO" o "COT-PREVIEW"
-            if (payload.numeroCotizacion === 'AUTO' || 
-                payload.numeroCotizacion === 'COT-PREVIEW' || 
+            if (payload.numeroCotizacion === 'AUTO' ||
+                payload.numeroCotizacion === 'COT-PREVIEW' ||
                 (payload.numeroCotizacion && payload.numeroCotizacion.toUpperCase() === 'AUTO')) {
-              logger.warn({ prefix: 'crearCotizacion' }, 'Payload contiene numeroCotizacion inválido, eliminándolo');
-              delete payload.numeroCotizacion;
+                logger.warn({ prefix: 'crearCotizacion' }, 'Payload contiene numeroCotizacion inválido, eliminándolo');
+                delete payload.numeroCotizacion;
             }
-            
+
             logger.log({ prefix: 'crearCotizacion', level: 'debug' }, 'Payload a enviar:', {
                 ...payload,
                 items: `[${payload.items.length} items]`,
                 numeroCotizacion: payload.numeroCotizacion || '(no enviado, backend generará)'
             });
-            
+
             const resp = await apiCreateCotizacion(payload);
             if (resp.success && resp.data) {
                 await refreshData();
@@ -1570,34 +1868,34 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 logger.error({ prefix: 'actualizarCotizacion' }, 'Cotización no encontrada:', idStr);
                 return undefined;
             }
-            
+
             logger.log({ prefix: 'actualizarCotizacion', level: 'debug' }, 'Actualizando cotización:', { id: idStr, data, currentQuoteId: currentQuote.id });
-            
+
             const payload: any = {};
             if (data.estado !== undefined) payload.estado = data.estado;
             if (data.fechaCotizacion !== undefined) payload.fechaCotizacion = data.fechaCotizacion;
             if (data.fechaVencimiento !== undefined) payload.fechaVencimiento = data.fechaVencimiento;
             if (data.observaciones !== undefined) payload.observaciones = data.observaciones;
             if (data.observacionesInternas !== undefined) payload.observacionesInternas = data.observacionesInternas;
-            
+
             logger.log({ prefix: 'actualizarCotizacion', level: 'debug' }, 'Payload:', payload);
-            
+
             // Asegurar que el ID sea convertido a número si es necesario para el backend
             const idParaBackend = typeof id === 'number' ? id : (isNaN(Number(id)) ? id : Number(id));
             logger.log({ prefix: 'actualizarCotizacion', level: 'debug' }, 'ID para backend:', idParaBackend, 'tipo:', typeof idParaBackend);
-            
+
             const resp = await apiUpdateCotizacion(idParaBackend, payload);
-            
-            logger.log({ prefix: 'actualizarCotizacion', level: 'debug' }, 'Respuesta del API:', { 
-                success: resp.success, 
-                hasData: !!resp.data, 
+
+            logger.log({ prefix: 'actualizarCotizacion', level: 'debug' }, 'Respuesta del API:', {
+                success: resp.success,
+                hasData: !!resp.data,
                 message: resp.message,
-                data: resp.data 
+                data: resp.data
             });
-            
+
             if (resp.success && resp.data) {
                 const updatedQuote = { ...currentQuote, ...data, ...(resp.data as any) } as Cotizacion;
-                
+
                 setCotizaciones(prev => {
                     const exists = prev.some(c => String(c.id) === idStr);
                     if (exists) {
@@ -1605,11 +1903,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     }
                     return [updatedQuote, ...prev];
                 });
-                
+
                 await refreshData();
-                
+
                 logger.log({ prefix: 'actualizarCotizacion', level: 'debug' }, 'Cotización actualizada exitosamente:', updatedQuote.numeroCotizacion);
-                
+
                 if (user?.nombre) {
                     const estadoChange = data.estado ? ` (Estado: ${currentQuote.estado} → ${data.estado})` : '';
                     addActivityLog(
@@ -1618,10 +1916,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         { type: 'Cotización', id: updatedQuote.id, name: updatedQuote.numeroCotizacion }
                     );
                 }
-                
+
                 return updatedQuote;
             }
-            
+
             const errorMsg = resp.message || `No se pudo actualizar la cotización. Respuesta: ${JSON.stringify(resp)}`;
             logger.error({ prefix: 'actualizarCotizacion' }, 'Error en respuesta:', errorMsg, resp);
             throw new Error(errorMsg);
@@ -1637,17 +1935,17 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const crearPedido = useCallback(async (data: Pedido): Promise<Pedido> => {
         try {
             const { apiCreatePedido } = await import('../services/apiClient');
-            
+
             // Convertir clienteId numérico a codter si es necesario
             let clienteCodter = data.clienteId;
             if (data.clienteId) {
                 // Buscar cliente por ID numérico o por codter/numeroDocumento
-                const cliente = clientes.find(c => 
+                const cliente = clientes.find(c =>
                     String(c.id) === String(data.clienteId) ||
                     c.numeroDocumento === data.clienteId ||
                     (c as any).codter === data.clienteId
                 );
-                
+
                 if (cliente) {
                     // Usar numeroDocumento o codter, priorizando numeroDocumento
                     clienteCodter = cliente.numeroDocumento || (cliente as any).codter || data.clienteId;
@@ -1663,16 +1961,16 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     logger.warn({ prefix: 'crearPedido' }, 'Cliente no encontrado, usando clienteId original:', data.clienteId);
                 }
             }
-            
+
             // Convertir vendedorId a codi_emple si es necesario
             let vendedorCodiEmple = data.vendedorId;
             if (data.vendedorId) {
                 // Buscar vendedor por ID o codi_emple
-                const vendedor = vendedores.find(v => 
+                const vendedor = vendedores.find(v =>
                     String(v.id) === String(data.vendedorId) ||
                     v.codiEmple === data.vendedorId
                 );
-                
+
                 if (vendedor) {
                     vendedorCodiEmple = vendedor.codiEmple || data.vendedorId;
                     logger.log({ prefix: 'crearPedido', level: 'debug' }, 'Vendedor encontrado:', {
@@ -1686,13 +1984,13 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     logger.warn({ prefix: 'crearPedido' }, 'Vendedor no encontrado, usando vendedorId original:', data.vendedorId);
                 }
             }
-            
+
             // Generar fechaPedido automáticamente si no se proporciona
             const fechaPedido = data.fechaPedido || new Date().toISOString().split('T')[0];
-            
+
             // Obtener código de bodega desde la bodega seleccionada en el header
             let bodegaCodigo: string | undefined;
-            
+
             if (selectedSede?.codigo) {
                 bodegaCodigo = String(selectedSede.codigo).padStart(3, '0');
                 logger.log({ prefix: 'crearPedido', level: 'debug' }, 'Usando bodega seleccionada:', selectedSede.nombre, 'Código:', bodegaCodigo);
@@ -1708,20 +2006,68 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     throw new Error('No hay bodega seleccionada. Por favor, seleccione una bodega antes de crear el pedido.');
                 }
             }
-            
+
+            // Función para normalizar y redondear valores numéricos a 2 decimales
+            // Asegura que los valores sean números puros, no strings con formato
+            const roundTo2Decimals = (value: number | string | undefined | null): number => {
+                if (value === null || value === undefined) return 0;
+                // Si es string, limpiar formato primero
+                if (typeof value === 'string') {
+                    // Remover símbolos de moneda, espacios y formateo
+                    let cleaned = value.trim().replace(/[$\s]/g, '');
+                    // Si tiene coma y punto, la coma es decimal (formato europeo: 1.234,56)
+                    if (cleaned.includes(',') && cleaned.includes('.')) {
+                        cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+                    } else if (cleaned.includes(',')) {
+                        // Solo coma, verificar si es decimal o separador de miles
+                        const parts = cleaned.split(',');
+                        if (parts.length === 2 && parts[1].length <= 2) {
+                            cleaned = cleaned.replace(',', '.'); // Es decimal
+                        } else {
+                            cleaned = cleaned.replace(/,/g, ''); // Es separador de miles
+                        }
+                    }
+                    value = parseFloat(cleaned);
+                }
+                // Asegurar que sea un número válido
+                const num = Number(value);
+                if (!isFinite(num) || isNaN(num)) return 0;
+                // Redondear a 2 decimales
+                return Math.round(num * 100) / 100;
+            };
+
+            // Normalizar items para evitar problemas de overflow
+            // Asegurar que todos los valores sean números puros
+            const normalizedItems = data.items?.map(item => ({
+                ...item,
+                productoId: Number(item.productoId) || 0,
+                cantidad: Number(item.cantidad) || 0,
+                precioUnitario: roundTo2Decimals(item.precioUnitario),
+                descuentoPorcentaje: roundTo2Decimals(item.descuentoPorcentaje),
+                ivaPorcentaje: roundTo2Decimals(item.ivaPorcentaje),
+                subtotal: roundTo2Decimals(item.subtotal),
+                valorIva: roundTo2Decimals(item.valorIva),
+                total: roundTo2Decimals(item.total),
+                // Asegurar que descuentoValor también esté normalizado si existe
+                descuentoValor: (item as any).descuentoValor ? roundTo2Decimals((item as any).descuentoValor) : 0
+            })) || [];
+
             const payload = {
                 ...data,
+                items: normalizedItems,
                 fechaPedido: fechaPedido, // Asegurar que siempre haya fechaPedido
                 clienteId: clienteCodter, // Usar codter en lugar de ID numérico
                 vendedorId: vendedorCodiEmple, // Usar codi_emple en lugar de ID numérico
                 empresaId: data.empresaId || bodegaCodigo, // Usar bodega seleccionada o la que viene en data
                 estado: data.estado || 'ENVIADA', // Estado por defecto
                 observaciones: data.observaciones || '',
-                descuentoValor: data.descuentoValor || 0,
-                ivaValor: data.ivaValor || 0,
-                impoconsumoValor: data.impoconsumoValor || 0
+                subtotal: roundTo2Decimals(data.subtotal),
+                descuentoValor: roundTo2Decimals(data.descuentoValor),
+                ivaValor: roundTo2Decimals(data.ivaValor),
+                total: roundTo2Decimals(data.total),
+                impoconsumoValor: roundTo2Decimals(data.impoconsumoValor)
             };
-            
+
             logger.log({ prefix: 'crearPedido', level: 'debug' }, 'Enviando payload:', {
                 fechaPedido: payload.fechaPedido,
                 clienteId: payload.clienteId,
@@ -1730,31 +2076,43 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 itemsCount: payload.items?.length || 0,
                 total: payload.total
             });
-            
+
             const resp = await apiCreatePedido(payload);
-            
+
             logger.log({ prefix: 'crearPedido', level: 'debug' }, 'Respuesta recibida:', {
                 success: resp.success,
                 hasData: !!resp.data,
                 message: resp.message,
                 error: resp.error
             });
-            
+
             if (resp.success && resp.data) {
                 await refreshData();
-                const responseData = resp.data as { id: string };
-                return { ...data, id: responseData.id } as Pedido;
+                const responseData = resp.data as { id: string | number };
+                // Construir el pedido completo con todos los campos necesarios
+                const pedidoCreado: Pedido = {
+                    ...data,
+                    id: String(responseData.id),
+                    // Asegurar que numeroPedido esté presente
+                    numeroPedido: data.numeroPedido || `PED-${String(responseData.id).padStart(3, '0')}`
+                };
+                logger.log({ prefix: 'crearPedido', level: 'info' }, 'Pedido creado exitosamente:', {
+                    id: pedidoCreado.id,
+                    numeroPedido: pedidoCreado.numeroPedido,
+                    itemsCount: pedidoCreado.items?.length || 0
+                });
+                return pedidoCreado;
             }
-            
+
             // Mostrar más detalles del error
             let errorMessage = resp.message || resp.error || 'No se pudo crear el pedido';
-            
+
             // Si hay información de debug (almacenes disponibles), incluirla en el mensaje
             const debugInfo = (resp as any).debug;
             if (debugInfo && debugInfo.ejemplosAlmacenes) {
                 const almacenes = debugInfo.ejemplosAlmacenes;
                 if (almacenes.length > 0) {
-                    const almacenesList = almacenes.map((a: any) => 
+                    const almacenesList = almacenes.map((a: any) =>
                         `"${a.codalm}" (${a.nomalm || 'Sin nombre'}, activo: ${a.activo ? 'Sí' : 'No'})`
                     ).join(', ');
                     errorMessage += `\n\nAlmacenes disponibles en la base de datos: ${almacenesList}`;
@@ -1762,7 +2120,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     errorMessage += '\n\n⚠️ No hay almacenes registrados en la base de datos. Por favor, cree al menos un almacén antes de crear pedidos.';
                 }
             }
-            
+
             logger.error({ prefix: 'crearPedido' }, 'Error en respuesta:', {
                 message: errorMessage,
                 success: resp.success,
@@ -1784,10 +2142,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         try {
             const currentPedido = pedidos.find(p => p.id === id);
             if (!currentPedido) return undefined;
-            
+
             const updatedPedido: Pedido = { ...currentPedido, ...data };
             setPedidos(prev => prev.map(p => (p.id === id ? updatedPedido : p)));
-            
+
             if (user?.nombre || updatedBy) {
                 addActivityLog(
                     'Actualización Pedido',
@@ -1809,41 +2167,41 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 logger.error({ prefix: 'aprobarPedido' }, 'Pedido no encontrado:', id);
                 return undefined;
             }
-            
+
             // Solo se pueden aprobar pedidos en estado ENVIADA o BORRADOR
             if (pedido.estado !== 'ENVIADA' && pedido.estado !== 'BORRADOR') {
                 logger.warn({ prefix: 'aprobarPedido' }, `No se puede aprobar un pedido en estado: ${pedido.estado}`);
                 return undefined;
             }
-            
+
             // Llamar a la API para actualizar el estado en la base de datos
             const { apiUpdatePedido } = await import('../services/apiClient');
             const idNum = typeof pedido.id === 'number' ? pedido.id : parseInt(String(pedido.id), 10);
-            
+
             logger.log({ prefix: 'aprobarPedido', level: 'debug' }, 'Actualizando pedido en BD:', {
                 id: idNum,
                 estadoActual: pedido.estado,
                 estadoNuevo: 'CONFIRMADO'
             });
-            
+
             const resp = await apiUpdatePedido(idNum, { estado: 'CONFIRMADO' });
-            
+
             if (!resp.success || !resp.data) {
                 logger.error({ prefix: 'aprobarPedido' }, 'Error en respuesta de API:', resp);
                 throw new Error(resp.message || 'No se pudo actualizar el pedido en la base de datos');
             }
-            
+
             // Actualizar el estado local con los datos de la respuesta
-            const pedidoAprobado: Pedido = { 
-                ...pedido, 
+            const pedidoAprobado: Pedido = {
+                ...pedido,
                 estado: ((resp.data as any)?.estado || 'CONFIRMADO') as Pedido['estado'],
                 ...(resp.data as any)
             };
             setPedidos(prev => prev.map(p => (p.id === id ? pedidoAprobado : p)));
-            
+
             // Recargar datos para asegurar sincronización
             await refreshData();
-            
+
             if (user?.nombre) {
                 addActivityLog(
                     'Aprobación Pedido',
@@ -1851,7 +2209,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     { type: 'Pedido', id: pedidoAprobado.id, name: pedidoAprobado.numeroPedido }
                 );
             }
-            
+
             logger.log({ prefix: 'aprobarPedido', level: 'debug' }, 'Pedido aprobado exitosamente:', pedidoAprobado.numeroPedido);
             return pedidoAprobado;
         } catch (e) {
@@ -1864,10 +2222,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         try {
             const pedido = pedidos.find(p => p.id === id);
             if (!pedido) return undefined;
-            
+
             const pedidoActualizado: Pedido = { ...pedido, estado: 'EN_PROCESO' };
             setPedidos(prev => prev.map(p => (p.id === id ? pedidoActualizado : p)));
-            
+
             if (user?.nombre) {
                 addActivityLog(
                     'Pedido Listo para Despacho',
@@ -1884,133 +2242,67 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     const aprobarCotizacion = useCallback(async (idOrCotizacion: string | Cotizacion, itemIds?: number[]): Promise<{ cotizacion: Cotizacion, pedido: Pedido } | Cotizacion | undefined> => {
         try {
+            // Importar directamente el cliente API para acceder a la respuesta completa (incluyendo pedido creado automáticamente)
+            // No usamos actualizarCotizacion porque su firma no retorna el pedido, aunque el backend sí lo envía
+            const { apiUpdateCotizacion } = await import('../services/apiClient');
+
             // Obtener la cotización
-            const cotizacion = typeof idOrCotizacion === 'string' 
+            const cotizacion = typeof idOrCotizacion === 'string'
                 ? cotizaciones.find(c => c.id === idOrCotizacion)
                 : idOrCotizacion;
-            
+
             if (!cotizacion) {
                 logger.error({ prefix: 'aprobarCotizacion' }, 'Cotización no encontrada para aprobar');
                 return undefined;
             }
-            
-            logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Aprobando cotización:', { 
-                id: cotizacion.id, 
-                numero: cotizacion.numeroCotizacion,
-                itemIds: itemIds?.length || 0 
+
+            // Asegurar que la cotización tenga items
+            if (!cotizacion.items || cotizacion.items.length === 0) {
+                logger.error({ prefix: 'aprobarCotizacion' }, 'La cotización no tiene items');
+                throw new Error('La cotización no tiene items para aprobar');
+            }
+
+            logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, 'Aprobando cotización y esperando creación automática de pedido por backend:', {
+                id: cotizacion.id,
+                numero: cotizacion.numeroCotizacion
             });
-            
-            // Primero actualizar el estado de la cotización a APROBADA en el backend
-            const cotizacionActualizada = await actualizarCotizacion(cotizacion.id, { estado: 'APROBADA' }, cotizacion);
-            if (!cotizacionActualizada) {
-                logger.error({ prefix: 'aprobarCotizacion' }, 'No se pudo actualizar el estado de la cotización');
-                throw new Error('No se pudo actualizar el estado de la cotización');
+
+            // Preparar payload para actualización
+            const payload = { estado: 'APROBADA' };
+
+            // Asegurar que el ID sea convertido a número si es necesario para el backend
+            const idParaBackend = typeof cotizacion.id === 'number' ? cotizacion.id : (isNaN(Number(cotizacion.id)) ? cotizacion.id : Number(cotizacion.id));
+
+            // Llamar al backend para actualizar estado (esto disparará la creación automática del pedido en el backend)
+            const resp = await apiUpdateCotizacion(idParaBackend, payload);
+
+            if (!resp.success || !resp.data) {
+                const errorMsg = resp.message || 'No se pudo actualizar el estado de la cotización';
+                logger.error({ prefix: 'aprobarCotizacion' }, 'Error del backend:', errorMsg);
+                throw new Error(errorMsg);
             }
-            
-            // Actualizar el estado local
-            const cotizacionAprobada: Cotizacion = { ...cotizacionActualizada, estado: 'APROBADA' };
-            setCotizaciones(prev => prev.map(c => (c.id === cotizacion.id ? cotizacionAprobada : c)));
-            
-            // Si se proporcionan itemIds, crear un pedido con esos items
-            if (itemIds && itemIds.length > 0) {
-                const itemsParaPedido = cotizacion.items.filter(item => itemIds.includes(item.productoId));
-                
-                if (itemsParaPedido.length === 0) {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'No se encontraron items para crear el pedido');
-                    throw new Error('No se encontraron items para crear el pedido');
-                }
-                
-                // Obtener el codter del cliente desde la lista de clientes
-                // Buscar por ID numérico o por codter/numeroDocumento
-                const cliente = clientes.find(c => 
-                    String(c.id) === String(cotizacion.clienteId) ||
-                    c.numeroDocumento === cotizacion.clienteId ||
-                    (c as any).codter === cotizacion.clienteId
-                );
-                const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || cotizacion.clienteId;
-                
-                // El vendedorId de la cotización ya debería ser el codi_emple, pero verificamos
-                const vendedorCodiEmple = cotizacion.vendedorId || '';
-                
-                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Mapeando datos:', {
-                    clienteIdOriginal: cotizacion.clienteId,
-                    clienteCodter: clienteCodter,
-                    clienteEncontrado: cliente ? { id: cliente.id, nombre: cliente.nombreCompleto || cliente.razonSocial } : null,
-                    vendedorIdOriginal: cotizacion.vendedorId,
-                    vendedorCodiEmple: vendedorCodiEmple,
-                    itemsCount: itemsParaPedido.length
-                });
-                
-                // Mapear items asegurando que tengan toda la información necesaria
-                const itemsMapeados = itemsParaPedido.map(item => {
-                    // Buscar el producto en el catálogo para obtener información adicional
-                    const producto = productos.find(p => 
-                        String(p.id) === String(item.productoId) ||
-                        p.id === item.productoId
-                    );
-                    
-                    return {
-                        ...item,
-                        pedidoId: '',
-                        // Asegurar que la descripción tenga el nombre del producto si está disponible
-                        descripcion: item.descripcion || producto?.nombre || (item as any).nombre || `Producto ${item.productoId}`,
-                        // Asegurar que la unidad de medida esté disponible
-                        unidadMedida: (item as any).unidadMedida || producto?.unidadMedida || 'Unidad'
-                    };
-                });
-                
-                const nuevoPedido: Pedido = {
-                    id: '', // Se asignará cuando se cree
-                    numeroPedido: `PED-${cotizacionAprobada.numeroCotizacion}`,
-                    fechaPedido: new Date().toISOString().split('T')[0],
-                    clienteId: clienteCodter, // Usar codter en lugar de ID numérico
-                    vendedorId: vendedorCodiEmple, // Ya debería ser codi_emple
-                    cotizacionId: cotizacion.id,
-                    subtotal: itemsParaPedido.reduce((sum, item) => sum + (item.subtotal || 0), 0),
-                    descuentoValor: itemsParaPedido.reduce((sum, item) => {
-                        const itemTotal = (item.precioUnitario || 0) * (item.cantidad || 0);
-                        return sum + (itemTotal * ((item.descuentoPorcentaje || 0) / 100));
-                    }, 0),
-                    ivaValor: itemsParaPedido.reduce((sum, item) => sum + ((item as any).ivaValor || item.valorIva || 0), 0),
-                    total: itemsParaPedido.reduce((sum, item) => sum + (item.total || 0), 0),
-                    estado: 'ENVIADA', // Estado inicial: pedido creado desde cotización aprobada, necesita aprobación
-                    observaciones: `Pedido creado desde cotización ${cotizacion.numeroCotizacion}`,
-                    items: itemsMapeados,
-                    fechaEntregaEstimada: cotizacion.fechaVencimiento,
-                    empresaId: typeof cotizacion.empresaId === 'number' ? cotizacion.empresaId : (typeof cotizacion.empresaId === 'string' ? parseInt(cotizacion.empresaId, 10) || 1 : 1)
-                };
-                
-                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Creando pedido:', { 
-                    numeroPedido: nuevoPedido.numeroPedido,
-                    clienteId: nuevoPedido.clienteId,
-                    itemsCount: nuevoPedido.items.length,
-                    total: nuevoPedido.total
-                });
-                
-                const pedidoCreado = await crearPedido(nuevoPedido);
-                
-                if (!pedidoCreado) {
-                    logger.error({ prefix: 'aprobarCotizacion' }, 'No se pudo crear el pedido');
-                    throw new Error('No se pudo crear el pedido');
-                }
-                
-                logger.log({ prefix: 'aprobarCotizacion', level: 'debug' }, 'Pedido creado exitosamente:', pedidoCreado.numeroPedido);
-                
-                if (user?.nombre) {
-                    addActivityLog(
-                        'Aprobación Cotización y Creación Pedido',
-                        `Cotización ${cotizacionAprobada.numeroCotizacion} aprobada y pedido ${pedidoCreado.numeroPedido} creado`,
-                        { type: 'Cotización', id: cotizacionAprobada.id, name: cotizacionAprobada.numeroCotizacion }
-                    );
-                }
-                
-                // Recargar datos para asegurar sincronización
-                await refreshData();
-                
-                return { cotizacion: cotizacionAprobada, pedido: pedidoCreado };
-            }
-            
-            // Si no se proporcionan itemIds, solo aprobar la cotización
+
+            // Procesar respuesta exitosa
+            // El backend devuelve { data: Cotizacion, pedido: Pedido }
+            const cotizacionActualizadaData = resp.data as any; // Cast flexible por si acaso
+            const pedidoCreadoBackend = (resp as any).pedido as Pedido | undefined;
+
+            // Construir objeto cotización actualizado para estado local
+            const cotizacionAprobada: Cotizacion = {
+                ...cotizacion,
+                ...cotizacionActualizadaData,
+                estado: 'APROBADA',
+                // Mantener items vigentes si el backend no los devuelve completos
+                items: (cotizacionActualizadaData.items && cotizacionActualizadaData.items.length > 0)
+                    ? cotizacionActualizadaData.items
+                    : (cotizacion.items || [])
+            };
+
+            // 1. Actualizar estado de Cotizaciones
+            setCotizaciones(prev => prev.map(c =>
+                String(c.id) === String(cotizacion.id) ? cotizacionAprobada : c
+            ));
+
             if (user?.nombre) {
                 addActivityLog(
                     'Aprobación Cotización',
@@ -2018,31 +2310,64 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     { type: 'Cotización', id: cotizacionAprobada.id, name: cotizacionAprobada.numeroCotizacion }
                 );
             }
-            
-            // Recargar datos para asegurar sincronización
-            await refreshData();
-            
-            return cotizacionAprobada;
-        } catch (e) {
-            logger.error({ prefix: 'aprobarCotizacion' }, 'Error:', e);
-            if (e instanceof Error) {
-                throw e;
+
+            // 2. Procesar el pedido creado automáticamente (si existe)
+            if (pedidoCreadoBackend) {
+                logger.log({ prefix: 'aprobarCotizacion', level: 'info' }, '✅ Backend retornó pedido creado automáticamente:', {
+                    id: pedidoCreadoBackend.id,
+                    numero: pedidoCreadoBackend.numeroPedido
+                });
+
+                // Actualizar estado de Pedidos
+                setPedidos(prev => {
+                    const exists = prev.some(p => String(p.id) === String(pedidoCreadoBackend.id));
+                    if (exists) return prev.map(p => String(p.id) === String(pedidoCreadoBackend.id) ? pedidoCreadoBackend : p);
+                    return [pedidoCreadoBackend, ...prev];
+                });
+
+                if (user?.nombre) {
+                    addActivityLog(
+                        'Creación Pedido Automática',
+                        `Pedido ${pedidoCreadoBackend.numeroPedido} creado automáticamente desde cotización ${cotizacionAprobada.numeroCotizacion}`,
+                        { type: 'Pedido', id: pedidoCreadoBackend.id, name: pedidoCreadoBackend.numeroPedido }
+                    );
+                }
+
+                // Retornar ambos objetos para que el UI pueda mostrar el modal
+                // Recargar datos en background para asegurar sincronización total
+                refreshData().catch(e => console.error('Error refreshing data async:', e));
+
+                return { cotizacion: cotizacionAprobada, pedido: pedidoCreadoBackend };
+            } else {
+                logger.warn({ prefix: 'aprobarCotizacion' }, '⚠️ Backend actualizó cotización pero NO retornó objeto pedido. Es posible que el trigger fallara o la lógica de backend sea diferente.');
+
+                // Recargar datos obligatoriamente para ver si el pedido aparece
+                await refreshData();
+
+                return cotizacionAprobada;
             }
+
+        } catch (e) {
+            logger.error({ prefix: 'aprobarCotizacion' }, '❌ ERROR EN aprobarCotizacion:', {
+                error: e,
+                message: e instanceof Error ? e.message : 'Error desconocido'
+            });
+            if (e instanceof Error) throw e;
             throw new Error('Error desconocido al aprobar cotización');
         }
-    }, [cotizaciones, clientes, productos, user, addActivityLog, crearPedido, actualizarCotizacion, refreshData]);
+    }, [cotizaciones, clientes, productos, user, addActivityLog, refreshData]);
 
     const aprobarRemision = useCallback(async (id: string | number): Promise<Remision | undefined> => {
         try {
             // Normalizar el ID para búsqueda (convertir a string para comparación)
             const idStr = String(id);
             const idNum = typeof id === 'number' ? id : parseInt(idStr, 10);
-            
+
             if (isNaN(idNum)) {
                 logger.error({ prefix: 'aprobarRemision' }, 'ID inválido, no se puede convertir a número:', id);
                 return undefined;
             }
-            
+
             // Buscar la remisión con comparación flexible (string o number)
             // Si el array está vacío, simplemente continuar con la actualización directa
             const remision = remisiones.length > 0 ? remisiones.find(r => {
@@ -2050,7 +2375,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const rIdNum = typeof r.id === 'number' ? r.id : parseInt(rIdStr, 10);
                 return rIdStr === idStr || rIdNum === idNum;
             }) : null;
-            
+
             // Si se encuentra en el array local, validar el estado
             if (remision) {
                 // Solo se pueden marcar como entregadas remisiones en estado EN_TRANSITO o BORRADOR
@@ -2067,28 +2392,28 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     remisionesEnEstado: remisiones.length
                 });
             }
-            
+
             // Llamar a la API para actualizar el estado en la base de datos
             // El backend validará el estado actual y si se puede actualizar
             const { apiUpdateRemision } = await import('../services/apiClient');
             const remisionIdNum = remision ? (typeof remision.id === 'number' ? remision.id : parseInt(String(remision.id), 10)) : idNum;
-            
+
             logger.log({ prefix: 'aprobarRemision', level: 'debug' }, 'Actualizando remisión en BD:', {
                 id: remisionIdNum,
                 estadoActual: remision?.estado || 'desconocido',
                 estadoNuevo: 'ENTREGADO'
             });
-            
+
             const resp = await apiUpdateRemision(remisionIdNum, { estado: 'ENTREGADO' });
-            
+
             if (!resp.success || !resp.data) {
                 logger.error({ prefix: 'aprobarRemision' }, 'Error en respuesta de API:', resp);
                 throw new Error(resp.message || 'No se pudo actualizar la remisión en la base de datos');
             }
-            
+
             // Construir la remisión entregada desde la respuesta de la API
             const remisionEntregada: Remision = remision ? {
-                ...remision, 
+                ...remision,
                 estado: ((resp.data as any).estado || 'ENTREGADO') as Remision['estado'],
                 ...(resp.data as any)
             } : {
@@ -2103,7 +2428,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 codalm: (resp.data as any).codalm || '',
                 codven: (resp.data as any).codven || null
             };
-            
+
             // Actualizar el estado local solo si hay remisiones cargadas
             // Si el array está vacío (paginación), no intentar actualizar
             if (remisiones.length > 0) {
@@ -2112,17 +2437,17 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     const rIdNum = typeof r.id === 'number' ? r.id : parseInt(rIdStr, 10);
                     const idStr = String(id);
                     const idNum = typeof id === 'number' ? id : parseInt(idStr, 10);
-                    
+
                     if (rIdStr === idStr || rIdNum === idNum) {
                         return remisionEntregada;
                     }
                     return r;
                 }));
             }
-            
+
             // Recargar remisiones para asegurar sincronización completa
             await refreshPedidosYRemisiones();
-            
+
             if (user?.nombre) {
                 addActivityLog(
                     'Entrega Remisión',
@@ -2130,7 +2455,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     { type: 'Remisión', id: remisionEntregada.id, name: remisionEntregada.numeroRemision }
                 );
             }
-            
+
             logger.log({ prefix: 'aprobarRemision', level: 'debug' }, 'Remisión marcada como entregada exitosamente:', remisionEntregada.numeroRemision);
             return remisionEntregada;
         } catch (e) {
@@ -2146,64 +2471,73 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     ): Promise<any> => {
         try {
             const { apiCreateRemision } = await import('../services/apiClient');
-            
+
             // Obtener código de bodega desde la bodega seleccionada en el header
-            const bodegaCodigo = selectedSede?.codigo 
-              ? String(selectedSede.codigo).padStart(3, '0')
-              : '001'; // Fallback si no hay bodega seleccionada
-            
+            const bodegaCodigo = selectedSede?.codigo
+                ? String(selectedSede.codigo).padStart(3, '0')
+                : '001'; // Fallback si no hay bodega seleccionada
+
             if (!selectedSede) {
                 logger.warn({ prefix: 'crearRemision' }, 'No hay bodega seleccionada, usando fallback:', bodegaCodigo);
             } else {
                 logger.log({ prefix: 'crearRemision', level: 'debug' }, 'Usando bodega seleccionada:', selectedSede.nombre, 'Código:', bodegaCodigo);
             }
-            
+
             let payload: any;
             let isFromPedido = false;
-            
+
             // Si se pasa un Pedido con items, construir el objeto Remision
             if (items && Array.isArray(items) && 'numeroPedido' in pedidoOrData) {
                 isFromPedido = true;
                 const pedido = pedidoOrData as Pedido;
-                
+
                 // Buscar cliente para obtener codter
-                const cliente = clientes.find(c => 
+                const cliente = clientes.find(c =>
                     String(c.id) === String(pedido.clienteId) ||
                     c.numeroDocumento === pedido.clienteId ||
                     (c as any).codter === pedido.clienteId
                 );
                 const clienteCodter = cliente?.numeroDocumento || (cliente as any)?.codter || pedido.clienteId;
-                
+
                 // Construir items con información completa del producto
                 const itemsCompletos = items.map(item => {
-                    const producto = productos.find(p => 
+                    const producto = productos.find(p =>
                         String(p.id) === String(item.productoId) ||
                         p.id === item.productoId
                     );
-                    const itemPedido = pedido.items.find(ip => 
+                    const itemPedido = pedido.items.find(ip =>
                         String(ip.productoId) === String(item.productoId)
                     );
-                    
-                    const precioUnitario = itemPedido?.precioUnitario || producto?.ultimoCosto || 0;
+
+                    // CRÍTICO: Priorizar precio del pedido, pero si es 0, usar precio de lista (NO costo)
+                    // El usuario solicitó precios de base de datos si es necesario
+                    const precioUnitario = (itemPedido?.precioUnitario && itemPedido.precioUnitario > 0)
+                        ? itemPedido.precioUnitario
+                        : (producto?.precio || 0);
+
                     const descuentoPorcentaje = itemPedido?.descuentoPorcentaje || 0;
-                    const ivaPorcentaje = itemPedido?.ivaPorcentaje || producto?.tasaIva || 0;
+
+                    // CRÍTICO: El IVA debe salir SIEMPRE de la base de datos (producto catalogado)
+                    // Ignorar lo que venga en el pedido si difiere, para corregir errores históricos
+                    const ivaPorcentaje = producto?.tasaIva ?? 0;
+
                     const subtotal = precioUnitario * item.cantidad;
                     const descuentoValor = subtotal * (descuentoPorcentaje / 100);
                     const subtotalConDescuento = subtotal - descuentoValor;
                     const valorIva = subtotalConDescuento * (ivaPorcentaje / 100);
                     const total = subtotalConDescuento + valorIva;
-                    
+
                     // Obtener codProducto (codins) del producto
                     const codProducto = producto?.codins || itemPedido?.codProducto || '';
                     if (!codProducto) {
                         logger.warn({ prefix: 'crearRemision' }, `Producto sin codins: productoId=${item.productoId}, producto=${producto?.nombre || 'N/A'}`);
                     }
-                    
+
                     // NOTA: ven_detapedidos NO tiene columna 'id' como clave primaria
                     // Por lo tanto, detaPedidoId siempre será null
                     // La relación se mantiene a través de pedidoId en el encabezado de la remisión
                     const detaPedidoId = null;
-                    
+
                     return {
                         productoId: item.productoId,
                         cantidad: item.cantidad,
@@ -2221,30 +2555,30 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         cantidadDevuelta: 0 // Inicializar en 0
                     };
                 });
-                
+
                 // Calcular totales
                 const subtotal = itemsCompletos.reduce((sum, item) => sum + item.subtotal, 0);
                 const ivaValor = itemsCompletos.reduce((sum, item) => sum + item.valorIva, 0);
                 const total = itemsCompletos.reduce((sum, item) => sum + item.total, 0);
-                
+
                 // Determinar si es remisión total o parcial
                 const totalPedido = pedido.items.reduce((sum, item) => sum + item.cantidad, 0);
                 const totalRemitido = items.reduce((sum, item) => sum + item.cantidad, 0);
                 const estadoEnvio = totalRemitido >= totalPedido ? 'Total' : 'Parcial';
-                
+
                 // Obtener ID numérico del pedido
                 const pedidoIdNum = typeof pedido.id === 'number' ? pedido.id : parseInt(String(pedido.id), 10);
-                
+
                 // Obtener vendedorId del pedido, convertir a codi_emple si es necesario
                 let vendedorCodiEmple = null;
                 if (pedido.vendedorId) {
-                    const vendedor = vendedores.find(v => 
+                    const vendedor = vendedores.find(v =>
                         String(v.id) === String(pedido.vendedorId) ||
                         v.codiEmple === pedido.vendedorId
                     );
                     vendedorCodiEmple = vendedor?.codiEmple || pedido.vendedorId;
                 }
-                
+
                 payload = {
                     pedidoId: isNaN(pedidoIdNum) ? null : pedidoIdNum, // CRÍTICO: Incluir pedidoId
                     clienteId: clienteCodter,
@@ -2257,10 +2591,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     total: total,
                     observaciones: logisticData?.observaciones || '',
                     estado: 'BORRADOR',
-                    empresaId: bodegaCodigo, // CRÍTICO: Incluir empresaId (código de bodega)
+                    empresaId: bodegaCodigo, // Se mantiene por compatibilidad
+                    codalm: bodegaCodigo,    // NUEVO: Se envía explícitamente para el backend
                     items: itemsCompletos
                 };
-                
+
                 logger.log({ prefix: 'crearRemision', level: 'debug' }, 'Creando remisión desde pedido:', {
                     pedidoId: pedidoIdNum,
                     pedidoNumero: pedido.numeroPedido,
@@ -2274,10 +2609,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 payload = {
                     ...data,
                     observaciones: data.observaciones || '',
-                    empresaId: bodegaCodigo
+                    empresaId: bodegaCodigo,
+                    codalm: bodegaCodigo // NUEVO: Se envía explícitamente para el backend
                 };
             }
-            
+
             logger.log({ prefix: 'crearRemision', level: 'debug' }, 'Enviando payload a API:', {
                 pedidoId: payload.pedidoId,
                 clienteId: payload.clienteId,
@@ -2286,37 +2622,38 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 empresaId: payload.empresaId,
                 transportadoraId: payload.transportadoraId
             });
-            
+
             const resp = await apiCreateRemision(payload);
-            
+
             logger.log({ prefix: 'crearRemision', level: 'debug' }, 'Respuesta de API:', {
                 success: resp.success,
                 message: resp.message,
                 error: resp.error,
                 hasData: !!resp.data
             });
-            
+
             if (resp.success && resp.data) {
                 // Recargar pedidos y remisiones para obtener los estados actualizados del backend
                 // El backend actualiza automáticamente el estado del pedido cuando se crea una remisión
                 await refreshPedidosYRemisiones();
-                
-                const responseData = resp.data as { id: string };
-                const nuevaRemision = { 
-                    ...payload, 
+
+                const responseData = resp.data as { id: string, numeroRemision?: string };
+                const nuevaRemision = {
+                    ...payload,
                     id: responseData.id,
+                    numeroRemision: responseData.numeroRemision, // Capturar número generado por backend
                     pedidoId: payload.pedidoId // Asegurar que pedidoId esté presente
                 } as Remision;
-                
+
                 // Si se llamó desde un pedido, retornar formato con mensaje
                 if (isFromPedido) {
                     const mensaje = `Remisión ${nuevaRemision.numeroRemision || 'creada'} creada exitosamente.`;
                     return { nuevaRemision, mensaje };
                 }
-                
+
                 return nuevaRemision;
             }
-            
+
             // Mejorar el mensaje de error con información del backend
             const errorMessage = resp.message || resp.error || 'No se pudo crear la remisión';
             logger.error({ prefix: 'crearRemision' }, 'Error en respuesta:', {
@@ -2334,23 +2671,24 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const crearFactura = useCallback(async (data: Factura): Promise<Factura> => {
         try {
             const { apiCreateFactura } = await import('../services/apiClient');
-            
+
             // Obtener código de bodega desde la bodega seleccionada en el header
-            const bodegaCodigo = selectedSede?.codigo 
-              ? String(selectedSede.codigo).padStart(3, '0')
-              : '001'; // Fallback si no hay bodega seleccionada
-            
+            const bodegaCodigo = selectedSede?.codigo
+                ? String(selectedSede.codigo).padStart(3, '0')
+                : '001'; // Fallback si no hay bodega seleccionada
+
             if (!selectedSede) {
                 logger.warn({ prefix: 'crearFactura' }, 'No hay bodega seleccionada, usando fallback:', bodegaCodigo);
             } else {
                 logger.log({ prefix: 'crearFactura', level: 'debug' }, 'Usando bodega seleccionada:', selectedSede.nombre, 'Código:', bodegaCodigo);
             }
-            
+
             const payload = {
                 ...data,
                 observaciones: data.observaciones || '',
                 // Usar código de bodega desde la bodega seleccionada en el header
-                empresaId: bodegaCodigo
+                empresaId: bodegaCodigo,
+                codalm: bodegaCodigo // NUEVO: Se envía explícitamente para el backend
             };
             const resp = await apiCreateFactura(payload);
             if (resp.success && resp.data) {
@@ -2373,24 +2711,83 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             }
 
             // Obtener todas las remisiones seleccionadas
-            const remisionesSeleccionadas = remisiones.filter(r => remisionIds.includes(r.id));
-            
+            let remisionesSeleccionadas = remisiones.filter(r => remisionIds.includes(r.id));
+
             if (remisionesSeleccionadas.length === 0) {
                 logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'No se encontraron remisiones con los IDs proporcionados');
                 return null;
             }
 
+            // CRÍTICO: Cargar detalles de remisiones si no tienen items o items sin precios
+            logger.log({ prefix: 'crearFacturaDesdeRemisiones' }, `Verificando items de ${remisionesSeleccionadas.length} remisiones...`);
+
+            // Importar apiClient dinámicamente para evitar dependencias circulares
+            const { apiClient } = await import('../services/apiClient');
+
+            const remisionesConItemsCargados = await Promise.all(remisionesSeleccionadas.map(async (remision) => {
+                // Verificar si la remisión ya tiene items con precios válidos
+                const tieneItemsConPrecios = remision.items && remision.items.length > 0 &&
+                    remision.items.some(item => item.precioUnitario && Number(item.precioUnitario) > 0);
+
+                if (tieneItemsConPrecios) {
+                    logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' },
+                        `Remisión ${remision.numeroRemision} ya tiene ${remision.items.length} items con precios, no se recarga`);
+                    return remision;
+                }
+
+                // Cargar detalles desde el backend
+                try {
+                    logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' },
+                        `Cargando detalles de remisión ${remision.numeroRemision} (ID: ${remision.id})...`);
+                    // Importar apiClient dinámicamente para evitar dependencias circulares
+                    const { apiClient } = await import('../services/apiClient');
+                    const detallesRes = await apiClient.getRemisionDetalleById(remision.id);
+                    if (detallesRes.success && Array.isArray(detallesRes.data) && detallesRes.data.length > 0) {
+                        logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' },
+                            `✅ Detalles cargados para remisión ${remision.numeroRemision}: ${detallesRes.data.length} items`);
+                        // Mapear los detalles a items con precios
+                        const itemsMapeados = detallesRes.data.map((d: any) => ({
+                            productoId: d.productoId,
+                            cantidad: Number(d.cantidad || d.cantidadEnviada || 0),
+                            precioUnitario: Number(d.precioUnitario || 0),
+                            descuentoPorcentaje: Number(d.descuentoPorcentaje || 0),
+                            ivaPorcentaje: Number(d.ivaPorcentaje || 0),
+                            descripcion: d.descripcion || '',
+                            subtotal: Number(d.subtotal || 0),
+                            valorIva: Number(d.valorIva || 0),
+                            total: Number(d.total || 0),
+                            codProducto: d.codProducto || d.codins || ''
+                        }));
+                        return {
+                            ...remision,
+                            items: itemsMapeados
+                        };
+                    } else {
+                        logger.warn({ prefix: 'crearFacturaDesdeRemisiones' },
+                            `⚠️ No se pudieron cargar detalles para remisión ${remision.numeroRemision}`, detallesRes);
+                        return remision;
+                    }
+                } catch (error) {
+                    logger.error({ prefix: 'crearFacturaDesdeRemisiones' },
+                        `Error cargando detalles de remisión ${remision.numeroRemision}:`, error);
+                    return remision;
+                }
+            }));
+
+            // Actualizar remisionesSeleccionadas con los items cargados
+            remisionesSeleccionadas = remisionesConItemsCargados;
+
             // Validar que todas las remisiones sean del mismo cliente
             const primerClienteId = remisionesSeleccionadas[0].clienteId;
             const todosMismoCliente = remisionesSeleccionadas.every(r => r.clienteId === primerClienteId);
-            
+
             if (!todosMismoCliente) {
                 logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Las remisiones seleccionadas pertenecen a diferentes clientes');
                 throw new Error('Solo se pueden facturar remisiones del mismo cliente');
             }
 
             // Buscar el cliente
-            const cliente = clientes.find(c => 
+            const cliente = clientes.find(c =>
                 String(c.id) === String(primerClienteId) ||
                 c.numeroDocumento === primerClienteId ||
                 (c as any).codter === primerClienteId
@@ -2404,7 +2801,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Validar que el cliente esté activo
             // Normalizar activo para comparación segura (puede ser number o boolean)
             const activoValue = (typeof cliente.activo === 'boolean' && cliente.activo === true) || cliente.activo === 1 || Number(cliente.activo) === 1 ? 1 : 0;
-            
+
             if (activoValue !== 1) {
                 logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Cliente inactivo:', {
                     clienteId: primerClienteId,
@@ -2419,7 +2816,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Obtener el codter del cliente, asegurándose de usar el valor correcto
             // Priorizar numeroDocumento (que mapea a codter), luego codter, luego el ID original
             const clienteCodter = String(cliente.numeroDocumento || (cliente as any).codter || primerClienteId).trim();
-            
+
             logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Cliente encontrado para facturación:', {
                 clienteId: primerClienteId,
                 clienteNombre: cliente.nombreCompleto,
@@ -2435,13 +2832,13 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
             remisionesSeleccionadas.forEach(remision => {
                 logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, `Procesando remisión ${remision.numeroRemision} con ${remision.items.length} items`);
-                
+
                 // Obtener el pedido relacionado para obtener precios si faltan
                 const pedidoRelacionado = remision.pedidoId ? pedidos.find(p => String(p.id) === String(remision.pedidoId)) : null;
-                
+
                 remision.items.forEach((item, itemIdx) => {
                     let productoId = typeof item.productoId === 'number' ? item.productoId : parseInt(String(item.productoId || 0), 10);
-                    
+
                     // Validar productoId
                     if (isNaN(productoId) || productoId <= 0 || productoId === null || productoId === undefined) {
                         logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, `Item ${itemIdx + 1} de remisión ${remision.numeroRemision} no tiene productoId válido:`, {
@@ -2451,7 +2848,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         });
                         // Intentar obtener productoId desde codProducto si está disponible
                         if (item.codProducto) {
-                            const productoDesdeCod = productos.find(p => 
+                            const productoDesdeCod = productos.find(p =>
                                 String((p as any).codigoInsumo) === String(item.codProducto) ||
                                 String(p.codins) === String(item.codProducto) ||
                                 String(p.id) === String(item.codProducto)
@@ -2464,7 +2861,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                                 });
                             }
                         }
-                        
+
                         // Si aún no hay productoId válido, saltar este item
                         if (isNaN(productoId) || productoId <= 0) {
                             logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, `No se puede facturar item ${itemIdx + 1} de remisión ${remision.numeroRemision}: productoId inválido`, {
@@ -2475,23 +2872,23 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                             return; // Saltar este item
                         }
                     }
-                    
+
                     // Intentar obtener precio desde el pedido si no está en el item
                     let precioUnitario = Number(item.precioUnitario) || 0;
                     let descuentoPorcentaje = Number(item.descuentoPorcentaje) || 0;
                     let ivaPorcentaje = Number(item.ivaPorcentaje) || 0;
-                    
+
                     // Si no hay precio, intentar obtenerlo del pedido relacionado
                     if (precioUnitario === 0 && pedidoRelacionado && pedidoRelacionado.items) {
-                        const itemPedido = pedidoRelacionado.items.find(pItem => 
+                        const itemPedido = pedidoRelacionado.items.find(pItem =>
                             (typeof pItem.productoId === 'number' ? pItem.productoId : parseInt(String(pItem.productoId), 10)) === productoId
                         );
-                        
+
                         if (itemPedido) {
                             precioUnitario = Number(itemPedido.precioUnitario) || 0;
                             descuentoPorcentaje = Number(itemPedido.descuentoPorcentaje) || descuentoPorcentaje;
                             ivaPorcentaje = Number(itemPedido.ivaPorcentaje) || ivaPorcentaje;
-                            
+
                             logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, `Precio obtenido desde pedido para producto ${productoId}:`, {
                                 precioUnitario: precioUnitario,
                                 descuentoPorcentaje: descuentoPorcentaje,
@@ -2499,7 +2896,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                             });
                         }
                     }
-                    
+
                     // Validar que el item tenga los campos necesarios
                     if (!precioUnitario || precioUnitario === 0 || precioUnitario === null) {
                         logger.warn({ prefix: 'crearFacturaDesdeRemisiones' }, `Item ${itemIdx + 1} de remisión ${remision.numeroRemision} no tiene precioUnitario:`, {
@@ -2512,7 +2909,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                             tienePedido: !!pedidoRelacionado
                         });
                     }
-                    
+
                     // Asegurar que todos los campos numéricos estén presentes
                     const itemCompleto: DocumentItem = {
                         productoId: productoId,
@@ -2525,7 +2922,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         valorIva: Number(item.valorIva) || 0,
                         total: Number(item.total) || 0
                     };
-                    
+
                     // Si faltan valores, calcularlos
                     if (itemCompleto.subtotal === 0 && itemCompleto.precioUnitario > 0) {
                         itemCompleto.subtotal = itemCompleto.precioUnitario * itemCompleto.cantidad * (1 - (itemCompleto.descuentoPorcentaje / 100));
@@ -2536,7 +2933,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     if (itemCompleto.total === 0 && itemCompleto.subtotal > 0) {
                         itemCompleto.total = itemCompleto.subtotal + itemCompleto.valorIva;
                     }
-                    
+
                     if (itemsMap.has(productoId)) {
                         // Si el producto ya existe, sumar cantidades y recalcular
                         const itemExistente = itemsMap.get(productoId)!;
@@ -2566,7 +2963,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Items sin precio encontrados:', itemsSinPrecio);
                 throw new Error(`No se puede facturar: ${itemsSinPrecio.length} item(s) no tienen precio. Verifique que las remisiones estén relacionadas con un pedido y que el pedido tenga precios configurados.`);
             }
-            
+
             // Validar que todos los items tengan cantidad válida
             const itemsSinCantidad = itemsConsolidados.filter(item => !item.cantidad || item.cantidad <= 0);
             if (itemsSinCantidad.length > 0) {
@@ -2592,18 +2989,18 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             const primeraRemision = remisionesSeleccionadas[0];
             let vendedorCodiEmple = null;
             if (primeraRemision.vendedorId) {
-                const vendedor = vendedores.find(v => 
+                const vendedor = vendedores.find(v =>
                     String(v.id) === String(primeraRemision.vendedorId) ||
                     v.codiEmple === primeraRemision.vendedorId ||
                     v.codigoVendedor === primeraRemision.vendedorId
                 );
-                
+
                 if (vendedor) {
                     // Normalizar activo del vendedor
                     // NOTA: Si el vendedor está en la lista, viene del backend que solo devuelve activos
                     // Así que asumimos que está activo
                     const vendedorActivoValue = vendedor.activo === true || vendedor.activo === 1 || Number(vendedor.activo) === 1 ? 1 : 0;
-                    
+
                     logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Vendedor encontrado:', {
                         vendedorId: primeraRemision.vendedorId,
                         vendedorNombre: vendedor.nombreCompleto || vendedor.primerNombre,
@@ -2613,7 +3010,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         codiEmple: vendedor.codiEmple,
                         id: vendedor.id
                     });
-                    
+
                     // Si el vendedor está en la lista del frontend (que viene del backend con solo activos),
                     // asumimos que está activo incluso si activoValue es 0 (puede ser problema de normalización)
                     if (vendedorActivoValue === 1) {
@@ -2642,8 +3039,32 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
             }
 
+            // Obtener forma de pago desde la cotización o pedido relacionado
+            let formaPago = '1'; // Por defecto: Contado (1)
+            const pedidoRelacionado = primeraRemision.pedidoId ? pedidos.find(p => String(p.id) === String(primeraRemision.pedidoId)) : null;
+            if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
+                const cotizacionRelacionada = cotizaciones.find(c => String(c.id) === String(pedidoRelacionado.cotizacionId));
+                if (cotizacionRelacionada && cotizacionRelacionada.formaPago) {
+                    // Normalizar valores antiguos '01'/'02' a nuevos '1'/'2'
+                    formaPago = cotizacionRelacionada.formaPago === '01' ? '1' : cotizacionRelacionada.formaPago === '02' ? '2' : cotizacionRelacionada.formaPago;
+                    logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago obtenida desde cotización:', {
+                        formaPago: formaPago,
+                        cotizacionId: cotizacionRelacionada.id,
+                        numeroCotizacion: cotizacionRelacionada.numeroCotizacion
+                    });
+                }
+            }
+            // Si no se encontró en la cotización, intentar desde el pedido
+            if (formaPago === '1' && pedidoRelacionado && pedidoRelacionado.formaPago) {
+                formaPago = pedidoRelacionado.formaPago === '01' ? '1' : pedidoRelacionado.formaPago === '02' ? '2' : pedidoRelacionado.formaPago;
+            }
+            // Si aún no se encontró, usar la condición de pago del cliente como fallback
+            if (formaPago === '1' && cliente && cliente.condicionPago) {
+                formaPago = cliente.condicionPago === 'Contado' ? '1' : '2';
+            }
+
             // Obtener código de bodega
-            const bodegaCodigo = selectedSede?.codigo 
+            const bodegaCodigo = selectedSede?.codigo
                 ? String(selectedSede.codigo).padStart(3, '0')
                 : '001';
 
@@ -2651,7 +3072,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Si el cliente tiene días de crédito, usar esa fecha, sino usar 30 días por defecto
             const fechaFactura = new Date();
             const fechaFacturaStr = fechaFactura.toISOString().split('T')[0];
-            
+
             let fechaVencimiento: string;
             if (cliente && cliente.diasCredito && cliente.diasCredito > 0) {
                 // Calcular fecha de vencimiento sumando los días de crédito
@@ -2673,6 +3094,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 remisionesIds: remisionesSeleccionadas.map(r => r.id), // Enviar todas las remisiones relacionadas
                 fechaFactura: fechaFacturaStr,
                 fechaVencimiento: fechaVencimiento, // Incluir fecha de vencimiento calculada
+                formaPago: formaPago, // Forma de pago obtenida desde cotización o cliente
                 subtotal: subtotal,
                 descuentoValor: 0,
                 ivaValor: ivaValor,
@@ -2684,6 +3106,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 })(),
                 estado: 'BORRADOR',
                 empresaId: bodegaCodigo,
+                codalm: bodegaCodigo, // NUEVO: Se envía explícitamente para el backend
                 items: itemsConsolidados.map(item => {
                     // Asegurar que productoId sea válido (número mayor que 0)
                     const productoId = typeof item.productoId === 'number' ? item.productoId : parseInt(String(item.productoId || 0), 10);
@@ -2695,18 +3118,18 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         });
                         throw new Error(`Item con productoId inválido: ${item.productoId}. No se puede enviar al backend.`);
                     }
-                    
+
                     // Asegurar que todos los valores estén presentes y sean válidos
                     const precioUnitario = Number(item.precioUnitario) || 0;
                     const cantidad = Number(item.cantidad) || 0;
                     const descuentoPorcentaje = Number(item.descuentoPorcentaje) || 0;
                     const ivaPorcentaje = Number(item.ivaPorcentaje) || 0;
-                    
+
                     // Calcular valores si no están presentes
                     const subtotalCalculado = precioUnitario * cantidad * (1 - (descuentoPorcentaje / 100));
                     const valorIvaCalculado = subtotalCalculado * (ivaPorcentaje / 100);
                     const totalCalculado = subtotalCalculado + valorIvaCalculado;
-                    
+
                     // Validar que precioUnitario y cantidad sean válidos
                     if (precioUnitario <= 0 || cantidad <= 0) {
                         logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, `Item con valores inválidos:`, {
@@ -2717,7 +3140,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         });
                         throw new Error(`Item con productoId ${productoId} tiene valores inválidos: precioUnitario=${precioUnitario}, cantidad=${cantidad}`);
                     }
-                    
+
                     return {
                         productoId: productoId, // Asegurar que sea número válido
                         cantidad: cantidad,
@@ -2759,7 +3182,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
             if (resp.success && resp.data) {
                 const responseData = resp.data as { id: string };
-                
+
                 // Recargar facturas y remisiones para obtener la factura completa con el número generado
                 const [facturasResponse, facturasDetalleResponse] = await Promise.all([
                     fetchFacturas(),
@@ -2781,7 +3204,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
                 // Buscar la factura recién creada
                 const facturaCreada = (facturasData as any[]).find(f => String(f.id) === String(responseData.id));
-                
+
                 if (!facturaCreada) {
                     logger.warn({ prefix: 'crearFacturaDesdeRemisiones' }, 'Factura creada pero no encontrada al recargar');
                     throw new Error('Factura creada pero no se pudo obtener la información completa');
@@ -2791,8 +3214,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 const itemsFactura = (facturasDetalleData as any[]).filter(d => {
                     const detalleFacturaId = String(d.facturaId || d.factura_id || d.id_factura || '');
                     const facturaIdStr = String(responseData.id);
-                    return facturaIdStr === detalleFacturaId || 
-                           (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
+                    return facturaIdStr === detalleFacturaId ||
+                        (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
                 }).map(d => ({
                     // Mapear campos del detalle a la estructura esperada
                     productoId: d.productoId || null,
@@ -2832,7 +3255,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // 1. Actualizar remisiones: agregar facturaId a las remisiones relacionadas
                 setRemisiones(prev => prev.map(r => {
                     // Si la remisión está en la lista de remisiones seleccionadas, agregar facturaId
-                    if (remisionIds.includes(r.id)) {
+                    // Comparación robusta (string vs number) para asegurar que se encuentre
+                    const esRemisionSeleccionada = remisionIds.some((id: string | number) => String(id) === String(r.id));
+
+                    if (esRemisionSeleccionada) {
                         return {
                             ...r,
                             facturaId: nuevaFactura.id // Agregar facturaId para que desaparezca de "Remisiones Entregadas por Facturar"
@@ -2875,14 +3301,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Si la respuesta no es exitosa, lanzar error con mensaje descriptivo
             const errorMessage = resp.message || resp.error || 'No se pudo crear la factura';
             const errorDetails = (resp as any).details || (resp as any).debug;
-            
+
             logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Error en respuesta del backend:', {
                 message: errorMessage,
                 error: resp.error,
                 details: errorDetails,
                 success: resp.success
             });
-            
+
             // Mejorar mensajes de error específicos
             if (errorMessage === 'CLIENTE_INACTIVO' || (errorMessage.includes('inactivo') && errorMessage.includes('Cliente'))) {
                 throw new Error('El cliente está inactivo. No se puede facturar para clientes inactivos. Active el cliente primero.');
@@ -2903,16 +3329,16 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             } else if (errorDetails && errorDetails.sqlMessage) {
                 throw new Error(`Error del servidor: ${errorDetails.sqlMessage}`);
             }
-            
+
             throw new Error(errorMessage);
         } catch (e) {
             logger.error({ prefix: 'crearFacturaDesdeRemisiones' }, 'Error al crear factura desde remisiones:', e);
-            
+
             // Si el error ya tiene un mensaje descriptivo, lanzarlo tal cual
             if (e instanceof Error && e.message) {
                 throw e;
             }
-            
+
             // Si es un error de respuesta HTTP, intentar extraer el mensaje
             if (typeof e === 'object' && e !== null && 'message' in e) {
                 const errorMsg = (e as any).message;
@@ -2923,12 +3349,12 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
                 throw new Error(errorMsg || 'Error desconocido al crear la factura');
             }
-            
+
             throw e;
         }
     }, [remisiones, clientes, vendedores, selectedSede, refreshData]);
 
-    const crearNotaCredito = useCallback(async (factura: Factura, items: DocumentItem[], motivo: string): Promise<NotaCredito> => {
+    const crearNotaCredito = useCallback(async (factura: Factura, items: DocumentItem[], motivo: string, tipoNota: 'DEVOLUCION' | 'ANULACION' = 'DEVOLUCION'): Promise<NotaCredito> => {
         if (!factura) {
             throw new Error('Factura no encontrada para generar la nota de crédito.');
         }
@@ -2992,7 +3418,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             clienteId: clienteIdPayload || String(factura.clienteId || ''),
             motivo: String(motivo || '').trim(),
             items: payloadItems,
-            estadoDian: 'PENDIENTE'
+            estadoDian: 'PENDIENTE',
+            tipoNota: tipoNota // Nuevo campo
         };
 
         const response = await apiCreateNotaCredito(createPayload);
@@ -3068,7 +3495,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 if (!isNaN(fIdNum) && !isNaN(facturaIdNum) && fIdNum === facturaIdNum) return true;
                 return false;
             });
-            
+
             if (!factura) {
                 logger.error({ prefix: 'timbrarFactura' }, 'Factura no encontrada:', {
                     facturaId: facturaId,
@@ -3078,7 +3505,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 });
                 return undefined;
             }
-            
+
             logger.log({ prefix: 'timbrarFactura', level: 'debug' }, 'Factura encontrada:', {
                 facturaId: facturaId,
                 facturaEncontrada: {
@@ -3092,11 +3519,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Por ahora, solo actualizamos el estado a ENVIADA (simulando timbrado)
             // En el futuro, esto llamará a un servicio de timbrado real
             const { apiUpdateFactura } = await import('../services/apiClient');
-            
+
             // El ID puede ser string (UUID) o number, pero el backend espera el ID numérico de la BD
             // Si el ID es un string que parece UUID, necesitamos buscar el ID numérico real
             let idParaBackend: string | number;
-            
+
             if (typeof factura.id === 'number') {
                 idParaBackend = factura.id;
             } else {
@@ -3110,7 +3537,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     idParaBackend = factura.id;
                 }
             }
-            
+
             logger.log({ prefix: 'timbrarFactura', level: 'debug' }, 'Timbrando factura:', {
                 facturaId: facturaId,
                 facturaIdType: typeof factura.id,
@@ -3118,9 +3545,27 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 idParaBackendType: typeof idParaBackend,
                 numeroFactura: factura.numeroFactura
             });
-            
+
+            console.log('\n📤 [DataContext] ========== ENVIANDO PETICIÓN AL BACKEND ==========');
+            console.log('📋 [DataContext] Llamando a apiUpdateFactura con:');
+            console.log('   - ID:', idParaBackend);
+            console.log('   - Body:', JSON.stringify({ estado: 'ENVIADA' }, null, 2));
+            console.log('   - Endpoint: PUT /api/facturas/' + idParaBackend);
+            console.log('⏰ [DataContext] Timestamp:', new Date().toISOString());
+
             const resp = await apiUpdateFactura(idParaBackend, { estado: 'ENVIADA' });
-            
+
+            console.log('📥 [DataContext] Respuesta recibida del backend:');
+            console.log('   - success:', resp.success);
+            console.log('   - message:', resp.message || 'N/A');
+            console.log('   - data:', resp.data ? {
+                id: (resp.data as any).id,
+                numeroFactura: (resp.data as any).numeroFactura,
+                estado: (resp.data as any).estado,
+                cufe: (resp.data as any).cufe ? `${(resp.data as any).cufe.substring(0, 20)}...` : 'No generado'
+            } : 'No data');
+            console.log('='.repeat(80) + '\n');
+
             if (resp.success && resp.data) {
                 // Procesar remisionesIds de la respuesta
                 let remisionesIds: string[] = factura.remisionesIds || [];
@@ -3136,10 +3581,10 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 if (remisionesIds.length === 0 && responseData.remisionId) {
                     remisionesIds = [String(responseData.remisionId)];
                 }
-                
+
                 // Determinar el estado final basado en la respuesta
                 const estadoFinal = (responseData.estado || (responseData.cufe ? 'ENVIADA' : factura.estado)) as Factura['estado'];
-                
+
                 const facturaTimbrada: Factura = {
                     ...factura,
                     estado: estadoFinal,
@@ -3167,11 +3612,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     }
                     return f;
                 }));
-                
+
                 // Recargar facturas y remisiones para que las remisiones desaparezcan de "Remisiones Entregadas por Facturar"
                 // y la factura se actualice en el historial
                 await refreshFacturasYRemisiones();
-                
+
                 return facturaTimbrada;
             }
 
@@ -3188,7 +3633,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         // Loading states
         isLoading,
         isMainDataLoaded,
-        
+
         // Core data
         clientes,
         productos,
@@ -3198,7 +3643,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         remisiones,
         notasCredito,
         archivosAdjuntos,
-        
+
         // Catalogs
         medidas,
         categorias,
@@ -3210,13 +3655,13 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         vendedores,
         transportadoras,
         almacenes,
-        
+
         // Activity log
         activityLog,
-        
+
         // Company data
         datosEmpresa,
-        
+
         // Computed data
         getSalesDataByPeriod,
         getSalesByCliente,
@@ -3225,7 +3670,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         getTopProductos,
         getGlobalSearchResults,
         globalSearch: getGlobalSearchResults, // Alias para compatibilidad
-        
+
         // Actions
         addActivityLog,
         refreshData,
@@ -3246,7 +3691,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         crearNotaCredito,
         crearFacturaDesdeRemisiones,
         timbrarFactura,
-        refreshFacturasYRemisiones
+        refreshFacturasYRemisiones,
+        motivosDevolucion,
+        getProductoById
     }), [
         isLoading,
         isMainDataLoaded,

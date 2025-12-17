@@ -1,0 +1,102 @@
+{
+    "number": 100000,
+    "type_document_id": 5,
+    "identification_number": 802024306,
+    "dv": 1,
+    "resolution_id": 58,
+    "sync": true,
+    "date": "2025-12-02",
+    "time": "15:40:18",
+    "invoice_period": {
+        "start_date": "2025-12-02",
+        "start_time": "00:00:00",
+        "end_date": "2025-12-02",
+        "end_time": "23:59:59",
+        "type_invoice_id": 1
+    },
+
+    
+    "billing_reference": {
+        "number": "89000",
+        "uuid": "6f7a8158bfe0f3ddf3f31233c02515b8be720761bc120f6a108becd11b3367e9ffc5d740331b23bdae0e5ca055e5c9ec",
+        "issue_date": "2025-12-01",
+        "type_document_id": 1
+    },
+    "discrepancy_response": {
+        "correction_concept_id": 2,
+        "correction_type": "referenced"
+    },
+    "company": {
+        "identification_number": 802024306,
+        "dv": 1,
+        "name": "MULTIACABADOS S.A.S.",
+        "type_organization_id": 1,
+        "type_document_id": "31",
+        "id_location": "08001",
+        "address": "CALLE 65 N° 12 B3-16 NUEVO MILENIO",
+        "phone": "3116853113",
+        "email": "multiacabados.sas.factura@gmail.com",
+        "merchant_registration": "0000000-00"
+    },
+    "customer": {
+        "identification_number": 72229294,
+        "dv": 5,
+        "name": ".CAMARGO PINO MARCO ANTONIO",
+        "type_organization_id": 2,
+        "id_location": "08001",
+        "address": "CRA17  23-71",
+        "phone": "0000302",
+        "email": "cliente@ejemplo.com",
+        "type_document_id": "13",
+        "type_regime_id": 1,
+        "type_liability_id": 1,
+        "tax_detail_id": 1,
+        "merchant_registration": "No tiene",
+        "portal_zone_location": "080020"
+    },
+    "legal_monetary_totals": {
+        "line_extension_amount": 8235.29,
+        "tax_exclusive_amount": 8235.29,
+        "tax_inclusive_amount": 9800,
+        "allowance_total_amount": 0,
+        "charge_total_amount": 0,
+        "payable_amount": 9800
+    },
+    "tax_totals": [
+        {
+            "tax_id": 1,
+            "tax_amount": 1564.65,
+            "percent": 19,
+            "taxable_amount": 8235
+        }
+    ],
+    "credit_note_lines": [
+        {
+            "unit_measure_id": 70,
+            "invoiced_quantity": 1,
+            "line_extension_amount": 8235,
+            "discount": 0,
+            "free_of_charge_indicator": false,
+            "description": "ANULACIÓN TOTAL FACTURA 89000",
+            "code": "02590012",
+            "type_item_identification_id": 4,
+            "price_amount": 8235,
+            "base_quantity": 1,
+            "tax_totals": [
+                {
+                    "tax_id": 1,
+                    "tax_amount": 1564.65,
+                    "percent": 19,
+                    "taxable_amount": 8235
+                }
+            ]
+        }
+    ],
+    "payment_forms": [
+        {
+            "payment_form_id": 1,
+            "payment_method_id": 1,
+            "payment_due_date": "2025-12-02"
+        }
+    ]
+}

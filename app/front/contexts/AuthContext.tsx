@@ -1,7 +1,7 @@
-import React, { createContext, useState, ReactNode, useMemo, useEffect } from 'react';
+import React, { createContext, useState, ReactNode, useMemo, useEffect, useCallback } from 'react';
 import { Usuario, Empresa, Sede } from '../types';
 // FIX: Imported all necessary mock data for user session creation.
-import { usuarios, empresas as allEmpresas, sedes as allSedes } from '../data/mockData';
+import { usuarios, empresas as allEmpresas } from '../data/mockData';
 import { Role, rolesConfig, Permission } from '../config/rolesConfig';
 import { fetchBodegas } from '../services/apiClient';
 import { logger } from '../utils/logger';
@@ -16,7 +16,7 @@ interface AuthContextType {
   login: (email: string, role: Role) => boolean;
   logout: () => void;
   switchCompany: (companyId: number) => void;
-  switchSede: (sedeId: number, sedeData?: { codigo?: string; nombre?: string }) => void;
+  switchSede: (sedeId: number | string, sedeData?: { codigo?: string; nombre?: string }) => void;
   hasPermission: (permission: Permission) => boolean;
 }
 
@@ -36,32 +36,87 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const isAuthenticated = !!user;
 
+  // Cargar bodega desde localStorage al iniciar (si existe)
+  useEffect(() => {
+    try {
+      const savedSedeId = localStorage.getItem('selectedSedeId');
+      const savedSedeData = localStorage.getItem('selectedSedeData');
+
+      if (savedSedeId && savedSedeData) {
+        try {
+          const sedeData = JSON.parse(savedSedeData);
+          // Solo cargar si los datos son válidos
+          if (sedeData && sedeData.id && sedeData.codigo) {
+            // No establecer aquí, esperar a que se carguen las bodegas para validar
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega guardada encontrada en localStorage:', sedeData);
+          }
+        } catch (parseError) {
+          logger.warn({ prefix: 'AuthContext' }, 'Error parseando datos de bodega desde localStorage:', parseError);
+          localStorage.removeItem('selectedSedeId');
+          localStorage.removeItem('selectedSedeData');
+        }
+      }
+    } catch (error) {
+      logger.warn({ prefix: 'AuthContext' }, 'Error accediendo a localStorage:', error);
+    }
+  }, []);
+
   // Cargar bodegas desde la base de datos
   useEffect(() => {
     let isMounted = true;
+    let abortController: AbortController | null = null;
+
     const loadBodegas = async () => {
       try {
+        // CRÍTICO: Establecer loading ANTES de cualquier operación
         setIsLoadingBodegas(true);
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Cargando bodegas desde la BD...');
-        
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔄 Iniciando carga de bodegas desde la BD...');
+
+        // Crear AbortController para poder cancelar la petición si el componente se desmonta
+        abortController = new AbortController();
+
         let response;
+        let fetchError: any = null;
+
         try {
-          // Llamar directamente a fetchBodegas - el apiClient ya maneja timeouts
+          // Llamar directamente a fetchBodegas - el apiClient ya maneja timeouts (30 segundos)
+          // IMPORTANTE: Esperar a que la promesa se resuelva o rechace completamente
           response = await fetchBodegas();
-        } catch (fetchError) {
-          logger.warn({ prefix: 'AuthContext' }, 'Error de red al cargar bodegas (backend puede no estar disponible):', fetchError);
-          // Si hay error de red, usar datos mock
-          response = { success: false, data: [] };
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Respuesta recibida del backend:', {
+            success: response?.success,
+            hasData: !!response?.data,
+            dataLength: Array.isArray(response?.data) ? response.data.length : 0
+          });
+        } catch (error) {
+          // Capturar el error pero NO usar mocks todavía
+          // Solo usaremos mocks si realmente falla después de todos los intentos
+          fetchError = error;
+          logger.warn({ prefix: 'AuthContext' }, '⚠️ Error al cargar bodegas desde backend:', {
+            error: error instanceof Error ? error.message : String(error),
+            type: error instanceof Error ? error.constructor.name : typeof error,
+            isAbortError: error instanceof Error && error.name === 'AbortError'
+          });
+
+          // Si es un error de aborto (componente desmontado), no hacer nada más
+          if (error instanceof Error && error.name === 'AbortError') {
+            logger.log({ prefix: 'AuthContext' }, '🛑 Petición cancelada (componente desmontado)');
+            return;
+          }
+
+          // Para otros errores, establecer response como fallido pero NO usar mocks aún
+          response = {
+            success: false,
+            data: null,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          };
         }
-        
+
         // Verificar que el componente aún esté montado antes de actualizar el estado
         if (!isMounted) {
-          logger.log({ prefix: 'AuthContext' }, 'Componente desmontado, cancelando actualización de bodegas');
+          logger.log({ prefix: 'AuthContext' }, '🛑 Componente desmontado, cancelando actualización de bodegas');
           return;
         }
-        
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Respuesta bodegas:', response);
-        
+
         // Verificar que la respuesta sea válida y tenga datos
         if (response && response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
           // Mapear bodegas de la BD al formato Sede
@@ -83,7 +138,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               // Si no hay código, usar índice + 1 como código (formato 001, 002, etc.)
               codigoAlmacen = String(index + 1).padStart(3, '0');
             }
-            
+
             // Convertir código a número para el ID si es posible (ej: "001" -> 1, "002" -> 2)
             // Esto es solo para compatibilidad con el ID numérico, pero el código se preserva como string
             let bodegaId: number;
@@ -92,16 +147,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             } else {
               bodegaId = index + 1;
             }
-            
+
             const nombreBodega = (b.nombre || b.nomalm || '').trim();
             const direccionBodega = (b.direccion || b.diralm || '').trim();
             const ciudadBodega = (b.ciudad || b.ciualm || '').trim();
-            
+
             // CRÍTICO: Usar el código preservado directamente (ya está formateado con padStart)
             const bodegaCodigo = codigoAlmacen; // Ya está formateado como "002", "003", etc.
-            
+
             logger.log({ prefix: 'AuthContext', level: 'debug' }, `Mapeando bodega: ${nombreBodega} - ID: ${bodegaId}, Código: ${bodegaCodigo}`);
-            
+
             return {
               id: bodegaId, // ID numérico para compatibilidad (1, 2, 3, etc.)
               nombre: nombreBodega,
@@ -118,123 +173,222 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             id: b.id
           })));
           setBodegas(mappedBodegas);
-          
-          // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
-          // Limpiar cualquier selección previa
+
+          // Si solo hay una bodega, seleccionarla automáticamente
+          if (mappedBodegas.length === 1) {
+            const unicaBodega = mappedBodegas[0];
+            setSelectedSede(unicaBodega);
+            try {
+              localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+              localStorage.setItem('selectedSedeData', JSON.stringify({
+                id: unicaBodega.id,
+                nombre: unicaBodega.nombre,
+                codigo: unicaBodega.codigo,
+                empresaId: unicaBodega.empresaId
+              }));
+            } catch (error) {
+              logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage:', error);
+            }
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega única seleccionada automáticamente:', unicaBodega.nombre);
+          } else {
+            // Si hay múltiples bodegas, intentar cargar desde localStorage
+            let bodegaCargada = false;
+            try {
+              const savedSedeId = localStorage.getItem('selectedSedeId');
+              const savedSedeData = localStorage.getItem('selectedSedeData');
+
+              if (savedSedeId && savedSedeData) {
+                const sedeData = JSON.parse(savedSedeData);
+                // Buscar la bodega guardada en las bodegas cargadas
+                const bodegaEncontrada = mappedBodegas.find(b =>
+                  String(b.id) === String(sedeData.id) ||
+                  String(b.codigo) === String(sedeData.codigo)
+                );
+
+                if (bodegaEncontrada) {
+                  setSelectedSede(bodegaEncontrada);
+                  bodegaCargada = true;
+                  logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega cargada desde localStorage:', bodegaEncontrada.nombre);
+                } else {
+                  // Si la bodega guardada no existe, limpiar localStorage
+                  localStorage.removeItem('selectedSedeId');
+                  localStorage.removeItem('selectedSedeData');
+                  logger.warn({ prefix: 'AuthContext' }, 'Bodega guardada en localStorage no encontrada en las bodegas disponibles');
+                }
+              }
+            } catch (error) {
+              logger.warn({ prefix: 'AuthContext' }, 'Error cargando bodega desde localStorage:', error);
+            }
+
+            // Si no se cargó desde localStorage, no preseleccionar ninguna - el usuario debe elegir manualmente
+            if (!bodegaCargada) {
+              setSelectedSede(null);
+              logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas cargadas desde BD. Usuario debe seleccionar una bodega manualmente.');
+            }
+          }
+        } else {
+          // Si no hay datos o la respuesta no fue exitosa
+          const reason = !response
+            ? 'Sin respuesta del servidor'
+            : !response.success
+              ? 'Respuesta no exitosa del servidor'
+              : !response.data
+                ? 'Sin datos en la respuesta'
+                : Array.isArray(response.data) && response.data.length === 0
+                  ? 'Array vacío'
+                  : 'Datos inválidos';
+
+          logger.warn({ prefix: 'AuthContext' }, `❌ Sin datos válidos de bodegas desde BD: ${reason}`);
+
+          // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
+          // Si no hay datos reales, establecer array vacío y permitir que la UI muestre el estado apropiado
+          logger.warn({ prefix: 'AuthContext' }, '⚠️ No hay bodegas disponibles desde la base de datos. No se usarán datos simulados.');
+          setBodegas([]);
           setSelectedSede(null);
+
+          // Limpiar localStorage si no hay datos reales
           try {
             localStorage.removeItem('selectedSedeId');
             localStorage.removeItem('selectedSedeData');
           } catch (error) {
             logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', error);
           }
-          
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas cargadas desde BD. Usuario debe seleccionar una bodega manualmente.');
-        } else {
-          // Si no hay datos o la respuesta no fue exitosa, usar datos mock como fallback
-          const reason = !response ? 'Sin respuesta' : !response.success ? 'Respuesta no exitosa' : !response.data ? 'Sin datos' : 'Array vacío';
-          logger.warn({ prefix: 'AuthContext' }, `Sin datos de bodegas desde BD (${reason}), usando datos mock como fallback`);
-          setBodegas(allSedes);
-          
-          // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
-          setSelectedSede(null);
-          try {
-            localStorage.removeItem('selectedSedeId');
-            localStorage.removeItem('selectedSedeData');
-          } catch (error) {
-            logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage (mock):', error);
-          }
-          
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas mock cargadas como fallback. Usuario debe seleccionar una bodega manualmente.');
         }
       } catch (error) {
-        logger.error({ prefix: 'AuthContext' }, 'Error cargando bodegas:', error);
-        // Fallback a datos mock en caso de error
-        setBodegas(allSedes);
-        
-        // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
+        // Error inesperado en el procesamiento (no en la petición HTTP)
+        logger.error({ prefix: 'AuthContext' }, '❌ Error inesperado procesando bodegas:', error);
+
+        // Verificar que el componente aún esté montado
+        if (!isMounted) {
+          return;
+        }
+
+        // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
+        logger.error({ prefix: 'AuthContext' }, '❌ Error procesando bodegas. No se usarán datos simulados.');
+        setBodegas([]);
         setSelectedSede(null);
+
+        // Limpiar localStorage si hay error
         try {
           localStorage.removeItem('selectedSedeId');
           localStorage.removeItem('selectedSedeData');
         } catch (localError) {
-          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage (mock - error):', localError);
+          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', localError);
         }
-        
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas mock cargadas (error). Usuario debe seleccionar una bodega manualmente.');
       } finally {
-        // Asegurar que siempre se ejecute, incluso si hay errores
+        // CRÍTICO: Solo establecer loading en false cuando realmente terminamos
+        // Esto asegura que la UI no muestre datos mock prematuramente
         if (isMounted) {
           setIsLoadingBodegas(false);
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Estado de carga de bodegas finalizado');
         }
       }
     };
-    
+
     loadBodegas().catch((error) => {
-      // Capturar cualquier error no manejado
-      logger.error({ prefix: 'AuthContext' }, 'Error no manejado en loadBodegas:', error);
+      // Capturar cualquier error no manejado en la promesa
+      logger.error({ prefix: 'AuthContext' }, '❌ Error no manejado en loadBodegas:', error);
       if (isMounted) {
         setIsLoadingBodegas(false);
-        // Usar datos mock como último recurso
-        setBodegas(allSedes);
+        // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
+        logger.error({ prefix: 'AuthContext' }, '❌ Error no manejado. No se usarán datos simulados.');
+        setBodegas([]);
         setSelectedSede(null);
+
+        // Limpiar localStorage
+        try {
+          localStorage.removeItem('selectedSedeId');
+          localStorage.removeItem('selectedSedeData');
+        } catch (localError) {
+          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', localError);
+        }
       }
     });
-    
-    // Cleanup: marcar como desmontado cuando el componente se desmonte
+
+    // Cleanup: marcar como desmontado y abortar peticiones pendientes
     return () => {
       isMounted = false;
+      if (abortController) {
+        abortController.abort();
+        logger.log({ prefix: 'AuthContext' }, '🛑 Cleanup: AbortController activado');
+      }
     };
   }, []);
 
   const login = (email: string, role: Role) => {
     const foundUser = usuarios.find(u => u.email === email);
     if (foundUser) {
-      // Usar bodegas de la BD si están disponibles, sino usar mock
-      const sedesToUse = bodegas.length > 0 ? bodegas : allSedes;
+      // CRÍTICO: Solo usar bodegas reales de la BD - NUNCA usar datos mock
+      const sedesToUse = bodegas.length > 0 ? bodegas : [];
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas estado:', bodegas);
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas.length:', bodegas.length);
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - sedesToUse:', sedesToUse);
       // Asignar todas las bodegas a todas las empresas (ya que las bodegas son compartidas)
       const empresasWithSedes = allEmpresas.map(e => ({
-          ...e,
-          sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id })) // Asignar todas las bodegas a cada empresa
+        ...e,
+        sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id })) // Asignar todas las bodegas a cada empresa
       }));
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - empresasWithSedes:', empresasWithSedes);
       logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - empresasWithSedes[0].sedes:', empresasWithSedes[0]?.sedes);
       const nombreCompleto = `${foundUser.primerNombre} ${foundUser.primerApellido}`.trim();
-      const userWithRole: Usuario = { 
-        ...foundUser, 
-        rol: role, 
+      const userWithRole: Usuario = {
+        ...foundUser,
+        rol: role,
         empresas: empresasWithSedes,
-        nombre: nombreCompleto 
+        nombre: nombreCompleto
       };
       setUser(userWithRole);
-      
+
+      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas asignadas a empresas:', empresasWithSedes.map(e => ({
+        empresa: e.razonSocial,
+        sedes: e.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
+      })));
+
       const userPermissions = rolesConfig[role]?.can || [];
       const isAdmin = userPermissions.includes('*');
-      
+
       if (isAdmin) {
-          const allPermissions = Object.values(rolesConfig).flatMap(r => r.can) as Permission[];
-          setPermissions([...new Set(allPermissions.filter(p => p !== '*'))]);
+        const allPermissions = Object.values(rolesConfig).flatMap(r => r.can) as Permission[];
+        setPermissions([...new Set(allPermissions.filter(p => p !== '*'))]);
       } else {
-          setPermissions(userPermissions as Permission[]);
+        setPermissions(userPermissions as Permission[]);
       }
 
       if (userWithRole.empresas.length > 0) {
         const firstCompany = userWithRole.empresas[0];
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - primera empresa seleccionada:', {
+          empresa: firstCompany.razonSocial,
+          sedes: firstCompany.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
+        });
         setSelectedCompany(firstCompany);
-        
-        // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
-        setSelectedSede(null);
-        try {
-          localStorage.removeItem('selectedSedeId');
-          localStorage.removeItem('selectedSedeData');
-        } catch (error) {
-          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en login:', error);
+
+        // Si solo hay una bodega, seleccionarla automáticamente
+        if (firstCompany.sedes && firstCompany.sedes.length === 1) {
+          const unicaBodega = firstCompany.sedes[0];
+          setSelectedSede(unicaBodega);
+          try {
+            localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+            localStorage.setItem('selectedSedeData', JSON.stringify({
+              id: unicaBodega.id,
+              nombre: unicaBodega.nombre,
+              codigo: unicaBodega.codigo,
+              empresaId: unicaBodega.empresaId
+            }));
+          } catch (error) {
+            logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage en login:', error);
+          }
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login exitoso. Bodega única seleccionada automáticamente:', unicaBodega.nombre);
+        } else {
+          // Si hay múltiples bodegas, no preseleccionar ninguna - el usuario debe elegir manualmente
+          setSelectedSede(null);
+          try {
+            localStorage.removeItem('selectedSedeId');
+            localStorage.removeItem('selectedSedeData');
+          } catch (error) {
+            logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en login:', error);
+          }
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login exitoso. Usuario debe seleccionar una bodega manualmente.');
         }
-        
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login exitoso. Usuario debe seleccionar una bodega manualmente.');
       }
       return true;
     }
@@ -252,39 +406,131 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const company = user?.empresas.find(e => e.id === companyId);
     if (company) {
       setSelectedCompany(company);
-      // NO preseleccionar ninguna bodega - el usuario debe elegir manualmente
-      // Limpiar cualquier selección previa
-      setSelectedSede(null);
-      try {
-        localStorage.removeItem('selectedSedeId');
-        localStorage.removeItem('selectedSedeData');
-      } catch (error) {
-        logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en switchCompany:', error);
+
+      // Si solo hay una bodega en la nueva empresa, seleccionarla automáticamente
+      if (company.sedes && company.sedes.length === 1) {
+        const unicaBodega = company.sedes[0];
+        setSelectedSede(unicaBodega);
+        try {
+          localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+          localStorage.setItem('selectedSedeData', JSON.stringify({
+            id: unicaBodega.id,
+            nombre: unicaBodega.nombre,
+            codigo: unicaBodega.codigo,
+            empresaId: unicaBodega.empresaId
+          }));
+        } catch (error) {
+          logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage en switchCompany:', error);
+        }
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Empresa cambiada. Bodega única seleccionada automáticamente:', unicaBodega.nombre);
+      } else {
+        // Si hay múltiples bodegas, no preseleccionar ninguna - el usuario debe elegir manualmente
+        setSelectedSede(null);
+        try {
+          localStorage.removeItem('selectedSedeId');
+          localStorage.removeItem('selectedSedeData');
+        } catch (error) {
+          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en switchCompany:', error);
+        }
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Empresa cambiada. Usuario debe seleccionar una bodega manualmente.');
       }
-      
-      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Empresa cambiada. Usuario debe seleccionar una bodega manualmente.');
     }
   };
 
-  const switchSede = (sedeId: number, sedeData?: { codigo?: string; nombre?: string }) => {
-    logger.log({ prefix: 'AuthContext', level: 'debug' }, 'switchSede llamado con ID:', sedeId, 'Datos adicionales:', sedeData);
+  const switchSede = useCallback((sedeId: number | string, sedeData?: { codigo?: string; nombre?: string }) => {
+    logger.log({ prefix: 'AuthContext', level: 'debug' }, 'switchSede llamado con ID:', sedeId, 'Tipo:', typeof sedeId, 'Datos adicionales:', sedeData);
+    logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sedes disponibles:', selectedCompany?.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre })));
+
     if (selectedCompany) {
-      // 1. Buscar la sede por ID exacto (más confiable)
-      let sede = selectedCompany.sedes?.find(s => s.id === sedeId);
-      
-      // 2. Si no se encuentra por ID, buscar por código si está disponible
-      if (!sede && sedeData?.codigo) {
-        const codigoBuscado = String(sedeData.codigo).trim().toUpperCase();
+      // Normalizar el ID a número si es posible, o mantener como string
+      const sedeIdNum = typeof sedeId === 'string' ? (isNaN(Number(sedeId)) ? null : Number(sedeId)) : sedeId;
+      const sedeIdStr = String(sedeId).trim();
+
+      let sede: Sede | undefined;
+
+      // PRIORIDAD 1: Buscar por código si está disponible (más confiable que el ID)
+      if (sedeData?.codigo) {
+        const codigoBuscado = String(sedeData.codigo).trim();
+        // Normalizar código para comparación flexible - múltiples formatos
+        const codigoBuscadoNormalizado = codigoBuscado.replace(/^0+/, '') || '0';
+        const codigoBuscadoFormateado = /^\d+$/.test(codigoBuscadoNormalizado) ? codigoBuscadoNormalizado.padStart(3, '0') : codigoBuscado;
+
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔍 Buscando por código:', {
+          codigoBuscado,
+          codigoBuscadoNormalizado,
+          codigoBuscadoFormateado,
+          sedesDisponibles: selectedCompany.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
+        });
+
         sede = selectedCompany.sedes?.find(s => {
           if (!s?.codigo) return false;
-          const codigoSede = String(s.codigo).trim().toUpperCase();
-          return codigoSede === codigoBuscado;
+          const codigoSede = String(s.codigo).trim();
+          const codigoSedeNormalizado = codigoSede.replace(/^0+/, '') || '0';
+          const codigoSedeFormateado = /^\d+$/.test(codigoSedeNormalizado) ? codigoSedeNormalizado.padStart(3, '0') : codigoSede;
+
+          // Comparar códigos de múltiples formas
+          const match = codigoSede === codigoBuscado ||
+            codigoSede === codigoBuscadoFormateado ||
+            codigoSedeFormateado === codigoBuscadoFormateado ||
+            codigoSedeNormalizado === codigoBuscadoNormalizado ||
+            codigoSede.toUpperCase() === codigoBuscado.toUpperCase() ||
+            String(codigoSede).padStart(3, '0') === String(codigoBuscado).padStart(3, '0');
+
+          if (match) {
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, `✅ Coincidencia de código encontrada:`, {
+              codigoSede,
+              codigoBuscado,
+              sede: { id: s.id, codigo: s.codigo, nombre: s.nombre }
+            });
+          }
+
+          return match;
         });
         if (sede) {
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede encontrada por código:', sede);
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por código:', sede);
+        } else {
+          logger.warn({ prefix: 'AuthContext' }, '⚠️ No se encontró sede por código:', codigoBuscado);
         }
       }
-      
+
+      // PRIORIDAD 2: Si no se encuentra por código, buscar por ID (numérico o string)
+      if (!sede) {
+        sede = selectedCompany.sedes?.find(s => {
+          // Comparar como número si ambos son números
+          if (sedeIdNum !== null && typeof s.id === 'number') {
+            const found = s.id === sedeIdNum;
+            if (found) {
+              logger.log({ prefix: 'AuthContext', level: 'debug' }, `✅ Coincidencia numérica: s.id (${s.id}) === sedeIdNum (${sedeIdNum})`);
+            }
+            return found;
+          }
+          // Comparar como string
+          const found = String(s.id) === sedeIdStr || String(s.id).trim() === sedeIdStr;
+          if (found) {
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, `✅ Coincidencia string: s.id (${String(s.id)}) === sedeIdStr (${sedeIdStr})`);
+          }
+          return found;
+        });
+        if (sede) {
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por ID:', sede);
+        }
+      }
+
+      // PRIORIDAD 3: Si aún no se encuentra y el ID es numérico, intentar buscar por código formateado del ID
+      if (!sede && sedeIdNum !== null) {
+        const codigoFormateado = String(sedeIdNum).padStart(3, '0');
+        sede = selectedCompany.sedes?.find(s => {
+          if (!s?.codigo) return false;
+          const codigoSede = String(s.codigo).trim();
+          const codigoSedeNormalizado = codigoSede.replace(/^0+/, '') || '0';
+          return codigoSede === codigoFormateado ||
+            codigoSedeNormalizado === String(sedeIdNum);
+        });
+        if (sede) {
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por código formateado del ID:', sede);
+        }
+      }
+
       // 3. Si aún no se encuentra, buscar por nombre si está disponible
       if (!sede && sedeData?.nombre) {
         const nombreBuscado = sedeData.nombre.trim().toUpperCase();
@@ -297,7 +543,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede encontrada por nombre:', sede);
         }
       }
-      
+
       // 4. Si aún no se encuentra, buscar en todas las bodegas cargadas (no solo las de la empresa)
       if (!sede && (sedeData?.codigo || sedeData?.nombre)) {
         const bodegaEncontrada = bodegas.find(b => {
@@ -313,7 +559,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           }
           return false;
         });
-        
+
         if (bodegaEncontrada) {
           logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega encontrada en lista global, creando sede:', bodegaEncontrada);
           // Crear una sede temporal con los datos de la bodega encontrada
@@ -323,17 +569,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           };
         }
       }
-      
-      // 5. Si aún no se encuentra, intentar por índice (último recurso)
-      if (!sede && sedeId > 0 && sedeId <= (selectedCompany.sedes?.length || 0)) {
-        const sedeByIndex = selectedCompany.sedes?.[sedeId - 1];
-        if (sedeByIndex && sedeByIndex.id === sedeId) {
-          // Solo usar si el ID coincide con el índice (caso especial)
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede encontrada por índice coincidente:', sedeByIndex);
-          sede = sedeByIndex;
+
+      // PRIORIDAD 4: Si aún no se encuentra, intentar por índice (último recurso)
+      if (!sede && sedeIdNum !== null && sedeIdNum > 0 && sedeIdNum <= (selectedCompany.sedes?.length || 0)) {
+        const sedeByIndex = selectedCompany.sedes?.[sedeIdNum - 1];
+        // Verificar tanto por ID numérico como por código formateado
+        if (sedeByIndex) {
+          const codigoFormateado = String(sedeIdNum).padStart(3, '0');
+          if (sedeByIndex.id === sedeIdNum || String(sedeByIndex.codigo).trim() === codigoFormateado) {
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Sede encontrada por índice:', sedeByIndex);
+            sede = sedeByIndex;
+          }
         }
       }
-      
+
       if (sede) {
         // Actualizar la sede con los datos proporcionados si están disponibles
         // Esto asegura que el nombre mostrado sea el correcto (ej: "Bodega Norte", "Bodega Sur")
@@ -351,7 +600,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           // Si no hay código, usar el ID formateado como código
           codigoActualizado = String(sede.id).padStart(3, '0');
         }
-        
+
         const sedeActualizada: Sede = {
           ...sede,
           // Si se proporciona nombre en sedeData, usarlo (prioridad)
@@ -359,7 +608,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           // CRÍTICO: Usar el código preservado/formateado correctamente
           codigo: codigoActualizado
         };
-        
+
         logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Sede encontrada y actualizada:', {
           id: sedeActualizada.id,
           nombre: sedeActualizada.nombre,
@@ -368,11 +617,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           nombreOriginal: sede.nombre,
           nombreActualizado: sedeData?.nombre
         });
-        
+
         // Asegurar que solo esta sede esté seleccionada (limpiar cualquier otra selección)
         // Actualizar el estado inmediatamente con la sede actualizada
         setSelectedSede(sedeActualizada);
-        
+
         // Guardar en localStorage para persistencia
         try {
           localStorage.setItem('selectedSedeId', String(sedeActualizada.id));
@@ -406,11 +655,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       logger.warn({ prefix: 'AuthContext' }, 'No hay empresa seleccionada');
       setSelectedSede(null);
     }
-  };
+  }, [selectedCompany, bodegas]);
 
   const hasPermission = (permission: Permission): boolean => {
-      if (permissions.includes('*')) return true;
-      return permissions.includes(permission);
+    if (permissions.includes('*')) return true;
+    return permissions.includes(permission);
   };
 
 

@@ -1,0 +1,219 @@
+import React from 'react';
+import { Page, Text, View, Document } from '@react-pdf/renderer';
+import { Remision, Pedido, Cliente, DocumentPreferences } from '../../types';
+import { pdfStyles, formatCurrency } from '../pdf/pdfTheme';
+
+interface Props {
+    remision: Remision;
+    pedido: Pedido;
+    cliente: Cliente;
+    empresa: any;
+    preferences: DocumentPreferences;
+    productos: any[];
+}
+
+const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empresa, preferences, productos }) => {
+
+    // Calcular totales si es necesario (copiado de lógica anterior o simplificado)
+    const itemsWithCalculations = remision.items.map(item => {
+        const subtotalBruto = (item.precioUnitario || 0) * (item.cantidad || 0);
+        const valorDescuento = subtotalBruto * ((item.descuentoPorcentaje || 0) / 100);
+        const subtotal = item.subtotal ?? (subtotalBruto - valorDescuento);
+        const valorIva = item.valorIva ?? (subtotal * ((item.ivaPorcentaje || 0) / 100));
+
+        return {
+            ...item,
+            subtotalBruto,
+            valorDescuento,
+            subtotal,
+            valorIva,
+            total: subtotal + valorIva
+        };
+    });
+
+    const totals = itemsWithCalculations.reduce((acc, item) => ({
+        subtotalBruto: acc.subtotalBruto + item.subtotalBruto,
+        descuentoTotal: acc.descuentoTotal + item.valorDescuento,
+        subtotalNeto: acc.subtotalNeto + item.subtotal,
+        iva: acc.iva + item.valorIva,
+        total: acc.total + item.total
+    }), { subtotalBruto: 0, descuentoTotal: 0, subtotalNeto: 0, iva: 0, total: 0 });
+
+    return (
+        <Document>
+            <Page size="A4" style={pdfStyles.page}>
+                {/* Header */}
+                <View style={pdfStyles.header}>
+                    <View style={pdfStyles.logoSection}>
+                        <View style={pdfStyles.logoPlaceholder} />
+                        <View style={pdfStyles.companyInfo}>
+                            <Text style={pdfStyles.companyName}>{empresa.nombre}</Text>
+                            <Text style={pdfStyles.companyDetails}>NIT: {empresa.nit}</Text>
+                            <Text style={pdfStyles.companyDetails}>{empresa.direccion}</Text>
+                            <Text style={pdfStyles.companyDetails}>{empresa.ciudad} - {empresa.telefono}</Text>
+                        </View>
+                    </View>
+                    <View style={pdfStyles.documentTitleSection}>
+                        <View style={[pdfStyles.documentBadge, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
+                            <Text style={[pdfStyles.documentTitle, { color: '#0369a1' }]}>REMISIÓN</Text>
+                        </View>
+                        <Text style={pdfStyles.documentNumber}>{remision.numeroRemision}</Text>
+                    </View>
+                </View>
+
+                {/* Info Grid */}
+                <View style={pdfStyles.infoGrid}>
+                    <View style={pdfStyles.infoCard}>
+                        <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0ea5e9' }]}>DESTINATARIO</Text>
+                        <View style={pdfStyles.cardContent}>
+                            <Text style={pdfStyles.clientName}>{cliente.nombreCompleto}</Text>
+                            <Text style={pdfStyles.companyDetails}>{cliente.tipoDocumentoId} {cliente.numeroDocumento}</Text>
+                            <Text style={pdfStyles.companyDetails}>{cliente.direccion}</Text>
+                            <Text style={pdfStyles.companyDetails}>{cliente.ciudadId}</Text>
+                        </View>
+                    </View>
+                    <View style={pdfStyles.infoCard}>
+                        <Text style={[pdfStyles.cardLabel, pdfStyles.cardLabelSecondary]}>DETALLES</Text>
+                        <View style={pdfStyles.cardContent}>
+                            <View style={pdfStyles.infoRow}>
+                                <Text style={pdfStyles.infoLabel}>Fecha:</Text>
+                                <Text style={pdfStyles.infoValue}>{new Date(remision.fechaRemision).toLocaleDateString('es-CO')}</Text>
+                            </View>
+                            <View style={pdfStyles.infoRow}>
+                                <Text style={pdfStyles.infoLabel}>Pedido:</Text>
+                                <Text style={pdfStyles.infoValue}>{pedido.numeroPedido}</Text>
+                            </View>
+                            <View style={pdfStyles.infoRow}>
+                                <Text style={pdfStyles.infoLabel}>Despacho:</Text>
+                                <Text style={pdfStyles.infoValue}>
+                                    {remision.metodoEnvio === 'transportadoraExterna' ? 'Transp. Externa' :
+                                        remision.metodoEnvio === 'transportePropio' ? 'Propio' : 'Recoge'}
+                                </Text>
+                            </View>
+                            {remision.transportadora && (
+                                <View style={pdfStyles.infoRow}>
+                                    <Text style={pdfStyles.infoLabel}>Transp:</Text>
+                                    <Text style={pdfStyles.infoValue}>{remision.transportadora}</Text>
+                                </View>
+                            )}
+                            {remision.numeroGuia && (
+                                <View style={pdfStyles.infoRow}>
+                                    <Text style={pdfStyles.infoLabel}>Guía:</Text>
+                                    <Text style={pdfStyles.infoValue}>{remision.numeroGuia}</Text>
+                                </View>
+                            )}
+                        </View>
+                    </View>
+                </View>
+
+                {/* Table */}
+                <View style={pdfStyles.tableContainer}>
+                    <View style={pdfStyles.tableHeader}>
+                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colCode]}>CÓDIGO</Text>
+                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colDesc]}>DESCRIPCIÓN</Text>
+                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colQty]}>CANT</Text>
+                        {preferences.showPrices ? (
+                            <>
+                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colPrice]}>PRECIO</Text>
+                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colDisc]}>DESC</Text>
+                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colTotal]}>TOTAL</Text>
+                            </>
+                        ) : (
+                            <Text style={[pdfStyles.tableHeaderText, { flex: 1 }]}></Text>
+                        )}
+                    </View>
+                    {itemsWithCalculations.map((item, idx) => {
+                        const product = productos.find(p =>
+                            String(p.id) === String(item.productoId) ||
+                            p.id === item.productoId
+                        );
+                        const productoNombre = product?.nombre || item.descripcion || item.nombre;
+                        const referencia = product?.referencia || 'N/A';
+
+                        return (
+                            <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
+                                <Text style={[pdfStyles.tableCellText, pdfStyles.colCode]}>{referencia}</Text>
+                                <Text style={[pdfStyles.tableCellText, pdfStyles.colDesc]}>{productoNombre}</Text>
+                                <Text style={[pdfStyles.tableCellText, pdfStyles.colQty]}>{item.cantidad}</Text>
+                                {preferences.showPrices ? (
+                                    <>
+                                        <Text style={[pdfStyles.tableCellText, pdfStyles.colPrice]}>{formatCurrency(item.precioUnitario)}</Text>
+                                        <Text style={[pdfStyles.tableCellText, pdfStyles.colDisc, item.descuentoPorcentaje > 0 ? pdfStyles.textRed : {}]}>
+                                            {item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje}%` : '-'}
+                                        </Text>
+                                        <Text style={[pdfStyles.tableCellText, pdfStyles.colTotal]}>{formatCurrency(item.subtotal)}</Text>
+                                    </>
+                                ) : (
+                                    <Text style={[pdfStyles.tableCellText, { flex: 1 }]}></Text>
+                                )}
+                            </View>
+                        );
+                    })}
+                </View>
+
+                {/* Observaciones */}
+                {remision.observaciones && (
+                    <View style={{ marginBottom: 20 }}>
+                        <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', marginBottom: 4 }}>OBSERVACIONES</Text>
+                        <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 4, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                            <Text style={{ fontSize: 9, color: '#334155' }}>{remision.observaciones}</Text>
+                        </View>
+                    </View>
+                )}
+
+                {/* Totals */}
+                {preferences.showPrices && (
+                    <View style={pdfStyles.totalsSection}>
+                        <View style={pdfStyles.totalsCard}>
+                            <View style={pdfStyles.totalRow}>
+                                <Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrency(totals.subtotalBruto)}</Text>
+                            </View>
+                            <View style={pdfStyles.totalRow}>
+                                <Text style={[pdfStyles.totalLabel, pdfStyles.textRed]}>Descuentos</Text>
+                                <Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrency(totals.descuentoTotal)}</Text>
+                            </View>
+                            <View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}>
+                                <Text style={pdfStyles.totalLabel}>Subtotal Neto</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrency(totals.subtotalNeto)}</Text>
+                            </View>
+                            <View style={pdfStyles.totalRow}>
+                                <Text style={pdfStyles.totalLabel}>IVA</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrency(totals.iva)}</Text>
+                            </View>
+                            <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#0ea5e9' }]}>
+                                <Text style={pdfStyles.finalTotalLabel}>TOTAL</Text>
+                                <Text style={pdfStyles.finalTotalValue}>{formatCurrency(totals.total)}</Text>
+                            </View>
+                        </View>
+                    </View>
+                )}
+
+                {/* Footer */}
+                {preferences.signatureType === 'physical' ? (
+                    <View style={pdfStyles.footer}>
+                        <View style={pdfStyles.signatureBox}>
+                            <View style={pdfStyles.signatureLine} />
+                            <Text style={pdfStyles.footerText}>ENTREGADO POR</Text>
+                            <Text style={pdfStyles.footerSubText}>(Nombre y Firma)</Text>
+                        </View>
+                        <View style={pdfStyles.signatureBox}>
+                            <View style={pdfStyles.signatureLine} />
+                            <Text style={pdfStyles.footerText}>RECIBIDO A CONFORMIDAD</Text>
+                            <Text style={pdfStyles.footerSubText}>(Nombre, Firma, C.C. y Sello)</Text>
+                        </View>
+                    </View>
+                ) : (
+                    <View style={[pdfStyles.footer, { justifyContent: 'center', borderTopWidth: 0 }]}>
+                        <View style={{ alignItems: 'center' }}>
+                            <Text style={{ fontSize: 10, color: '#64748b' }}>Documento validado digitalmente.</Text>
+                            <Text style={{ fontSize: 10, fontWeight: 'bold', color: '#334155' }}>ID de Entrega: {remision.id}</Text>
+                        </View>
+                    </View>
+                )}
+            </Page>
+        </Document>
+    );
+};
+
+export default RemisionPDFDocument;

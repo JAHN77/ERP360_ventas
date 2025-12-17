@@ -109,6 +109,7 @@ export interface Cliente {
   primerApellido?: string;
   // FIX: Added missing property to Cliente interface
   segundoApellido?: string;
+  telefono?: string; // Added field
   celular?: string;
   direccion?: string;
   ciudadId?: string;
@@ -117,6 +118,7 @@ export interface Cliente {
   empresaId: number;
   // FIX: Added missing property to Cliente interface
   regimenFiscalId?: string;
+  codter?: string;
 }
 
 
@@ -141,7 +143,7 @@ export interface InvProducto {
   codigoSublinea: string;
   codigoMedida: string;
   tasaIva: number;
-  ultimoCosto: number;
+  ultimoCosto: number; // Precio SIN IVA (base para calcular IVA)
   costoPromedio: number;
   referencia?: string;
   karins: boolean; // Controla existencia
@@ -161,6 +163,10 @@ export interface InvProducto {
   // Campos de inventario desde inv_invent
   stock?: number; // ucoins desde inv_invent
   precioInventario?: number; // valinv desde inv_invent
+  // Campos adicionales de tarifa de precios
+  precioConIva?: number; // Precio CON IVA (para referencia/visualización)
+  margenTarifa?: number; // Margen de la tarifa
+  codigo?: string; // Mapeado de codins desde backend
 }
 export type Producto = InvProducto;
 
@@ -192,6 +198,7 @@ export interface DocumentoDetalle {
   cantFacturada?: number; // Cantidad facturada
   numFactura?: string; // Número de factura relacionada
   codigoMedida?: string; // Código de medida
+  unidadMedida?: string; // Nombre de la unidad (enviado por backend)
   estado?: string; // Estado del item
   qtycot?: number; // Cantidad cotizada
 }
@@ -205,14 +212,16 @@ export interface Cotizacion {
   fechaVencimiento: string; // date
   clienteId: string;
   codter?: string; // Código de tercero/cliente
+  clienteNombre?: string; // Nombre del cliente (nomter)
   vendedorId?: string; // ID numérico del vendedor (ideven) o código (codven) como fallback
   codVendedor?: string; // Código del vendedor (codven)
+  vendedorNombre?: string; // Nombre del vendedor (nomven)
   subtotal: number;
   descuentoValor: number;
   ivaValor: number;
   total: number;
   observaciones?: string;
-  estado: 'ENVIADA' | 'APROBADA' | 'RECHAZADA' | 'VENCIDA';
+  estado: 'BORRADOR' | 'ENVIADA' | 'APROBADA' | 'RECHAZADA' | 'VENCIDA';
   empresaId: number;
   codalm?: string; // Código de almacén
   items: DocumentoDetalle[];
@@ -231,6 +240,7 @@ export interface Cotizacion {
   idUsuario?: number; // ID de usuario
   codTarifa?: string; // Código de tarifa (char(2))
   fechaCreacion?: string; // Fecha de creación del sistema (datetime)
+  notaPago?: string; // Nota de pago
 }
 
 export interface Pedido {
@@ -238,6 +248,7 @@ export interface Pedido {
   numeroPedido: string;
   fechaPedido: string; // date
   clienteId: string;
+  clienteNombre?: string; // Nombre del cliente (nomter)
   vendedorId?: string;
   cotizacionId?: string;
   numeroCotizacionOrigen?: string; // Número de cotización obtenido desde el JOIN
@@ -256,6 +267,8 @@ export interface Pedido {
   ivaPorcentaje?: number;
   impoconsumoValor?: number;
   instruccionesEntrega?: string;
+  notaPago?: string; // Nota de pago
+  formaPago?: string; // Forma de pago: 1=Contado, 2=Crédito
 }
 
 
@@ -315,6 +328,9 @@ export interface Factura {
   estadoDevolucion?: 'DEVOLUCION_PARCIAL' | 'DEVOLUCION_TOTAL';
   fechaTimbrado?: string;
   motivoRechazo?: string; // Motivo del rechazo cuando la factura es rechazada
+  formaPago?: string; // Forma de pago: 1=Contado, 2=Crédito
+  documentoContable?: string; // Documento contable (doccoc)
+  codalm?: string; // Código de almacén
 }
 
 
@@ -330,6 +346,7 @@ export interface NotaCredito {
   motivo: string;
   estadoDian?: 'Transmitido' | 'PENDIENTE' | 'Error';
   itemsDevueltos: DocumentoDetalle[];
+  cufe?: string; // Código Único de Factura Electrónica (para la nota de crédito)
 }
 
 export interface Medida {

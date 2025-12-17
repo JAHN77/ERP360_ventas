@@ -1,11 +1,13 @@
 // Cliente API para conectar con el backend SQL Server
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:3001/api';
 
-interface ApiResponse<T> {
+export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   message?: string;
   error?: string;
+  details?: any;
+  status?: number;
 }
 
 class ApiClient {
@@ -23,12 +25,12 @@ class ApiClient {
         // eslint-disable-next-line no-console
         console.debug('[api] request:', url, options.method || 'GET');
       }
-      
+
       // Crear un AbortController solo si no hay uno existente en options
       let controller: AbortController | null = null;
       let timeoutId: NodeJS.Timeout | null = null;
       const existingSignal = options.signal;
-      
+
       // Solo crear un timeout si no hay un signal existente
       // Para endpoints de test-connection, usar timeout más corto (5 segundos)
       // Para otros endpoints, usar timeout más largo (30 segundos)
@@ -41,7 +43,7 @@ class ApiClient {
           }
         }, timeoutDuration);
       }
-      
+
       try {
         const response = await fetch(url, {
           headers: {
@@ -51,7 +53,7 @@ class ApiClient {
           ...options,
           signal: controller?.signal || existingSignal, // Usar el signal del controller o el existente
         });
-        
+
         // Limpiar timeout solo si lo creamos nosotros
         if (timeoutId) {
           clearTimeout(timeoutId);
@@ -73,13 +75,13 @@ class ApiClient {
           } catch (e) {
             // Si no hay JSON en la respuesta, usar el mensaje por defecto
           }
-          
+
           // Si el error viene del backend con estructura {success: false, ...}, retornarlo directamente
           // Esto permite que el frontend maneje el error sin lanzar excepción
           if (errorResponse && errorResponse.success === false) {
             return errorResponse;
           }
-          
+
           // Para otros errores HTTP, retornar estructura consistente en lugar de lanzar excepción
           return {
             success: false,
@@ -132,10 +134,10 @@ class ApiClient {
       // Detectar AbortError de múltiples formas
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorName = error instanceof Error ? error.name : '';
-      const isAbortError = errorName === 'AbortError' || 
-                          errorMessage.includes('aborted') || 
-                          errorMessage.includes('signal is aborted');
-      
+      const isAbortError = errorName === 'AbortError' ||
+        errorMessage.includes('aborted') ||
+        errorMessage.includes('signal is aborted');
+
       if (isAbortError) {
         // Si es un AbortError, retornar respuesta de error de conexión sin loguear como error crítico
         if (typeof window !== 'undefined') {
@@ -147,7 +149,7 @@ class ApiClient {
           message: 'No se pudo conectar con el servidor (timeout)'
         };
       }
-      
+
       console.error(`Error en API request ${endpoint}:`, error);
       // Retornar respuesta con estructura consistente para que el frontend pueda manejarla
       // Si es un error de red (fetch falló), indicarlo claramente
@@ -167,16 +169,29 @@ class ApiClient {
   }
 
   // Métodos para obtener datos
-  async getClientes() {
-    return this.request('/clientes');
-  }
-
-  async getProductos(codalm?: string, page?: number, pageSize?: number, search?: string) {
+  async getClientes(page?: number, pageSize?: number, hasEmail?: boolean) {
     const queryParams = new URLSearchParams();
-    if (codalm) queryParams.append('codalm', codalm);
     if (page) queryParams.append('page', String(page));
     if (pageSize) queryParams.append('pageSize', String(pageSize));
+    if (hasEmail) queryParams.append('hasEmail', 'true');
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/clientes${params}`);
+  }
+
+  async getClientesConFacturasAceptadas() {
+    return this.request('/devoluciones/clientes-con-facturas-aceptadas');
+  }
+
+  async getProductos(codalm?: string, page?: number, pageSize?: number, search?: string, sortColumn?: string, sortDirection?: 'asc' | 'desc') {
+    const queryParams = new URLSearchParams();
+    if (codalm) queryParams.append('codalm', codalm);
+    queryParams.append('page', String(page || 1));
+    // Aumentar límite por defecto para cargar más productos
+    queryParams.append('pageSize', String(pageSize || 5000));
     if (search) queryParams.append('search', search);
+    if (sortColumn) queryParams.append('sortColumn', sortColumn);
+    if (sortDirection) queryParams.append('sortDirection', sortDirection);
+
     const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.request(`/productos${params}`);
   }
@@ -185,16 +200,22 @@ class ApiClient {
     return this.request('/facturas');
   }
 
-  async getFacturasDetalle() {
-    return this.request('/facturas-detalle');
+  async getFacturasDetalle(facturaId?: string | number) {
+    const queryParams = new URLSearchParams();
+    if (facturaId) queryParams.append('facturaId', String(facturaId));
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/facturas-detalle${params}`);
   }
 
   async getCotizaciones() {
     return this.request('/cotizaciones');
   }
 
-  async getCotizacionesDetalle() {
-    return this.request('/cotizaciones-detalle');
+  async getCotizacionesDetalle(cotizacionId?: string | number) {
+    const queryParams = new URLSearchParams();
+    if (cotizacionId) queryParams.append('cotizacionId', String(cotizacionId));
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/cotizaciones-detalle${params}`);
   }
 
   async getPedidos(page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) {
@@ -208,8 +229,11 @@ class ApiClient {
     return this.request(`/pedidos${params}`);
   }
 
-  async getPedidosDetalle() {
-    return this.request('/pedidos-detalle');
+  async getPedidosDetalle(pedidoId?: string) {
+    const queryParams = new URLSearchParams();
+    if (pedidoId) queryParams.append('pedidoId', pedidoId);
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/pedidos-detalle${params}`);
   }
 
   async getRemisiones(page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) {
@@ -249,6 +273,10 @@ class ApiClient {
 
   async getBodegas() {
     return this.request('/bodegas');
+  }
+
+  async getCiudades() {
+    return this.request('/ciudades');
   }
 
   async registerInventoryEntry(payload: any) {
@@ -299,7 +327,7 @@ class ApiClient {
     }
     const params = new URLSearchParams({ search: trimmedSearch, limit: String(limit) });
     return this.request(`/buscar/vendedores?${params.toString()}`);
-    }
+  }
 
   async searchProductos(search: string, limit = 20) {
     const trimmedSearch = String(search || '').trim();
@@ -308,6 +336,26 @@ class ApiClient {
     }
     const params = new URLSearchParams({ search: trimmedSearch, limit: String(limit) });
     return this.request(`/buscar/productos?${params.toString()}`);
+  }
+
+  async getProductStock(id: number | string) {
+    return this.request<{ codalm: string; nombreBodega: string; cantidad: number }[]>(`/productos/${id}/stock`);
+  }
+
+  async getStock(productoId: number | string, codalm: string) {
+    const queryParams = new URLSearchParams({ codalm });
+    return this.request<{ stock: number; codalm: string; productoId: string }>(`/inventario/stock/${productoId}?${queryParams.toString()}`);
+  }
+
+  async getInventoryMovements(page: number = 1, pageSize: number = 20, search: string = '', sortBy: string = 'fecha', sortOrder: 'asc' | 'desc' = 'desc') {
+    const queryParams = new URLSearchParams({
+      page: page.toString(),
+      pageSize: pageSize.toString(),
+      search,
+      sortBy,
+      sortOrder
+    });
+    return this.request<any>(`/inventario/movimientos?${queryParams.toString()}`);
   }
 
   // --- Crear documentos ---
@@ -389,6 +437,13 @@ class ApiClient {
     });
   }
 
+  async updateCliente(id: string | number, payload: any) {
+    return this.request(`/clientes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async getClienteById(id: string | number) {
     return this.request(`/clientes/${id}`);
   }
@@ -405,16 +460,16 @@ class ApiClient {
 export const apiClient = new ApiClient();
 
 // Funciones de conveniencia para usar en el DataContext
-export const fetchClientes = () => apiClient.getClientes();
-export const fetchProductos = (codalm?: string) => apiClient.getProductos(codalm);
+export const fetchClientes = (page?: number, pageSize?: number, hasEmail?: boolean) => apiClient.getClientes(page, pageSize, hasEmail);
+export const fetchProductos = (codalm?: string, page?: number, pageSize?: number, search?: string) => apiClient.getProductos(codalm, page, pageSize, search);
 export const fetchFacturas = () => apiClient.getFacturas();
-export const fetchFacturasDetalle = () => apiClient.getFacturasDetalle();
+export const fetchFacturasDetalle = (facturaId?: string | number) => apiClient.getFacturasDetalle(facturaId);
 export const fetchCotizaciones = () => apiClient.getCotizaciones();
-export const fetchCotizacionesDetalle = () => apiClient.getCotizacionesDetalle();
-export const fetchPedidos = (page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) => 
+export const fetchCotizacionesDetalle = (cotizacionId?: string | number) => apiClient.getCotizacionesDetalle(cotizacionId);
+export const fetchPedidos = (page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) =>
   apiClient.getPedidos(page, pageSize, search, estado, codter);
-export const fetchPedidosDetalle = () => apiClient.getPedidosDetalle();
-export const fetchRemisiones = (page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) => 
+export const fetchPedidosDetalle = (pedidoId?: string) => apiClient.getPedidosDetalle(pedidoId);
+export const fetchRemisiones = (page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) =>
   apiClient.getRemisiones(page, pageSize, search, codter, codalm, estrec);
 export const fetchRemisionesDetalle = () => apiClient.getRemisionesDetalle();
 export const fetchNotasCredito = () => apiClient.getNotasCredito();
@@ -422,6 +477,7 @@ export const fetchMedidas = () => apiClient.getMedidas();
 export const fetchCategorias = () => apiClient.getCategorias();
 export const fetchVendedores = () => apiClient.getVendedores();
 export const fetchBodegas = () => apiClient.getBodegas();
+export const fetchCiudades = () => apiClient.getCiudades();
 export const testApiConnection = () => apiClient.testConnection();
 export const executeCustomQuery = (query: string) => apiClient.executeQuery(query);
 export const apiRegisterInventoryEntry = (payload: any) => apiClient.registerInventoryEntry(payload);
@@ -439,9 +495,14 @@ export const apiUpdateRemision = (id: string | number, payload: any) => apiClien
 export const apiCreateFactura = (payload: any) => apiClient.createFactura(payload);
 export const apiUpdateFactura = (id: string | number, payload: any) => apiClient.updateFactura(id, payload);
 export const apiCreateCliente = (payload: any) => apiClient.createCliente(payload);
+export const apiUpdateCliente = (id: string | number, payload: any) => apiClient.updateCliente(id, payload);
+
 export const apiSetClienteListaPrecios = (id: number | string, listaPrecioId: number | string) => apiClient.setClienteListaPrecios(id, listaPrecioId);
 export const apiGetClienteById = (id: number | string) => apiClient.getClienteById(id);
 export const apiCreateNotaCredito = (payload: any) => apiClient.createNotaCredito(payload);
 export const apiUpdateNotaCredito = (id: number | string, payload: any) => apiClient.updateNotaCredito(id, payload);
+export const apiGetClientesConFacturasAceptadas = () => apiClient.getClientesConFacturasAceptadas();
+export const fetchStock = (productoId: number | string, codalm: string) => apiClient.getStock(productoId, codalm);
+export const fetchInventoryMovements = (page?: number, pageSize?: number, search?: string, sortBy?: string, sortOrder?: 'asc' | 'desc') => apiClient.getInventoryMovements(page, pageSize, search, sortBy, sortOrder);
 
 export default apiClient;

@@ -1,4 +1,5 @@
 import React, { useRef, useState, useMemo } from 'react';
+import { PDFViewer, pdf } from '@react-pdf/renderer'; // NEW IMPORTS
 import Modal from '../ui/Modal';
 import { useNotifications } from '../../hooks/useNotifications';
 import { useDocumentPreferences, DocumentType } from '../../hooks/useDocumentPreferences';
@@ -6,13 +7,14 @@ import DocumentOptionsToolbar from './DocumentOptionsToolbar';
 import { DocumentPreferences } from '../../types';
 import SendEmailModal from './SendEmailModal';
 import { useData } from '../../hooks/useData';
+// import { descargarElementoComoPDF } from '../../utils/pdfClient'; // REMOVED
 
 interface DocumentPreviewModalProps {
     isOpen: boolean;
     onClose: () => void;
     title: string;
-    onConfirm: () => void;
-    onEdit: () => void;
+    onConfirm?: () => void; // Optional
+    onEdit?: () => void; // Optional
     children: React.ReactNode;
     confirmLabel?: string;
     isConfirming?: boolean;
@@ -20,15 +22,8 @@ interface DocumentPreviewModalProps {
     isSaving?: boolean;
     saveAndSendLabel?: string;
     documentType: DocumentType;
-    clientEmail?: string; // Nuevo prop
-    clientName?: string; // Nuevo prop
-}
-
-declare global {
-  interface Window {
-    jspdf: any;
-    html2canvas: any;
-  }
+    clientEmail?: string;
+    clientName?: string;
 }
 
 const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
@@ -49,80 +44,44 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
 }) => {
     const { addNotification } = useNotifications();
     const { datosEmpresa } = useData();
-    const documentRef = useRef<HTMLDivElement>(null);
+    // const documentRef = useRef<HTMLDivElement>(null); // Removed ref
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences(documentType);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
 
+    // Clone child to pass preferences
+    const childWithProps = React.isValidElement(children)
+        ? React.cloneElement(children, { preferences } as { preferences: DocumentPreferences })
+        : children;
+
     const handleDownload = async () => {
-        if (!documentRef.current || isDownloading) {
-            if (!isDownloading) {
-                addNotification({ message: 'No hay contenido para descargar. Por favor, intenta nuevamente.', type: 'warning' });
-            }
-            return;
-        }
-
-        // Verificar que html2canvas esté disponible
-        if (!window.html2canvas || typeof window.html2canvas !== 'function') {
-            addNotification({ 
-                message: 'La biblioteca html2canvas no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('html2canvas no disponible:', typeof window.html2canvas);
-            return;
-        }
-
-        // Verificar que jsPDF esté disponible
-        if (!window.jspdf || typeof window.jspdf !== 'object') {
-            addNotification({ 
-                message: 'La biblioteca jsPDF no está disponible. Por favor, recarga la página y espera unos segundos.', 
-                type: 'error' 
-            });
-            console.error('jsPDF no disponible:', typeof window.jspdf);
-            return;
-        }
-
         setIsDownloading(true);
-        addNotification({ message: 'Iniciando descarga de previsualización...', type: 'info' });
+        addNotification({ message: 'Generando PDF...', type: 'info' });
 
         try {
-            const { jsPDF } = window.jspdf;
-            
-            if (!jsPDF) {
-                throw new Error('jsPDF no está disponible en window.jspdf');
-            }
-            const canvas = await window.html2canvas(documentRef.current, { 
-                scale: 2, 
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-                windowWidth: documentRef.current.scrollWidth,
-                windowHeight: documentRef.current.scrollHeight
-            });
-            const imgData = canvas.toDataURL('image/png');
-            
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            const imgProps = pdf.getImageProperties(imgData);
-            const ratio = imgProps.width / imgProps.height;
-            let finalWidth = pdfWidth;
-            let finalHeight = finalWidth / ratio;
-            
-            if (finalHeight > pdfHeight) {
-                finalHeight = pdfHeight;
-                finalWidth = finalHeight * ratio;
-            }
+            // Generate Blob using ReactPDF
+            const blob = await pdf(childWithProps as React.ReactElement).toBlob();
 
-            const x = (pdfWidth - finalWidth) / 2;
-            const y = (pdfHeight - finalHeight) / 2;
-            
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            pdf.save(`Previsualizacion-${title.replace(/ /g, '_')}.pdf`);
-            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
+            // Create download link
+            const url = URL.createObjectURL(blob);
+            const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '_');
+            const fileName = `Previsualizacion-${safeTitle}.pdf`;
+
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            addNotification({ message: 'PDF descargado correctamente.', type: 'success' });
         } catch (error) {
             console.error('Error al generar el PDF:', error);
-            addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });
+            addNotification({
+                message: `No se pudo generar el archivo: ${error}.`,
+                type: 'error'
+            });
         } finally {
             setIsDownloading(false);
         }
@@ -130,19 +89,14 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
 
     const handleSendNotification = (emailData: { to: string }) => {
         addNotification({
-            message: `PDF descargado. Se ha abierto tu cliente de correo para enviar el documento.`,
+            message: `PDF listo. Se ha abierto tu cliente de correo para enviar el documento.`,
             type: 'success',
         });
         setIsEmailModalOpen(false);
     };
-    
-    // Clone child to pass ref and preferences
-    const childWithProps = React.isValidElement(children) 
-        ? React.cloneElement(children, { ref: documentRef, preferences } as React.RefAttributes<HTMLDivElement> & { preferences: DocumentPreferences }) 
-        : children;
 
-    const documentNumber = title.split(': ')[1] || 'N/A';
-    
+    const documentNumber = title.includes(': ') ? title.split(': ')[1] : 'Borrador';
+
     const emailBody = useMemo(() => {
         if (documentType === 'cotizacion') {
             return `Estimado/a ${clientName || 'cliente'},
@@ -164,13 +118,21 @@ Adjuntamos una copia del pedido para sus registros. Le notificaremos una vez que
 Atentamente,
 El equipo de ${datosEmpresa.nombre}`;
         }
+        if (documentType === 'nota_credito') {
+            return `Estimado/a ${clientName || 'cliente'},
+
+Le informamos que se ha generado la Nota de Crédito N° ${documentNumber}.
+Adjuntamos el documento para sus registros contables.
+
+Atentamente,
+El equipo de ${datosEmpresa.nombre}`;
+        }
         // Fallback genérico
         return `Estimado ${clientName || 'cliente'},
 
 Adjuntamos su documento ${documentNumber} de ${datosEmpresa.nombre}.
 
 Por favor, no dude en contactarnos si tiene alguna pregunta.
-
 Atentamente,
 El equipo de ${datosEmpresa.nombre}`;
     }, [documentType, clientName, documentNumber, datosEmpresa.nombre]);
@@ -184,15 +146,19 @@ El equipo de ${datosEmpresa.nombre}`;
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 px-2 truncate">{title}</h3>
                         <div className="flex items-center space-x-1 bg-slate-200/50 dark:bg-slate-800/50 p-1 rounded-lg">
                             {/* Group 1: Edit/Export */}
-                            <button onClick={onEdit} disabled={isDownloading} title="Editar" className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                <i className="fas fa-pencil-alt"></i>
-                            </button>
-                            <button onClick={handleDownload} disabled={isDownloading} title={isDownloading ? "Generando PDF..." : "Descargar Borrador PDF"} className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            {onEdit && (
+                                <button onClick={onEdit} disabled={isDownloading} title="Editar" className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i className="fas fa-pencil-alt"></i>
+                                </button>
+                            )}
+                            <button onClick={handleDownload} disabled={isDownloading} title={isDownloading ? "Generando PDF..." : "Descargar PDF"} className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                 <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
                             </button>
-                             {clientEmail && (
+                            {clientEmail && (
                                 <button
                                     onClick={async () => {
+                                        // Generate blob implies ready for email attachment if integrated
+                                        // For now just download and open email modal
                                         await handleDownload();
                                         if (!isDownloading) {
                                             setIsEmailModalOpen(true);
@@ -209,26 +175,26 @@ El equipo de ${datosEmpresa.nombre}`;
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
                             {/* Group 2: Main Actions */}
                             <div className="flex items-center gap-1">
-                            {onSaveAndSend && (
-                                <button 
-                                    onClick={onSaveAndSend}
-                                    disabled={isSaving || isConfirming}
+                                {onSaveAndSend && (
+                                    <button
+                                        onClick={onSaveAndSend}
+                                        disabled={isSaving || isConfirming}
                                         className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-slate-400 flex items-center gap-2"
-                                >
+                                    >
                                         {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
                                         <span className="hidden sm:inline">{saveAndSendLabel}</span>
-                                </button>
-                            )}
-                            {onConfirm && (
-                                <button 
-                                    onClick={onConfirm}
-                                    disabled={isConfirming || isSaving}
+                                    </button>
+                                )}
+                                {onConfirm && (
+                                    <button
+                                        onClick={onConfirm}
+                                        disabled={isConfirming || isSaving}
                                         className="px-3 py-1.5 text-sm font-semibold text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-slate-400 flex items-center gap-2"
-                                >
+                                    >
                                         {isConfirming ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check"></i>}
                                         <span>{confirmLabel}</span>
-                                </button>
-                            )}
+                                    </button>
+                                )}
                             </div>
                             {/* Divider */}
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
@@ -247,9 +213,16 @@ El equipo de ${datosEmpresa.nombre}`;
                 </div>
 
 
-                <div className="bg-slate-200 dark:bg-slate-900 p-4 sm:p-8">
-                    <div className="bg-white shadow-lg rounded-md overflow-hidden max-w-4xl mx-auto">
-                        {childWithProps}
+                <div className="bg-slate-200 dark:bg-slate-900 p-4 sm:p-8 h-[85vh]">
+                    {/* Replace Direct Render with PDFViewer */}
+                    <div className="bg-white shadow-lg rounded-md max-w-5xl mx-auto h-full overflow-hidden">
+                        <PDFViewer
+                            style={{ width: '100%', height: '100%' }}
+                            showToolbar={true}
+                            className="border-none"
+                        >
+                            {childWithProps as React.ReactElement}
+                        </PDFViewer>
                     </div>
                 </div>
             </Modal>

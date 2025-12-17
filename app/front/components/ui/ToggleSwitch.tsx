@@ -43,17 +43,15 @@ const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
 
       <div
         onClick={() => !disabled && onChange(false)}
-        className={`relative flex ${optionWidthClass} items-center justify-center rounded-full ${optionPadding} text-base font-semibold transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus:ring-offset-slate-800 whitespace-nowrap ${
-          !checked ? 'text-white' : 'text-slate-400 hover:text-slate-200'
-        }`}
+        className={`relative flex ${optionWidthClass} items-center justify-center rounded-full ${optionPadding} text-base font-semibold transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus:ring-offset-slate-800 whitespace-nowrap ${!checked ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+          }`}
       >
         {labelLeft}
       </div>
       <div
         onClick={() => !disabled && onChange(true)}
-        className={`relative flex ${optionWidthClass} items-center justify-center rounded-full ${optionPadding} text-base font-semibold transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible-ring-offset-2 dark:focus:ring-offset-slate-800 whitespace-nowrap ${
-          checked ? 'text-white' : 'text-slate-400 hover:text-slate-200'
-        }`}
+        className={`relative flex ${optionWidthClass} items-center justify-center rounded-full ${optionPadding} text-base font-semibold transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible-ring-offset-2 dark:focus:ring-offset-slate-800 whitespace-nowrap ${checked ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+          }`}
       >
         {labelRight}
       </div>

@@ -1,86 +1,89 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Modal from '../ui/Modal';
 import { Pedido } from '../../types';
-import { PedidoPDF } from './PedidoPDF';
 import { useNotifications } from '../../hooks/useNotifications';
 import { useDocumentPreferences } from '../../hooks/useDocumentPreferences';
 import DocumentOptionsToolbar from './DocumentOptionsToolbar';
 import SendEmailModal from './SendEmailModal';
 import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
-import { descargarElementoComoPDF } from '../../utils/pdfClient';
+import { pdf, PDFViewer } from '@react-pdf/renderer';
+import PedidoPDFDocument from './PedidoPDFDocument';
 
 interface PedidoPreviewModalProps {
     pedido: Pedido | null;
     onClose: () => void;
 }
 
-
 const PedidoPreviewModal: React.FC<PedidoPreviewModalProps> = ({ pedido, onClose }) => {
     const { addNotification } = useNotifications();
-    const { clientes, datosEmpresa } = useData();
-    const componentRef = useRef<HTMLDivElement>(null);
+    const { clientes, datosEmpresa, productos, cotizaciones } = useData();
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('pedido');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
-    const [isDownloading, setIsDownloading] = useState(false);
-    const [isPrinting, setIsPrinting] = useState(false);
-    
-    const cliente = useMemo(() => {
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    const relatedData = useMemo(() => {
         if (!pedido) return null;
-        return findClienteByIdentifier(
+        const cliente = findClienteByIdentifier(
             clientes,
             pedido.clienteId ?? (pedido as any).cliente_id ?? (pedido as any).nitCliente
-        ) || null;
-    }, [pedido, clientes]);
+        );
+        const cotizacion = cotizaciones.find(c => c.id === pedido.cotizacionId);
+        return { cliente, cotizacion };
+    }, [pedido, clientes, cotizaciones]);
 
-    const handlePrint = async () => {
-        if (!pedido || !cliente || !componentRef.current || isPrinting) return;
-    
-        setIsPrinting(true);
-        addNotification({ message: `Preparando impresión para ${pedido.numeroPedido}...`, type: 'info' });
-    
-        try {
-            const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
-            await descargarElementoComoPDF(componentRef.current, {
-                fileName: `Pedido-${pedido.numeroPedido}-${safeClientName}.pdf`,
-            });
-            
-            // Abrir el PDF en una nueva ventana para imprimir
-            setTimeout(() => {
-                window.print();
-            }, 500);
-        } catch (error) {
-            console.error('Error al generar el PDF para impresión:', error);
-            addNotification({ message: 'No se pudo generar el documento para imprimir.', type: 'warning' });
-        } finally {
-            setIsPrinting(false);
-        }
+    const getDocumentComponent = () => {
+        if (!pedido || !relatedData?.cliente) return null;
+
+        return (
+            <PedidoPDFDocument
+                pedido={pedido}
+                cliente={relatedData.cliente}
+                empresa={{
+                    nombre: datosEmpresa.nombre,
+                    nit: datosEmpresa.nit,
+                    direccion: datosEmpresa.direccion,
+                    telefono: datosEmpresa.telefono
+                }}
+                preferences={preferences}
+                productos={productos}
+                cotizacionOrigen={relatedData.cotizacion}
+            />
+        );
     };
 
     const handleDownload = async () => {
-        if (!pedido || !cliente || !componentRef.current || isDownloading) return;
-        
-        setIsDownloading(true);
-        addNotification({ message: `Generando PDF para ${pedido.numeroPedido}...`, type: 'info' });
+        if (!pedido || !relatedData?.cliente) return;
+        const doc = getDocumentComponent();
+        if (!doc) return;
+
+        setIsGenerating(true);
+        addNotification({ message: `Generando PDF para pedido ${pedido.numeroPedido}...`, type: 'info' });
 
         try {
-            const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
-            await descargarElementoComoPDF(componentRef.current, {
-                fileName: `Pedido-${pedido.numeroPedido}-${safeClientName}.pdf`,
-            });
-            addNotification({ message: 'PDF generado correctamente.', type: 'success' });
+            const blob = await pdf(doc).toBlob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const safeClientName = relatedData.cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
+
+            link.href = url;
+            link.download = `Pedido-${pedido.numeroPedido}-${safeClientName}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            addNotification({ message: 'PDF descargado correctamente.', type: 'success' });
         } catch (error) {
-            console.error('Error al generar el PDF:', error);
-            addNotification({ message: 'No se pudo generar el archivo. Intenta nuevamente.', type: 'warning' });
+            console.error('Error generando PDF:', error);
+            addNotification({ message: 'Error al generar el PDF.', type: 'warning' });
         } finally {
-            setIsDownloading(false);
+            setIsGenerating(false);
         }
     };
-    
+
     const handleSendEmail = async () => {
-        if (isDownloading || isPrinting) return;
         await handleDownload();
-        // Esperar a que termine la descarga antes de abrir el modal
         setTimeout(() => {
             setIsEmailModalOpen(true);
         }, 100);
@@ -95,18 +98,9 @@ const PedidoPreviewModal: React.FC<PedidoPreviewModalProps> = ({ pedido, onClose
         setIsEmailModalOpen(false);
     };
 
-
-    if (!pedido || !cliente) {
+    if (!pedido || !relatedData || !relatedData.cliente) {
         return null;
     }
-    
-    const childWithProps = <PedidoPDF 
-        ref={componentRef}
-        pedido={pedido}
-        cliente={cliente}
-        empresa={datosEmpresa}
-        preferences={preferences}
-    />;
 
     return (
         <>
@@ -117,26 +111,26 @@ const PedidoPreviewModal: React.FC<PedidoPreviewModalProps> = ({ pedido, onClose
                             Pedido: {pedido.numeroPedido}
                         </h3>
                         <div className="flex items-center space-x-1 bg-slate-200/50 dark:bg-slate-800/50 p-1 rounded-lg">
-                            <button 
-                                onClick={handleDownload} 
-                                disabled={isDownloading || isPrinting}
-                                title={isDownloading ? "Generando PDF..." : "Descargar Borrador PDF"}
-                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            <button
+                                onClick={handleDownload}
+                                disabled={isGenerating}
+                                title="Descargar PDF"
+                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-sky-500 transition-colors"
                             >
-                                <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
+                                <i className={`fas ${isGenerating ? 'fa-spinner fa-spin' : 'fa-download'}`}></i>
                             </button>
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
-                            <button 
-                                onClick={handleSendEmail} 
-                                disabled={isDownloading || isPrinting}
-                                title={isDownloading ? "Generando PDF..." : "Enviar por Correo"}
-                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            <button
+                                onClick={handleSendEmail}
+                                disabled={isGenerating}
+                                title="Enviar por Correo"
+                                className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors"
                             >
-                                <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
+                                <i className="fas fa-paper-plane"></i>
                             </button>
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
-                            <button 
-                                onClick={onClose} 
+                            <button
+                                onClick={onClose}
                                 title="Cerrar"
                                 className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-red-500 transition-colors"
                             >
@@ -152,20 +146,26 @@ const PedidoPreviewModal: React.FC<PedidoPreviewModalProps> = ({ pedido, onClose
                     />
                 </div>
 
-                <div className="bg-slate-200 dark:bg-slate-900 p-4 sm:p-8">
-                    <div className="bg-white shadow-lg rounded-md overflow-hidden max-w-4xl mx-auto">
-                        {childWithProps}
-                    </div>
+                <div className="bg-slate-100 dark:bg-slate-900 h-[80vh] flex justify-center overflow-hidden">
+                    <PDFViewer
+                        key={JSON.stringify(preferences)}
+                        width="100%"
+                        height="100%"
+                        className="w-full h-full border-none"
+                        showToolbar={false}
+                    >
+                        {getDocumentComponent()}
+                    </PDFViewer>
                 </div>
             </Modal>
-            {isEmailModalOpen && pedido && cliente && (
+            {isEmailModalOpen && pedido && relatedData.cliente && (
                 <SendEmailModal
                     isOpen={isEmailModalOpen}
                     onClose={() => setIsEmailModalOpen(false)}
                     onSend={handleConfirmSendEmail}
-                    to={cliente.email || ''}
+                    to={relatedData.cliente.email || ''}
                     subject={`Pedido ${pedido.numeroPedido} de ${datosEmpresa.nombre}`}
-                    body={`Estimado/a ${cliente.nombreCompleto},
+                    body={`Estimado/a ${relatedData.cliente.nombreCompleto},
 
 Adjuntamos la orden de compra N° ${pedido.numeroPedido} para su registro.
 

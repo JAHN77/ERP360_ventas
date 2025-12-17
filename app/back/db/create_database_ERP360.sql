@@ -530,6 +530,7 @@ BEGIN
         iva DECIMAL(18,2) DEFAULT 0,
         total DECIMAL(18,2) DEFAULT 0,
         estado_dian VARCHAR(20), -- Transmitido, PENDIENTE, Error
+        tipo_nota VARCHAR(20) DEFAULT 'DEVOLUCION', -- DEVOLUCION, ANULACION
         created_at DATETIME DEFAULT GETDATE(),
         updated_at DATETIME,
         created_by INT,

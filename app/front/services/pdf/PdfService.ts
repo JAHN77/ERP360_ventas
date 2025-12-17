@@ -101,10 +101,31 @@ export class PdfService {
     // Remover elementos ignorados
     clone.querySelectorAll('[data-ignore-pdf="true"]').forEach(node => node.remove());
 
-    // Asegurar visibilidad
+    // Asegurar visibilidad y que el contenido sea accesible
     clone.style.display = 'block';
     clone.style.visibility = 'visible';
     clone.style.opacity = '1';
+    clone.style.position = 'relative';
+    clone.style.overflow = 'visible';
+    clone.style.height = 'auto';
+    clone.style.maxHeight = 'none';
+
+    // Asegurar que todos los hijos también sean visibles
+    const allChildren = clone.querySelectorAll('*');
+    allChildren.forEach((child: Element) => {
+      const htmlChild = child as HTMLElement;
+      if (htmlChild.style) {
+        // Remover restricciones de altura que puedan ocultar contenido
+        if (htmlChild.style.overflow === 'hidden' || htmlChild.style.overflow === 'scroll') {
+          htmlChild.style.overflow = 'visible';
+        }
+        if (htmlChild.style.maxHeight && htmlChild.style.maxHeight !== 'none') {
+          htmlChild.style.maxHeight = 'none';
+        }
+        htmlChild.style.visibility = 'visible';
+        htmlChild.style.opacity = '1';
+      }
+    });
 
     return clone;
   }

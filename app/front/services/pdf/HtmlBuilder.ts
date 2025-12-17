@@ -237,10 +237,27 @@ ${css}
     color: #0f172a !important; 
     width: 100% !important;
     max-width: 100% !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
   #pdf-container * {
     visibility: visible !important;
     opacity: 1 !important;
+  }
+  /* Intentar mantener contenido en una sola página */
+  @page {
+    size: A4;
+    margin: 10mm 12mm;
+  }
+  /* Evitar saltos de página en elementos importantes */
+  table, thead, tbody, tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  /* Ajustar tamaños para que quepa en una página */
+  #pdf-container {
+    font-size: 0.875rem !important;
+    line-height: 1.4 !important;
   }
   img {
     max-width: 100% !important;

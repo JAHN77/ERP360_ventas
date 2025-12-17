@@ -9,6 +9,7 @@ import { useNotifications } from '../hooks/useNotifications';
 
 interface FacturaFormData {
     clienteId: string;
+    vendedorId: string;
     items: DocumentItem[];
     subtotal: number;
     iva: number;
@@ -27,16 +28,17 @@ const NuevaFacturaPage: React.FC = () => {
         if (isCreating) return;
         setIsCreating(true);
         try {
-            const { clienteId, items, subtotal, iva, total } = formData;
+            const { clienteId, vendedorId, items, subtotal, iva, total } = formData;
             addNotification({ message: 'Creando factura...', type: 'info' });
-            
+
             await crearFactura({
                 clienteId,
+                vendedorId,
                 items,
                 subtotal,
                 ivaValor: iva,
                 total,
-            });
+            } as any); // Cast as any if Typescript complains about Factura vs FacturaFormData mismatch or partials
 
             addNotification({ message: 'Factura creada exitosamente como borrador.', type: 'success' });
             setPage('facturacion_electronica');
@@ -47,7 +49,7 @@ const NuevaFacturaPage: React.FC = () => {
             setIsCreating(false);
         }
     };
-    
+
     const handleCancel = () => {
         if (isFormDirty) {
             setCancelConfirmOpen(true);
@@ -68,8 +70,8 @@ const NuevaFacturaPage: React.FC = () => {
             </div>
             <Card>
                 <CardContent>
-                    <FacturaForm 
-                        onSubmit={handleCreateFactura} 
+                    <FacturaForm
+                        onSubmit={handleCreateFactura}
                         onCancel={handleCancel}
                         onDirtyChange={setFormDirty}
                         isSubmitting={isCreating}
@@ -88,8 +90,8 @@ const NuevaFacturaPage: React.FC = () => {
                         <button onClick={() => setCancelConfirmOpen(false)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">
                             Volver
                         </button>
-                        <button 
-                            onClick={executeCancel} 
+                        <button
+                            onClick={executeCancel}
                             className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors"
                         >
                             Sí, cancelar

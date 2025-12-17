@@ -4,263 +4,296 @@
 
 /* Critical CSS - Load immediately */
 :root {
-  --color-primario: #002B5B;
-  --color-secundario: #F53F3F;
-  --transition-fast: 150ms ease-out;
-  --transition-normal: 300ms ease-out;
+    --color-primario: #002B5B;
+    --color-secundario: #F53F3F;
+    --transition-fast: 150ms ease-out;
+    --transition-normal: 300ms ease-out;
 }
 
 /* Performance optimizations */
 * {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-  overflow-x: hidden; /* Evita scroll horizontal global por desbordes menores */
-  width: 100%; /* Usar 100% en lugar de 100vw para evitar overflow con scrollbar */
-  margin: 0;
-  padding: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+    /* Evita scroll horizontal global por desbordes menores */
+    width: 100%;
+    /* Usar 100% en lugar de 100vw para evitar overflow con scrollbar */
+    margin: 0;
+    padding: 0;
 }
 
 html {
-  overflow-x: hidden !important;
-  width: 100%;
-  max-width: 100%;
+    overflow-x: hidden !important;
+    width: 100%;
+    max-width: 100%;
 }
 
 /* Prevenir desbordamiento en todos los contenedores principales */
-#root, .app-container {
-  width: 100% !important;
-  max-width: 100% !important;
-  overflow-x: hidden !important;
-  position: relative;
-  margin: 0;
-  padding: 0;
+#root,
+.app-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    position: relative;
+    margin: 0;
+    padding: 0;
 }
 
 /* Prevenir overflow en elementos comunes */
-img, video, iframe {
-  max-width: 100%;
-  height: auto;
+img,
+video,
+iframe {
+    max-width: 100%;
+    height: auto;
 }
 
 /* Asegurar que tablas y elementos de contenido no causen overflow */
 table {
-  width: 100% !important;
-  max-width: 100% !important;
-  table-layout: auto;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: auto;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 /* Prevenir overflow en contenedores principales */
-div, section, article, main, aside, header, footer {
-  box-sizing: border-box;
+div,
+section,
+article,
+main,
+aside,
+header,
+footer {
+    box-sizing: border-box;
 }
 
 /* Prevenir overflow en elementos flex cuando sea necesario */
 .flex {
-  min-width: 0;
+    min-width: 0;
 }
 
 /* Asegurar que los contenedores no excedan el ancho */
 .container {
-  max-width: 100% !important;
-  width: 100% !important;
-  overflow-x: hidden;
+    max-width: 100% !important;
+    width: 100% !important;
+    overflow-x: hidden;
 }
 
 /* Prevenir overflow en todos los wrappers de tablas */
 .overflow-x-auto {
-  max-width: 100% !important;
-  width: 100% !important;
+    max-width: 100% !important;
+    width: 100% !important;
 }
 
 /* Forzar que ningún elemento cause overflow horizontal */
 * {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }
 
 /* Asegurar que elementos específicos no causen overflow - solo en contenedores principales */
-body > div,
-#root > div,
+body>div,
+#root>div,
 .app-container,
-main > div,
-section > div:first-child {
-  max-width: 100%;
+main>div,
+section>div:first-child {
+    max-width: 100%;
 }
 
 /* Exception para elementos que necesitan overflow controlado */
 .overflow-x-auto,
 .overflow-x-scroll {
-  max-width: 100% !important;
-  width: 100% !important;
+    max-width: 100% !important;
+    width: 100% !important;
 }
 
 /* Optimized scrollbar - Solo mostrar scrollbar vertical cuando sea necesario */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+    width: 6px;
+    height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background-color: transparent;
+    background-color: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.3);
-  border-radius: 3px;
+    background-color: rgba(148, 163, 184, 0.3);
+    border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(148, 163, 184, 0.5);
+    background-color: rgba(148, 163, 184, 0.5);
 }
 
 /* Ocultar scrollbar horizontal globalmente */
 ::-webkit-scrollbar:horizontal {
-  height: 0;
-  display: none;
+    height: 0;
+    display: none;
 }
 
 html.dark ::-webkit-scrollbar-thumb {
-  background-color: rgba(71, 85, 105, 0.3);
+    background-color: rgba(71, 85, 105, 0.3);
 }
 
 html.dark ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(71, 85, 105, 0.5);
+    background-color: rgba(71, 85, 105, 0.5);
 }
 
 /* Optimized animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes slideIn {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+    from {
+        transform: translateX(-100%);
+    }
+
+    to {
+        transform: translateX(0);
+    }
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
+    animation: fadeIn 0.3s ease-out;
 }
 
 .animate-slide-in {
-  animation: slideIn 0.3s ease-out;
+    animation: slideIn 0.3s ease-out;
 }
 
 /* Optimized transitions */
 .transition-optimized {
-  transition: all var(--transition-fast);
-  will-change: transform, opacity;
+    transition: all var(--transition-fast);
+    will-change: transform, opacity;
 }
 
 /* Responsive utilities */
 .responsive-text {
-  font-size: clamp(0.875rem, 2vw + 0.5rem, 1.125rem);
+    font-size: clamp(0.875rem, 2vw + 0.5rem, 1.125rem);
 }
 
 .responsive-padding {
-  padding: clamp(0.5rem, 2vw, 1rem);
+    padding: clamp(0.5rem, 2vw, 1rem);
 }
 
 /* Print optimizations */
 @media print {
-  * {
-    print-color-adjust: exact !important;
-    -webkit-print-color-adjust: exact !important;
-  }
-  
-  body > *:not(.print-container) {
-    display: none !important;
-  }
-  
-  .print-container {
-    display: block !important;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 9999;
-    overflow: visible;
-    background: white;
-  }
-  
-  .print-content, .print-content * {
-    color: #000 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    text-shadow: none !important;
-  }
-  
-  .no-print {
-    display: none !important;
-  }
+    * {
+        print-color-adjust: exact !important;
+        -webkit-print-color-adjust: exact !important;
+    }
+
+    body>*:not(.print-container) {
+        display: none !important;
+    }
+
+    .print-container {
+        display: block !important;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 9999;
+        overflow: visible;
+        background: white;
+    }
+
+    .print-content,
+    .print-content * {
+        color: #000 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        text-shadow: none !important;
+    }
+
+    .no-print {
+        display: none !important;
+    }
 }
 
 /* Loading states */
 .loading-skeleton {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: loading 1.5s infinite;
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: loading 1.5s infinite;
 }
 
 @keyframes loading {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 html.dark .loading-skeleton {
-  background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
-  background-size: 200% 100%;
+    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+    background-size: 200% 100%;
 }
 
 /* Focus states for accessibility */
 .focus-visible:focus-visible {
-  outline: 2px solid #3b82f6;
-  outline-offset: 2px;
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
 }
 
 /* Utility: hide scrollbars but keep scroll behavior */
 .no-scrollbar {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
 }
+
 .no-scrollbar::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Opera */
+    display: none;
+    /* Chrome, Safari, Opera */
 }
 
 /* Optimized table styles */
 .table-optimized {
-  border-collapse: separate;
-  border-spacing: 0;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
 .table-optimized th,
 .table-optimized td {
-  padding: 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid #e5e7eb;
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #e5e7eb;
 }
 
 .table-optimized th {
-  background-color: #f9fafb;
-  font-weight: 600;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+    background-color: #f9fafb;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 html.dark .table-optimized th {
-  background-color: #1f2937;
-  border-bottom-color: #374151;
+    background-color: #1f2937;
+    border-bottom-color: #374151;
 }
 
 html.dark .table-optimized td {
-  border-bottom-color: #374151;
+    border-bottom-color: #374151;
 }

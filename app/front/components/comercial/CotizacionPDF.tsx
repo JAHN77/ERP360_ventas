@@ -101,17 +101,19 @@ const CotizacionPDF = React.forwardRef<HTMLDivElement, CotizacionPDFProps>(
                     <tbody className="divide-y divide-slate-200">
                         {cotizacion.items.map((item) => {
                              const product = allProducts.find(p => p.id === item.productoId);
+                             // Usar referencia del item si está disponible, sino buscar en el producto
+                             const referencia = (item as any).referencia || product?.referencia || 'N/A';
                              return (
                                 <tr key={item.productoId} className="text-sm">
-                                    <td className="p-3 text-slate-600 align-top">{product?.referencia || 'N/A'}</td>
+                                    <td className="p-3 text-slate-600 align-top">{referencia}</td>
                                     <td className="p-3 font-semibold text-slate-800 align-top">{item.descripcion}</td>
-                                    <td className="p-3 text-slate-600 align-top">{product?.unidadMedida}</td>
+                                    <td className="p-3 text-slate-600 align-top">{(item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'N/A'}</td>
                                     <td className="p-3 text-right text-slate-600 align-top">{item.cantidad}</td>
                                     {preferences.showPrices ? (
                                         <>
                                             <td className="p-3 text-right text-slate-600 align-top">{formatCurrency(item.precioUnitario)}</td>
                                             <td className="p-3 text-right text-red-600 align-top">{item.descuentoPorcentaje.toFixed(2)}%</td>
-                                            <td className="p-3 text-right font-medium text-slate-800 align-top">{formatCurrency(item.total)}</td>
+                                            <td className="p-3 text-right font-medium text-slate-800 align-top">{formatCurrency(item.subtotal)}</td>
                                             <td className="p-3 text-right text-slate-600 align-top">{formatCurrency(item.valorIva)}</td>
                                         </>
                                     ) : (

@@ -14,47 +14,47 @@ import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
-import { apiClient } from '../services/apiClient';
+import { apiClient, fetchPedidosDetalle } from '../services/apiClient';
 import { formatDateOnly } from '../utils/formatters';
 // Supabase eliminado: descarga de adjuntos se implementará vía backend
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
 }
 
 interface RemisionItemForm {
-    productoId: number;
-    referencia: string;
-    descripcion: string;
-    unidadMedida: string;
-    cantPedida: number;
-    cantYaEnviada: number;
-    cantPendiente: number;
-    cantStock: number;
-    cantAEnviar: number;
+  productoId: number;
+  referencia: string;
+  descripcion: string;
+  unidadMedida: string;
+  cantPedida: number;
+  cantYaEnviada: number;
+  cantPendiente: number;
+  cantStock: number;
+  cantAEnviar: number;
 }
 
 type RemisionGroup = {
-    id: string;
-    pedido: Pedido;
-    remisiones: Remision[];
-    cliente: Cliente | undefined;
+  id: string;
+  pedido: Pedido;
+  remisiones: Remision[];
+  cliente: Cliente | undefined;
 };
 
 const groupFilterOptions = [
-    { label: 'Todos', value: 'Todos' },
-    { label: 'En Proceso', value: 'EN_PROCESO' },
-    { label: 'Remisionado Parcial', value: 'PARCIALMENTE_REMITIDO' },
-    { label: 'Remisionado Total', value: 'REMITIDO' },
+  { label: 'Todos', value: 'Todos' },
+  { label: 'En Proceso', value: 'EN_PROCESO' },
+  { label: 'Remisionado Parcial', value: 'PARCIALMENTE_REMITIDO' },
+  { label: 'Remisionado Total', value: 'REMITIDO' },
 ];
 
 const RemisionesPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const { addNotification } = useNotifications();
-  
-  const { 
+
+  const {
     pedidos,
-    clientes, 
+    clientes,
     productos: allProducts,
     aprobarRemision,
     crearRemision,
@@ -74,7 +74,7 @@ const RemisionesPage: React.FC = () => {
   // No es necesario forzar un refresh aquí, ya que causaría un ciclo infinito
 
   const [statusFilter, setStatusFilter] = useState('Todos');
-  
+
   // Función para cargar remisiones (extraída para poder reutilizarla)
   const loadRemisiones = useCallback(async () => {
     setIsLoadingRemisiones(true);
@@ -84,10 +84,10 @@ const RemisionesPage: React.FC = () => {
       // Solo enviar searchTerm si tiene al menos 2 caracteres
       const trimmedSearch = searchTerm.trim();
       const searchToSend = trimmedSearch.length >= 2 ? trimmedSearch : undefined;
-      
+
       const remisionesRes = await apiClient.getRemisiones(
-        currentPage, 
-        pageSize, 
+        currentPage,
+        pageSize,
         searchToSend,
         undefined, // codter - ahora se maneja con searchTerm
         undefined, // codalm
@@ -128,9 +128,9 @@ const RemisionesPage: React.FC = () => {
             codUsuario: r.codUsuario || r.codusu || undefined
           } as Remision;
         });
-        
+
         setRemisiones(remisionesConDetalles);
-        
+
         // OPTIMIZACIÓN: Log en desarrollo para debugging
         if (process.env.NODE_ENV === 'development') {
           console.log('📦 [RemisionesPage] Remisiones cargadas:', remisionesConDetalles.length);
@@ -152,7 +152,7 @@ const RemisionesPage: React.FC = () => {
             }, {} as Record<string, number>)
           });
         }
-        
+
         // Usar información de paginación del servidor
         if ((remisionesRes as any).pagination) {
           setTotalItems((remisionesRes as any).pagination.total);
@@ -161,7 +161,7 @@ const RemisionesPage: React.FC = () => {
       }
     } catch (error) {
       console.error('Error cargando remisiones:', error);
-      addNotification({ message: 'Error al cargar remisiones', type: 'error' });
+      addNotification({ message: 'Error al cargar remisiones', type: 'warning' });
     } finally {
       setIsLoadingRemisiones(false);
     }
@@ -189,26 +189,26 @@ const RemisionesPage: React.FC = () => {
     // Validar que el searchTerm tenga al menos 2 caracteres, o esté vacío para mostrar todo
     const trimmedSearch = searchTerm.trim();
     const shouldSearch = trimmedSearch.length === 0 || trimmedSearch.length >= 2;
-    
+
     if (!shouldSearch && trimmedSearch.length === 1) {
       // Si tiene 1 carácter, no buscar (esperar más caracteres)
       return;
     }
-    
+
     // Si el searchTerm cambió y es válido, resetear a página 1
     if (trimmedSearch.length >= 2) {
       setCurrentPage(1);
     }
-    
+
     // Debounce para búsqueda: esperar 500ms después de que el usuario deje de escribir
     // Si no hay búsqueda, cargar inmediatamente (pero solo si searchTerm cambió, no en carga inicial)
     const timeoutId = setTimeout(() => {
       loadRemisiones();
     }, trimmedSearch.length > 0 ? 500 : 0);
-    
+
     return () => clearTimeout(timeoutId);
   }, [searchTerm, loadRemisiones]);
-  
+
   // Handlers para paginación
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
@@ -227,13 +227,13 @@ const RemisionesPage: React.FC = () => {
 
   const [isDetailModalOpen, setDetailModalOpen] = useState(false);
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
-  
+
   const [selectedGroup, setSelectedGroup] = useState<RemisionGroup | null>(null);
   const [focusedGroupId, setFocusedGroupId] = useState<string | null>(null);
 
   const [pedidoToRemisionar, setPedidoToRemisionar] = useState<Pedido | null>(null);
   const [remisionItems, setRemisionItems] = useState<RemisionItemForm[]>([]);
-  
+
   // State for new logistic details
   const [fechaDespacho, setFechaDespacho] = useState(new Date().toISOString().split('T')[0]);
   const [observacionesInternas, setObservacionesInternas] = useState('');
@@ -243,7 +243,7 @@ const RemisionesPage: React.FC = () => {
 
   const [remisionSuccessData, setRemisionSuccessData] = useState<Remision | null>(null);
   const [deliveryResult, setDeliveryResult] = useState<Remision | null>(null);
-  
+
   const [isCreating, setIsCreating] = useState(false);
   const [isDelivering, setIsDelivering] = useState<string | null>(null);
   const [loadingRemisionDetails, setLoadingRemisionDetails] = useState<Set<string>>(new Set());
@@ -260,11 +260,12 @@ const RemisionesPage: React.FC = () => {
         // Pedido completamente remitido - NO debe aparecer en "Listos para Despacho"
         return false;
       }
-      
+
       // Solo mostrar pedidos CONFIRMADO (listos para ser remitidos por primera vez)
-      return p.estado === 'CONFIRMADO';
+      // O PARCIALMENTE_REMITIDO (tienen saldo pendiente)
+      return p.estado === 'CONFIRMADO' || p.estado === 'PARCIALMENTE_REMITIDO';
     });
-    
+
     return filtrados;
   }, [pedidos]);
 
@@ -279,7 +280,7 @@ const RemisionesPage: React.FC = () => {
         map.set(p.numeroPedido, p);
       }
     });
-    
+
     // OPTIMIZACIÓN: Log en desarrollo para debugging
     if (process.env.NODE_ENV === 'development') {
       console.log('🗺️ [RemisionesPage] Mapa de pedidos creado:', {
@@ -292,7 +293,7 @@ const RemisionesPage: React.FC = () => {
         }, {} as Record<string, number>)
       });
     }
-    
+
     return map;
   }, [pedidos]);
 
@@ -328,7 +329,7 @@ const RemisionesPage: React.FC = () => {
 
   const remisionGroups = useMemo(() => {
     const groups: { [pedidoId: string]: RemisionGroup } = {};
-    
+
     // OPTIMIZACIÓN: Solo logs en desarrollo
     if (process.env.NODE_ENV === 'development') {
       console.log('📦 [RemisionesPage] Procesando', remisiones.length, 'remisiones');
@@ -343,86 +344,101 @@ const RemisionesPage: React.FC = () => {
 
     // OPTIMIZACIÓN: Iterar una sola vez y usar mapas para búsquedas rápidas
     remisiones.forEach(remision => {
-        const pedidoIdStr = remision.pedidoId ? String(remision.pedidoId) : null;
-        const pedido = pedidoIdStr ? findPedido(pedidoIdStr) : null;
-        
-        if (pedido) {
-            // Remisión con pedido encontrado - agrupar por pedido (INCLUYE PEDIDOS REMITIDOS)
-            const pedidoIdKey = pedidoIdStr!;
-            if (!groups[pedidoIdKey]) {
-                const cliente = findCliente(pedido.clienteId);
-                groups[pedidoIdKey] = {
-                    id: pedido.id,
-                    pedido: pedido,
-                    remisiones: [],
-                    cliente: cliente,
-                };
-            }
-            groups[pedidoIdKey].remisiones.push(remision);
-        } else {
-            // Remisión sin pedido o pedido no encontrado - crear grupo individual
-            // IMPORTANTE: Esto incluye remisiones con pedido_id NULL y remisiones cuyo pedido no está cargado todavía
-            const sinPedidoKey = `sin-pedido-${remision.id}`;
-            if (!groups[sinPedidoKey]) {
-                const clienteRemision = findCliente(remision.clienteId);
-                
-                // Determinar el estado del pedido fantasma basado en si hay un pedidoId pero no se encontró
-                // Si tiene pedidoId pero no se encontró, puede ser un pedido REMITIDO que aún no se cargó
-                let estadoFantasma = 'REMITIDO'; // Por defecto REMITIDO para remisiones sin pedido
-                if (pedidoIdStr && !pedido) {
-                    // Hay un pedidoId pero no se encontró el pedido - podría estar en estado REMITIDO
-                    estadoFantasma = 'REMITIDO';
-                }
-                
-                // Crear un pedido "fantasma" para mantener la estructura
-                const pedidoFantasma: Pedido = {
-                    id: `sin-pedido-${remision.id}`,
-                    numeroPedido: pedidoIdStr ? `Pedido ${pedidoIdStr} (No encontrado)` : `Sin Pedido (${remision.numeroRemision})`,
-                    fechaPedido: remision.fechaRemision || new Date().toISOString().split('T')[0],
-                    clienteId: remision.clienteId || '',
-                    vendedorId: remision.vendedorId || '',
-                    subtotal: remision.subtotal || 0,
-                    descuentoValor: remision.descuentoValor || 0,
-                    ivaValor: remision.ivaValor || 0,
-                    total: remision.total || 0,
-                    estado: estadoFantasma,
-                    observaciones: pedidoIdStr ? `Remisión asociada a pedido ${pedidoIdStr} (pedido no encontrado en contexto)` : 'Remisión sin pedido asociado',
-                    items: remision.items || [],
-                    empresaId: remision.empresaId || '001'
-                };
-                
-                groups[sinPedidoKey] = {
-                    id: pedidoFantasma.id,
-                    pedido: pedidoFantasma,
-                    remisiones: [],
-                    cliente: clienteRemision,
-                };
-            }
-            groups[sinPedidoKey].remisiones.push(remision);
+      const pedidoIdStr = remision.pedidoId ? String(remision.pedidoId) : null;
+      const pedido = pedidoIdStr ? findPedido(pedidoIdStr) : null;
+
+      if (pedido) {
+        // Remisión con pedido encontrado - agrupar por pedido (INCLUYE PEDIDOS REMITIDOS)
+        const pedidoIdKey = pedidoIdStr!;
+        if (!groups[pedidoIdKey]) {
+          const cliente = findCliente(pedido.clienteId);
+          groups[pedidoIdKey] = {
+            id: pedido.id,
+            pedido: pedido,
+            remisiones: [],
+            cliente: cliente,
+          };
         }
+        groups[pedidoIdKey].remisiones.push(remision);
+      } else {
+        // Remisión sin pedido o pedido no encontrado - crear grupo individual
+        // IMPORTANTE: Esto incluye remisiones con pedido_id NULL y remisiones cuyo pedido no está cargado todavía
+        const sinPedidoKey = `sin-pedido-${remision.id}`;
+        if (!groups[sinPedidoKey]) {
+          const clienteRemision = findCliente(remision.clienteId);
+
+          // Determinar el estado del pedido fantasma basado en si hay un pedidoId pero no se encontró
+          // Si tiene pedidoId pero no se encontró, puede ser un pedido REMITIDO que aún no se cargó
+          let estadoFantasma = 'REMITIDO'; // Por defecto REMITIDO para remisiones sin pedido
+          if (pedidoIdStr && !pedido) {
+            // Hay un pedidoId pero no se encontró el pedido - podría estar en estado REMITIDO
+            estadoFantasma = 'REMITIDO';
+          }
+
+          // Crear un pedido "fantasma" para mantener la estructura
+          const pedidoFantasma: Pedido = {
+            id: `sin-pedido-${remision.id}`,
+            numeroPedido: pedidoIdStr ? `Pedido ${pedidoIdStr} (No encontrado)` : `Sin Pedido (${remision.numeroRemision})`,
+            fechaPedido: remision.fechaRemision || new Date().toISOString().split('T')[0],
+            clienteId: remision.clienteId || '',
+            vendedorId: remision.vendedorId || '',
+            subtotal: remision.subtotal || 0,
+            descuentoValor: remision.descuentoValor || 0,
+            ivaValor: remision.ivaValor || 0,
+            total: remision.total || 0,
+            estado: estadoFantasma as any,
+            observaciones: pedidoIdStr ? `Remisión asociada a pedido ${pedidoIdStr} (pedido no encontrado en contexto)` : 'Remisión sin pedido asociado',
+            items: remision.items || [],
+            empresaId: Number(remision.empresaId) || 1
+          };
+
+          groups[sinPedidoKey] = {
+            id: pedidoFantasma.id,
+            pedido: pedidoFantasma,
+            remisiones: [],
+            cliente: clienteRemision,
+          };
+        }
+        groups[sinPedidoKey].remisiones.push(remision);
+      }
     });
 
     // OPTIMIZACIÓN: Ordenar solo una vez después de agrupar
     const groupsArray = Object.values(groups);
-    
+
     // Sort remisiones within each group by date (más eficiente hacerlo aquí)
+    // Sort remisiones within each group by date (descending - newest first)
     groupsArray.forEach(group => {
-        group.remisiones.sort((a, b) => {
-            const dateA = new Date(a.fechaRemision).getTime();
-            const dateB = new Date(b.fechaRemision).getTime();
-            return dateA - dateB;
-        });
+      group.remisiones.sort((a, b) => {
+        const dateA = new Date(a.fechaRemision).getTime();
+        const dateB = new Date(b.fechaRemision).getTime();
+        if (dateA !== dateB) {
+          return dateB - dateA; // Descending order (Newest first)
+        }
+        // Tie-breaker: ID descending (assuming higher ID = newer)
+        return Number(b.id) - Number(a.id);
+      });
     });
 
     // Sort groups by most recent remision date
     const sortedGroups = groupsArray.sort((a, b) => {
-        if (a.remisiones.length === 0) return 1;
-        if (b.remisiones.length === 0) return -1;
-        const dateA = new Date(a.remisiones[a.remisiones.length - 1].fechaRemision).getTime();
-        const dateB = new Date(b.remisiones[b.remisiones.length - 1].fechaRemision).getTime();
-        return dateB - dateA;
+      if (a.remisiones.length === 0) return 1;
+      if (b.remisiones.length === 0) return -1;
+
+      const remA = a.remisiones[0];
+      const remB = b.remisiones[0];
+
+      const dateA = new Date(remA.fechaRemision).getTime();
+      const dateB = new Date(remB.fechaRemision).getTime();
+
+      if (dateA !== dateB) {
+        return dateB - dateA; // Descending order (Newest first)
+      }
+
+      // Tie-breaker: Remission ID descending
+      return Number(remB.id) - Number(remA.id);
     });
-    
+
     // OPTIMIZACIÓN: Log en desarrollo para debugging
     if (process.env.NODE_ENV === 'development') {
       console.log('✅ [RemisionesPage] Grupos creados:', sortedGroups.length);
@@ -443,10 +459,10 @@ const RemisionesPage: React.FC = () => {
         }, {} as Record<string, number>)
       });
     }
-    
+
     return sortedGroups;
   }, [remisiones, findPedido, findCliente]);
-  
+
   // El filtrado ahora se hace en el servidor, solo convertimos a array
 
   // OPTIMIZACIÓN: Usar Map para búsqueda rápida de remisiones por ID y grupos por pedidoId
@@ -485,7 +501,7 @@ const RemisionesPage: React.FC = () => {
         return;
       }
     }
-    
+
     // Fallback: buscar en todos los grupos (más lento pero necesario)
     const targetGroup = remisionGroups.find((group) =>
       group.remisiones.some((remision) => String(remision.id) === String(focusId))
@@ -511,64 +527,101 @@ const RemisionesPage: React.FC = () => {
 
   useEffect(() => {
     if (pedidoToRemisionar) {
-        const pedidoIdStr = String(pedidoToRemisionar.id);
-        // OPTIMIZACIÓN: Filtrar una sola vez usando comparación directa
-        const remisionesPrevias = remisiones.filter(r => {
-          if (!r.pedidoId) return false;
-          return String(r.pedidoId) === pedidoIdStr;
+      console.log('🔄 Procesando items para remisión. Pedido ID:', pedidoToRemisionar.id);
+      console.log('📦 Items del pedido:', pedidoToRemisionar.items?.length || 0);
+      console.log('📦 Items del pedido (array):', pedidoToRemisionar.items);
+
+      // Verificar si el pedido tiene items
+      if (!pedidoToRemisionar.items || pedidoToRemisionar.items.length === 0) {
+        console.warn('⚠️ El pedido no tiene items cargados. Intentando cargar...');
+        // Intentar cargar items del pedido
+        fetchPedidosDetalle(String(pedidoToRemisionar.id)).then(pedidosDetalleRes => {
+          if (pedidosDetalleRes.success && Array.isArray(pedidosDetalleRes.data)) {
+            const items = pedidosDetalleRes.data.filter((d: any) => {
+              const detallePedidoId = String(d.pedidoId || d.pedido_id || '');
+              const pedidoIdStr = String(pedidoToRemisionar.id || '');
+              return detallePedidoId === pedidoIdStr ||
+                String(d.pedidoId) === String(pedidoToRemisionar.id) ||
+                Number(d.pedidoId) === Number(pedidoToRemisionar.id);
+            });
+
+            console.log('✅ Items cargados dinámicamente:', items.length);
+            if (items.length > 0) {
+              const pedidoConItems = {
+                ...pedidoToRemisionar,
+                items: items
+              };
+              setPedidoToRemisionar(pedidoConItems);
+            }
+          }
+        }).catch(error => {
+          console.error('❌ Error cargando items del pedido:', error);
         });
-        
-        const itemsPendientes = pedidoToRemisionar.items.reduce<RemisionItemForm[]>((acc, itemPedido) => {
-            // OPTIMIZACIÓN: Usar mapa para búsqueda O(1)
-            const producto = productosMap.get(itemPedido.productoId) || productosMap.get(String(itemPedido.productoId));
+        return; // Salir temprano si no hay items
+      }
 
-            if (!producto) {
-                if (process.env.NODE_ENV === 'development') {
-                  console.warn(`Producto con ID ${itemPedido.productoId} no encontrado. Omitiendo del formulario de remisión.`);
-                }
-                return acc;
+      const pedidoIdStr = String(pedidoToRemisionar.id);
+      // OPTIMIZACIÓN: Filtrar una sola vez usando comparación directa
+      const remisionesPrevias = remisiones.filter(r => {
+        if (!r.pedidoId) return false;
+        return String(r.pedidoId) === pedidoIdStr;
+      });
+
+      const itemsPendientes = pedidoToRemisionar.items.reduce<RemisionItemForm[]>((acc, itemPedido) => {
+        // OPTIMIZACIÓN: Usar mapa para búsqueda O(1) - pero NO es obligatorio encontrar el producto
+        // Usar datos del pedido directamente, el catálogo solo como fuente adicional de información
+        const producto = productosMap.get(itemPedido.productoId) || productosMap.get(String(itemPedido.productoId));
+
+        // OPTIMIZACIÓN: Calcular cantidad enviada más eficientemente
+        const productoIdStr = String(itemPedido.productoId);
+        const cantYaEnviada = remisionesPrevias.reduce((sum, r) => {
+          return sum + (r.items?.reduce((itemSum, i) => {
+            if (String(i.productoId) === productoIdStr) {
+              return itemSum + (i.cantidad || (i as any).cantidadEnviada || 0);
             }
+            return itemSum;
+          }, 0) || 0);
+        }, 0);
 
-            // OPTIMIZACIÓN: Calcular cantidad enviada más eficientemente
-            const productoIdStr = String(itemPedido.productoId);
-            const cantYaEnviada = remisionesPrevias.reduce((sum, r) => {
-              return sum + (r.items?.reduce((itemSum, i) => {
-                if (String(i.productoId) === productoIdStr) {
-                  return itemSum + (i.cantidad || i.cantidadEnviada || 0);
-                }
-                return itemSum;
-              }, 0) || 0);
-            }, 0);
-            
-            const cantPendiente = itemPedido.cantidad - cantYaEnviada;
+        const cantPendiente = itemPedido.cantidad - cantYaEnviada;
 
-            if (cantPendiente > 0) {
-                const cantStock = producto.controlaExistencia ?? producto.stock ?? 0;
-                const cantAEnviar = Math.max(0, Math.min(cantPendiente, cantStock));
+        if (cantPendiente > 0) {
+          // Usar stock del catálogo si está disponible, sino usar el del item del pedido
+          const cantStock = producto ? (producto.stock ?? 0) : ((itemPedido as any).stock ?? 0);
+          const cantAEnviar = Math.max(0, Math.min(cantPendiente, cantStock));
 
-                // Obtener nombre del producto: primero del producto encontrado, luego del item
-                const productoNombre = producto.nombre || 
-                                      itemPedido.descripcion || 
-                                      itemPedido.nombre || 
-                                      `Producto ${itemPedido.productoId}`;
+          // Obtener datos del producto: primero del item del pedido (fuente principal), luego del catálogo
+          const productoNombre = itemPedido.descripcion ||
+            (itemPedido as any).nombre ||
+            producto?.nombre ||
+            `Producto ${itemPedido.productoId}`;
 
-                acc.push({
-                    productoId: itemPedido.productoId,
-                    referencia: producto.referencia || 'N/A',
-                    descripcion: productoNombre, // Usar nombre del catálogo si está disponible
-                    unidadMedida: producto.unidadMedida || itemPedido.unidadMedida || 'Unidad',
-                    cantPedida: itemPedido.cantidad,
-                    cantYaEnviada: cantYaEnviada,
-                    cantPendiente: cantPendiente,
-                    cantStock: cantStock,
-                    cantAEnviar: cantAEnviar,
-                });
-            }
-            
-            return acc;
-        }, []);
-        
-        setRemisionItems(itemsPendientes);
+          const referencia = (itemPedido as any).referencia ||
+            itemPedido.codProducto ||
+            producto?.referencia ||
+            'N/A';
+
+          const unidadMedida = (itemPedido as any).unidadMedida ||
+            producto?.unidadMedida ||
+            'Unidad';
+
+          acc.push({
+            productoId: itemPedido.productoId,
+            referencia: referencia,
+            descripcion: productoNombre,
+            unidadMedida: unidadMedida,
+            cantPedida: itemPedido.cantidad,
+            cantYaEnviada: cantYaEnviada,
+            cantPendiente: cantPendiente,
+            cantStock: cantStock,
+            cantAEnviar: cantAEnviar,
+          });
+        }
+
+        return acc;
+      }, []);
+
+      setRemisionItems(itemsPendientes);
     }
   }, [pedidoToRemisionar, remisiones, productosMap]);
 
@@ -576,7 +629,7 @@ const RemisionesPage: React.FC = () => {
   // Convertir remisionGroups a array y aplicar filtro por estado del pedido
   const remisionGroupsArray = useMemo(() => {
     const allGroups = Object.values(remisionGroups);
-    
+
     // OPTIMIZACIÓN: Log en desarrollo para debugging
     if (process.env.NODE_ENV === 'development') {
       console.log('🔍 [RemisionesPage] Filtrando grupos:', {
@@ -589,17 +642,17 @@ const RemisionesPage: React.FC = () => {
         }))
       });
     }
-    
+
     // Si el filtro es "Todos", mostrar todos los grupos (incluyendo remitidos)
     if (statusFilter === 'Todos') {
       return allGroups;
     }
-    
+
     // Filtrar por estado del pedido
     const filtered = allGroups.filter(group => {
       const pedidoEstado = group.pedido?.estado;
       const matches = pedidoEstado === statusFilter;
-      
+
       // Log en desarrollo para debugging
       if (process.env.NODE_ENV === 'development' && !matches && allGroups.length < 5) {
         console.log('🚫 [RemisionesPage] Grupo filtrado:', {
@@ -608,14 +661,14 @@ const RemisionesPage: React.FC = () => {
           statusFilter: statusFilter
         });
       }
-      
+
       return matches;
     });
-    
+
     if (process.env.NODE_ENV === 'development') {
       console.log('✅ [RemisionesPage] Grupos después del filtro:', filtered.length);
     }
-    
+
     return filtered;
   }, [remisionGroups, statusFilter]);
 
@@ -629,15 +682,15 @@ const RemisionesPage: React.FC = () => {
   const pedidosTable = useTable<Pedido>({
     data: pedidosPorRemisionar,
     searchKeys: [
-        'numeroPedido', 
-        (item) => getClienteNombre(item.clienteId)
+      'numeroPedido',
+      (item) => getClienteNombre(item.clienteId)
     ]
   });
 
   const handleOpenDetailModal = useCallback(async (group: RemisionGroup) => {
     setSelectedGroup(group);
     setDetailModalOpen(true);
-    
+
     // OPTIMIZACIÓN: Cargar detalles de remisiones solo cuando se abra el modal (lazy loading)
     // Esto mejora significativamente el rendimiento de carga inicial
     const remisionesToLoad = group.remisiones.filter(r => !r.items || r.items.length === 0);
@@ -645,10 +698,10 @@ const RemisionesPage: React.FC = () => {
       // Todos los detalles ya están cargados
       return;
     }
-    
+
     // Cargar detalles de cada remisión que no los tenga
     setLoadingRemisionDetails(new Set(remisionesToLoad.map(r => r.id)));
-    
+
     try {
       const detallesPromises = remisionesToLoad.map(async (remision) => {
         try {
@@ -662,9 +715,9 @@ const RemisionesPage: React.FC = () => {
           return { remisionId: remision.id, items: [] };
         }
       });
-      
+
       const detallesResults = await Promise.all(detallesPromises);
-      
+
       // Actualizar las remisiones en el grupo con sus detalles
       const updatedRemisiones = group.remisiones.map(remision => {
         const detallesResult = detallesResults.find(d => d.remisionId === remision.id);
@@ -673,11 +726,11 @@ const RemisionesPage: React.FC = () => {
         }
         return remision;
       });
-      
+
       // Actualizar el grupo seleccionado y también las remisiones en el estado principal
       const updatedGroup = { ...group, remisiones: updatedRemisiones };
       setSelectedGroup(updatedGroup);
-      
+
       // Actualizar también en el estado principal de remisiones para que se mantenga actualizado
       setRemisiones(prevRemisiones => {
         return prevRemisiones.map(r => {
@@ -695,16 +748,44 @@ const RemisionesPage: React.FC = () => {
       setLoadingRemisionDetails(new Set());
     }
   }, [addNotification]);
-  
-  const handleOpenCreateModal = useCallback((pedido: Pedido) => {
-    setPedidoToRemisionar(pedido);
+
+  const handleOpenCreateModal = useCallback(async (pedido: Pedido) => {
+    // Cargar items del pedido si no están presentes
+    let pedidoConItems = pedido;
+    if (!pedido.items || pedido.items.length === 0) {
+      console.log('🔄 Cargando items del pedido para remisión:', pedido.id);
+      try {
+        const pedidosDetalleRes = await fetchPedidosDetalle(String(pedido.id));
+        if (pedidosDetalleRes.success && Array.isArray(pedidosDetalleRes.data)) {
+          // Filtrar items que pertenecen a este pedido
+          const items = pedidosDetalleRes.data.filter((d: any) => {
+            const detallePedidoId = String(d.pedidoId || d.pedido_id || '');
+            const pedidoIdStr = String(pedido.id || '');
+            return detallePedidoId === pedidoIdStr ||
+              String(d.pedidoId) === String(pedido.id) ||
+              Number(d.pedidoId) === Number(pedido.id);
+          });
+
+          console.log('✅ Items cargados para el pedido:', items.length);
+          pedidoConItems = {
+            ...pedido,
+            items: items.length > 0 ? items : []
+          };
+        }
+      } catch (error) {
+        console.error('❌ Error cargando detalles del pedido:', error);
+        // Continuar con el pedido sin items si hay error
+      }
+    }
+
+    setPedidoToRemisionar(pedidoConItems);
     setCreateModalOpen(true);
     // Reset logistic form fields
     setFechaDespacho(new Date().toISOString().split('T')[0]);
     setObservacionesInternas('');
     setFormErrors({});
   }, []);
-  
+
   const handlePrintRemision = useCallback(async (remision: Remision) => {
     // Si la remisión no tiene items cargados, cargarlos antes de abrir el preview
     if (!remision.items || remision.items.length === 0) {
@@ -713,17 +794,17 @@ const RemisionesPage: React.FC = () => {
         if (detallesRes.success && Array.isArray(detallesRes.data)) {
           const remisionConItems = { ...remision, items: detallesRes.data };
           setRemisionToPreview(remisionConItems);
-          
+
           // Actualizar también en el estado principal
           setRemisiones(prevRemisiones => {
-            return prevRemisiones.map(r => 
+            return prevRemisiones.map(r =>
               r.id === remision.id ? remisionConItems : r
             );
           });
-          
+
           // Actualizar también en el grupo seleccionado si está abierto
           if (selectedGroup) {
-            const updatedRemisiones = selectedGroup.remisiones.map(r => 
+            const updatedRemisiones = selectedGroup.remisiones.map(r =>
               r.id === remision.id ? remisionConItems : r
             );
             setSelectedGroup({ ...selectedGroup, remisiones: updatedRemisiones });
@@ -741,8 +822,8 @@ const RemisionesPage: React.FC = () => {
   const handleDescargarAdjunto = async (remisionId: string) => {
     const adjunto = archivosAdjuntos.find(a => a.entidadId === remisionId && a.entidadTipo === 'REMISION');
     if (!adjunto) {
-        addNotification({ message: 'No se encontró el archivo adjunto para esta remisión.', type: 'warning' });
-        return;
+      addNotification({ message: 'No se encontró el archivo adjunto para esta remisión.', type: 'warning' });
+      return;
     }
 
     addNotification({ message: `Descargando ${adjunto.nombreArchivo}...`, type: 'info' });
@@ -765,72 +846,72 @@ const RemisionesPage: React.FC = () => {
 
   useEffect(() => {
     if (params.openCreateForPedidoId) {
-        const pedido = pedidos.find(p => p.id === params.openCreateForPedidoId);
-        if (pedido) {
-            handleOpenCreateModal(pedido);
-        }
-        // Clear param to avoid re-triggering on re-render
-        setPage('remisiones', {});
+      const pedido = pedidos.find(p => p.id === params.openCreateForPedidoId);
+      if (pedido) {
+        handleOpenCreateModal(pedido);
+      }
+      // Clear param to avoid re-triggering on re-render
+      setPage('remisiones', {});
     }
   }, [params, pedidos, setPage]);
 
   const handleAprobarEntrega = useCallback(async (remisionId: string) => {
     if (isDelivering) return;
     setIsDelivering(remisionId);
-    
+
     try {
-        const updatedRemision = await aprobarRemision(remisionId);
-        if (updatedRemision) {
-            setDeliveryResult(updatedRemision);
-            
-            // Actualizar la remisión en el estado local
-            setRemisiones(prevRemisiones => 
-                prevRemisiones.map(r => r.id === remisionId ? updatedRemision : r)
-            );
-            
-            // Actualizar el grupo seleccionado con la remisión actualizada
-            if (selectedGroup) {
-                const updatedRemisiones = selectedGroup.remisiones.map(r => 
-                    r.id === remisionId ? updatedRemision : r
-                );
-                setSelectedGroup({
-                    ...selectedGroup,
-                    remisiones: updatedRemisiones
-                });
-            }
-            
-            // Recargar remisiones para asegurar que todo esté sincronizado
-            await loadRemisiones();
-            
-            addNotification({ 
-                message: `✅ Remisión ${updatedRemision.numeroRemision} marcada como Entregada. Ahora puede ser facturada.`, 
-                type: 'success', 
-                link: { page: 'facturacion_electronica' } 
-            });
-        } else {
-            addNotification({ 
-                message: 'No se pudo marcar la remisión como entregada. Verifique que el estado sea válido.', 
-                type: 'warning' 
-            });
+      const updatedRemision = await aprobarRemision(remisionId);
+      if (updatedRemision) {
+        setDeliveryResult(updatedRemision);
+
+        // Actualizar la remisión en el estado local
+        setRemisiones(prevRemisiones =>
+          prevRemisiones.map(r => r.id === remisionId ? updatedRemision : r)
+        );
+
+        // Actualizar el grupo seleccionado con la remisión actualizada
+        if (selectedGroup) {
+          const updatedRemisiones = selectedGroup.remisiones.map(r =>
+            r.id === remisionId ? updatedRemision : r
+          );
+          setSelectedGroup({
+            ...selectedGroup,
+            remisiones: updatedRemisiones
+          });
         }
-    } catch (error) {
-        console.error(error);
-        addNotification({ 
-            message: (error as Error).message || 'Error al marcar la remisión como entregada', 
-            type: 'error' 
+
+        // Recargar remisiones para asegurar que todo esté sincronizado
+        await loadRemisiones();
+
+        addNotification({
+          message: `✅ Remisión ${updatedRemision.numeroRemision} marcada como Entregada. Ahora puede ser facturada.`,
+          type: 'success',
+          link: { page: 'facturacion_electronica' }
         });
+      } else {
+        addNotification({
+          message: 'No se pudo marcar la remisión como entregada. Verifique que el estado sea válido.',
+          type: 'warning'
+        });
+      }
+    } catch (error) {
+      console.error(error);
+      addNotification({
+        message: (error as Error).message || 'Error al marcar la remisión como entregada',
+        type: 'warning'
+      });
     } finally {
-        setIsDelivering(null);
+      setIsDelivering(null);
     }
   }, [aprobarRemision, addNotification, selectedGroup]);
 
   const handleItemQuantityChange = (productoId: number, cantidad: number) => {
     setRemisionItems(prevItems => prevItems.map(item => {
-        if (item.productoId === productoId) {
-            const newCantidad = Math.max(0, Math.min(item.cantPendiente, item.cantStock, cantidad));
-            return { ...item, cantAEnviar: newCantidad };
-        }
-        return item;
+      if (item.productoId === productoId) {
+        const newCantidad = Math.max(0, Math.min(item.cantPendiente, item.cantStock, cantidad));
+        return { ...item, cantAEnviar: newCantidad };
+      }
+      return item;
     }));
   };
 
@@ -838,154 +919,206 @@ const RemisionesPage: React.FC = () => {
   const hasStockError = useMemo(() => {
     return remisionItems.some(item => item.cantAEnviar > item.cantStock);
   }, [remisionItems]);
-  
+
   const handleCreateRemision = async () => {
     if (isCreating || !pedidoToRemisionar) return;
     setIsCreating(true);
     setFormErrors({});
 
     const itemsAEnviar = remisionItems
-        .filter(item => item.cantAEnviar > 0)
-        .map(({ productoId, cantAEnviar }) => ({ productoId, cantidad: cantAEnviar }));
+      .filter(item => item.cantAEnviar > 0)
+      .map(({ productoId, cantAEnviar }) => ({ productoId, cantidad: cantAEnviar }));
 
     if (itemsAEnviar.length === 0) {
-        addNotification({ message: 'Debe especificar una cantidad a enviar para al menos un producto.', type: 'warning' });
-        setIsCreating(false);
-        return;
+      addNotification({ message: 'Debe especificar una cantidad a enviar para al menos un producto.', type: 'warning' });
+      setIsCreating(false);
+      return;
     }
-    
+
     try {
-        const logisticData = {
-            fechaDespacho: fechaDespacho,
-            observaciones: observacionesInternas,
-        };
+      const logisticData = {
+        fechaDespacho: fechaDespacho,
+        observaciones: observacionesInternas,
+      };
 
-        const { nuevaRemision, mensaje } = await crearRemision(pedidoToRemisionar, itemsAEnviar, logisticData);
+      const { nuevaRemision, mensaje } = await crearRemision(pedidoToRemisionar, itemsAEnviar, logisticData);
 
-        // Notificar éxito
-        addNotification({ message: mensaje, type: 'success' });
-        
-        handleCloseModals();
-        setRemisionSuccessData(nuevaRemision);
-        
-        // OPTIMIZACIÓN: Recargar la lista de remisiones inmediatamente después de crear una nueva
-        // Resetear a página 1 para asegurar que la nueva remisión aparezca
-        setCurrentPage(1);
-        await loadRemisiones();
+      // Notificar éxito
+      addNotification({ message: mensaje, type: 'success' });
 
-        const LOW_STOCK_THRESHOLD = 10;
-        nuevaRemision.items.forEach(item => {
-            // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
-            const producto = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
-            if (producto) {
-                const newStock = (producto.controlaExistencia ?? 0) - item.cantidad; // Simulate new stock
-                if (newStock === 0) {
-                    addNotification({
-                        message: `❌ Stock agotado para ${producto.nombre}.`,
-                        type: 'warning',
-                        link: { page: 'productos' }
-                    });
-                } else if (newStock <= LOW_STOCK_THRESHOLD) {
-                        addNotification({
-                        message: `⚠️ Stock bajo para ${producto.nombre}. Quedan ${newStock} unidades.`,
-                        type: 'warning',
-                        link: { page: 'productos' }
-                    });
-                }
-            }
-        });
+      handleCloseModals();
+      setRemisionSuccessData(nuevaRemision);
+
+      // OPTIMIZACIÓN: Recargar la lista de remisiones inmediatamente después de crear una nueva
+      // Resetear a página 1 para asegurar que la nueva remisión aparezca
+      setCurrentPage(1);
+      await loadRemisiones();
+
+      const LOW_STOCK_THRESHOLD = 10;
+      nuevaRemision.items.forEach(item => {
+        // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
+        const producto = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
+        if (producto) {
+          const newStock = (producto.controlaExistencia ?? 0) - item.cantidad; // Simulate new stock
+          if (newStock === 0) {
+            addNotification({
+              message: `❌ Stock agotado para ${producto.nombre}.`,
+              type: 'warning',
+              link: { page: 'productos' }
+            });
+          } else if (newStock <= LOW_STOCK_THRESHOLD) {
+            addNotification({
+              message: `⚠️ Stock bajo para ${producto.nombre}. Quedan ${newStock} unidades.`,
+              type: 'warning',
+              link: { page: 'productos' }
+            });
+          }
+        }
+      });
     } catch (error) {
-        addNotification({ message: (error as Error).message, type: 'warning' });
+      addNotification({ message: (error as Error).message, type: 'warning' });
     } finally {
-        setIsCreating(false);
+      setIsCreating(false);
     }
   };
 
 
   // OPTIMIZACIÓN: Memoizar columnas para evitar recrearlas en cada render
   const remisionesGroupColumns: Column<RemisionGroup>[] = useMemo(() => [
-    { header: 'Pedido Origen', accessor: 'pedido', cell: ({ pedido }) => <span className="font-semibold">{pedido.numeroPedido}</span> },
-    { header: 'Cliente', accessor: 'cliente', cell: ({ cliente }) => cliente?.nombreCompleto || 'N/A' },
-    { header: 'Nº Entregas', accessor: 'remisiones', cell: ({ remisiones }) => (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-            <i className="fas fa-box mr-1.5"></i>
-            {remisiones.length}
+    {
+      header: 'ID Pedido',
+      accessor: 'pedido',
+      cell: ({ pedido }) => (
+        <span className="font-mono text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700">
+          {pedido.id}
         </span>
-    )},
+      )
+    },
+    {
+      header: 'Pedido Origen',
+      accessor: 'pedido',
+      cell: ({ pedido }) => (
+        <span className="font-bold text-slate-700 dark:text-slate-200">{pedido.numeroPedido}</span>
+      )
+    },
+    {
+      header: 'Cliente',
+      accessor: 'cliente',
+      cell: ({ cliente }) => (
+        <div className="flex flex-col max-w-[200px]">
+          <span className="font-medium text-slate-700 dark:text-slate-200 truncate" title={cliente?.nombreCompleto}>
+            {cliente?.nombreCompleto || 'N/A'}
+          </span>
+          <span className="text-xs text-slate-500 truncate">{cliente?.numeroDocumento}</span>
+        </div>
+      )
+    },
+    {
+      header: 'Nº Entregas', accessor: 'remisiones', cell: ({ remisiones }) => (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+          <i className="fas fa-box mr-1.5"></i>
+          {remisiones.length}
+        </span>
+      )
+    },
     { header: 'Estado del Pedido', accessor: 'pedido', cell: ({ pedido }) => <StatusBadge status={pedido.estado as any} /> },
-    { header: 'Acciones', accessor: 'pedido', cell: (group) => {
+    {
+      header: 'Acciones', accessor: 'pedido', cell: (group) => {
         // Verificar si alguna remisión del grupo puede marcarse como entregada
-        const puedeMarcarEntregada = group.remisiones.some(r => 
-            r.estado === 'BORRADOR' || r.estado === 'EN_TRANSITO'
+        const puedeMarcarEntregada = group.remisiones.some(r =>
+          r.estado === 'BORRADOR' || r.estado === 'EN_TRANSITO'
         );
-        const todasEntregadas = group.remisiones.length > 0 && 
-            group.remisiones.every(r => r.estado === 'ENTREGADO');
-        
+        const todasEntregadas = group.remisiones.length > 0 &&
+          group.remisiones.every(r => r.estado === 'ENTREGADO');
+
         return (
-            <div className="flex items-center gap-3">
-                <button 
-                    onClick={() => handleOpenDetailModal(group)} 
-                    className="text-sky-500 hover:underline text-sm font-medium"
-                >
-                    Ver Detalle de Entregas
-                </button>
-                {puedeMarcarEntregada && (
-                    <ProtectedComponent permission="remisiones:approve">
-                        {group.remisiones.map(remision => {
-                            if (remision.estado === 'BORRADOR' || remision.estado === 'EN_TRANSITO') {
-                                return (
-                                    <button
-                                        key={remision.id}
-                                        onClick={() => handleAprobarEntrega(remision.id)}
-                                        disabled={isDelivering === remision.id}
-                                        className="px-3 py-1 bg-teal-600 text-white text-xs font-bold rounded-md hover:bg-teal-700 disabled:bg-slate-400 transition-colors"
-                                    >
-                                        {isDelivering === remision.id ? (
-                                            <><i className="fas fa-spinner fa-spin mr-1"></i>Marcando...</>
-                                        ) : (
-                                            <><i className="fas fa-check-circle mr-1"></i>Entregado</>
-                                        )}
-                                    </button>
-                                );
-                            }
-                            return null;
-                        })}
-                    </ProtectedComponent>
-                )}
-                {todasEntregadas && (
-                    <span className="text-xs text-teal-600 dark:text-teal-400 font-medium">
-                        <i className="fas fa-check-circle mr-1"></i>Todas entregadas
-                    </span>
-                )}
-            </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => handleOpenDetailModal(group)}
+              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+              title="Ver Detalle de Entregas"
+            >
+              <i className="fas fa-eye"></i>
+            </button>
+            {puedeMarcarEntregada && (
+              <ProtectedComponent permission="remisiones:deliver">
+                <div className="flex gap-1">
+                  {group.remisiones.map(remision => {
+                    if (remision.estado === 'BORRADOR' || remision.estado === 'EN_TRANSITO') {
+                      return (
+                        <button
+                          key={remision.id}
+                          onClick={() => handleAprobarEntrega(remision.id)}
+                          disabled={isDelivering === remision.id}
+                          className="p-2 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-lg transition-all duration-200 disabled:opacity-50"
+                          title={`Marcar entrega ${remision.numeroRemision}`}
+                        >
+                          {isDelivering === remision.id ? (
+                            <i className="fas fa-spinner fa-spin"></i>
+                          ) : (
+                            <i className="fas fa-check-circle"></i>
+                          )}
+                        </button>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+              </ProtectedComponent>
+            )}
+            {todasEntregadas && (
+              <span className="text-xs text-teal-600 dark:text-teal-400 font-medium flex items-center gap-1 bg-teal-50 dark:bg-teal-900/20 px-2 py-1 rounded-full border border-teal-100 dark:border-teal-800">
+                <i className="fas fa-check-circle text-[10px]"></i> Completado
+              </span>
+            )}
+          </div>
         );
-    }},
+      }
+    },
   ], [handleOpenDetailModal, handleAprobarEntrega, isDelivering]);
 
   // OPTIMIZACIÓN: Memoizar columnas para evitar recrearlas en cada render
   const pedidosColumns: Column<Pedido>[] = useMemo(() => [
-    { header: 'Número Pedido', accessor: 'numeroPedido' },
-    { 
-        header: 'Cliente', 
-        accessor: 'clienteId', 
-        cell: (item) => getClienteNombre(item.clienteId)
+    {
+      header: 'Número Pedido',
+      accessor: 'numeroPedido',
+      cell: (item) => (
+        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroPedido}</span>
+      )
     },
-    { 
-        header: 'Fecha', 
-        accessor: 'fechaPedido',
-        cell: (item) => formatDateOnly(item.fechaPedido)
+    {
+      header: 'Cliente',
+      accessor: 'clienteId',
+      cell: (item) => {
+        const nombre = getClienteNombre(item.clienteId);
+        return (
+          <span className="font-medium text-slate-700 dark:text-slate-200">{nombre}</span>
+        );
+      }
+    },
+    {
+      header: 'Fecha',
+      accessor: 'fechaPedido',
+      cell: (item) => (
+        <span className="text-sm text-slate-600 dark:text-slate-400">{formatDateOnly(item.fechaPedido)}</span>
+      )
     },
     { header: 'Estado', accessor: 'estado', cell: (item) => <StatusBadge status={item.estado as any} /> },
-    { header: 'Acciones', accessor: 'id', cell: (item) => (
+    {
+      header: 'Acciones', accessor: 'id', cell: (item) => (
         <ProtectedComponent permission="remisiones:create">
-            <button onClick={() => handleOpenCreateModal(item)} className="px-3 py-1 bg-green-600 text-white text-xs font-bold rounded-md hover:bg-green-700 transition-colors">
-                <i className="fas fa-truck mr-2"></i>
-                Remisionar
-            </button>
+          <button
+            onClick={() => handleOpenCreateModal(item)}
+            className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-all duration-200 shadow-sm hover:shadow hover:-translate-y-0.5 flex items-center gap-2"
+          >
+            <i className="fas fa-truck"></i>
+            Remisionar
+          </button>
         </ProtectedComponent>
-    )},
+      )
+    },
   ], [getClienteNombre, handleOpenCreateModal]);
-  
+
   // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
   const currentCliente = useMemo(() => {
     if (!pedidoToRemisionar) return null;
@@ -994,463 +1127,652 @@ const RemisionesPage: React.FC = () => {
 
   const additionalFilters = useMemo(() => (
     <div className="flex flex-col sm:flex-row gap-4">
-        <div>
-            <label htmlFor="statusFilter" className="sr-only">Estado del Pedido</label>
-            <select
-              id="statusFilter"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-                {groupFilterOptions.map(option => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-            </select>
-        </div>
+      <div>
+        <label htmlFor="statusFilter" className="sr-only">Estado del Pedido</label>
+        <select
+          id="statusFilter"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {groupFilterOptions.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </div>
     </div>
   ), [statusFilter]);
 
 
   return (
-    <div>
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-2">
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Gestión de Remisiones</h1>
-         <p className="text-slate-500 dark:text-slate-400 text-left sm:text-right">Centro de control de entregas</p>
+    <div className="space-y-8 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+            Gestión de Remisiones
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">
+            Centro de control de entregas y despachos.
+          </p>
+        </div>
       </div>
 
-      <Card className="mb-8">
-        <CardHeader>
-            <CardTitle>Pedidos Listos para Despacho</CardTitle>
-        </CardHeader>
-        <TableToolbar searchTerm={pedidosTable.searchTerm} onSearchChange={pedidosTable.handleSearch} />
-        <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+      <section>
+        <Card className="border-l-4 border-l-green-500 shadow-md hover:shadow-lg transition-shadow duration-300 overflow-hidden">
+          <CardHeader className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700/50 pb-4">
+            <div className="flex items-center gap-2">
+              <span className="bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 p-2 rounded-lg">
+                <i className="fas fa-dolly"></i>
+              </span>
+              <div>
+                <CardTitle className="text-lg text-slate-800 dark:text-slate-100">Pedidos Listos para Despacho</CardTitle>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                  Pedidos confirmados pendientes de generar remisión.
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+
+          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+            <TableToolbar searchTerm={pedidosTable.searchTerm} onSearchChange={pedidosTable.handleSearch} placeholder="Buscar pedido..." />
+          </div>
+
+          <CardContent className="p-0">
             <Table columns={pedidosColumns} data={pedidosTable.paginatedData} onSort={pedidosTable.requestSort} sortConfig={pedidosTable.sortConfig} />
-        </CardContent>
-        <TablePagination 
-            currentPage={pedidosTable.currentPage}
-            totalPages={pedidosTable.totalPages}
-            onPageChange={pedidosTable.goToPage}
-            canPreviousPage={pedidosTable.currentPage > 1}
-            canNextPage={pedidosTable.currentPage < pedidosTable.totalPages}
-            onPreviousPage={pedidosTable.prevPage}
-            onNextPage={pedidosTable.nextPage}
-            totalItems={pedidosTable.totalItems}
-            rowsPerPage={pedidosTable.rowsPerPage}
-            setRowsPerPage={pedidosTable.setRowsPerPage}
-        />
-      </Card>
-      
-      <Card>
-        <CardHeader>
-            <CardTitle>Historial de Entregas por Pedido</CardTitle>
-        </CardHeader>
-        <TableToolbar 
-            searchTerm={searchTerm} 
-            onSearchChange={handleSearch}
-            additionalFilters={additionalFilters}
-        />
-        <CardContent className="p-0" style={{ overflowX: 'visible', maxWidth: '100%' }}>
+          </CardContent>
+
+          <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/30">
+            <TablePagination
+              currentPage={pedidosTable.currentPage}
+              totalPages={pedidosTable.totalPages}
+              onPageChange={pedidosTable.goToPage}
+              canPreviousPage={pedidosTable.currentPage > 1}
+              canNextPage={pedidosTable.currentPage < pedidosTable.totalPages}
+              onPreviousPage={pedidosTable.prevPage}
+              onNextPage={pedidosTable.nextPage}
+              totalItems={pedidosTable.totalItems}
+              rowsPerPage={pedidosTable.rowsPerPage}
+              setRowsPerPage={pedidosTable.setRowsPerPage}
+            />
+          </div>
+        </Card>
+      </section>
+
+      <section>
+        <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardHeader className="bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 pb-4">
+            <div className="flex items-center gap-2">
+              <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 p-2 rounded-lg">
+                <i className="fas fa-history"></i>
+              </span>
+              <CardTitle className="text-lg text-slate-800 dark:text-slate-100">Historial de Entregas por Pedido</CardTitle>
+            </div>
+          </CardHeader>
+
+          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+            <TableToolbar
+              searchTerm={searchTerm}
+              onSearchChange={handleSearch}
+              additionalFilters={additionalFilters}
+              placeholder="Buscar por pedido, cliente..."
+            />
+          </div>
+
+          <CardContent className="p-0">
             {isLoadingRemisiones ? (
-                <div className="p-8 text-center text-slate-500 dark:text-slate-400">
-                    <i className="fas fa-spinner fa-spin mr-2"></i>
-                    Cargando remisiones...
-                </div>
+              <div className="p-12 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center gap-3">
+                <i className="fas fa-circle-notch fa-spin text-3xl text-blue-500"></i>
+                <p>Cargando remisiones...</p>
+              </div>
             ) : (
-                <Table 
-                    columns={remisionesGroupColumns} 
-                    data={remisionGroupsArray} 
-                    onSort={() => {}} 
-                    sortConfig={null} 
-                    highlightRowId={focusedGroupId ?? params?.highlightId ?? params?.focusId} 
-                />
+              <Table
+                columns={remisionesGroupColumns}
+                data={remisionGroupsArray}
+                onSort={() => { }}
+                sortConfig={null}
+                highlightRowId={focusedGroupId ?? params?.highlightId ?? params?.focusId}
+              />
             )}
-        </CardContent>
-        <TablePagination 
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
-            canPreviousPage={currentPage > 1}
-            canNextPage={currentPage < totalPages}
-            onPreviousPage={() => handlePageChange(currentPage - 1)}
-            onNextPage={() => handlePageChange(currentPage + 1)}
-            totalItems={totalItems}
-            rowsPerPage={pageSize}
-            setRowsPerPage={handlePageSizeChange}
-        />
-      </Card>
+          </CardContent>
+
+          <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/30">
+            <TablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+              canPreviousPage={currentPage > 1}
+              canNextPage={currentPage < totalPages}
+              onPreviousPage={() => handlePageChange(currentPage - 1)}
+              onNextPage={() => handlePageChange(currentPage + 1)}
+              totalItems={totalItems}
+              rowsPerPage={pageSize}
+              setRowsPerPage={handlePageSizeChange}
+            />
+          </div>
+        </Card>
+      </section>
 
       {selectedGroup && (
-        <Modal 
-            isOpen={isDetailModalOpen} 
-            onClose={handleCloseModals} 
-            title={`Detalle de Entregas: Pedido ${selectedGroup.pedido.numeroPedido}`}
-            size="2xl"
+        <Modal
+          isOpen={isDetailModalOpen}
+          onClose={handleCloseModals}
+          title={`Detalle de Entregas: ${selectedGroup.pedido.numeroPedido}`}
+          size="4xl"
         >
-             <div className="space-y-4 text-sm">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Cliente:</p><p>{selectedGroup.cliente?.nombreCompleto}</p></div>
-                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Estado del Pedido:</p><p><StatusBadge status={selectedGroup.pedido.estado as any} /></p></div>
+          <div className="space-y-8 p-1">
+            {/* Header: Order & Client Info */}
+            {/* Header: Order & Client Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Pedido Info Card */}
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden group hover:shadow-md transition-all duration-300">
+                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
+                  <i className="fas fa-file-invoice-dollar text-8xl text-blue-600"></i>
                 </div>
-                
-                <h4 className="text-base font-semibold pt-4 border-t border-slate-200 dark:border-slate-700">Historial de Entregas ({selectedGroup.remisiones.length})</h4>
-                
-                {loadingRemisionDetails.size > 0 && (
-                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                        <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-200">
-                            <i className="fas fa-spinner fa-spin"></i>
-                            <span>Cargando detalles de remisiones...</span>
-                        </div>
-                    </div>
-                )}
-                
-                <div className="space-y-4">
-                    {selectedGroup.remisiones.map((remision, index) => {
-                        const tieneAdjunto = archivosAdjuntos.some(a => a.entidadId === remision.id && a.entidadTipo === 'REMISION');
-                        const isLoadingDetails = loadingRemisionDetails.has(remision.id);
-                        return (
-                        <div key={remision.id} className="border border-slate-200 dark:border-slate-700 rounded-lg">
-                            <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900/50 rounded-t-lg">
-                               <div>
-                                 <h5 className="font-bold text-base text-slate-800 dark:text-slate-200">
-                                    <i className="fas fa-truck text-slate-500 mr-3"></i>
-                                    Entrega #{index + 1}: {remision.numeroRemision}
-                                </h5>
-                                 <p className="text-xs text-slate-500 dark:text-slate-400 ml-8">Fecha: {formatDateOnly(remision.fechaRemision)}</p>
-                               </div>
-                                <div className="flex items-center gap-2">
-                                    <StatusBadge status={remision.estado as any} />
-                                    {tieneAdjunto ? (
-                                        <button onClick={() => handleDescargarAdjunto(remision.id)} className="px-3 py-1 bg-sky-600 text-white text-xs font-semibold rounded-md hover:bg-sky-700 transition-colors" title="Descargar PDF Adjunto">
-                                            <i className="fas fa-paperclip"></i>
-                                        </button>
-                                    ) : (
-                                        <button onClick={() => handlePrintRemision(remision)} className="px-3 py-1 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors" title="Imprimir Remisión">
-                                            <i className="fas fa-print"></i>
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                             <div className="p-3">
-                               {isLoadingDetails ? (
-                                 <div className="text-center py-4 text-slate-500 dark:text-slate-400">
-                                   <i className="fas fa-spinner fa-spin mr-2"></i>
-                                   Cargando items...
-                                 </div>
-                               ) : remision.items && remision.items.length > 0 ? (
-                               <table className="w-full table-fixed text-xs">
-                                  <thead>
-                                     <tr className="border-b dark:border-slate-600">
-                                        <th className="w-28 py-1 text-left font-medium whitespace-nowrap">Referencia</th>
-                                        <th className="w-auto py-1 text-left font-medium whitespace-nowrap">Producto</th>
-                                        <th className="w-24 py-1 text-right font-medium whitespace-nowrap">Cant. Enviada</th>
-                                        <th className="w-20 py-1 text-right font-medium whitespace-nowrap">Unidad</th>
-                                     </tr>
-                                  </thead>
-                                  <tbody>
-                                    {remision.items.map((item, index) => {
-                                        // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
-                                        const product = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
-                                        
-                                        // Obtener nombre del producto: primero del producto encontrado, luego del item
-                                        const productoNombre = product?.nombre || 
-                                                              item.descripcion || 
-                                                              item.nombre || 
-                                                              `Producto ${index + 1}`;
-                                        
-                                        // Obtener unidad de medida: primero del producto, luego del item
-                                        const unidadMedida = product?.unidadMedida || 
-                                                           item.unidadMedida || 
-                                                           'Unidad';
-                                        
-                                        return (
-                                            <tr key={item.productoId || `item-${index}`}>
-                                                <td className="py-1 font-mono">{product?.referencia || 'N/A'}</td>
-                                                <td className="py-1 break-words">
-                                                    {productoNombre}
-                                                    {!product && (
-                                                        <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
-                                                            <i className="fas fa-exclamation-triangle"></i>
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td className="py-1 text-right font-semibold">{item.cantidad}</td>
-                                                <td className="py-1 text-right">{unidadMedida}</td>
-                                            </tr>
-                                        )
-                                    })}
-                                  </tbody>
-                               </table>
-                               ) : (
-                                 <div className="text-center py-4 text-slate-500 dark:text-slate-400 text-sm">
-                                   No hay items registrados para esta remisión.
-                                 </div>
-                               )}
-                             </div>
-                             {/* Botones de acción: mostrar para remisiones en BORRADOR o EN_TRANSITO */}
-                             {(remision.estado === 'EN_TRANSITO' || remision.estado === 'BORRADOR') && (
-                                <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-b-lg border-t dark:border-slate-700 flex justify-between items-center gap-3">
-                                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                                        <i className="fas fa-info-circle mr-1"></i>
-                                        Marca como entregada cuando el despachador confirme la entrega
-                                    </div>
-                                    <div className="flex gap-3">
-                                        {remision.estado === 'EN_TRANSITO' && (
-                                            <ProtectedComponent permission="remisiones:update">
-                                                <button onClick={() => setPage('editar_remision', {id: remision.id})} className="px-3 py-1 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">
-                                                    <i className="fas fa-edit mr-1"></i>Editar
-                                                </button>
-                                            </ProtectedComponent>
-                                        )}
-                                        <ProtectedComponent permission="remisiones:deliver">
-                                            <button 
-                                                onClick={() => handleAprobarEntrega(remision.id)} 
-                                                disabled={!!isDelivering}
-                                                className="px-4 py-2 bg-green-600 text-white text-sm font-bold rounded-md hover:bg-green-700 transition-colors disabled:bg-slate-400 disabled:cursor-wait shadow-md hover:shadow-lg"
-                                                title="Marcar esta remisión como entregada para que pueda ser facturada"
-                                            >
-                                               {isDelivering === remision.id ? (
-                                                   <><i className="fas fa-spinner fa-spin mr-2"></i>Procesando...</>
-                                               ) : (
-                                                   <><i className="fas fa-check-circle mr-2"></i>Confirmar Entrega</>
-                                               )}
-                                            </button>
-                                        </ProtectedComponent>
-                                    </div>
-                                </div>
-                            )}
-                            {/* Mensaje para remisiones ya entregadas */}
-                            {remision.estado === 'ENTREGADO' && (
-                                <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-b-lg border-t dark:border-slate-700 flex items-center justify-between">
-                                    <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
-                                        <i className="fas fa-check-circle"></i>
-                                        <span className="text-sm font-semibold">Remisión entregada - Lista para facturar</span>
-                                    </div>
-                                    <button 
-                                        onClick={() => setPage('facturacion_electronica')} 
-                                        className="px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition-colors"
-                                    >
-                                        <i className="fas fa-file-invoice mr-1"></i>Ir a Facturación
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    )})}
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-blue-600 dark:text-blue-400">
+                    <i className="fas fa-box text-xl"></i>
+                  </div>
+                  <h4 className="text-base font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                    Información del Pedido
+                  </h4>
                 </div>
 
+                <div className="space-y-4 relative z-10">
+                  <div className="flex justify-between items-end border-b border-dashed border-slate-200 dark:border-slate-700 pb-3">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">Número de Pedido</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-xl font-mono tracking-tight">{selectedGroup.pedido.numeroPedido}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">ID Interno</span>
+                    <span className="font-mono text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-600">{selectedGroup.pedido.id}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">Estado Global</span>
+                    <StatusBadge status={selectedGroup.pedido.estado as any} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Cliente Info Card */}
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden group hover:shadow-md transition-all duration-300">
+                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
+                  <i className="fas fa-user-circle text-8xl text-purple-600"></i>
+                </div>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-purple-50 dark:bg-purple-900/30 rounded-lg text-purple-600 dark:text-purple-400">
+                    <i className="fas fa-user text-xl"></i>
+                  </div>
+                  <h4 className="text-base font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                    Datos del Cliente
+                  </h4>
+                </div>
+
+                <div className="space-y-4 relative z-10">
+                  <div className="flex flex-col border-b border-dashed border-slate-200 dark:border-slate-700 pb-3">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">Razón Social</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-lg leading-tight truncate" title={selectedGroup.cliente?.nombreCompleto}>
+                      {selectedGroup.cliente?.nombreCompleto || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-2">
+                    <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">Identificación</span>
+                    <div className="flex items-center gap-2">
+                      <i className="far fa-id-card text-slate-400"></i>
+                      <span className="font-medium text-slate-700 dark:text-slate-200 font-mono">{selectedGroup.cliente?.numeroDocumento || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+
+            {/* Deliveries Timeline Section */}
+            <div className="pt-2">
+              <div className="flex items-center justify-between mb-8">
+                <h4 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-3">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-900 text-white shadow-lg shadow-slate-900/20">
+                    <i className="fas fa-shipping-fast text-sm"></i>
+                  </div>
+                  <span>Historial de Entregas</span>
+                </h4>
+                <span className="text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-4 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
+                  {selectedGroup.remisiones.length} {selectedGroup.remisiones.length === 1 ? 'Registro' : 'Registros'}
+                </span>
+              </div>
+
+              {loadingRemisionDetails.size > 0 && (
+                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-xl flex items-center justify-center gap-3 animate-pulse">
+                  <i className="fas fa-spinner fa-spin text-blue-500 text-xl"></i>
+                  <span className="text-blue-700 dark:text-blue-300 font-medium">Sincronizando detalles...</span>
+                </div>
+              )}
+
+              {/* Improved Timeline */}
+              <div className="space-y-0 relative pl-4">
+                {/* The Timeline Line - Elegant and Subtle */}
+                <div className="absolute left-[27px] top-6 bottom-6 w-px bg-gradient-to-b from-slate-300 via-slate-300 to-transparent dark:from-slate-600 dark:via-slate-600"></div>
+
+                {selectedGroup.remisiones.map((remision, index) => {
+                  const tieneAdjunto = archivosAdjuntos.some(a => a.entidadId === remision.id && a.entidadTipo === 'REMISION');
+                  const isLoadingDetails = loadingRemisionDetails.has(remision.id);
+                  const isEntregado = remision.estado === 'ENTREGADO';
+                  const isLast = index === selectedGroup.remisiones.length - 1;
+
+                  return (
+                    <div key={remision.id} className={`relative pl-12 pb-10 ${isLast ? 'pb-0' : ''} group`}>
+                      {/* Timeline Dot - Premium Look */}
+                      <div className={`absolute left-0 top-0 w-[56px] flex justify-center z-10 py-1 bg-white dark:bg-slate-800 ring-4 ring-white dark:ring-slate-800`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 shadow-sm transition-all duration-300
+                          ${isEntregado
+                            ? 'bg-emerald-50 border-emerald-500 text-emerald-600 dark:bg-emerald-900/20 dark:border-emerald-500/50 dark:text-emerald-400'
+                            : 'bg-white border-slate-300 text-slate-400 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-500'}`}>
+                          <i className={`fas ${isEntregado ? 'fa-check' : 'fa-truck-moving'} text-[10px]`}></i>
+                        </div>
+                      </div>
+
+                      {/* Content Card */}
+                      <div className={`bg-white dark:bg-slate-800 rounded-2xl border transition-all duration-300 shadow-sm hover:shadow-lg
+                        ${isEntregado ? 'border-emerald-200/60 dark:border-emerald-900/30' : 'border-slate-200 dark:border-slate-700'}`}>
+
+                        {/* Card Header - Clean Split */}
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center p-5 gap-4 border-b border-slate-100 dark:border-slate-700/50">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h5 className="font-bold text-lg text-slate-800 dark:text-slate-100 font-mono tracking-tight">
+                                {remision.numeroRemision}
+                              </h5>
+                              <StatusBadge status={remision.estado as any} />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                              <span className="flex items-center gap-1.5"><i className="far fa-calendar-alt"></i> Generado: {formatDateOnly(remision.fechaRemision)}</span>
+                              {remision.fechaDespacho && <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400"><i className="fas fa-shipping-fast"></i> Despacho: {formatDateOnly(remision.fechaDespacho)}</span>}
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2 w-full lg:w-auto">
+                            {tieneAdjunto ? (
+                              <button onClick={() => handleDescargarAdjunto(remision.id)} className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold rounded-xl hover:bg-white dark:hover:bg-slate-600 transition-all hover:border-blue-300 hover:text-blue-600 shadow-sm">
+                                <i className="fas fa-paperclip"></i> Ver Adjunto
+                              </button>
+                            ) : (
+                              <button onClick={() => handlePrintRemision(remision)} className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold rounded-xl hover:bg-white dark:hover:bg-slate-600 transition-all hover:border-slate-300 hover:text-slate-800 shadow-sm">
+                                <i className="fas fa-print"></i> Imprimir
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Card Body: Items */}
+                        <div className="p-0 bg-slate-50/30 dark:bg-slate-900/20">
+                          {isLoadingDetails ? (
+                            <div className="text-center py-10 text-slate-400 dark:text-slate-500">
+                              <i className="fas fa-circle-notch fa-spin mr-2"></i> Cargando contenido...
+                            </div>
+                          ) : remision.items && remision.items.length > 0 ? (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm text-left">
+                                <thead className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50">
+                                  <tr>
+                                    <th className="px-6 py-3 w-40 pl-8">Referencia</th>
+                                    <th className="px-6 py-3">Descripción</th>
+                                    <th className="px-6 py-3 w-32 text-right">Cant.</th>
+                                    <th className="px-6 py-3 w-32 text-right pr-8">Unidad</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50 bg-white dark:bg-slate-800">
+                                  {remision.items.map((item, idx) => {
+                                    const product = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
+                                    const productoNombre = product?.nombre || item.descripcion || (item as any).nombre || `Producto ${idx + 1}`;
+                                    const unidadMedida = product?.unidadMedida || (item as any).unidadMedida || 'Unidad';
+
+                                    return (
+                                      <tr key={item.productoId || `item-${idx}`} className="group/row hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors">
+                                        <td className="px-6 py-3.5 pl-8 font-mono text-xs text-slate-500 group-hover/row:text-slate-700 dark:group-hover/row:text-slate-300">{product?.referencia || 'N/A'}</td>
+                                        <td className="px-6 py-3.5 font-medium text-slate-700 dark:text-slate-300">
+                                          {productoNombre}
+                                          {!product && <i className="fas fa-exclamation-triangle text-amber-500 ml-2 text-xs" title="Producto no encontrado en catálogo"></i>}
+                                        </td>
+                                        <td className="px-6 py-3.5 text-right font-bold text-slate-800 dark:text-slate-100">{item.cantidad}</td>
+                                        <td className="px-6 py-3.5 text-right pr-8 text-xs font-semibold text-slate-400">{unidadMedida}</td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="text-center py-10 text-slate-400 italic bg-white dark:bg-slate-800">
+                              <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-2">
+                                <i className="fas fa-box-open text-slate-300"></i>
+                              </div>
+                              <p>Sin items registrados</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Card Footer: Actions */}
+                        {(remision.estado === 'EN_TRANSITO' || remision.estado === 'BORRADOR') && (
+                          <div className="p-4 bg-orange-50/50 dark:bg-orange-900/10 border-t border-orange-100 dark:border-orange-900/20 rounded-b-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-2.5 text-xs font-medium text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-900/30 px-3 py-1.5 rounded-full">
+                              <i className="fas fa-clock"></i>
+                              <span>Entrega pendiente de confirmación</span>
+                            </div>
+                            <div className="flex items-center gap-3 w-full sm:w-auto">
+                              {remision.estado === 'EN_TRANSITO' && (
+                                <ProtectedComponent permission="remisiones:update">
+                                  <button onClick={() => setPage('editar_remision', { id: remision.id })} className="flex-1 sm:flex-none px-4 py-2 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-600 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-all text-sm shadow-sm">
+                                    <i className="fas fa-pencil-alt mr-2"></i> Editar
+                                  </button>
+                                </ProtectedComponent>
+                              )}
+                              <ProtectedComponent permission="remisiones:deliver">
+                                <button
+                                  onClick={() => handleAprobarEntrega(remision.id)}
+                                  disabled={!!isDelivering}
+                                  className="flex-1 sm:flex-none px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-200 dark:shadow-none font-bold rounded-xl transform hover:-translate-y-0.5 transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                                >
+                                  {isDelivering === remision.id ? (
+                                    <><i className="fas fa-spinner fa-spin mr-2"></i> ... </>
+                                  ) : (
+                                    <><i className="fas fa-check-double mr-2"></i> Confirmar Entrega</>
+                                  )}
+                                </button>
+                              </ProtectedComponent>
+                            </div>
+                          </div>
+                        )}
+
+                        {remision.estado === 'ENTREGADO' && (
+                          <div className="p-4 bg-emerald-50/50 dark:bg-emerald-900/10 border-t border-emerald-100 dark:border-emerald-900/20 rounded-b-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-2.5 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-3 py-1.5 rounded-full">
+                              <i className="fas fa-check-circle"></i>
+                              <span>Entregado y Verificado</span>
+                            </div>
+                            <button
+                              onClick={() => setPage('facturacion_electronica')}
+                              className="w-full sm:w-auto px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-blue-500/30 font-bold rounded-xl transition-all text-sm flex items-center justify-center gap-2 transform hover:-translate-y-0.5"
+                            >
+                              <i className="fas fa-receipt"></i> Facturar Ahora
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </Modal>
       )}
 
       {pedidoToRemisionar && (
         <Modal
-            isOpen={isCreateModalOpen}
-            onClose={handleCloseModals}
-            title={`Crear Remisión para Pedido: ${pedidoToRemisionar.numeroPedido}`}
-            size="3xl"
+          isOpen={isCreateModalOpen}
+          onClose={handleCloseModals}
+          title={`Crear Remisión para Pedido: ${pedidoToRemisionar.numeroPedido}`}
+          size="3xl"
         >
-            <div className="space-y-6">
-                {/* Progress Flow */}
-                <ProgressFlow>
-                    <ProgressStep title="Pedido" status="complete" />
-                    <ProgressStep title="Remisión" status="current" />
-                    <ProgressStep title="Enviado" status="incomplete" />
-                    <ProgressStep title="Entregado" status="incomplete" />
-                </ProgressFlow>
+          <div className="space-y-6">
+            {/* Progress Flow */}
+            <ProgressFlow>
+              <ProgressStep title="Pedido" status="complete" />
+              <ProgressStep title="Remisión" status="current" />
+              <ProgressStep title="Enviado" status="incomplete" />
+              <ProgressStep title="Entregado" status="incomplete" />
+            </ProgressFlow>
 
-                {/* Order and Client Info Card */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-base">Información del Pedido y Cliente</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                            <div className="flex items-start gap-2">
-                                <i className="fas fa-hashtag text-slate-400 mt-1"></i>
-                                <div><p className="font-semibold text-slate-500 dark:text-slate-400">Nº Pedido</p><p>{pedidoToRemisionar.numeroPedido}</p></div>
-                            </div>
-                            <div className="flex items-start gap-2">
-                                <i className="fas fa-user text-slate-400 mt-1"></i>
-                                <div><p className="font-semibold text-slate-500 dark:text-slate-400">Cliente</p><p>{currentCliente?.nombreCompleto}</p></div>
-                            </div>
-                            <div className="flex items-start gap-2">
-                                <i className="fas fa-phone text-slate-400 mt-1"></i>
-                                <div><p className="font-semibold text-slate-500 dark:text-slate-400">Teléfono</p><p>{currentCliente?.telefono}</p></div>
-                            </div>
-                            <div className="flex items-start gap-2">
-                                <i className="fas fa-envelope text-slate-400 mt-1"></i>
-                                <div><p className="font-semibold text-slate-500 dark:text-slate-400">Email</p><p>{currentCliente?.email}</p></div>
-                            </div>
-                            <div className="flex items-start gap-2 md:col-span-2">
-                                <i className="fas fa-map-marker-alt text-slate-400 mt-1"></i>
-                                <div><p className="font-semibold text-slate-500 dark:text-slate-400">Dirección de Envío</p><p>{currentCliente?.direccion}, {currentCliente?.ciudadId}</p></div>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* Items to Remit Table */}
-                <Card>
-                    <CardHeader><CardTitle className="text-base">Ítems a Remitir</CardTitle></CardHeader>
-                    <CardContent className="p-0">
-                        <div>
-                            <table className="w-full table-fixed divide-y divide-slate-200 dark:divide-slate-700">
-                                <thead className="bg-slate-50 dark:bg-slate-700/50">
-                                    <tr>
-                                        <th scope="col" className="px-4 py-2 w-24 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
-                                        <th scope="col" className="px-4 py-2 w-auto text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Producto</th>
-                                        <th scope="col" className="px-4 py-2 w-16 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Pedido</th>
-                                        <th scope="col" className="px-4 py-2 w-20 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Pendiente</th>
-                                        <th scope="col" className="px-4 py-2 w-16 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Stock</th>
-                                        <th scope="col" className="px-4 py-2 w-28 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Cant. a Enviar</th>
-                                        <th scope="col" className="px-4 py-2 w-20 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
-                                {remisionItems.map((item, index) => {
-                                    // Buscar producto en el catálogo para verificar si existe
-                                    // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
-                                    const producto = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
-                                    
-                                    // Obtener nombre del producto: primero del producto encontrado, luego del item
-                                    const productoNombre = producto?.nombre || 
-                                                          item.descripcion || 
-                                                          item.nombre || 
-                                                          `Producto ${index + 1}`;
-                                    
-                                    return (
-                                    <tr key={item.productoId || `item-${index}`}>
-                                        <td className="px-4 py-2 text-sm font-mono text-slate-500 break-words">{item.referencia || producto?.referencia || 'N/A'}</td>
-                                        <td className="px-4 py-2 text-sm break-words">
-                                            {productoNombre}
-                                            {!producto && (
-                                                <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
-                                                    <i className="fas fa-exclamation-triangle"></i>
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-2 text-sm text-right">{item.cantPedida}</td>
-                                        <td className="px-4 py-2 text-sm text-right font-medium">{item.cantPendiente}</td>
-                                        <td className={`px-4 py-2 text-sm text-right font-bold ${item.cantStock < item.cantPendiente ? 'text-orange-500' : 'text-green-500'}`}>{item.cantStock}</td>
-                                        <td className="px-4 py-2 text-sm">
-                                            <input 
-                                                type="number"
-                                                value={item.cantAEnviar}
-                                                onChange={(e) => handleItemQuantityChange(item.productoId, parseInt(e.target.value) || 0)}
-                                                max={Math.min(item.cantPendiente, item.cantStock)}
-                                                min="0"
-                                                className="w-24 px-2 py-1 text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                            />
-                                        </td>
-                                        <td className="px-4 py-2 text-sm text-right">{item.unidadMedida}</td>
-                                    </tr>
-                                    );
-                                })}
-                                </tbody>
-                            </table>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* Logistic Details Form */}
-                <Card>
-                    <CardHeader><CardTitle className="text-base">Detalles de Envío</CardTitle></CardHeader>
-                    <CardContent>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                            <div>
-                                <label htmlFor="fechaDespacho" className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Fecha Estimada de Despacho</label>
-                                <input type="date" id="fechaDespacho" value={fechaDespacho} onChange={(e) => setFechaDespacho(e.target.value)} className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                            </div>
-                            <div className="sm:col-span-2">
-                                <label htmlFor="observacionesInternas" className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Observaciones Internas</label>
-                                <textarea id="observacionesInternas" rows={3} value={observacionesInternas} onChange={(e) => setObservacionesInternas(e.target.value)} placeholder="Ej: Producto frágil, entregar en horario laboral..." className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <div className="mt-2 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
-                    <button onClick={handleCloseModals} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">
-                        Cancelar
-                    </button>
-                    <button 
-                        onClick={handleCreateRemision} 
-                        disabled={isCreating || hasStockError}
-                        className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed"
-                        title={hasStockError ? "No se puede crear la remisión. La cantidad a enviar supera el stock disponible." : ""}
-                    >
-                        {isCreating ? (
-                            <><i className="fas fa-spinner fa-spin mr-2"></i>Creando...</>
-                        ) : (
-                            <><i className="fas fa-truck mr-2"></i> Crear Remisión</>
-                        )}
-                    </button>
+            {/* Order and Client Info Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Pedido Details */}
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-3 opacity-5">
+                  <i className="fas fa-file-invoice text-6xl text-blue-600"></i>
                 </div>
+                <h4 className="flex items-center gap-2 text-sm font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-4">
+                  <i className="fas fa-cube"></i> Datos del Pedido
+                </h4>
+                <div className="space-y-3 relative z-10">
+                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-700/50 pb-2">
+                    <span className="text-slate-500 dark:text-slate-400 text-xs font-medium">Nº Pedido</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-lg font-mono">{pedidoToRemisionar.numeroPedido}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 dark:text-slate-400 text-xs font-medium">ID Interno</span>
+                    <span className="font-mono text-xs text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{pedidoToRemisionar.id}</span>
+                  </div>
+                  <div className="pt-2">
+                    <StatusBadge status={pedidoToRemisionar.estado as any} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Client Details */}
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-3 opacity-5">
+                  <i className="fas fa-users text-6xl text-purple-600"></i>
+                </div>
+                <h4 className="flex items-center gap-2 text-sm font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wide mb-4">
+                  <i className="fas fa-user-circle"></i> Datos del Cliente
+                </h4>
+                <div className="space-y-3 relative z-10">
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400 text-xs font-medium block mb-0.5">Cliente / Razón Social</span>
+                    <p className="font-bold text-slate-800 dark:text-slate-100 truncate" title={currentCliente?.nombreCompleto}>
+                      {currentCliente?.nombreCompleto || 'Sin Nombre'}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400 text-xs font-medium block mb-0.5">Identificación</span>
+                      <p className="text-sm font-mono text-slate-600 dark:text-slate-300">{currentCliente?.numeroDocumento || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400 text-xs font-medium block mb-0.5">Contacto</span>
+                      <p className="text-sm text-slate-600 dark:text-slate-300 truncate">{currentCliente?.telter || currentCliente?.celter || currentCliente?.celular || 'N/A'}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400 text-xs font-medium block mb-0.5">Dirección de Envío</span>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 truncate">
+                      <i className="fas fa-map-marker-alt text-slate-400 mr-1"></i>
+                      {currentCliente?.direccion}{currentCliente?.ciudadId ? `, ${currentCliente?.ciudadId}` : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
+
+            {/* Items to Remit Table - Redesigned */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm flex items-center gap-2">
+                  <i className="fas fa-boxes text-slate-400"></i> Ítems a Remitir
+                </h4>
+                <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-2.5 py-0.5 rounded-full font-medium">
+                  {remisionItems.length} ítems
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50/50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-xs uppercase font-semibold text-slate-500 dark:text-slate-400">
+                    <tr>
+                      <th className="px-5 py-3 w-32">Referencia</th>
+                      <th className="px-5 py-3">Producto</th>
+                      <th className="px-5 py-3 w-24 text-center">Und</th>
+                      <th className="px-5 py-3 w-28 text-right bg-slate-100/50 dark:bg-slate-900/20">Solicitado</th>
+                      <th className="px-5 py-3 w-28 text-right bg-slate-100/50 dark:bg-slate-900/20 border-l border-white dark:border-slate-700">Pendiente</th>
+                      <th className="px-5 py-3 w-24 text-right">Stock</th>
+                      <th className="px-5 py-3 w-36 text-center bg-blue-50/30 dark:bg-blue-900/10">A Enviar</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {remisionItems.map((item, index) => {
+                      const producto = productosMap.get(item.productoId) || productosMap.get(String(item.productoId));
+                      const productoNombre = producto?.nombre || item.descripcion || (item as any).nombre || `Producto ${index + 1}`;
+                      const isLowStock = item.cantStock < item.cantPendiente;
+                      const isPartial = item.cantAEnviar > 0 && item.cantAEnviar < item.cantPendiente;
+                      const isComplete = item.cantAEnviar === item.cantPendiente;
+
+                      return (
+                        <tr key={item.productoId || `item-${index}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors group">
+                          <td className="px-5 py-3">
+                            <span className="font-mono text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                              {item.referencia || producto?.referencia || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 font-medium text-slate-700 dark:text-slate-200">
+                            {productoNombre}
+                            {!producto && <i className="fas fa-exclamation-triangle text-amber-500 ml-2 text-xs" title="Producto no encontrado"></i>}
+                          </td>
+                          <td className="px-5 py-3 text-center text-xs text-slate-500">{item.unidadMedida}</td>
+
+                          <td className="px-5 py-3 text-right bg-slate-50/30 dark:bg-slate-900/10 font-medium text-slate-600 dark:text-slate-300">
+                            {item.cantPedida}
+                          </td>
+
+                          <td className="px-5 py-3 text-right bg-slate-50/30 dark:bg-slate-900/10 border-l border-white dark:border-slate-800 font-medium text-slate-800 dark:text-slate-100">
+                            {item.cantPendiente}
+                          </td>
+
+                          <td className={`px-5 py-3 text-right font-bold text-xs ${isLowStock ? 'text-orange-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            {item.cantStock}
+                          </td>
+
+                          <td className="px-5 py-3 bg-blue-50/20 dark:bg-blue-900/5 text-center">
+                            <div className="relative inline-block w-24">
+                              <input
+                                type="number"
+                                value={item.cantAEnviar}
+                                onChange={(e) => handleItemQuantityChange(item.productoId, parseInt(e.target.value) || 0)}
+                                max={Math.min(item.cantPendiente, item.cantStock)}
+                                min="0"
+                                className={`w-full px-2 py-1.5 text-center text-sm font-bold bg-white dark:bg-slate-800 border rounded-lg focus:outline-none focus:ring-2 transition-all shadow-sm
+                                             ${isComplete ? 'border-emerald-300 text-emerald-700 focus:ring-emerald-500/30 focus:border-emerald-500' :
+                                    isPartial ? 'border-blue-300 text-blue-700 focus:ring-blue-500/30 focus:border-blue-500' :
+                                      'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 focus:ring-blue-500/30'}`}
+                              />
+                              {isComplete && <div className="absolute -right-2 -top-2 text-emerald-500 bg-white dark:bg-slate-800 rounded-full w-4 h-4 text-[10px] flex items-center justify-center border border-emerald-200 shadow-sm"><i className="fas fa-check"></i></div>}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Summary Footer */}
+              <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-6 text-sm">
+                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                  <div className="w-3 h-3 bg-emerald-500 rounded-full opacity-20"></div> Stock Suficiente
+                </div>
+                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                  <div className="w-3 h-3 bg-orange-500 rounded-full opacity-20"></div> Stock Bajo
+                </div>
+              </div>
+            </div>
+
+            {/* Logistic Details Form */}
+            <Card>
+              <CardHeader><CardTitle className="text-base">Detalles de Envío</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <label htmlFor="fechaDespacho" className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Fecha Estimada de Despacho</label>
+                    <input type="date" id="fechaDespacho" value={fechaDespacho} onChange={(e) => setFechaDespacho(e.target.value)} className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label htmlFor="observacionesInternas" className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Observaciones Internas</label>
+                    <textarea id="observacionesInternas" rows={3} value={observacionesInternas} onChange={(e) => setObservacionesInternas(e.target.value)} placeholder="Ej: Producto frágil, entregar en horario laboral..." className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="mt-2 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
+              <button onClick={handleCloseModals} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateRemision}
+                disabled={isCreating || hasStockError}
+                className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed"
+                title={hasStockError ? "No se puede crear la remisión. La cantidad a enviar supera el stock disponible." : ""}
+              >
+                {isCreating ? (
+                  <><i className="fas fa-spinner fa-spin mr-2"></i>Creando...</>
+                ) : (
+                  <><i className="fas fa-truck mr-2"></i> Crear Remisión</>
+                )}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
 
       {remisionSuccessData && (
         <ApprovalSuccessModal
-            isOpen={!!remisionSuccessData}
-            onClose={() => setRemisionSuccessData(null)}
-            title={`¡Remisión ${remisionSuccessData.numeroRemision} Creada!`}
-            message="La remisión ha sido generada y el PDF guardado. El inventario ha sido actualizado."
-            summaryTitle="Resumen de la Entrega"
-            summaryDetails={[
-                { 
-                    label: 'Cliente', 
-                    value: (() => {
-                        const cliente = findCliente(remisionSuccessData.clienteId);
-                        return cliente?.nombreCompleto || cliente?.razonSocial || remisionSuccessData.clienteId || 'N/A';
-                    })()
-                },
-                { label: 'Pedido Origen', value: findPedido(remisionSuccessData.pedidoId)?.numeroPedido || 'N/A' },
-            ]}
-            primaryAction={{
-                label: 'Ver/Imprimir Documento',
-                onClick: () => {
-                    setRemisionToPreview(remisionSuccessData);
-                    setRemisionSuccessData(null);
-                },
-                icon: 'fa-print'
-            }}
-            secondaryActions={[
-                {
-                    label: 'Finalizar',
-                    onClick: () => setRemisionSuccessData(null)
-                }
-            ]}
+          isOpen={!!remisionSuccessData}
+          onClose={() => setRemisionSuccessData(null)}
+          title={`¡Remisión ${remisionSuccessData.numeroRemision} Creada!`}
+          message="La remisión ha sido generada y el PDF guardado. El inventario ha sido actualizado."
+          summaryTitle="Resumen de la Entrega"
+          summaryDetails={[
+            {
+              label: 'Cliente',
+              value: (() => {
+                const cliente = findCliente(remisionSuccessData.clienteId);
+                return cliente?.nombreCompleto || cliente?.razonSocial || remisionSuccessData.clienteId || 'N/A';
+              })()
+            },
+            { label: 'Pedido Origen', value: findPedido(remisionSuccessData.pedidoId)?.numeroPedido || 'N/A' },
+          ]}
+          primaryAction={{
+            label: 'Ver/Imprimir Documento',
+            onClick: () => {
+              setRemisionToPreview(remisionSuccessData);
+              setRemisionSuccessData(null);
+            },
+            icon: 'fa-print'
+          }}
+          secondaryActions={[
+            {
+              label: 'Finalizar',
+              onClick: () => setRemisionSuccessData(null)
+            }
+          ]}
         />
       )}
 
       {deliveryResult && (
         <ApprovalSuccessModal
-            isOpen={!!deliveryResult}
-            onClose={() => setDeliveryResult(null)}
-            title="¡Entrega Confirmada!"
-            message={<>La remisión <strong>{deliveryResult.numeroRemision}</strong> fue marcada como "Entregada" y está lista para ser facturada.</>}
-            summaryTitle="Detalles de la Entrega"
-            summaryDetails={[
-                { 
-                    label: 'Cliente', 
-                    value: (() => {
-                        const cliente = findCliente(deliveryResult.clienteId);
-                        return cliente?.nombreCompleto || cliente?.razonSocial || deliveryResult.clienteId || 'N/A';
-                    })()
-                },
-                { label: 'Pedido Origen', value: findPedido(deliveryResult.pedidoId)?.numeroPedido || 'N/A' },
-            ]}
-            primaryAction={{
-                label: 'Ir a Facturación',
-                onClick: () => { setDeliveryResult(null); setPage('facturacion_electronica'); },
-            }}
+          isOpen={!!deliveryResult}
+          onClose={() => setDeliveryResult(null)}
+          title="¡Entrega Confirmada!"
+          message={<>La remisión <strong>{deliveryResult.numeroRemision}</strong> fue marcada como "Entregada" y está lista para ser facturada.</>}
+          summaryTitle="Detalles de la Entrega"
+          summaryDetails={[
+            {
+              label: 'Cliente',
+              value: (() => {
+                const cliente = findCliente(deliveryResult.clienteId);
+                return cliente?.nombreCompleto || cliente?.razonSocial || deliveryResult.clienteId || 'N/A';
+              })()
+            },
+            { label: 'Pedido Origen', value: findPedido(deliveryResult.pedidoId)?.numeroPedido || 'N/A' },
+          ]}
+          primaryAction={{
+            label: 'Ir a Facturación',
+            onClick: () => { setDeliveryResult(null); setPage('facturacion_electronica'); },
+          }}
         />
       )}
 
       {remisionToPreview && (
-        <RemisionPreviewModal 
-            remision={remisionToPreview}
-            onClose={() => setRemisionToPreview(null)}
+        <RemisionPreviewModal
+          remision={remisionToPreview}
+          onClose={() => setRemisionToPreview(null)}
         />
       )}
     </div>

@@ -36,13 +36,33 @@ const RemisionPDF = React.forwardRef<HTMLDivElement, RemisionPDFProps>(
     const totals = useMemo(() => {
         if (!preferences.showPrices) return null;
         
-        const subtotalBruto = remision.items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
+        // Calcular subtotal bruto desde items (precio * cantidad)
+        const subtotalBruto = remision.items.reduce((acc, item) => acc + ((item.precioUnitario || 0) * (item.cantidad || 0)), 0);
+        
+        // Calcular descuento total desde items
         const descuentoTotal = remision.items.reduce((acc, item) => {
-            const itemTotalBruto = item.precioUnitario * item.cantidad;
-            return acc + (itemTotalBruto * (item.descuentoPorcentaje / 100));
+            const itemTotalBruto = (item.precioUnitario || 0) * (item.cantidad || 0);
+            return acc + (itemTotalBruto * ((item.descuentoPorcentaje || 0) / 100));
         }, 0);
+        
+        // Calcular subtotal neto (subtotal bruto - descuentos)
         const subtotalNeto = subtotalBruto - descuentoTotal;
-        const iva = remision.items.reduce((acc, item) => acc + (item.total * (item.ivaPorcentaje / 100)), 0);
+        
+        // Calcular IVA desde items (usar valorIva directamente del item si está disponible)
+        const iva = remision.items.reduce((acc, item) => {
+            // Prioridad 1: usar valorIva del item directamente
+            if (item.valorIva !== undefined && item.valorIva !== null && item.valorIva !== 0) {
+                return acc + item.valorIva;
+            }
+            // Prioridad 2: usar subtotal del item para calcular IVA
+            const itemSubtotal = item.subtotal ?? ((item.precioUnitario || 0) * (item.cantidad || 0) * (1 - ((item.descuentoPorcentaje || 0) / 100)));
+            if (itemSubtotal > 0 && item.ivaPorcentaje) {
+                return acc + (itemSubtotal * ((item.ivaPorcentaje || 0) / 100));
+            }
+            return acc;
+        }, 0);
+        
+        // Calcular total (subtotal neto + IVA)
         const total = subtotalNeto + iva;
 
         return { subtotalBruto, descuentoTotal, subtotalNeto, iva, total };
@@ -144,13 +164,19 @@ const RemisionPDF = React.forwardRef<HTMLDivElement, RemisionPDFProps>(
                                     <td className="p-3 font-semibold text-slate-800 align-top">{productoNombre}</td>
                                     <td className="p-3 text-slate-800 align-top">{product?.unidadMedida}</td>
                                     <td className="p-3 text-right text-slate-800 align-top">{item.cantidad}</td>
-                                    {preferences.showPrices ? (
-                                        <>
-                                            <td className="p-3 text-right text-slate-800 align-top">{formatCurrency(item.precioUnitario)}</td>
-                                            <td className="p-3 text-right font-semibold text-slate-800 align-top">{formatCurrency(item.total)}</td>
-                                            <td className="p-3 text-right text-slate-800 align-top">{formatCurrency(item.total * (item.ivaPorcentaje / 100))}</td>
-                                        </>
-                                    ) : (
+                                    {preferences.showPrices ? (() => {
+                                        // Usar subtotal y valorIva del item (ya calculados en backend)
+                                        const itemSubtotal = item.subtotal ?? ((item.precioUnitario || 0) * (item.cantidad || 0) * (1 - ((item.descuentoPorcentaje || 0) / 100)));
+                                        const itemValorIva = item.valorIva ?? (itemSubtotal * ((item.ivaPorcentaje || 0) / 100));
+                                        
+                                        return (
+                                            <>
+                                                <td className="p-3 text-right text-slate-800 align-top">{formatCurrency(item.precioUnitario)}</td>
+                                                <td className="p-3 text-right font-semibold text-slate-800 align-top">{formatCurrency(itemSubtotal)}</td>
+                                                <td className="p-3 text-right text-slate-800 align-top">{formatCurrency(itemValorIva)}</td>
+                                            </>
+                                        );
+                                    })() : (
                                         <td></td>
                                     )}
                                 </tr>
@@ -185,7 +211,24 @@ const RemisionPDF = React.forwardRef<HTMLDivElement, RemisionPDFProps>(
                                     <td className="py-1 text-right">{formatCurrency(totals.subtotalNeto)}</td>
                                 </tr>
                                 <tr className="text-slate-700">
-                                    <td className="pt-1 pb-2 pr-4 text-right">IVA ({remision.items[0]?.ivaPorcentaje || 19}%)</td>
+                                    <td className="pt-1 pb-2 pr-4 text-right">
+                                        IVA ({
+                                            (() => {
+                                                // Calcular porcentaje de IVA promedio o del primer item
+                                                if (remision.items.length > 0 && totals.subtotalNeto > 0) {
+                                                    const ivaPorcentajePromedio = (totals.iva / totals.subtotalNeto) * 100;
+                                                    // Redondear a porcentajes estándar (19%, 8%, 5%, 0%)
+                                                    if (Math.abs(ivaPorcentajePromedio - 19) < 1) return '19';
+                                                    if (Math.abs(ivaPorcentajePromedio - 8) < 1) return '8';
+                                                    if (Math.abs(ivaPorcentajePromedio - 5) < 1) return '5';
+                                                    if (ivaPorcentajePromedio < 0.5) return '0';
+                                                    // Si no es estándar, mostrar con 2 decimales
+                                                    return ivaPorcentajePromedio.toFixed(2);
+                                                }
+                                                return remision.items[0]?.ivaPorcentaje?.toFixed(2) || '19';
+                                            })()
+                                        }%)
+                                    </td>
                                     <td className="pt-1 pb-2 text-right font-medium">{formatCurrency(totals.iva)}</td>
                                 </tr>
                                 <tr className="font-bold text-lg bg-blue-800 text-white shadow-lg">

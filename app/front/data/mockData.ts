@@ -24,14 +24,12 @@ export const ciudades: Ciudad[] = [
 ];
 
 export const tiposDocumento: TipoDocumento[] = [
-    { id: 'td1', codigo: 'CC', nombre: 'Cédula de Ciudadanía' },
-    { id: 'td2', codigo: 'NIT', nombre: 'Número de Identificación Tributaria' },
-    { id: 'td3', codigo: 'PA', nombre: 'Pasaporte' },
+    { id: 'td1', codigo: '13', nombre: 'Cédula de Ciudadanía (13)' },
+    { id: 'td2', codigo: '31', nombre: 'NIT (31)' },
 ];
 
 export const tiposPersona: TipoPersona[] = [
-    { id: 'tp1', codigo: 'PN', nombre: 'Persona Natural' },
-    { id: 'tp2', codigo: 'PJ', nombre: 'Persona Jurídica' },
+    { id: 'tp1', codigo: '2', nombre: 'Cliente' },
 ];
 
 export const regimenesFiscales: RegimenFiscal[] = [
@@ -49,7 +47,7 @@ export let categorias: Categoria[] = [
 // --- EMPRESA, USUARIOS Y VENDEDORES (Para autenticación) ---
 
 export const empresas: Empresa[] = [
-    { id: 1, razonSocial: 'Innovatech Colombia SAS', nit: '900.123.456-7', direccion: 'Avenida Siempre Viva 123', ciudad: 'Bogotá D.C.', telefono: '601-555-1234' },
+    { id: 1, razonSocial: 'MULTIACABADOS', nit: '900.123.456-7', direccion: 'Avenida Siempre Viva 123', ciudad: 'Bogotá D.C.', telefono: '601-555-1234' },
     { id: 2, razonSocial: 'Soluciones Digitales 360', nit: '901.987.654-3' },
 ];
 
@@ -81,10 +79,10 @@ export const vendedores: Vendedor[] = [
 // Se eliminan las funciones crearCliente, actualizarCliente, etc., de este archivo.
 
 export const motivosDevolucion: string[] = [
-    'Producto defectuoso', 
-    'Producto incorrecto', 
-    'Dañado en transporte', 
-    'Exceso de inventario', 
+    'Producto defectuoso',
+    'Producto incorrecto',
+    'Dañado en transporte',
+    'Exceso de inventario',
     'Cliente cancela pedido'
 ];
 
