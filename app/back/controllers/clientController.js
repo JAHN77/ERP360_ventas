@@ -100,6 +100,9 @@ const clientController = {
           regimen_tributario as regimenTributario,
           CAST(activo AS INT) as activo,
           contacto,
+          codacteconomica,
+          coddane as codigoPostal,
+          Tipo_documento as tipoDocumento,
           FECING as fechaIngreso
         FROM ${TABLE_NAMES.clientes}
         ${whereClause}
@@ -216,6 +219,9 @@ const clientController = {
           regimen_tributario as regimenTributario,
           CAST(activo AS INT) as activo,
           contacto,
+          codacteconomica,
+          coddane as codigoPostal,
+          Tipo_documento as tipoDocumento,
           FECING as fechaIngreso
         FROM con_terceros
       `;
@@ -234,6 +240,7 @@ const clientController = {
       }
 
       const cliente = data[0];
+      console.log("DB Result (Backend) for ID " + id + ":", cliente); // DEBUG
       // Normalize Full Name
       if (!cliente.nombreCompleto) {
          const parts = [cliente.primerNombre, cliente.segundoNombre, cliente.primerApellido, cliente.segundoApellido];
@@ -259,7 +266,8 @@ const clientController = {
         direccion, ciudad, email, telefono, celular,
         limiteCredito, diasCredito, vendedorId,
         formaPago, regimenTributario, tipoDocumento,
-        tipoPersonaId // '1' or '2' -> maps to tipter
+        tipoPersonaId, // '1' or '2' -> maps to tipter
+        codacteconomica, contacto, codigoPostal, coddane
       } = req.body;
 
       if (!id) return res.status(400).json({ success: false, message: 'ID de cliente requerido' });
@@ -289,7 +297,9 @@ const clientController = {
         formaPago: String(formaPago || '0').trim().substring(0, 20),
         regimenTributario: String(regimenTributario || '0').trim().substring(0, 20),
         tipoDocumento: String(tipoDocumento || '13').trim().substring(0, 3),
-        coddane: String(ciudad || '').trim().substring(0, 5), // Assuming ciudad holds DANE code or similar mapping
+        coddane: String(codigoPostal || coddane || '').trim().substring(0, 5), // DB Limit: char(5)
+        codacteconomica: String(codacteconomica || '').trim().substring(0, 10),
+        contacto: String(contacto || '').trim().substring(0, 100),
         tipter: tipterVal
       };
       
@@ -323,6 +333,8 @@ const clientController = {
           regimen_tributario = @regimenTributario,
           Tipo_documento = @tipoDocumento,
           coddane = @coddane,
+          codacteconomica = @codacteconomica,
+          contacto = @contacto,
           tipter = @tipter
         WHERE id = @id
       `;
@@ -356,6 +368,124 @@ const clientController = {
     } catch (error) {
       console.error('Error assigning price list:', error);
       res.status(500).json({ success: false, message: 'Error asignando lista de precios', error: error.message });
+    }
+  },
+
+  /**
+   * Search Economic Activities (CIIU)
+   */
+  searchActividadesCiiu: async (req, res) => {
+    try {
+      const { search = '', limit = 20 } = req.query;
+      if (String(search).trim().length < 2) {
+        return res.status(400).json({ success: false, message: 'Ingrese al menos 2 caracteres' });
+      }
+
+      const like = `%${search}%`;
+      const query = `
+        SELECT TOP (@limit)
+          codigo,
+          nombre,
+          tarifa
+        FROM gen_actividades_ciiu
+        WHERE nombre LIKE @like OR codigo LIKE @like
+        ORDER BY nombre
+      `;
+
+      const data = await executeQueryWithParams(query, { like, limit: Number(limit) });
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error('Error searching actividades:', error);
+      res.status(500).json({ success: false, message: 'Error buscando actividades económicas', error: error.message });
+    }
+  },
+
+  /**
+   * Create Client
+   */
+  createClient: async (req, res) => {
+    try {
+      const {
+        numeroDocumento, reasonSocial, primerApellido, segundoApellido, primerNombre, segundoNombre,
+        direccion, ciudad, email, telefono, celular,
+        limiteCredito, diasCredito, vendedorId,
+        formaPago, regimenTributario, tipoDocumento,
+        codacteconomica, isproveedor,
+        contacto,
+        tipoPersonaId // '1' or '2' -> maps to tipter
+      } = req.body;
+
+      // Basic Validation
+      if (!numeroDocumento) return res.status(400).json({ success: false, message: 'Número de documento requerido' });
+      
+      const checkExists = await executeQueryWithParams(`SELECT id FROM con_terceros WHERE codter = @codter`, { codter: numeroDocumento });
+      if (checkExists.length > 0) {
+        return res.status(400).json({ success: false, message: 'El cliente/tercero con este documento ya existe.' });
+      }
+
+      const creditLimitDecimal = validateDecimal18_2(limiteCredito, 'limiteCredito');
+
+      let tipterVal = 2; 
+      if (tipoPersonaId) tipterVal = parseInt(tipoPersonaId, 10) || 2;
+
+      const params = {
+        codter: String(numeroDocumento).trim().substring(0, 15),
+        razonSocial: (reasonSocial || '').trim().substring(0, 150),
+        primerApellido: (primerApellido || '').trim().substring(0, 50),
+        segundoApellido: (segundoApellido || '').trim().substring(0, 50),
+        primerNombre: (primerNombre || '').trim().substring(0, 50),
+        segundoNombre: (segundoNombre || '').trim().substring(0, 50),
+        direccion: (direccion || '').trim().substring(0, 180),
+        ciudad: (ciudad || '').trim().substring(0, 40),
+        email: (email || '').trim().substring(0, 70),
+        telefono: (telefono || '').trim().substring(0, 20),
+        celular: (celular || '').trim().substring(0, 30),
+        diasCredito: parseInt(diasCredito || 0, 10),
+        vendedorId: String(vendedorId || '').trim().substring(0, 3), // char(3)
+        formaPago: parseInt(formaPago || 0, 10),
+        regimenTributario: parseInt(regimenTributario || 0, 10),
+        tipoDocumento: String(tipoDocumento || '13').trim().substring(0, 2), // char(2)
+        codacteconomica: String(codacteconomica || '').trim().substring(0, 6),
+        isproveedor: isproveedor ? 1 : 0,
+        contacto: String(contacto || '').trim().substring(0, 150),
+        coddane: String(req.body.codigoPostal || '').trim().substring(0, 5), // DB Limit: char(5)
+        tipter: tipterVal,
+        FECING: new Date()
+      };
+
+      // Construct Name if razonSocial empty
+      let nomter = params.razonSocial;
+      if (!nomter) {
+         nomter = [params.primerNombre, params.segundoNombre, params.primerApellido, params.segundoApellido].filter(Boolean).join(' ');
+      }
+      params.nomter = nomter.substring(0, 150);
+
+      const query = `
+        INSERT INTO con_terceros (
+          codter, nomter, apl1, apl2, nom1, nom2,
+          dirter, ciudad, codven, EMAIL, TELTER, CELTER,
+          plazo, cupo_credito, Forma_pago, regimen_tributario,
+          Tipo_documento, codacteconomica, isproveedor, contacto,
+          coddane, tipter, FECING, activo
+        ) VALUES (
+          @codter, @nomter, @primerApellido, @segundoApellido, @primerNombre, @segundoNombre,
+          @direccion, @ciudad, @vendedorId, @email, @telefono, @celular,
+          @diasCredito, ${creditLimitDecimal}, @formaPago, @regimenTributario,
+          @tipoDocumento, @codacteconomica, @isproveedor, @contacto,
+          @coddane, @tipter, @FECING, 1
+        );
+        SELECT SCOPE_IDENTITY() as id;
+      `;
+
+      const result = await executeQueryWithParams(query, params);
+      const newId = result[0].id;
+
+      const newClient = await executeQueryWithParams('SELECT * FROM con_terceros WHERE id = @id', { id: newId });
+      res.json({ success: true, data: newClient[0] });
+
+    } catch (error) {
+      console.error('Error creating client:', error);
+      res.status(500).json({ success: false, message: 'Error creando cliente', error: error.message });
     }
   }
 };

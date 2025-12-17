@@ -90,7 +90,7 @@ const getAllOrders = async (req, res) => {
       LEFT JOIN ven_cotizacion c ON c.id = p.cotizacion_id
       LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(p.codter)) AND cli.activo = 1
       ${where}
-      ORDER BY p.id DESC
+      ORDER BY p.fecha_pedido DESC, p.id DESC
       OFFSET ${offset} ROWS
       FETCH NEXT ${size} ROWS ONLY
     `;

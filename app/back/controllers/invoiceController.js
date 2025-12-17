@@ -107,7 +107,7 @@ const invoiceController = {
           f.Valnotas as valorNotas
         FROM ${TABLE_NAMES.facturas} f
         ${whereClause}
-        ORDER BY f.fecfac DESC
+        ORDER BY f.fecfac DESC, f.numfact DESC, f.ID DESC
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
       `;
 
@@ -483,27 +483,78 @@ const invoiceController = {
         let numeroFacturaFinal = numeroFactura ? String(numeroFactura).trim() : null;
 
         if (!numeroFacturaFinal || numeroFacturaFinal === 'AUTO' || numeroFacturaFinal === '') {
-          const reqLast = new sql.Request(tx);
-          const lastResult = await reqLast.query(`
-            SELECT TOP 1 numfact, CUFE
-            FROM ${TABLE_NAMES.facturas}
-            ORDER BY id DESC
-          `);
+          // LOGIC UPGRADE:
+          // 1. Get the lowest number currently in the DB (since we are descending).
+          // 2. Check if THAT number has any record with a valid CUFE.
+          // 3. If yes, decrement.
+          // 4. If no (it's a draft or failed attempt without CUFE), we REUSE existing number.
+          //    The user requirement is "use it again until it has cufe".
+          //    This implies we must remove the "failed" record to allow the new transaction to take its number.
+          
+             const reqMin = new sql.Request(tx);
+             // We need ID and CUFE to decide
+             const minResult = await reqMin.query(`
+                SELECT TOP 1 numfact, ID, CUFE
+                FROM ${TABLE_NAMES.facturas}
+                WHERE numfact IS NOT NULL AND numfact NOT LIKE '%AUTO%'
+                ORDER BY ID DESC
+             `);
 
-          let nextNumFact = 89000; 
+             let nextNumFact = 89000; 
 
-          if (lastResult.recordset.length > 0) {
-            const lastRecord = lastResult.recordset[0];
-            const lastNumfact = String(lastRecord.numfact || '').trim();
-            const lastCufe = String(lastRecord.CUFE || '').trim();
+             if (minResult.recordset.length > 0) {
+               const lastRecord = minResult.recordset[0];
+               const lastNumfact = String(lastRecord.numfact || '').trim();
+               const lastNum = parseInt(lastNumfact, 10);
+               const lastId = lastRecord.ID;
+               const lastCufe = lastRecord.CUFE ? String(lastRecord.CUFE).trim() : '';
 
-            if (/^\d+$/.test(lastNumfact)) {
-              const lastNum = parseInt(lastNumfact, 10);
-              const tieneCufeValido = lastCufe && lastCufe.length > 20 && !lastCufe.includes('RECHAZO') && !lastCufe.includes('ERROR');
-              nextNumFact = tieneCufeValido ? lastNum - 1 : lastNum;
-            }
-          }
-          numeroFacturaFinal = String(nextNumFact);
+               const tieneCufeValido = lastCufe && lastCufe.length > 20 && lastCufe !== 'null';
+             
+               if (tieneCufeValido) {
+                  // The last invoice is valid/stamped. Proceed to next number.
+                  nextNumFact = lastNum - 1;
+               } else {
+                  // The last invoice has NO CUFE. We must reuse this number.
+                  // To reuse it safely (avoiding duplicate errors), we must DELETE the old draft/failed record.
+                  nextNumFact = lastNum;
+                  console.log(`♻️ Reutilizando número ${nextNumFact} (Factura anterior ID ${lastId} sin CUFE)`);
+
+                  // Clear dependencies before deleting header
+                  // 1. Delete Details
+                  const reqDelDet = new sql.Request(tx);
+                  reqDelDet.input('oldId', sql.Int, lastId);
+                  await reqDelDet.query(`DELETE FROM ${TABLE_NAMES.facturas_detalle} WHERE id_factura = @oldId`);
+
+                  // 2. Clear Remissions link (if any remissions were linked to this failed invoice)
+                  const reqClearRem = new sql.Request(tx);
+                  reqClearRem.input('oldId', sql.Int, lastId);
+                  await reqClearRem.query(`UPDATE ${TABLE_NAMES.remisiones} SET factura_id = NULL WHERE factura_id = @oldId`);
+
+                  // 3. Delete Header
+                  const reqDelHead = new sql.Request(tx);
+                  reqDelHead.input('oldId', sql.Int, lastId);
+                  await reqDelHead.query(`DELETE FROM ${TABLE_NAMES.facturas} WHERE ID = @oldId`);
+               }
+           }
+            
+           // Double check avoiding collision (in case we decremented, OR if we reused but deletion failed silently?)
+           // If we reused and deleted, this loop should pass immediately.
+           let attempts = 0;
+           while (attempts < 5) {
+              const reqCheck = new sql.Request(tx);
+              reqCheck.input('checkNum', sql.VarChar(50), String(nextNumFact));
+              const checkRes = await reqCheck.query(`SELECT ID FROM ${TABLE_NAMES.facturas} WHERE numfact = @checkNum`);
+              if (checkRes.recordset.length === 0) {
+                 break;
+              }
+              // If collision happens despite our logic (e.g. concurrency?), we decrement.
+              // (If we tried to reuse and it still exists, we theoretically shouldn't stem down, but for safety of not crashing:)
+              nextNumFact--; 
+              attempts++;
+           }
+
+           numeroFacturaFinal = String(nextNumFact);
         } else {
           const reqExistente = new sql.Request(tx);
           reqExistente.input('numfact', sql.VarChar(50), numeroFacturaFinal);
@@ -558,7 +609,53 @@ const invoiceController = {
         }
         req1.input('venfac', sql.DateTime, fechaVencimientoFinal);
 
-        const codvenFinal = vendedorIdFinal ? String(vendedorIdFinal).trim().substring(0, 3).padEnd(3, ' ') : null;
+        // Lógica para obtener el vendedor (codven)
+        let codvenFinal = null;
+        // vendedorIdFinal already declared above (line 459), so just reset/assign
+        vendedorIdFinal = null;
+
+        console.log('Procesando vendedor para factura:', {
+             vendedorIdBody: body.vendedorId,
+             clienteIdBody: body.clienteId
+        });
+
+        if (body.vendedorId) {
+            const vendedorIdStr = String(body.vendedorId);
+            const isNumeric = /^\d+$/.test(vendedorIdStr);
+            const idevenNum = isNumeric ? parseInt(vendedorIdStr) : 0;
+            
+            console.log('Buscando vendedor:', { vendedorIdStr, isNumeric, idevenNum });
+
+            const reqVendedor = new sql.Request(tx);
+            let vendedorQuery;
+            if(isNumeric) {
+              reqVendedor.input('ideven', sql.Int, idevenNum);
+              // Intentar buscar por ID primero
+              vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple FROM ven_vendedor WHERE ideven = @ideven`;
+            } else {
+              reqVendedor.input('codven', sql.VarChar(20), vendedorIdStr);
+              // Intentar buscar por código
+              vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple FROM ven_vendedor WHERE codven = @codven`;
+            }
+            
+            try {
+                const vendedorResult = await reqVendedor.query(vendedorQuery);
+                if (vendedorResult.recordset.length > 0) {
+                  vendedorIdFinal = vendedorResult.recordset[0].codi_emple;
+                  console.log('✅ Vendedor encontrado en BD:', vendedorIdFinal);
+                } else {
+                  console.warn('⚠️ Vendedor NO encontrado en BD con criterio:', vendedorIdStr);
+                }
+            } catch (errVen) {
+                console.error('❌ Error consultando vendedor:', errVen);
+            }
+        } else {
+             console.log('ℹ️ No se recibió vendedorId en el request body');
+        }
+
+        codvenFinal = vendedorIdFinal ? String(vendedorIdFinal).trim().substring(0, 3).padEnd(3, ' ') : null;
+        console.log('Valor final para codven:', codvenFinal);
+
         req1.input('codven', sql.Char(3), codvenFinal);
         
         req1.input('valvta', sql.Decimal(18, 2), subtotalFinal);
@@ -842,6 +939,7 @@ const invoiceController = {
 
             invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompletaAjustada, resolution, dianParams, body.invoiceData || {});
             const dianResponse = await DIANService.sendInvoiceToDIAN(invoiceJson, dianParams.testSetID, dianParams.url_base);
+            console.log('📝 DIAN Response (updateInvoice):', JSON.stringify(dianResponse, null, 2));
 
             if (dianResponse.success && dianResponse.cufe) {
               cufeGenerado = dianResponse.cufe;
@@ -961,6 +1059,7 @@ const invoiceController = {
 
             const invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompletaAjustada, resolution, dianParams, body.invoiceData || {});
             const dianResponse = await DIANService.sendInvoiceToDIAN(invoiceJson, dianParams.testSetID, dianParams.url_base);
+            console.log('📝 DIAN Response (stampInvoice):', JSON.stringify(dianResponse, null, 2));
 
             let estadoFinal = 'E';
             let cufeGenerado = null;

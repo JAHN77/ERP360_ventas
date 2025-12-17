@@ -38,7 +38,8 @@ const generatePdf = async (req, res) => {
 
 const getVendedores = async (req, res) => {
   try {
-    const data = await executeQuery(`
+    const { search } = req.query;
+    let query = `
       SELECT 
         CAST(ideven AS VARCHAR(20)) as id,
         CAST(ideven AS VARCHAR(20)) as numeroDocumento,
@@ -49,7 +50,17 @@ const getVendedores = async (req, res) => {
         CAST(Activo AS INT) as activo
       FROM ven_vendedor
       WHERE Activo = 1
-      ORDER BY nomven`);
+    `;
+
+    const params = {};
+    if (search) {
+        query += ` AND (codven LIKE @search OR nomven LIKE @search OR CAST(ideven AS VARCHAR) LIKE @search)`;
+        params.search = `%${search}%`;
+    }
+    
+    query += ` ORDER BY nomven`;
+
+    const data = await executeQueryWithParams(query, params);
 
     const processedData = data.map((item) => {
       const nombreCompleto = item.nombreCompleto || '';

@@ -81,12 +81,24 @@ const ClientesPage: React.FC = () => {
     {
       header: 'Ciudad', accessor: 'ciudadId', cell: (item) => {
         const val = item.ciudadId || '';
+        const postal = (item as any).codigoPostal || (item as any).coddane || '';
         const isCode = /^\d{4,6}$/.test(String(val));
+
         let cityName = val;
+
+        // Try to resolve name from City ID Code
         if (isCode) {
-          cityName = ciudades.find(c => String(c.codigo) === String(val))?.nombre || val;
+          const found = ciudades.find(c => String(c.codigo).trim() === String(val).trim());
+          if (found) cityName = found.nombre;
         }
-        return <span className="text-sm text-slate-600 dark:text-slate-400">{cityName}</span>;
+
+        // If city name is still a code (or wasn't found) and we have a postal code, try resolving from postal code
+        if ((!cityName || /^\d+$/.test(String(cityName))) && postal) {
+          const foundByPostal = ciudades.find(c => String(c.codigo).trim() === String(postal).trim());
+          if (foundByPostal) cityName = foundByPostal.nombre;
+        }
+
+        return <span className="text-sm text-slate-600 dark:text-slate-400">{cityName || val}</span>;
       }
     },
     {

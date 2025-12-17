@@ -92,7 +92,7 @@ const getAllQuotes = async (req, res) => {
           )
       ) AND v.Activo = 1
       ${whereClause}
-      ORDER BY c.id DESC
+      ORDER BY c.fecha DESC, c.id DESC
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `;
 

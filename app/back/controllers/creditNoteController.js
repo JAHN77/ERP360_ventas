@@ -398,7 +398,9 @@ const creditNoteController = {
   // POST /api/notas-credito
   createCreditNote: async (req, res) => {
     console.log('📥 Recibida solicitud POST /api/notas-credito');
+    console.log('📥 Recibida solicitud POST /api/notas-credito');
     const body = req.body || {};
+    console.log('📦 Payload:', JSON.stringify(body, null, 2));
 
     try {
       const {
@@ -436,6 +438,7 @@ const creditNoteController = {
       const pool = await getConnection();
       const tx = new sql.Transaction(pool);
       await tx.begin();
+      console.log('🔄 Transacción iniciada');
 
       try {
         const facturaRequest = new sql.Request(tx);
@@ -669,9 +672,12 @@ const creditNoteController = {
         const minConsecutivo = minConsecutivoResult.recordset[0]?.minConsecutivo;
         if (minConsecutivo) {
           nextConsecutivo = minConsecutivo - 1;
+        if (minConsecutivo) {
+          nextConsecutivo = minConsecutivo - 1;
         } else {
           nextConsecutivo = 100000;
         }
+        console.log('🔢 Consecutivo generado:', nextConsecutivo);
 
         const year = fechaNota.getFullYear();
         const comprobante = `${year}-${nextConsecutivo}`;
@@ -714,7 +720,9 @@ const creditNoteController = {
           );
         `);
 
+        console.log('✅ Resultado INSERT gen_movimiento_notas:', insertNotaResult);
         const nuevaNotaId = insertNotaResult.recordset[0]?.id;
+        console.log('🆔 ID Nueva Nota:', nuevaNotaId);
 
         if (!nuevaNotaId) {
           await tx.rollback();
@@ -787,7 +795,11 @@ const creditNoteController = {
           });
         }
 
+        }
+        
+        console.log('💾 Haciendo COMMIT de la transacción...');
         await tx.commit();
+        console.log('✅ COMMIT exitoso');
 
         const notaCreada = await fetchNotaCreditoById(pool, nuevaNotaId);
 
@@ -831,6 +843,7 @@ const creditNoteController = {
 
         res.json({ success: true, message: 'Nota de crédito creada exitosamente', data: notaCreada });
       } catch (innerError) {
+        console.error('❌ Error interno en transacción, haciendo ROLLBACK:', innerError);
         await tx.rollback();
         throw innerError;
       }

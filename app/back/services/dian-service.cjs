@@ -1334,12 +1334,29 @@ class DIANService {
           responseText.match(/"CUFE"\s*:\s*"([^"]+)"/i);
 
         if (cufeMatch) {
-          responseData = { cufe: cufeMatch[1] };
+          responseData = { cufe: cufeMatch[1], originalText: responseText };
         } else {
           console.error('❌ [DIAN] No se pudo parsear respuesta ni extraer CUFE');
+          // Log raw text even on error
+          console.log('\n📄 RESPUESTA TEXTO PLANO (RAW):');
+          console.log('─'.repeat(100));
+          console.log(responseText);
+          console.log('─'.repeat(100));
+          
           throw new Error(`Respuesta de DIAN no es JSON válido: ${responseText.substring(0, 200)}`);
         }
       }
+
+      // MOSTRAR EN TERMINAL: Body COMPLETO de la respuesta de DIAN
+      console.log('\n' + '='.repeat(100));
+      console.log('📩 ========== RESPUESTA RECIBIDA DE LA API DE DIAN ==========');
+      console.log('='.repeat(100));
+      console.log('📋 STATUS HTTP:', response.status, response.statusText);
+      console.log('\n📦 BODY RESPUESTA COMPLETO (JSON):');
+      console.log('─'.repeat(100));
+      console.log(JSON.stringify(responseData, null, 2));
+      console.log('─'.repeat(100));
+      console.log('='.repeat(100) + '\n');
 
       // Verificar si la respuesta tiene estructura anidada (response.response)
       const dianResponse = responseData.response || responseData;

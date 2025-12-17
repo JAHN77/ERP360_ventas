@@ -11,6 +11,7 @@ const formatCurrency = (value: number) => {
 
 interface FacturaFormData {
     clienteId: string;
+    vendedorId: string;
     items: DocumentItem[];
     subtotal: number;
     iva: number;
@@ -18,27 +19,28 @@ interface FacturaFormData {
 }
 
 interface FacturaFormProps {
-  onSubmit: (data: FacturaFormData) => void;
-  onCancel: () => void;
-  onDirtyChange?: (isDirty: boolean) => void;
-  isSubmitting?: boolean;
+    onSubmit: (data: FacturaFormData) => void;
+    onCancel: () => void;
+    onDirtyChange?: (isDirty: boolean) => void;
+    isSubmitting?: boolean;
 }
 
 const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyChange, isSubmitting = false }) => {
-    const { clientes, productos } = useData();
+    const { clientes, productos, vendedores } = useData();
     const [clienteId, setClienteId] = useState('');
+    const [vendedorId, setVendedorId] = useState('');
     const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
     const [items, setItems] = useState<DocumentItem[]>([]);
 
     const [currentProductId, setCurrentProductId] = useState('');
     const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
-    const [currentQuantity, setCurrentQuantity] = useState<number|string>(1);
-    const [currentDiscount, setCurrentDiscount] = useState<number|string>(0);
-    
+    const [currentQuantity, setCurrentQuantity] = useState<number | string>(1);
+    const [currentDiscount, setCurrentDiscount] = useState<number | string>(0);
+
     const searchRef = useRef<HTMLDivElement>(null);
     const [productSearchTerm, setProductSearchTerm] = useState('');
     const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
-    
+
     useEffect(() => {
         if (onDirtyChange) {
             const dirty = clienteId !== '' || items.length > 0;
@@ -61,27 +63,36 @@ const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyCh
     const filteredProductsForSearch = useMemo(() => {
         const productsInList = new Set(items.map(item => item.productoId));
         const available = [...productos].filter(p => !productsInList.has(p.id));
-    
+
         const sortedList = available.sort((a, b) => a.nombre.trim().localeCompare(b.nombre.trim()));
-    
+
         const trimmedSearch = productSearchTerm.trim();
         // Requerir mínimo 2 caracteres para mostrar resultados
         if (!trimmedSearch || trimmedSearch.length < 2) {
             return [];
         }
-    
+
         const lowercasedTerm = trimmedSearch.toLowerCase();
-        return sortedList.filter(p => 
-            p.nombre.toLowerCase().includes(lowercasedTerm) || 
+        return sortedList.filter(p =>
+            p.nombre.toLowerCase().includes(lowercasedTerm) ||
             String(p.id).includes(lowercasedTerm)
         );
     }, [productSearchTerm, productos, items]);
 
     const handleClienteChange = (id: string) => {
         setClienteId(id);
-        setSelectedCliente(clientes.find(c => c.id === id) || null);
+        const cliente = clientes.find(c => c.id === id);
+        setSelectedCliente(cliente || null);
+
+        // Auto-select salesperson if linked to client
+        if (cliente && cliente.codven) {
+            const linkedVendedor = vendedores.find(v => v.codigoVendedor === cliente.codven || v.id === cliente.codven);
+            if (linkedVendedor) {
+                setVendedorId(linkedVendedor.id);
+            }
+        }
     };
-    
+
     const handleProductSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setProductSearchTerm(e.target.value);
         setIsProductDropdownOpen(true);
@@ -90,7 +101,7 @@ const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyCh
             setSelectedProduct(null);
         }
     };
-    
+
     const handleProductSelect = (product: Producto) => {
         setCurrentProductId(String(product.id));
         setSelectedProduct(product);
@@ -101,7 +112,7 @@ const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyCh
     const handleAddItem = () => {
         const product = productos.find(p => p.id === Number(currentProductId));
         if (!product || !isPositiveInteger(currentQuantity) || !isWithinRange(Number(currentDiscount), 0, 100)) return;
-        
+
         if (items.some(item => item.productoId === product.id)) {
             alert("El producto ya está en la lista.");
             return;
@@ -156,22 +167,21 @@ const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyCh
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSubmit({ clienteId, items, subtotal: totals.subtotalNeto, iva: totals.iva, total: totals.total });
+        onSubmit({ clienteId, vendedorId, items, subtotal: totals.subtotalNeto, iva: totals.iva, total: totals.total });
     };
 
     const canSubmit = clienteId && items.length > 0;
-    
+
     const isQuantityValid = isPositiveInteger(currentQuantity);
     const isDiscountValid = isWithinRange(Number(currentDiscount), 0, 100);
 
-    const getNumericInputClasses = (isValid: boolean) => `w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 ${
-      !isValid ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
-    }`;
+    const getNumericInputClasses = (isValid: boolean) => `w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 ${!isValid ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
+        }`;
 
 
     return (
         <form onSubmit={handleSubmit}>
-            <div className="grid md:grid-cols-1 gap-6 mb-6">
+            <div className="grid md:grid-cols-2 gap-6 mb-6">
                 <div>
                     <label htmlFor="cliente" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cliente</label>
                     <select id="cliente" value={clienteId} onChange={e => handleClienteChange(e.target.value)} required className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -179,15 +189,22 @@ const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyCh
                         {clientes.map(c => <option key={c.id} value={c.id}>{c.nombreCompleto}</option>)}
                     </select>
                 </div>
-                 {selectedCliente && (
-                     <Card className="p-3 text-sm bg-slate-50 dark:bg-slate-700/50">
+                <div>
+                    <label htmlFor="vendedor" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Vendedor</label>
+                    <select id="vendedor" value={vendedorId} onChange={e => setVendedorId(e.target.value)} className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Sin vendedor (Opcional)</option>
+                        {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombreCompleto || v.primerNombre + ' ' + (v.primerApellido || '')}</option>)}
+                    </select>
+                </div>
+                {selectedCliente && (
+                    <Card className="p-3 text-sm bg-slate-50 dark:bg-slate-700/50">
                         <p className="font-semibold text-slate-700 dark:text-slate-300">{selectedCliente.nombreCompleto}</p>
                         <p className="text-slate-500 dark:text-slate-400">{selectedCliente.direccion}, {selectedCliente.ciudadId}</p>
                         <p className="text-slate-500 dark:text-slate-400">{selectedCliente.email} | {selectedCliente.telefono}</p>
                     </Card>
                 )}
             </div>
-            
+
             <div className="border-t border-b border-slate-200 dark:border-slate-700 py-6 mb-6">
                 <h4 className="text-md font-semibold mb-3">Añadir Productos</h4>
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-start">
@@ -319,7 +336,7 @@ const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyCh
                     </div>
                 </div>
             </div>
-            
+
             <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-4">
                 <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-6 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Cancelar</button>
                 <button type="submit" disabled={!canSubmit || isSubmitting} className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center">

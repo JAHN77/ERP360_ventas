@@ -285,7 +285,12 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 if (ciudadesResp.success) {
                     const ciudadesData = extractArrayData(ciudadesResp);
                     if (ciudadesData.length > 0) {
-                        setCiudades(ciudadesData);
+                        const processedCiudades = ciudadesData.map((c: any) => ({
+                            ...c,
+                            codigo: String(c.codigo || c.coddpto + c.codmun).trim().padStart(5, '0'), // TRIM HERE!
+                            nombre: c.nombre || c.ciudad || 'Ciudad Desconocida'
+                        }));
+                        setCiudades(processedCiudades);
                     }
                 } else {
                     setCiudades([]);
