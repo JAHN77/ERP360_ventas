@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "private": true,
     "scripts": {
-        "start": "node api/server.cjs",
+        "start": "node api/index.js",
         "build": "cd app/front && npm install && npm run build"
     },
     "dependencies": {
