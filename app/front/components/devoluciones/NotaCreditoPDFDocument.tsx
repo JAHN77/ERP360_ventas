@@ -1,5 +1,5 @@
 import React from 'react';
-import { Page, Text, View, Document, StyleSheet, Image, Font } from '@react-pdf/renderer';
+import { Page, Text, View, Document, StyleSheet, Image, Font, Link } from '@react-pdf/renderer';
 import { NotaCredito, Factura, Cliente } from '../../types';
 
 // Registrar fuentes si se desea usar alguna específica (opcional, usaremos estándar por ahora)
@@ -345,6 +345,19 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
                             </View>
                         );
                     })}
+                </View>
+
+                {/* CUFE and Observations */}
+                <View style={{ marginBottom: 20 }}>
+                    {notaCredito.cufe && (
+                        <View style={{ marginBottom: 10, padding: 10, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 4, backgroundColor: '#f8fafc' }}>
+                            <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#334155', marginBottom: 2 }}>CUFE:</Text>
+                            <Text style={{ fontSize: 8, fontFamily: 'Courier', color: '#475569' }}>{notaCredito.cufe}</Text>
+                            <Link src={`https://catalogo-vpfe.dian.gov.co/document/searchqr?cufe=${notaCredito.cufe}`} style={{ fontSize: 8, color: '#2563eb', marginTop: 4, textDecoration: 'none' }}>
+                                Verificar en DIAN
+                            </Link>
+                        </View>
+                    )}
                 </View>
 
                 {/* Totals */}

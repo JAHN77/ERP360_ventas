@@ -17,6 +17,7 @@ const mapNotaCreditoHeader = (row) => ({
   total: Number(row.total) || 0,
   motivo: row.motivo,
   estadoDian: row.estadoDian,
+  cufe: row.cufe,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt
 });
