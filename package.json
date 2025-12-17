@@ -1,0 +1,23 @@
+{
+    "name": "erp360-root",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "start": "node api/server.cjs",
+        "build": "cd app/front && npm install && npm run build"
+    },
+    "dependencies": {
+        "@google/generative-ai": "^0.24.1",
+        "@sparticuz/chromium": "^131.0.0",
+        "compression": "^1.8.1",
+        "cors": "^2.8.5",
+        "dotenv": "^17.2.3",
+        "express": "^5.1.0",
+        "mssql": "^12.1.0",
+        "puppeteer": "^23.11.1",
+        "puppeteer-core": "^23.11.1"
+    },
+    "engines": {
+        "node": "18.x"
+    }
+}
