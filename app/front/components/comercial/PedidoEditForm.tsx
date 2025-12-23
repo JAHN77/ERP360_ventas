@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DocumentItem, Producto, Pedido } from '../../types';
 import { useData } from '../../hooks/useData';
+import { useNotifications } from '../../hooks/useNotifications';
 import { isPositiveInteger, isWithinRange } from '../../utils/validation';
 
 const formatCurrency = (value: number) => {
@@ -15,6 +16,7 @@ interface PedidoEditFormProps {
 
 const PedidoEditForm: React.FC<PedidoEditFormProps> = ({ initialData, onSubmit, onCancel }) => {
     const { productos } = useData();
+    const { addNotification } = useNotifications();
     const [items, setItems] = useState<DocumentItem[]>(initialData.items);
     const [errors, setErrors] = useState<Record<string, { cantidad?: string; descuento?: string }>>({});
     const [stockWarnings, setStockWarnings] = useState<Record<string, string>>({});
@@ -213,7 +215,7 @@ const PedidoEditForm: React.FC<PedidoEditFormProps> = ({ initialData, onSubmit, 
         if (!product || !isQuantityValid || !isDiscountValid) return;
 
         if (items.some(item => item.productoId === product.id)) {
-            alert("El producto ya está en la lista. Edítelo en la tabla si desea cambiar la cantidad.");
+            addNotification({ type: 'info', message: "El producto ya está en la lista. Edítelo en la tabla si desea cambiar la cantidad." });
             return;
         }
 

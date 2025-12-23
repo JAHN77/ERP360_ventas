@@ -15,12 +15,15 @@ import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
 import CotizacionPDFDocument from '../components/comercial/CotizacionPDFDocument';
 import CotizacionForm from '../components/comercial/CotizacionForm';
+import PageHeader from '../components/ui/PageHeader';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { findClienteByIdentifier } from '../utils/clientes';
 import { formatDateOnly } from '../utils/formatters';
 import { fetchCotizacionesDetalle } from '../services/apiClient';
+import PageContainer from '../components/ui/PageContainer';
+import SectionHeader from '../components/ui/SectionHeader';
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -79,7 +82,7 @@ const CotizacionesPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const { addNotification } = useNotifications();
   const { user } = useAuth();
-  const { cotizaciones, clientes, vendedores, aprobarCotizacion, pedidos, remisiones, facturas, datosEmpresa, productos, getCotizacionById, actualizarCotizacion } = useData();
+  const { cotizaciones, clientes, vendedores, aprobarCotizacion, pedidos, remisiones, facturas, datosEmpresa, productos, getCotizacionById, actualizarCotizacion, isLoading } = useData();
 
   const [statusFilter, setStatusFilter] = useState('Todos');
 
@@ -658,19 +661,13 @@ const CotizacionesPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-            Gestión de Cotizaciones
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Administra y da seguimiento a las ofertas comerciales.
-          </p>
-        </div>
-      </div>
+    <PageContainer>
+      <SectionHeader
+        title="Gestión de Cotizaciones"
+        subtitle="Administra y da seguimiento a las ofertas comerciales."
+      />
 
-      <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <Card className="shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
@@ -713,7 +710,7 @@ const CotizacionesPage: React.FC = () => {
         )}
 
         <CardContent className="p-0">
-          <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} highlightRowId={params.highlightId ?? params.focusId} />
+          <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} highlightRowId={params.highlightId ?? params.focusId} isLoading={isLoading} />
         </CardContent>
 
         <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/30">
@@ -1293,7 +1290,7 @@ const CotizacionesPage: React.FC = () => {
         )
       }
 
-    </div >
+    </PageContainer>
   );
 };
 

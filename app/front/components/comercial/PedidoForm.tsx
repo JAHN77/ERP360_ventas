@@ -4,6 +4,7 @@ import Card from '../ui/Card';
 import { isWithinRange, isPositiveInteger, isNonNegativeNumber } from '../../utils/validation';
 import { useData } from '../../hooks/useData';
 import { useAuth } from '../../hooks/useAuth';
+import { useNotifications } from '../../hooks/useNotifications';
 import { apiSearchClientes, apiSearchVendedores, apiSearchProductos, apiGetClienteById } from '../../services/apiClient';
 
 const formatCurrency = (value: number) => {
@@ -34,6 +35,7 @@ interface PedidoFormProps {
 const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChange, isSubmitting = false }) => {
     const { clientes, cotizaciones, productos, vendedores } = useData();
     const { selectedSede } = useAuth();
+    const { addNotification } = useNotifications();
     const [clienteId, setClienteId] = useState('');
     const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
     const [vendedorId, setVendedorId] = useState('');
@@ -399,20 +401,14 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         }
 
         if (!product) {
-            console.error('❌ Producto no encontrado:', {
-                currentProductId,
-                hasSelectedProduct: !!selectedProduct,
-                productosCount: productos.length,
-                productResultsCount: productResults.length,
-                selectedProductId: selectedProduct?.id
-            });
-            alert('Por favor, selecciona un producto válido antes de agregarlo.');
+            if (selectedProduct?.id) { console.error('Product selected but not found in lists', selectedProduct.id); }
+            addNotification({ type: 'warning', message: 'Por favor, selecciona un producto válido antes de agregarlo.' });
             return;
         }
 
         // Validar cantidad
         if (!isPositiveInteger(currentQuantity)) {
-            alert('La cantidad debe ser un número entero positivo mayor que cero.');
+            addNotification({ type: 'warning', message: 'La cantidad debe ser un número entero positivo mayor que cero.' });
             return;
         }
 
@@ -423,7 +419,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
 
         if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
             if (quantityNum > stockDisponible) {
-                alert(`La cantidad solicitada (${quantityNum}) supera el stock disponible (${stockDisponible}). Por favor, ajuste la cantidad.`);
+                addNotification({ type: 'warning', message: `La cantidad solicitada (${quantityNum}) supera el stock disponible (${stockDisponible}). Por favor, ajuste la cantidad.` });
                 return;
             }
         }
@@ -431,13 +427,13 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
         // Validar descuento
         const discountValue = Number(currentDiscount);
         if (!isWithinRange(discountValue, 0, 100)) {
-            alert('El descuento debe estar entre 0 y 100.');
+            addNotification({ type: 'warning', message: 'El descuento debe estar entre 0 y 100.' });
             return;
         }
 
         // Validar que el producto no esté ya en la lista
         if (items.some(item => item.productoId === product.id)) {
-            alert("El producto ya está en la lista.");
+            addNotification({ type: 'info', message: "El producto ya está en la lista." });
             return;
         }
 
@@ -451,7 +447,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                 precio: (product as any).precio,
                 precioPublico: (product as any).precioPublico
             });
-            alert(`El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.`);
+            addNotification({ type: 'error', message: `El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.` });
             return;
         }
 
@@ -733,9 +729,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                 )}
             </div>
 
-            {/* Sección de Cliente y Vendedor - Solo visible cuando NO hay cotización seleccionada */}
             {tipoPedido === 'sin-cotizacion' && (
-                <div className="grid md:grid-cols-2 gap-6 mb-6">
+                <div className="grid md:grid-cols-3 gap-6 mb-6">
                     <div ref={clienteRef} className="relative">
                         <label htmlFor="cliente" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cliente <span className="text-red-500">*</span></label>
                         <input
@@ -914,8 +909,20 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                             </div>
                         )}
                     </div>
+                    <div>
+                        <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Forma de Pago</label>
+                        <select
+                            id="formaPago"
+                            value={formaPago}
+                            onChange={(e) => setFormaPago(e.target.value)}
+                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            <option value="1">Contado</option>
+                            <option value="2">Crédito</option>
+                        </select>
+                    </div>
                     {(selectedCliente || selectedVendedor) && (
-                        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                             {selectedCliente && (
                                 <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                                     <div className="space-y-1">
@@ -970,9 +977,8 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                 </div>
             )}
 
-            {/* Mostrar información del cliente y vendedor cuando hay cotización */}
             {tipoPedido === 'con-cotizacion' && (selectedCliente || selectedVendedor) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     {selectedCliente && (
                         <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                             <div className="space-y-1">
@@ -1022,6 +1028,20 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                             </div>
                         </Card>
                     )}
+                    <div className="flex items-center">
+                        <div className="w-full">
+                            <label htmlFor="formaPagoCtx" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Forma de Pago</label>
+                            <select
+                                id="formaPagoCtx"
+                                value={formaPago}
+                                onChange={(e) => setFormaPago(e.target.value)}
+                                className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="1">Contado</option>
+                                <option value="2">Crédito</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -1036,18 +1056,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                         className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                 </div>
-                <div>
-                    <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Forma de Pago</label>
-                    <select
-                        id="formaPago"
-                        value={formaPago}
-                        onChange={(e) => setFormaPago(e.target.value)}
-                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                        <option value="1">Contado</option>
-                        <option value="2">Crédito</option>
-                    </select>
-                </div>
+
                 <div className="md:col-span-2">
                     <label htmlFor="instruccionesEntrega" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Instrucciones de Entrega</label>
                     <textarea

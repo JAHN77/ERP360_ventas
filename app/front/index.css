@@ -1,13 +1,44 @@
 @import "tailwindcss";
 
-/* ERP360 - Optimized CSS */
+/* ERP360 - Unified Design System */
 
-/* Critical CSS - Load immediately */
+/* Design Tokens */
 :root {
+    /* Brand Colors */
     --color-primario: #002B5B;
     --color-secundario: #F53F3F;
-    --transition-fast: 150ms ease-out;
-    --transition-normal: 300ms ease-out;
+
+    /* Spacing System */
+    --spacing-page: 1.5rem;
+    /* 24px - Consistent page padding */
+    --spacing-section: 1.5rem;
+    /* 24px - Space between major sections */
+    --spacing-card: 1rem;
+    /* 16px - Space between cards */
+    --spacing-element: 0.75rem;
+    /* 12px - Space between elements */
+
+    /* Border Radius */
+    --radius-sm: 0.375rem;
+    /* 6px */
+    --radius-md: 0.5rem;
+    /* 8px */
+    --radius-lg: 0.75rem;
+    /* 12px */
+
+    /* Transitions */
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-normal: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 500ms cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+
+    /* Typography */
+    --font-heading: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* Performance optimizations */
@@ -296,4 +327,159 @@ html.dark .table-optimized th {
 
 html.dark .table-optimized td {
     border-bottom-color: #374151;
+}
+
+/* ========================================
+   UNIFIED PAGE LAYOUT UTILITIES
+   ======================================== */
+
+/* Standard Page Container */
+.page-container {
+    animation: fadeIn 0.3s ease-out;
+    padding: 0;
+}
+
+/* Standard Page Header */
+.page-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: var(--spacing-section);
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgb(226 232 240);
+}
+
+html.dark .page-header {
+    border-bottom-color: rgb(51 65 85);
+}
+
+.page-header-title {
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: rgb(30 41 59);
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+}
+
+html.dark .page-header-title {
+    color: rgb(248 250 252);
+}
+
+.page-header-subtitle {
+    font-size: 0.875rem;
+    color: rgb(100 116 139);
+}
+
+html.dark .page-header-subtitle {
+    color: rgb(148 163 184);
+}
+
+/* Standard Section Spacing */
+.section-spacing {
+    margin-bottom: var(--spacing-section);
+}
+
+/* Standard Card Grid */
+.card-grid {
+    display: grid;
+    gap: var(--spacing-card);
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* Responsive adjustments */
+@media (min-width: 640px) {
+    .page-header {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .page-header-title {
+        font-size: 2.25rem;
+    }
+}
+
+/* Standard Button Styles */
+.btn-primary {
+    padding: 0.5rem 1rem;
+    background-color: rgb(37 99 235);
+    color: white;
+    font-weight: 600;
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+    border: none;
+    cursor: pointer;
+}
+
+.btn-primary:hover {
+    background-color: rgb(29 78 216);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+.btn-secondary {
+    padding: 0.5rem 1rem;
+    background-color: rgb(226 232 240);
+    color: rgb(51 65 85);
+    font-weight: 600;
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+    border: 1px solid rgb(203 213 225);
+    cursor: pointer;
+}
+
+html.dark .btn-secondary {
+    background-color: rgb(51 65 85);
+    color: rgb(226 232 240);
+    border-color: rgb(71 85 105);
+}
+
+.btn-secondary:hover {
+    background-color: rgb(203 213 225);
+    transform: translateY(-1px);
+}
+
+html.dark .btn-secondary:hover {
+    background-color: rgb(71 85 105);
+}
+
+/* Standard Content Card */
+.content-card {
+    background-color: white;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid rgb(226 232 240);
+    transition: all var(--transition-fast);
+}
+
+html.dark .content-card {
+    background-color: rgb(30 41 59);
+    border-color: rgb(51 65 85);
+}
+
+.content-card:hover {
+    box-shadow: var(--shadow-md);
+}
+
+/* Smooth transitions for all interactive elements */
+button,
+a,
+input,
+select,
+textarea {
+    transition: all var(--transition-fast);
+}
+
+/* Consistent focus states */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid rgb(59 130 246);
+    outline-offset: 2px;
 }

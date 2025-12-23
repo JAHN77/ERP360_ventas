@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PedidoForm from '../components/comercial/PedidoForm';
 import Card, { CardContent } from '../components/ui/Card';
 import { useNavigation } from '../hooks/useNavigation';
@@ -6,6 +6,7 @@ import { DocumentItem } from '../types';
 import Modal from '../components/ui/Modal';
 import { useData } from '../hooks/useData';
 import { useNotifications } from '../hooks/useNotifications';
+import apiClient from '../services/apiClient';
 
 interface PedidoFormData {
     clienteId: string;
@@ -28,6 +29,43 @@ const NuevoPedidoPage: React.FC = () => {
     const [isCancelConfirmOpen, setCancelConfirmOpen] = useState(false);
     const [isFormDirty, setFormDirty] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
+    const [nextOrderNumber, setNextOrderNumber] = useState<string>('');
+    const [currentDateString, setCurrentDateString] = useState<string>('');
+
+    useEffect(() => {
+        const today = new Date();
+        setCurrentDateString(today.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }));
+
+        const fetchNextNumber = async () => {
+            try {
+                // Fetch latest orders to determine the next number
+                // Assuming getPedidos returns the latest ones first or we can sort
+                // We need to import apiClient for this if useData doesn't expose it directly suitable for this
+                // Since this page consumes useData, let's see if we can use apiClient directly or add it to imports
+                const response = await apiClient.getPedidos();
+
+                if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
+                    // Try to find the latest specific format "PED-XXXXXX"
+                    const sorted = [...response.data].sort((a: any, b: any) => b.id - a.id);
+                    const last = sorted[0];
+                    if (last && last.numeroPedido) {
+                        const parts = last.numeroPedido.split('-');
+                        if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
+                            const nextNum = parseInt(parts[1]) + 1;
+                            setNextOrderNumber(`PED-${String(nextNum).padStart(6, '0')}`);
+                            return;
+                        }
+                    }
+                }
+                setNextOrderNumber('PED-000001');
+            } catch (error) {
+                console.error("Error fetching next order number", error);
+                setNextOrderNumber('PED-??????');
+            }
+        };
+
+        fetchNextNumber();
+    }, []);
 
     const handleCreatePedido = async (formData: PedidoFormData) => {
         if (isCreating) return;
@@ -72,14 +110,22 @@ const NuevoPedidoPage: React.FC = () => {
 
     return (
         <div className="animate-fade-in space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-2">
                 <div>
                     <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-                        Crear Nuevo Pedido
+                        Crear Nuevo Pedido {nextOrderNumber ? `#${nextOrderNumber}` : ''}
                     </h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-1">
-                        Diligencia el formulario para generar un nuevo pedido de venta.
-                    </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-1">
+                        <p className="text-slate-500 dark:text-slate-400">
+                            Diligencia el formulario para generar un nuevo pedido de venta.
+                        </p>
+                        {currentDateString && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                <i className="far fa-calendar-alt mr-1"></i>
+                                {currentDateString}
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
             <Card>

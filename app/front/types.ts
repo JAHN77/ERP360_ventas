@@ -177,6 +177,7 @@ export interface Categoria {
   requiere_empaques?: number;
   estado?: number;
   imgruta?: string;
+  descripcion?: string;
 }
 
 // --- DOCUMENTOS Y DETALLES ---
@@ -201,6 +202,7 @@ export interface DocumentoDetalle {
   unidadMedida?: string; // Nombre de la unidad (enviado por backend)
   estado?: string; // Estado del item
   qtycot?: number; // Cantidad cotizada
+  fletes?: number; // Valor de fletes prorrateado o asignado
 }
 export type DocumentItem = DocumentoDetalle;
 
@@ -269,6 +271,22 @@ export interface Pedido {
   instruccionesEntrega?: string;
   notaPago?: string; // Nota de pago
   formaPago?: string; // Forma de pago: 1=Contado, 2=Crédito
+}
+
+export interface OrdenCompra {
+  id: string;
+  numeroOrden: string;
+  fechaOrden: string; // date
+  proveedorId: string;
+  proveedorNombre: string;
+  proveedorNit?: string;
+  items: DocumentoDetalle[];
+  subtotal: number;
+  ivaValor: number;
+  total: number;
+  estado: 'PENDIENTE' | 'PARCIAL' | 'RECIBIDA' | 'CANCELADA';
+  observaciones?: string;
+  fletes?: number;
 }
 
 
@@ -382,7 +400,7 @@ export interface ArchivoAdjunto {
 export interface Notification {
   id: string;
   message: string;
-  type: 'warning' | 'info' | 'success';
+  type: 'warning' | 'info' | 'success' | 'error';
   timestamp: number;
   isRead: boolean;
   relatedId?: string;
@@ -427,4 +445,31 @@ export interface GlobalSearchResults {
   remisiones: Remision[];
   productos: InvProducto[];
   clientes: Cliente[];
+}
+
+// --- CONTEO FÍSICO DE INVENTARIO ---
+export interface ProductoConteo {
+  codalm: string;
+  codins: string;
+  nombreProducto: string;
+  linea: string;
+  nombreLinea: string;
+  codigoMedida: string;
+  unidadMedida: string;
+  caninv: number;  // Cantidad en sistema
+  canfis: number;  // Cantidad física
+  diferencia: number;
+  valcosto: number;
+  conteoId?: number; // ID del registro en inv_invfisico (para actualizar)
+}
+
+export interface ConteoFisico {
+  idconteo: number;
+  codalm: string;
+  fecha: string;
+  fecsys: string;
+  totalProductos: number;
+  totalDiferencias: number;
+  valorTotal: number;
+  usuario: string;
 }

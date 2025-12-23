@@ -41,8 +41,7 @@ const LoginPage: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
         <div className="text-center">
-          <i className="fas fa-cubes fa-3x text-blue-500 animate-pulse"></i>
-          <h1 className="text-2xl font-bold mt-4 text-slate-800 dark:text-slate-100">Cargando bodegas...</h1>
+          <i className="fas fa-spinner fa-spin fa-3x text-blue-500"></i>
         </div>
       </div>
     );

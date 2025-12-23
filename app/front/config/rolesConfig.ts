@@ -94,7 +94,15 @@ export const rolesConfig: Record<Role, RoleConfig> = {
 };
 
 export function hasPagePermission(role: Role, page: Page): boolean {
+  if (!role || typeof role !== 'string') {
+    // console.warn('hasPagePermission: Invalid role', role);
+    return false;
+  }
   const roleConf = rolesConfig[role];
+  if (!roleConf) {
+    // console.warn('hasPagePermission: Role config not found for', role);
+    return false;
+  }
   if (roleConf.can.includes('*')) {
     return true;
   }

@@ -4,6 +4,7 @@ import Card from '../ui/Card';
 import { isWithinRange, isPositiveInteger, isNonNegativeNumber } from '../../utils/validation';
 import { useData } from '../../hooks/useData';
 import { useAuth } from '../../hooks/useAuth';
+import { useNotifications } from '../../hooks/useNotifications';
 import { apiSearchClientes, apiSearchVendedores, apiCreateCotizacion, apiSearchProductos, apiGetClienteById } from '../../services/apiClient';
 // apiSetClienteListaPrecios comentado temporalmente - lista de precios no implementada en frontend
 
@@ -39,6 +40,7 @@ interface CotizacionFormProps {
 const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onDirtyChange, initialData, isEditing }) => {
     const { clientes, vendedores, productos } = useData();
     const { selectedSede } = useAuth();
+    const { addNotification } = useNotifications();
     const [clienteId, setClienteId] = useState('');
     const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
     const [vendedorId, setVendedorId] = useState('');
@@ -411,20 +413,16 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         }
 
         if (!product) {
-            console.error('❌ Producto no encontrado:', {
-                currentProductId,
-                hasSelectedProduct: !!selectedProduct,
-                productosCount: productos.length,
-                productResultsCount: productResults.length,
-                selectedProductId: selectedProduct?.id
-            });
-            alert('Por favor, selecciona un producto válido antes de agregarlo.');
+            if (selectedProduct?.id) {
+                console.error('❌ Producto seleccionado pero no encontrado:', { selectedId: selectedProduct.id });
+            }
+            addNotification({ type: 'warning', message: 'Por favor, selecciona un producto válido antes de agregarlo.' });
             return;
         }
 
         // Validar cantidad
         if (!isPositiveInteger(currentQuantity)) {
-            alert('La cantidad debe ser un número entero positivo mayor que cero.');
+            addNotification({ type: 'warning', message: 'La cantidad debe ser un número entero positivo mayor que cero.' });
             return;
         }
 
@@ -435,7 +433,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
 
         if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
             if (quantityNum > stockDisponible) {
-                alert(`La cantidad solicitada (${quantityNum}) supera el stock disponible (${stockDisponible}). Por favor, ajuste la cantidad.`);
+                addNotification({ type: 'warning', message: `La cantidad solicitada (${quantityNum}) supera el stock disponible (${stockDisponible}). Por favor, ajuste la cantidad.` });
                 return;
             }
         }
@@ -443,13 +441,13 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         // Validar descuento
         const discountValue = Number(currentDiscount);
         if (!isWithinRange(discountValue, 0, 100)) {
-            alert('El descuento debe estar entre 0 y 100.');
+            addNotification({ type: 'warning', message: 'El descuento debe estar entre 0 y 100.' });
             return;
         }
 
         // Validar que el producto no esté ya en la lista
         if (items.some(item => item.productoId === product.id)) {
-            alert("El producto ya está en la lista.");
+            addNotification({ type: 'info', message: "El producto ya está en la lista." });
             return;
         }
 
@@ -463,7 +461,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 precio: product.precio,
                 precioPublico: (product as any).precioPublico
             });
-            alert(`El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.`);
+            addNotification({ type: 'error', message: `El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.` });
             return;
         }
 
@@ -613,11 +611,11 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedCliente) {
-            alert('Selecciona un cliente válido antes de continuar.');
+            addNotification({ type: 'warning', message: 'Selecciona un cliente válido antes de continuar.' });
             return;
         }
         if (!selectedVendedor) {
-            alert('Selecciona un vendedor válido antes de continuar.');
+            addNotification({ type: 'warning', message: 'Selecciona un vendedor válido antes de continuar.' });
             return;
         }
         onSubmit({
@@ -657,7 +655,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         <form onSubmit={handleSubmit}>
             {/* Información de bodega seleccionada */}
             {selectedSede ? (
-                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <div className="mb-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                     <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-200">
                         <i className="fas fa-warehouse"></i>
                         <span className="font-medium">Bodega:</span>
@@ -668,7 +666,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                     </div>
                 </div>
             ) : (
-                <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <div className="mb-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                     <div className="flex items-center gap-2 text-sm text-yellow-800 dark:text-yellow-200">
                         <i className="fas fa-exclamation-triangle"></i>
                         <span className="font-medium">Advertencia:</span>
@@ -677,7 +675,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 </div>
             )}
 
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
+            <div className="grid md:grid-cols-3 gap-4 mb-4">
                 <div ref={clienteRef} className="relative">
                     <label htmlFor="cliente" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cliente</label>
                     <input
@@ -871,88 +869,8 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         </div>
                     )}
                 </div>
-                {(selectedCliente || selectedVendedor) && (
-                    <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {selectedCliente && (
-                            <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                                <div className="space-y-1">
-                                    <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
-                                        {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
-                                    </p>
-                                    {(selectedCliente.dirter || selectedCliente.direccion) && (
-                                        <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
-                                            <i className="fas fa-map-marker-alt mr-1"></i>
-                                            {selectedCliente.dirter || selectedCliente.direccion}
-                                            {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
-                                        </p>
-                                    )}
-                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                        {selectedCliente.numeroDocumento && (
-                                            <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
-                                        )}
-                                        {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
-                                            <span>
-                                                <i className="fas fa-phone mr-1"></i>
-                                                {[
-                                                    selectedCliente.telefono || (selectedCliente as any).telefono,
-                                                    (selectedCliente as any).celular || selectedCliente.celter
-                                                ].filter(Boolean).join(' | ')}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                                {/* Lista de precios comentado temporalmente - no implementado en frontend */}
-                                {/* <div className="mt-2 flex items-center gap-2 flex-wrap">
-                                    <span className="text-slate-500 dark:text-slate-400">Lista de Precios:</span>
-                                    <input
-                                        type="text"
-                                        value={listaPrecioTemp}
-                                        onChange={(e)=>setListaPrecioTemp(e.target.value.replace(/[^0-9]/g,''))}
-                                        placeholder="ID"
-                                        className="w-28 px-2 py-1 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={handleGuardarListaPrecio}
-                                        disabled={isSavingLista || !listaPrecioTemp}
-                                        className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md disabled:bg-slate-400"
-                                        title="Guardar lista de precios para el cliente"
-                                    >
-                                        {isSavingLista ? 'Guardando...' : 'Guardar'}
-                                    </button>
-                                    <span className="text-xs text-slate-500">Actual: {(selectedCliente as any).listaPrecioId ?? 'N/A'}</span>
-                                </div> */}
-                            </Card>
-                        )}
-                        {selectedVendedor && (
-                            <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                                <div className="space-y-1">
-                                    <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
-                                        {selectedVendedor.primerNombre && selectedVendedor.primerApellido
-                                            ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
-                                            : selectedVendedor.nombreCompleto || (selectedVendedor as any).nombre || 'Sin nombre'}
-                                    </p>
-                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                        {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
-                                            <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
-                                        )}
-                                        {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
-                                            <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
-                                        )}
-                                    </div>
-                                </div>
-                            </Card>
-                        )}
-                    </div>
-                )}
-            </div>
-
-            {/* Campos adicionales de cotización */}
-            <div className="mb-6">
-                <div className="w-full md:w-64">
-                    <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-                        Forma de Pago
-                    </label>
+                <div className="relative">
+                    <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Forma de Pago</label>
                     <select
                         id="formaPago"
                         value={formaPago}
@@ -963,41 +881,85 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         <option value="2">Crédito</option>
                     </select>
                 </div>
-                {/* Sección de anticipos comentada - no visible para el usuario */}
-                {/* <div>
-                    <label htmlFor="valorAnticipo" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-                        Valor Anticipo (Opcional)
-                    </label>
-                    <input
-                        type="text"
-                        id="valorAnticipo"
-                        value={valorAnticipo}
-                        onChange={(e) => {
-                            const val = e.target.value.replace(/[^0-9]/g, '');
-                            setValorAnticipo(val === '' ? '' : val);
-                        }}
-                        placeholder="0"
-                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-right"
-                    />
-                </div> */}
-                {/* Sección de número de orden de compra comentada - no visible para el usuario */}
-                {/* <div>
-                    <label htmlFor="numOrdenCompra" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-                        N° Orden de Compra (Opcional)
-                    </label>
-                    <input
-                        type="text"
-                        id="numOrdenCompra"
-                        value={numOrdenCompra}
-                        onChange={(e) => setNumOrdenCompra(e.target.value)}
-                        placeholder="Número de orden del cliente"
-                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                </div> */}
+                {(selectedCliente || selectedVendedor) && (
+                    <div className="hidden md:contents">
+                        {/* Wrapper for info cards to appear in grid flow if needed, but given the request, 
+                            it seems they just want the INPUTS aligned. 
+                            However, the cards below might break the 3-col layout visually if inserted directly.
+                            Let's keep the inputs in the top row.
+                            
+                            Wait, the user said "cliente vendedor y forma de pago deberian ir en la misam liena".
+                            He likely means the INPUTS/SELECTS.
+                            
+                            The Cards appear *below* the inputs in the code (lines 873+ are conditional).
+                            If I move the Payment Select into the grid above, the Cards will be pushed down.
+                            
+                            Let's place the "Forma de Pago" div inside the main grid.
+                        */}
+                    </div>
+                )}
             </div>
 
+            {/* Row for Selected Client/Vendor Info Cards - Full Width or 2-col */}
+            {(selectedCliente || selectedVendedor) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    {selectedCliente && (
+                        <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <div className="space-y-1">
+                                <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                    {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
+                                </p>
+                                {(selectedCliente.dirter || selectedCliente.direccion) && (
+                                    <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                                        <i className="fas fa-map-marker-alt mr-1"></i>
+                                        {selectedCliente.dirter || selectedCliente.direccion}
+                                        {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
+                                    </p>
+                                )}
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                    {selectedCliente.numeroDocumento && (
+                                        <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
+                                    )}
+                                    {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
+                                        <span>
+                                            <i className="fas fa-phone mr-1"></i>
+                                            {[
+                                                selectedCliente.telefono || (selectedCliente as any).telefono,
+                                                (selectedCliente as any).celular || selectedCliente.celter
+                                            ].filter(Boolean).join(' | ')}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </Card>
+                    )}
+                    {selectedVendedor && (
+                        <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                            <div className="space-y-1">
+                                <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                    {selectedVendedor.primerNombre && selectedVendedor.primerApellido
+                                        ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
+                                        : selectedVendedor.nombreCompleto || (selectedVendedor as any).nombre || 'Sin nombre'}
+                                </p>
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                    {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
+                                        <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
+                                    )}
+                                    {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
+                                        <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
+                                    )}
+                                </div>
+                            </div>
+                        </Card>
+                    )}
+                </div>
+            )}
+
+            {/* Separator if needed, or just let them stack */}
+
+
             {/* Campos de observaciones y nota de pago - antes de añadir productos */}
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
+            <div className="grid md:grid-cols-2 gap-4 mb-4">
                 <div>
                     <label htmlFor="observacionesInternas" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Observaciones Internas (para Supervisor)</label>
                     <textarea
@@ -1124,7 +1086,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 )}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="lg:col-span-2">
                     <h4 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-100">Items de la Cotización</h4>
                     {/* Table of items */}
@@ -1268,7 +1230,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                     )}
                 </button>
             </div>
-        </form>
+        </form >
     );
 };
 

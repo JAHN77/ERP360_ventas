@@ -4,6 +4,7 @@ import { DocumentItem, Cliente, Producto } from '../../types';
 import Card from '../ui/Card';
 import { isPositiveInteger, isWithinRange } from '../../utils/validation';
 import { useData } from '../../hooks/useData';
+import { useNotifications } from '../../hooks/useNotifications';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -27,6 +28,7 @@ interface FacturaFormProps {
 
 const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyChange, isSubmitting = false }) => {
     const { clientes, productos, vendedores } = useData();
+    const { addNotification } = useNotifications();
     const [clienteId, setClienteId] = useState('');
     const [vendedorId, setVendedorId] = useState('');
     const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
@@ -114,7 +116,7 @@ const FacturaForm: React.FC<FacturaFormProps> = ({ onSubmit, onCancel, onDirtyCh
         if (!product || !isPositiveInteger(currentQuantity) || !isWithinRange(Number(currentDiscount), 0, 100)) return;
 
         if (items.some(item => item.productoId === product.id)) {
-            alert("El producto ya está en la lista.");
+            addNotification({ type: 'info', message: "El producto ya está en la lista." });
             return;
         }
 

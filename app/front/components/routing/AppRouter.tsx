@@ -23,6 +23,7 @@ const FormClientePage = lazy(() => import('../../pages/FormClientePage'));
 const FormProductoPage = lazy(() => import('../../pages/FormProductoPage'));
 const NuevaCotizacionPage = lazy(() => import('../../pages/NuevaCotizacionPage'));
 const NuevoPedidoPage = lazy(() => import('../../pages/NuevoPedidoPage'));
+const OrdenesCompraPage = lazy(() => import('../../pages/OrdenesCompraPage'));
 const FormRemisionPage = lazy(() => import('../../pages/FormRemisionPage'));
 const ActivityLogPage = lazy(() => import('../../pages/ActivityLogPage'));
 const EntradaInventarioPage = lazy(() => import('../../pages/EntradaInventarioPage'));
@@ -30,24 +31,38 @@ const CategoriasPage = lazy(() => import('../../pages/CategoriasPage'));
 const CategoriaDetallePage = lazy(() => import('../../pages/CategoriaDetallePage'));
 const InformesPage = lazy(() => import('../../pages/reports/InformesPage'));
 const DemasInformesPage = lazy(() => import('../../pages/DemasInformesPage'));
+const InventoryConceptsPage = lazy(() => import('../../pages/InventoryConceptsPage'));
+const ConteoFisicoPage = lazy(() => import('../../pages/ConteoFisicoPage'));
+const HistorialConteosFisicosPage = lazy(() => import('../../pages/HistorialConteosFisicosPage'));
+const NuevoConteoFisicoPage = lazy(() => import('../../pages/NuevoConteoFisicoPage'));
+const DetalleConteoFisicoPage = lazy(() => import('../../pages/DetalleConteoFisicoPage'));
 
 /**
  * Componente de ruta protegida que verifica permisos
  */
-const ProtectedRoute: React.FC<{ 
-  page: string; 
+const ProtectedRoute: React.FC<{
+  page: string;
   children: React.ReactNode;
 }> = ({ page, children }) => {
   const { user } = useAuth();
-  
+
   if (!user) {
     return <Navigate to="/" replace />;
   }
-  
-  if (!hasPagePermission(user.rol, page as any)) {
-    return <AccessDeniedPage />;
+
+  // Debugging TypeError
+  // console.log('ProtectedRoute check:', { userRole: user.rol, page });
+
+  try {
+    if (!hasPagePermission(user.rol, page as any)) {
+      return <AccessDeniedPage />;
+    }
+  } catch (error) {
+    console.error('Error in ProtectedRoute permission check:', error);
+    console.error('Values:', { userRole: user.rol, page, user });
+    return <AccessDeniedPage />; // Fail safe
   }
-  
+
   return <>{children}</>;
 };
 
@@ -102,209 +117,269 @@ const AppRouter: React.FC = () => {
       }>
         <Routes>
           {/* Dashboard */}
-          <Route 
-            path={routeMap.dashboard} 
+          <Route
+            path={routeMap.dashboard}
             element={
               <ProtectedRoute page="dashboard">
                 <DashboardPage />
               </ProtectedRoute>
-            } 
+            }
           />
 
           {/* Clientes */}
-          <Route 
-            path={routeMap.clientes} 
+          <Route
+            path={routeMap.clientes}
             element={
               <ProtectedRoute page="clientes">
                 <ClientesPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.nuevo_cliente} 
+          <Route
+            path={routeMap.nuevo_cliente}
             element={
               <ProtectedRoute page="nuevo_cliente">
                 <FormClientePage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.editar_cliente} 
+          <Route
+            path={routeMap.editar_cliente}
             element={
               <ProtectedRoute page="editar_cliente">
                 <FormClientePage />
               </ProtectedRoute>
-            } 
+            }
           />
 
           {/* Productos */}
-          <Route 
-            path={routeMap.productos} 
+          <Route
+            path={routeMap.productos}
             element={
               <ProtectedRoute page="productos">
                 <ProductosPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.nuevo_producto} 
+          <Route
+            path={routeMap.nuevo_producto}
             element={
               <ProtectedRoute page="nuevo_producto">
                 <FormProductoPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.editar_producto} 
+          <Route
+            path={routeMap.editar_producto}
             element={
               <ProtectedRoute page="editar_producto">
                 <FormProductoPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.entrada_inventario} 
+          <Route
+            path={routeMap.entrada_inventario}
             element={
               <ProtectedRoute page="entrada_inventario">
                 <EntradaInventarioPage />
               </ProtectedRoute>
-            } 
+            }
           />
 
           {/* Categorías */}
-          <Route 
-            path={routeMap.categorias} 
+          <Route
+            path={routeMap.categorias}
             element={
               <ProtectedRoute page="categorias">
                 <CategoriasPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.categoria_detalle} 
+          <Route
+            path={routeMap.categoria_detalle}
             element={
               <ProtectedRoute page="categoria_detalle">
                 <CategoriaDetallePage />
               </ProtectedRoute>
-            } 
+            }
+          />
+          <Route
+            path={routeMap.inventory_concepts}
+            element={
+              <ProtectedRoute page="entrada_inventario">
+                {/* Reusing existing permission for now */}
+                <InventoryConceptsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path={routeMap.conteo_fisico}
+            element={
+              <ProtectedRoute page="entrada_inventario">
+                {/* Reusing existing permission for now */}
+                <HistorialConteosFisicosPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventarios/conteo-fisico/nuevo"
+            element={
+              <ProtectedRoute page="entrada_inventario">
+                <NuevoConteoFisicoPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventarios/conteo-fisico/:id"
+            element={
+              <ProtectedRoute page="entrada_inventario">
+                <DetalleConteoFisicoPage />
+              </ProtectedRoute>
+            }
           />
 
           {/* Cotizaciones */}
-          <Route 
-            path={routeMap.cotizaciones} 
+          <Route
+            path={routeMap.cotizaciones}
             element={
               <ProtectedRoute page="cotizaciones">
                 <CotizacionesPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.nueva_cotizacion} 
+          <Route
+            path={routeMap.nueva_cotizacion}
             element={
               <ProtectedRoute page="nueva_cotizacion">
                 <NuevaCotizacionPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.editar_cotizacion} 
+          <Route
+            path={routeMap.editar_cotizacion}
             element={
               <ProtectedRoute page="editar_cotizacion">
                 <NuevaCotizacionPage />
               </ProtectedRoute>
-            } 
+            }
+          />
+
+          {/* Ordenes de Compra */}
+          <Route
+            path={routeMap.ordenes_compra}
+            element={
+              <ProtectedRoute page="ordenes_compra">
+                <OrdenesCompraPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path={routeMap.nueva_orden_compra}
+            element={
+              <ProtectedRoute page="nueva_orden_compra">
+                <OrdenesCompraPage />
+              </ProtectedRoute>
+            }
           />
 
           {/* Pedidos */}
-          <Route 
-            path={routeMap.pedidos} 
+          <Route
+            path={routeMap.pedidos}
             element={
               <ProtectedRoute page="pedidos">
                 <PedidosPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.nuevo_pedido} 
+          <Route
+            path={routeMap.nuevo_pedido}
             element={
               <ProtectedRoute page="nuevo_pedido">
                 <NuevoPedidoPage />
               </ProtectedRoute>
-            } 
+            }
           />
 
           {/* Remisiones */}
-          <Route 
-            path={routeMap.remisiones} 
+          <Route
+            path={routeMap.remisiones}
             element={
               <ProtectedRoute page="remisiones">
                 <RemisionesPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.editar_remision} 
+          <Route
+            path={routeMap.editar_remision}
             element={
               <ProtectedRoute page="editar_remision">
                 <FormRemisionPage />
               </ProtectedRoute>
-            } 
+            }
           />
 
           {/* Facturación */}
-          <Route 
-            path={routeMap.facturacion_electronica} 
+          <Route
+            path={routeMap.facturacion_electronica}
             element={
               <ProtectedRoute page="facturacion_electronica">
                 <FacturasPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.nueva_factura} 
+          <Route
+            path={routeMap.nueva_factura}
             element={
               <ProtectedRoute page="nueva_factura">
                 <NuevaFacturaPage />
               </ProtectedRoute>
-            } 
+            }
           />
 
           {/* Devoluciones */}
-          <Route 
-            path={routeMap.devoluciones} 
+          <Route
+            path={routeMap.devoluciones}
             element={
               <ProtectedRoute page="devoluciones">
                 <DevolucionesPage />
               </ProtectedRoute>
-            } 
+            }
+          />
+          <Route
+            path={routeMap.notas_credito_debito}
+            element={
+              <ProtectedRoute page="notas_credito_debito">
+                <DevolucionesPage />
+              </ProtectedRoute>
+            }
           />
 
           {/* Informes */}
-          <Route 
-            path={routeMap.reportes} 
+          <Route
+            path={routeMap.reportes}
             element={
               <ProtectedRoute page="reportes">
                 <InformesPage />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path={routeMap.demas_informes} 
+          <Route
+            path={routeMap.demas_informes}
             element={
               <ProtectedRoute page="demas_informes">
                 <DemasInformesPage />
               </ProtectedRoute>
-            } 
+            }
           />
 
           {/* Administración */}
-          <Route 
-            path={routeMap.activity_log} 
+          <Route
+            path={routeMap.activity_log}
             element={
               <ProtectedRoute page="activity_log">
                 <ActivityLogPage />
               </ProtectedRoute>
-            } 
+            }
           />
 
           {/* Ruta por defecto - redirigir al dashboard */}

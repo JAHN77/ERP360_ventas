@@ -10,7 +10,7 @@ interface ModalProps {
   className?: string; // Permitir clases personalizadas
 }
 
-const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 'lg', noPadding = false, className = '' }) => {
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 'lg', noPadding = false, className = '' }) => {
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -27,26 +27,32 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
   if (!isOpen) return null;
 
   const sizeClasses = {
-    sm: 'max-w-sm',
-    md: 'max-w-md',
-    lg: 'max-w-lg',
-    xl: 'max-w-xl',
-    '2xl': 'max-w-2xl',
-    '3xl': 'max-w-3xl',
-    '4xl': 'max-w-4xl',
-    '5xl': 'max-w-5xl',
+    sm: 'sm:max-w-sm',
+    md: 'sm:max-w-md',
+    lg: 'sm:max-w-lg',
+    xl: 'sm:max-w-xl',
+    '2xl': 'sm:max-w-2xl',
+    '3xl': 'sm:max-w-3xl',
+    '4xl': 'sm:max-w-4xl',
+    '5xl': 'sm:max-w-5xl',
+    '6xl': 'sm:max-w-6xl',
+    '7xl': 'sm:max-w-7xl',
+    full: 'sm:max-w-full sm:m-4',
   };
+
+  // Fallback or custom size handling
+  const maxWidthClass = sizeClasses[size as keyof typeof sizeClasses] || sizeClasses['4xl'];
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center items-center p-2 sm:p-4 transition-opacity duration-300 bg-slate-900/30 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex justify-center items-center p-4 transition-opacity duration-300 bg-slate-900/60 backdrop-blur-[2px]"
       style={{ opacity: isOpen ? 1 : 0 }}
       onClick={onClose}
       aria-modal="true"
       role="dialog"
     >
       <div
-        className={`bg-white/95 dark:bg-slate-800/90 backdrop-blur rounded-none sm:rounded-lg shadow-2xl w-full max-w-[95vw] sm:max-w-full ${sizeClasses[size]} transform transition-all duration-300 flex flex-col h-[95vh] sm:h-auto sm:max-h-[85vh] ${className}`}
+        className={`bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full ${maxWidthClass} transform transition-all duration-300 flex flex-col max-h-[90vh] ${className}`}
         style={{ transform: isOpen ? 'scale(1)' : 'scale(0.95)', opacity: isOpen ? 1 : 0 }}
         onClick={e => e.stopPropagation()} // Prevent modal from closing when clicking inside
       >

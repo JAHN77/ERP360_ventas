@@ -11,6 +11,7 @@ import ApprovalSuccessModal from '../components/ui/ApprovalSuccessModal';
 import { useData } from '../hooks/useData';
 import { findClienteByIdentifier } from '../utils/clientes';
 import { formatDateOnly } from '../utils/formatters';
+import apiClient from '../services/apiClient';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -50,6 +51,44 @@ const NuevaCotizacionPage: React.FC = () => {
     const [isApproving, setIsApproving] = useState(false);
     const [approvalResult, setApprovalResult] = useState<{ cotizacion: Cotizacion, pedido: Pedido } | null>(null);
     const [savedCotizacion, setSavedCotizacion] = useState<Cotizacion | null>(null);
+    const [nextQuoteNumber, setNextQuoteNumber] = useState<string>('');
+    const [currentDateString, setCurrentDateString] = useState<string>('');
+
+    useEffect(() => {
+        const today = new Date();
+        setCurrentDateString(today.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }));
+
+        const fetchNextNumber = async () => {
+            try {
+                // Fetch latest quotations to determine the next number
+                // Assuming getCotizaciones returns the latest ones first
+                const response = await apiClient.getCotizaciones();
+                if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
+                    // Try to find the latest specific format "C-XXXXXX"
+                    // Sort by ID descending to be safe if the API default sort isn't guaranteed
+                    const sortedQuotes = [...response.data].sort((a: any, b: any) => b.id - a.id);
+                    const lastQuote = sortedQuotes[0];
+                    if (lastQuote && lastQuote.numeroCotizacion) {
+                        const parts = lastQuote.numeroCotizacion.split('-');
+                        if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
+                            const nextNum = parseInt(parts[1]) + 1;
+                            setNextQuoteNumber(`C-${String(nextNum).padStart(6, '0')}`);
+                            return;
+                        }
+                    }
+                }
+                // Fallback if no quotes exist or format doesn't match
+                setNextQuoteNumber('C-000001');
+            } catch (error) {
+                console.error("Error fetching next quote number", error);
+                setNextQuoteNumber('C-??????');
+            }
+        };
+
+        if (!isEditing) {
+            fetchNextNumber();
+        }
+    }, [isEditing]);
 
     useEffect(() => {
         if (isEditing && params.id) {
@@ -294,15 +333,25 @@ const NuevaCotizacionPage: React.FC = () => {
     };
 
     return (
-        <div className="animate-fade-in space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+        <div className="animate-fade-in space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-2">
                 <div>
                     <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-                        {isEditing ? `Editar Cotización: ${initialData?.numeroCotizacion || ''}` : 'Crear Nueva Cotización'}
+                        {isEditing
+                            ? `Editar Cotización: ${initialData?.numeroCotizacion || ''}`
+                            : `Crear Nueva Cotización ${nextQuoteNumber ? `#${nextQuoteNumber}` : ''}`}
                     </h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-1">
-                        {isEditing ? 'Modifica los detalles de la cotización existente.' : 'Diligencia el formulario para generar una nueva cotización.'}
-                    </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-1">
+                        <p className="text-slate-500 dark:text-slate-400">
+                            {isEditing ? 'Modifica los detalles de la cotización existente.' : 'Diligencia el formulario para generar una nueva cotización.'}
+                        </p>
+                        {!isEditing && currentDateString && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                <i className="far fa-calendar-alt mr-1"></i>
+                                {currentDateString}
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
             <Card>

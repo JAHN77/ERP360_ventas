@@ -14,12 +14,16 @@ import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
 import PedidoPDFDocument from '../components/comercial/PedidoPDFDocument';
 import PedidoEditForm from '../components/comercial/PedidoEditForm';
+import PageHeader from '../components/ui/PageHeader';
+import { SectionLoader } from '../components/ui/SectionLoader';
 import { useAuth } from '../hooks/useAuth';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { logger } from '../utils/logger';
 import { apiClient, fetchPedidosDetalle } from '../services/apiClient';
 import { formatDateOnly } from '../utils/formatters';
+import PageContainer from '../components/ui/PageContainer';
+import SectionHeader from '../components/ui/SectionHeader';
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -33,7 +37,7 @@ const getPedidoProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'inco
 
 const getRemisionProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'incomplete' => {
   if (!pedido || pedido.estado === 'CANCELADO') return 'incomplete';
-  if (pedido.estado === 'REMITIDO' || pedido.estado === 'ENTREGADO') return 'complete';
+  if (pedido.estado === 'REMITIDO') return 'complete';
   if (pedido.estado === 'EN_PROCESO' || pedido.estado === 'PARCIALMENTE_REMITIDO') return 'current';
   return 'incomplete';
 }
@@ -557,19 +561,13 @@ const PedidosPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-            Gestión de Pedidos
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Administra y da seguimiento a los pedidos de venta.
-          </p>
-        </div>
-      </div>
+    <PageContainer>
+      <SectionHeader
+        title="Gestión de Pedidos"
+        subtitle="Administra y da seguimiento a los pedidos de venta."
+      />
 
-      <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <Card className="shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
@@ -583,10 +581,7 @@ const PedidosPage: React.FC = () => {
 
         <CardContent className="p-0">
           {isLoadingPedidos ? (
-            <div className="p-12 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center gap-3">
-              <i className="fas fa-spinner fa-spin text-3xl text-blue-500"></i>
-              <span className="font-medium">Cargando pedidos...</span>
-            </div>
+            <SectionLoader text="Cargando pedidos..." height="h-64" />
           ) : (
             <Table
               columns={columns}
@@ -1093,7 +1088,7 @@ const PedidosPage: React.FC = () => {
         );
       })()}
 
-    </div>
+    </PageContainer>
   );
 };
 

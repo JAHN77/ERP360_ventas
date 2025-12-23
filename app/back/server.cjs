@@ -16,7 +16,7 @@ const { getConnection } = require('./services/sqlServerClient.cjs');
 const sql = require('mssql');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const DIANService = require('./services/dian-service.cjs');
-// puppeteer ahora se usa a través de PuppeteerService
+
 
 // Cargar variables de entorno
 dotenv.config();
@@ -127,7 +127,7 @@ app.use((req, res, next) => {
 
 // Importar servicios refactorizados
 // Importar servicios refactorizados
-const PdfService = require('./services/pdf/PdfService');
+
 const productRoutes = require('./routes/productRoutes');
 const productController = require('./controllers/productController');
 const clientRoutes = require('./routes/clientRoutes');
@@ -139,54 +139,33 @@ const remissionRoutes = require('./routes/remissionRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
 const commonRoutes = require('./routes/commonRoutes');
+const inventoryConceptsController = require('./controllers/inventoryConceptsController');
 
-app.post('/api/generar-pdf', async (req, res) => {
-  const { html, fileName } = req.body || {};
+// --- Inventory Concepts Routes ---
+console.log('Registering Inventory Concepts Routes...');
+app.get('/api/conceptos-inventario', inventoryConceptsController.getAllConcepts);
+app.get('/api/conceptos-inventario/:codcon', inventoryConceptsController.getConceptByCode);
+app.post('/api/conceptos-inventario', inventoryConceptsController.createConcept);
+app.put('/api/conceptos-inventario/:codcon', inventoryConceptsController.updateConcept);
+app.delete('/api/conceptos-inventario/:codcon', inventoryConceptsController.deleteConcept);
 
-  if (!html || typeof html !== 'string' || !html.trim()) {
-    return res.status(400).json({
-      success: false,
-      message: 'El contenido HTML es requerido.'
-    });
-  }
 
-  const pdfService = new PdfService();
+// --- Purchase Order Routes ---
+const purchaseOrderRoutes = require('./routes/purchaseOrderRoutes');
+app.use('/api', purchaseOrderRoutes);
 
-  try {
-    // Generar PDF usando el servicio refactorizado
-    const pdfBuffer = await pdfService.generatePdf(html, {
-      fileName,
-      format: 'A4',
-      margin: {
-        top: '10mm',
-        right: '12mm',
-        bottom: '12mm',
-        left: '12mm'
-      }
-    });
 
-    // Preparar respuesta
-    const safeName = typeof fileName === 'string' && fileName.trim()
-      ? fileName.trim().replace(/[^\w.-]/g, '_')
-      : 'documento.pdf';
+// --- Inventario Físico Routes ---
+console.log('🔧 Cargando rutas de inventario físico...');
+const inventarioFisicoRoutes = require('./routes/inventarioFisicoRoutes');
+console.log('🔧 inventarioFisicoRoutes cargado:', typeof inventarioFisicoRoutes);
+console.log('🔧 Registrando rutas en /api/inventario-fisico');
+app.use('/api/inventario-fisico', inventarioFisicoRoutes);
+console.log('✅ Rutas de inventario físico registradas');
 
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${safeName}"`,
-      'Content-Length': pdfBuffer.length,
-    });
 
-    res.send(pdfBuffer);
 
-  } catch (error) {
-    console.error('[PDF] Error generando PDF:', error);
-    res.status(500).json({
-      success: false,
-      message: 'No se pudo generar el PDF',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
+
 
 // Ruta de prueba de conexión
 app.get('/api/test-connection', async (req, res) => {
@@ -342,6 +321,7 @@ app.use('/api', invoiceRoutes);
 app.use('/api', creditNoteRoutes);
 app.use('/api', remissionRoutes); 
 app.use('/api/inventario', inventoryRoutes);
+app.use('/api/categorias', require('./routes/categoryRoutes')); // Registration of category routes
 app.use('/api', require('./routes/commonRoutes')); // Phase 6
 
 // Manejo de rutas no encontradas
@@ -483,5 +463,6 @@ if (!process.env.VERCEL) {
 } else {
   console.log('🌐 Ejecutándose en Vercel (Serverless Functions)');
 }
+
 
 module.exports = app;

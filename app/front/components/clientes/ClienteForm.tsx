@@ -80,7 +80,6 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
     telefono: '',
     direccion: '',
     email: '',
-    email: '',
     ciudad: '', // Text Field now
     codigoPostal: '',
 
@@ -388,33 +387,29 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
       </div>
 
       {/* --- ROW 2: Contacto --- */}
-      <SectionHeader title="Datos de Representante" icon="fa-user-tie" />
-      <div className="grid grid-cols-12 gap-5 mb-3 relative p-4 border border-slate-200 dark:border-slate-700/50 rounded-xl bg-white dark:bg-slate-900 shadow-sm">
-        {isNit && (
-          <div className="absolute inset-0 bg-slate-50/80 dark:bg-slate-900/80 z-10 flex items-center justify-center backdrop-blur-[1px] rounded-xl border border-dashed border-slate-300 dark:border-slate-600 transition-all">
-            <span className="bg-white dark:bg-slate-800 px-4 py-2 rounded-full shadow border border-slate-200 dark:border-slate-600 text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-              <i className="fas fa-lock text-slate-400"></i>
-              Solo para personas naturales
-            </span>
+      {!isNit && (
+        <>
+          <SectionHeader title="Datos de Representante" icon="fa-user-tie" />
+          <div className="grid grid-cols-12 gap-5 mb-3 relative p-4 border border-slate-200 dark:border-slate-700/50 rounded-xl bg-white dark:bg-slate-900 shadow-sm">
+            <div className="col-span-6 md:col-span-3">
+              <Label>Primer Apellido</Label>
+              <Input name="primerApellido" value={formData.primerApellido} onChange={handleChange} />
+            </div>
+            <div className="col-span-6 md:col-span-3">
+              <Label>Segundo Apellido</Label>
+              <Input name="segundoApellido" value={formData.segundoApellido} onChange={handleChange} />
+            </div>
+            <div className="col-span-6 md:col-span-3">
+              <Label>Primer Nombre</Label>
+              <Input name="primerNombre" value={formData.primerNombre} onChange={handleChange} />
+            </div>
+            <div className="col-span-6 md:col-span-3">
+              <Label>Segundo Nombre</Label>
+              <Input name="segundoNombre" value={formData.segundoNombre} onChange={handleChange} />
+            </div>
           </div>
-        )}
-        <div className="col-span-6 md:col-span-3">
-          <Label>Primer Apellido</Label>
-          <Input name="primerApellido" value={formData.primerApellido} onChange={handleChange} disabled={isNit} />
-        </div>
-        <div className="col-span-6 md:col-span-3">
-          <Label>Segundo Apellido</Label>
-          <Input name="segundoApellido" value={formData.segundoApellido} onChange={handleChange} disabled={isNit} />
-        </div>
-        <div className="col-span-6 md:col-span-3">
-          <Label>Primer Nombre</Label>
-          <Input name="primerNombre" value={formData.primerNombre} onChange={handleChange} disabled={isNit} />
-        </div>
-        <div className="col-span-6 md:col-span-3">
-          <Label>Segundo Nombre</Label>
-          <Input name="segundoNombre" value={formData.segundoNombre} onChange={handleChange} disabled={isNit} />
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Ubicación y Vendedor */}
       <SectionHeader title="Detalles Comerciales y Ubicación" icon="fa-map-marked-alt" />

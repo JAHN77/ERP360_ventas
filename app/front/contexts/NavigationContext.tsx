@@ -2,25 +2,28 @@ import React, { createContext, useState, ReactNode, useMemo, useCallback, useEff
 import { NavigateFunction, Location } from 'react-router-dom';
 import { pageToRoute, routeToPage, getBasePath } from '../config/routes';
 
-export type Page = 
-    'dashboard' | 
-    'clientes' | 'nuevo_cliente' | 'editar_cliente' |
-    'productos' | 'nuevo_producto' | 'editar_producto' | 'entrada_inventario' |
-    'categorias' | 'categoria_detalle' |
-    'cotizaciones' | 'nueva_cotizacion' | 'editar_cotizacion' |
-    'pedidos' | 'nuevo_pedido' |
-    'remisiones' | 'editar_remision' |
-    'facturacion_electronica' | 'nueva_factura' |
-    'devoluciones' | 
-    'notas_credito_debito' | 
-    'demas_informes' |
-    'reportes' |
-    'factura_profesional' |
-    'activity_log';
+export type Page =
+  'dashboard' |
+  'clientes' | 'nuevo_cliente' | 'editar_cliente' |
+  'productos' | 'nuevo_producto' | 'editar_producto' | 'entrada_inventario' |
+  'categorias' | 'categoria_detalle' |
+  'cotizaciones' | 'nueva_cotizacion' | 'editar_cotizacion' |
+  'pedidos' | 'nuevo_pedido' |
+  'ordenes_compra' | 'nueva_orden_compra' |
+  'remisiones' | 'editar_remision' |
+  'facturacion_electronica' | 'nueva_factura' |
+  'devoluciones' |
+  'notas_credito_debito' |
+  'demas_informes' |
+  'reportes' |
+  'factura_profesional' |
+  'activity_log' |
+  'inventory_concepts' |
+  'conteo_fisico';
 
 interface NavigationState {
-    page: Page;
-    params: Record<string, any>;
+  page: Page;
+  params: Record<string, any>;
 }
 
 interface NavigationContextType {
@@ -42,10 +45,10 @@ interface NavigationProviderProps {
  * NavigationProvider mejorado con soporte para React Router
  * Funciona tanto con Router como sin él (modo standalone)
  */
-export const NavigationProvider = ({ 
-  children, 
-  navigate: routerNavigate, 
-  location: routerLocation 
+export const NavigationProvider = ({
+  children,
+  navigate: routerNavigate,
+  location: routerLocation
 }: NavigationProviderProps) => {
   const [state, setState] = useState<NavigationState>({ page: 'dashboard', params: {} });
   const hasRouter = !!routerNavigate && !!routerLocation;
@@ -68,7 +71,7 @@ export const NavigationProvider = ({
 
   const setPage = useCallback((page: Page, params: Record<string, any> = {}) => {
     const route = pageToRoute(page, params);
-    
+
     // Si hay router, actualizar URL
     if (hasRouter && routerNavigate) {
       routerNavigate(route, { replace: false });
@@ -78,7 +81,7 @@ export const NavigationProvider = ({
       const fullPath = basePath + route;
       window.history.pushState({}, '', fullPath);
     }
-    
+
     // Actualizar estado local
     setState({ page, params });
   }, [hasRouter, routerNavigate]);
@@ -98,8 +101,8 @@ export const NavigationProvider = ({
     }
   }, [hasRouter, routerNavigate]);
 
-  const value = useMemo(() => ({ 
-    ...state, 
+  const value = useMemo(() => ({
+    ...state,
     setPage,
     navigate: handleNavigate
   }), [state, setPage, handleNavigate]);

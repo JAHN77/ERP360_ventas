@@ -1,39 +1,9 @@
 const sql = require('mssql');
 const { executeQuery, executeQueryWithParams, getConnection } = require('../services/sqlServerClient.cjs');
 const { TABLE_NAMES, QUERIES } = require('../services/dbConfig.cjs');
-const PdfService = require('../services/pdf/PdfService');
 
-const generatePdf = async (req, res) => {
-  const { html, fileName } = req.body || {};
-  if (!html || typeof html !== 'string' || !html.trim()) {
-      return res.status(400).json({ success: false, message: 'El contenido HTML es requerido.' });
-  }
 
-  const pdfService = new PdfService();
-  try {
-      const pdfBuffer = await pdfService.generatePdf(html, {
-          fileName,
-          format: 'A4',
-          margin: { top: '10mm', right: '12mm', bottom: '10mm', left: '12mm' },
-          printBackground: true
-      });
 
-      res.set({
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="${fileName || 'documento.pdf'}"`,
-          'Content-Length': pdfBuffer.length
-      });
-      res.send(pdfBuffer);
-
-  } catch (error) {
-      console.error('Error generating PDF:', error);
-      res.status(500).json({
-          success: false,
-          message: 'Error generando PDF',
-          error: error.message
-      });
-  }
-};
 
 
 const getVendedores = async (req, res) => {
@@ -142,5 +112,5 @@ module.exports = {
   getCiudades,
   executeCustomQuery,
   getHealth,
-  generatePdf
+
 };

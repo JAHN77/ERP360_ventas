@@ -102,6 +102,8 @@ interface DataContextType {
     ingresarStockProducto: (productoId: number, cantidad: number, motivo: string, usuario: Usuario, costoUnitario?: number, documentoReferencia?: string) => Promise<InvProducto>;
     crearCliente: (data: Partial<Cliente>) => Promise<Cliente | null>;
     actualizarCliente: (id: string, data: Partial<Cliente>) => Promise<Cliente | null>;
+    crearProducto: (data: Partial<InvProducto>) => Promise<InvProducto | null>;
+    actualizarProducto: (id: string | number, data: Partial<InvProducto>) => Promise<InvProducto | null>;
     getCotizacionById: (id: string) => Cotizacion | undefined;
     crearCotizacion: (data: Cotizacion) => Promise<Cotizacion>;
     actualizarCotizacion: (id: string | number, data: Partial<Cotizacion>, baseCotizacion?: Cotizacion) => Promise<Cotizacion | undefined>;
@@ -1215,7 +1217,17 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     productoId: Number(productoId)
                 };
             })
-            .filter((item): item is { producto: InvProducto; cantidad: number; productoId: number } => Boolean(item.producto))
+            .filter((item): item is { producto: InvProducto; cantidad: number; productoId: number } => {
+                if (!item.producto) return false;
+                // Validar que el producto tenga propiedades básicas válidas
+                if (!item.producto.id) return false;
+                // Asegurar que nombre sea una cadena o convertirlo
+                if (typeof item.producto.nombre !== 'string') {
+                    // Si nombre no es string, intentar convertirlo o usar un valor por defecto
+                    item.producto.nombre = item.producto.nombre ? String(item.producto.nombre) : 'Producto sin nombre';
+                }
+                return true;
+            })
             .sort((a, b) => b.cantidad - a.cantidad)
             .slice(0, limit);
 
@@ -1741,6 +1753,38 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             throw new Error(resp.message || 'Error al actualizar cliente');
         } catch (e) {
             logger.error({ prefix: 'actualizarCliente' }, 'Error al actualizar cliente:', e);
+            throw e;
+        }
+    }, [refreshData]);
+
+    const crearProducto = useCallback(async (data: Partial<InvProducto>) => {
+        try {
+            const { apiCreateProducto } = await import('../services/apiClient');
+            const resp = await apiCreateProducto(data);
+
+            if (resp.success && resp.data) {
+                await refreshData();
+                return resp.data as InvProducto;
+            }
+            throw new Error(resp.message || 'Error al crear producto');
+        } catch (e) {
+            logger.error({ prefix: 'crearProducto' }, 'Error al crear producto:', e);
+            throw e; // Let the component handle the alert/notification based on success/fail
+        }
+    }, [refreshData]);
+
+    const actualizarProducto = useCallback(async (id: string | number, data: Partial<InvProducto>) => {
+        try {
+            const { apiUpdateProducto } = await import('../services/apiClient');
+            const resp = await apiUpdateProducto(id, data);
+
+            if (resp.success && resp.data) {
+                await refreshData();
+                return resp.data as InvProducto;
+            }
+            throw new Error(resp.message || 'Error al actualizar producto');
+        } catch (e) {
+            logger.error({ prefix: 'actualizarProducto' }, 'Error al actualizar producto:', e);
             throw e;
         }
     }, [refreshData]);
@@ -3677,6 +3721,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         ingresarStockProducto,
         crearCliente,
         actualizarCliente,
+        crearProducto,
+        actualizarProducto,
         getCotizacionById,
         crearCotizacion,
         actualizarCotizacion,
@@ -3727,6 +3773,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         ingresarStockProducto,
         crearCliente,
         actualizarCliente,
+        crearProducto,
+        actualizarProducto,
         getCotizacionById,
         crearCotizacion,
         actualizarCotizacion,

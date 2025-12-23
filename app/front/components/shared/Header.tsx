@@ -236,8 +236,8 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
           <button
             id="sede-chip"
             className={`inline-flex items-center gap-2 pl-3 pr-2 py-2 text-sm bg-white dark:bg-slate-800 border rounded-lg transition-all max-w-[200px] focus:outline-none ${isSedePopoverOpen
-                ? 'border-blue-500 shadow-md bg-blue-50 dark:bg-blue-900/20'
-                : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 hover:shadow-sm'
+              ? 'border-blue-500 shadow-md bg-blue-50 dark:bg-blue-900/20'
+              : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 hover:shadow-sm'
               } ${isLoadingBodegasLocal ? 'opacity-50 cursor-wait' : ''}`}
             onClick={async (e) => {
               e.preventDefault();
@@ -286,7 +286,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                   if (bodegasData.length > 0) {
                     // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
                     const mappedBodegas = bodegasData.map((b: any, index: number) => {
-                      const nombreBodega = (b.nombre || b.nomalm || '').trim() || `Bodega ${index + 1}`;
+                      const nombreBodega = ((b.nombre || b.nomalm || '').trim() || `Bodega ${index + 1}`).replace(/MULTIACABADOS\s*-\s*/i, '');
                       const codigoAlmacen = String(b.codigo || b.codalm || b.id || '').trim();
 
                       // Convertir código a número para el ID si es posible
@@ -352,7 +352,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                 selectedSede ? (
                   <>
                     {/* ✅ 100% DINÁMICO - Lee del estado selectedSede */}
-                    {selectedSede.nombre || 'Sin nombre'}
+                    {(selectedSede.nombre || 'Sin nombre').replace(/MULTIACABADOS\s*-\s*/i, '')}
                     {selectedSede.codigo && (
                       <span className="ml-1 text-xs text-slate-500">({selectedSede.codigo})</span>
                     )}
@@ -410,8 +410,8 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                       <li key={`bodega-${sede.id || sede.codigo || index}-${index}`}>
                         <button
                           className={`w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors flex items-center gap-2 ${isSelected
-                              ? 'font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
-                              : 'text-slate-700 dark:text-slate-300'
+                            ? 'font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                            : 'text-slate-700 dark:text-slate-300'
                             }`}
                           onClick={(e) => {
                             e.preventDefault();
