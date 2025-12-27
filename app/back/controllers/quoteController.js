@@ -7,6 +7,9 @@ const {
   validateDecimal18_2, 
   validateDecimal5_2 
 } = require('../utils/helpers');
+const { generateQuotePdfBuffer } = require('../services/pdfService.cjs');
+const { sendCotizacionEmail } = require('../services/emailService.cjs');
+const { getCompanyLogo } = require('../utils/imageUtils.cjs');
 
 const getAllQuotes = async (req, res) => {
   try {
@@ -56,6 +59,9 @@ const getAllQuotes = async (req, res) => {
           THEN LTRIM(RTRIM(cli.nomter))
           ELSE NULL
         END AS clienteNombre,
+        cli.TELTER             AS clienteTelefono,
+        cli.CELTER             AS clienteCelular,
+        cli.EMAIL              AS clienteEmail,
         CAST(COALESCE(v.ideven, NULL) AS VARCHAR(20)) AS vendedorId,
         LTRIM(RTRIM(c.cod_vendedor)) AS codVendedor,
         LTRIM(RTRIM(v.nomven)) AS vendedorNombre,
@@ -185,7 +191,7 @@ const getQuoteDetails = async (req, res) => {
         COALESCE(d.tasa_descuento, 0) AS descuentoPorcentaje,
         COALESCE(d.tasa_iva, 0)   AS ivaPorcentaje,
         d.codigo_medida           AS codigoMedida,
-        COALESCE(p.undins, m.nommed, 'Unidad') AS unidadMedida,
+        COALESCE(m.codmed, p.undins, 'UND') AS unidadMedida,
         COALESCE(p.referencia, LTRIM(RTRIM(d.cod_producto)), '') AS referencia,
         d.estado                  AS estado,
         d.num_factura             AS numFactura,
@@ -272,7 +278,7 @@ const createQuote = async (req, res) => {
       if (isNumero) {
         // Intento 1: Buscar por ID Interno
         reqCliente.input('clienteIdVal', sql.Int, clienteIdNum);
-        const resId = await reqCliente.query(`SELECT codter, nomter, codven, dirter, ciudad, TELTER FROM ${TABLE_NAMES.clientes} WHERE id = @clienteIdVal`);
+        const resId = await reqCliente.query(`SELECT codter, nomter, codven, dirter, ciudad, TELTER as telefono FROM ${TABLE_NAMES.clientes} WHERE id = @clienteIdVal`);
         if (resId.recordset.length > 0) {
           clienteData = resId.recordset[0];
         }
@@ -282,7 +288,7 @@ const createQuote = async (req, res) => {
       if (!clienteData) {
         const reqCod = new sql.Request(tx);
         reqCod.input('codterVal', sql.VarChar(20), clienteIdStr);
-        const resCod = await reqCod.query(`SELECT codter, nomter, codven, dirter, ciudad, TELTER FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @codterVal`);
+        const resCod = await reqCod.query(`SELECT codter, nomter, codven, dirter, ciudad, TELTER as telefono FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @codterVal`);
         if (resCod.recordset.length > 0) {
           clienteData = resCod.recordset[0];
         }
@@ -330,22 +336,23 @@ const createQuote = async (req, res) => {
 
       // 2. Generar número de cotización (Schema Limit: char(8))
       const reqUltimoNum = new sql.Request(tx);
+      // Buscar el último número, ordenado por ID descendente
       const ultimoNumResult = await reqUltimoNum.query(`
         SELECT TOP 1 numcot 
         FROM ${TABLE_NAMES.cotizaciones} 
-        WHERE numcot LIKE 'C-%' 
+        WHERE numcot NOT LIKE 'B-%' -- Excluir borradores temporales si los hubiera
         ORDER BY id DESC
       `);
 
-      let nuevoNumero = 'C-000001';
+      let nuevoNumero = '000001';
       if (ultimoNumResult.recordset.length > 0) {
         const ultimoNum = ultimoNumResult.recordset[0].numcot;
-        const partes = ultimoNum.split('-');
-        if (partes.length === 2) {
-          const consecutivo = parseInt(partes[1], 10);
-          if (!isNaN(consecutivo)) {
-            nuevoNumero = `C-${String(consecutivo + 1).padStart(6, '0')}`;
-          }
+        // Extraer solo los dígitos del último número (maneja "C-000004" y "000004")
+        const soloDigitos = ultimoNum.replace(/\D/g, ''); 
+        const consecutivo = parseInt(soloDigitos, 10);
+        
+        if (!isNaN(consecutivo)) {
+          nuevoNumero = String(consecutivo + 1).padStart(6, '0');
         }
       }
 
@@ -662,9 +669,194 @@ const updateQuote = async (req, res) => {
   }
 };
 
+/**
+ * Envía una cotización por correo electrónico
+ */
+const sendQuoteEmail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { firmaVendedor, destinatario, asunto, mensaje } = req.body; 
+
+    const idNum = parseInt(id, 10);
+    if (isNaN(idNum)) {
+      return res.status(400).json({ success: false, message: 'ID de cotización inválido' });
+    }
+
+    // 1. Obtener datos de la cotización con información completa del cliente y vendedor
+    const pool = await getConnection();
+    const request = new sql.Request(pool);
+    request.input('id', sql.Int, idNum);
+
+    const cotizacionQuery = `
+      SELECT 
+        c.*,
+        cli.nomter AS clienteNombre,
+        cli.EMAIL AS clienteEmail,
+        cli.dirter AS clienteDireccion,
+        cli.telter AS clienteTelefono,
+        cli.ciudad AS clienteCiudad,
+        v.nomven AS vendedorNombre
+      FROM ${TABLE_NAMES.cotizaciones} c
+      LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter))
+      LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(v.codven)) = LTRIM(RTRIM(c.cod_vendedor))
+      WHERE c.id = @id
+    `;
+
+    const cotizacionResult = await request.query(cotizacionQuery);
+
+
+    if (cotizacionResult.recordset.length === 0) {
+      return res.status(404).json({ success: false, message: 'Cotización no encontrada' });
+    }
+
+    const cotizacion = cotizacionResult.recordset[0];
+
+    // Validar que el cliente tenga email
+    if (!cotizacion.clienteEmail || cotizacion.clienteEmail.trim() === '') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'El cliente no tiene un correo electrónico registrado' 
+      });
+    }
+
+
+    // 2. Obtener detalles de la cotización
+    const detallesRequest = new sql.Request(pool);
+    detallesRequest.input('cotizacionId', sql.BigInt, idNum);
+
+    const detallesQuery = `
+      SELECT 
+        d.*,
+        p.nomins AS descripcion,
+        p.referencia,
+        p.id AS productoId,
+        COALESCE(m.codmed, p.undins, 'UND') AS unidadMedida
+      FROM ${TABLE_NAMES.cotizaciones_detalle} d
+      LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(d.cod_producto))
+      LEFT JOIN inv_medidas m ON m.codmed = d.codigo_medida
+      WHERE d.id_cotizacion = @cotizacionId
+      ORDER BY d.id
+    `;
+
+    const detallesResult = await detallesRequest.query(detallesQuery);
+
+    // 3. Obtener datos de la empresa
+    const empresaRequest = new sql.Request(pool);
+    const empresaQuery = `
+      SELECT TOP 1 
+        LTRIM(RTRIM(razemp)) as razonSocial,
+        LTRIM(RTRIM(nitemp)) as nit,
+        LTRIM(RTRIM(diremp)) as direccion,
+        LTRIM(RTRIM(telemp)) as telefono,
+        LTRIM(RTRIM(email)) as email,
+        LTRIM(RTRIM(Slogan)) as slogan
+      FROM gen_empresa
+    `;
+    const empresaResult = await empresaRequest.query(empresaQuery);
+    const datosEmpresa = empresaResult.recordset[0] || {};
+
+    // 4. Preparar datos para el componente PDF
+    // Obtener logo como base64
+    const logoBase64 = getCompanyLogo();
+    
+    const pdfComponentProps = {
+      cotizacion: {
+        numeroCotizacion: cotizacion.numcot,
+        fechaCotizacion: cotizacion.fecha,
+        fechaVencimiento: cotizacion.fecha_vence,
+        observaciones: cotizacion.observa,
+        subtotal: cotizacion.subtotal,
+        descuentoValor: cotizacion.val_descuento,
+        ivaValor: cotizacion.val_iva,
+        total: cotizacion.subtotal - cotizacion.val_descuento + cotizacion.val_iva,
+        // Move items here
+        items: detallesResult.recordset.map(item => ({
+            codProducto: item.cod_producto,
+            productoId: item.productoId,
+            descripcion: item.descripcion,
+            referencia: item.referencia,
+            cantidad: item.cantidad,
+            precioUnitario: item.preciound,
+            descuentoPorcentaje: item.tasa_descuento,
+            ivaPorcentaje: item.tasa_iva,
+            subtotal: item.valor - (item.valor * (item.tasa_iva / 100)),
+            valorIva: item.valor * (item.tasa_iva / 100),
+            total: item.valor,
+            unidadMedida: item.unidadMedida,
+        })),
+      },
+      cliente: {
+        nombreCompleto: cotizacion.clienteNombre || '',
+        numeroDocumento: cotizacion.codter || '',
+        id: cotizacion.codter || '',
+        direccion: cotizacion.clienteDireccion || '',
+        telefono: cotizacion.clienteTelefono || '',
+        email: cotizacion.clienteEmail || '',
+        ciudad: cotizacion.clienteCiudad || '',
+      },
+      vendedor: {
+        nombreCompleto: cotizacion.vendedorNombre || '',
+      },
+      firmaVendedor: firmaVendedor || null, // Usar la firma enviada desde el frontend
+
+      // Rename to empresa to match component expectation
+      empresa: {
+        nombre: datosEmpresa.razonSocial,
+        razonSocial: datosEmpresa.razonSocial,
+        nit: datosEmpresa.nit,
+        direccion: datosEmpresa.direccion,
+        telefono: datosEmpresa.telefono,
+        email: datosEmpresa.email,
+        slogan: datosEmpresa.slogan,
+        // Usar logo en base64
+        logoExt: logoBase64,
+      },
+    };
+
+    // Generar el PDF
+    const pdfBuffer = await generateQuotePdfBuffer(pdfComponentProps);
+    
+    // Helper para formatear moneda en el backend
+    const formatCurrencyCO = (value) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value || 0);
+    const formatDateCO = (date) => new Date(date).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    // Enviar el correo
+    await sendCotizacionEmail({
+      clienteEmail: destinatario || cotizacion.clienteEmail,
+      clienteNombre: cotizacion.clienteNombre,
+      numeroCotizacion: cotizacion.numcot,
+      pdfBuffer,
+      subject: asunto,
+      body: mensaje,
+      quoteDetails: {
+          total: formatCurrencyCO(cotizacion.subtotal - cotizacion.val_descuento + cotizacion.val_iva),
+          fechaVencimiento: formatDateCO(cotizacion.fecha_vence),
+          fechaCotizacion: formatDateCO(cotizacion.fecha),
+          vendedor: cotizacion.vendedorNombre || 'Asesor Comercial'
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Cotización enviada exitosamente a ${cotizacion.clienteEmail}`,
+    });
+
+
+  } catch (error) {
+    console.error('Error enviando cotización por correo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error enviando cotización por correo',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllQuotes,
   getQuoteDetails,
   createQuote,
-  updateQuote
+  updateQuote,
+  sendQuoteEmail
 };
+

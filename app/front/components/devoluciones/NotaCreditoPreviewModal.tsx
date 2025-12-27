@@ -15,7 +15,7 @@ interface NotaCreditoPreviewModalProps {
 
 const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaCredito, onClose }) => {
     const { addNotification } = useNotifications();
-    const { facturas: allFacturas, clientes, datosEmpresa, productos } = useData();
+    const { facturas: allFacturas, clientes, datosEmpresa, productos, firmaVendedor } = useData();
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
 
@@ -41,12 +41,9 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
                 notaCredito={notaCredito}
                 factura={relatedData.factura}
                 cliente={relatedData.cliente}
-                empresa={{
-                    nombre: datosEmpresa.nombre,
-                    nit: datosEmpresa.nit,
-                    direccion: datosEmpresa.direccion
-                }}
+                empresa={datosEmpresa}
                 productos={productos}
+                firmaVendedor={firmaVendedor}
             />
         );
     };
@@ -86,8 +83,15 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
         setIsEmailModalOpen(true);
     };
 
-    const handleConfirmSendEmail = (emailData: { to: string }) => {
+    const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
         if (!notaCredito) return;
+
+        const subjectEncoded = encodeURIComponent(emailData.subject);
+        const bodyEncoded = encodeURIComponent(emailData.body);
+        const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+
+        window.location.href = mailtoLink;
+
         addNotification({
             message: `PDF generado. Se ha abierto tu cliente de correo para enviar la Nota de Crédito ${notaCredito.numero}.`,
             type: 'success',
@@ -149,12 +153,9 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
                             notaCredito={notaCredito}
                             factura={relatedData.factura}
                             cliente={relatedData.cliente}
-                            empresa={{
-                                nombre: datosEmpresa.nombre,
-                                nit: datosEmpresa.nit,
-                                direccion: datosEmpresa.direccion
-                            }}
+                            empresa={datosEmpresa}
                             productos={productos}
+                            firmaVendedor={firmaVendedor}
                         />
                     </PDFViewer>
                 </div>

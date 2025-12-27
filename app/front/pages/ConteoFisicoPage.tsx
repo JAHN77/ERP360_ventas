@@ -252,56 +252,56 @@ const ConteoFisicoPage: React.FC = () => {
                     </div>
                 </CardHeader>
 
-                    <CardContent className="pt-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6 items-end">
-                            {/* Selector de Línea (Principal) */}
-                            <div className="lg:col-span-5 flex flex-col gap-2">
-                                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                                    1. Seleccione la Línea a Contar
-                                </label>
-                                <select
-                                    value={lineaFiltro}
-                                    onChange={(e) => setLineaFiltro(e.target.value)}
-                                    className="w-full px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-lg text-sm bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium shadow-sm"
-                                >
-                                    <option value="TODAS">-- Seleccione una Categoría --</option>
-                                    {lineas.map(linea => (
-                                        <option key={linea.codigo} value={linea.codigo}>
-                                            {linea.nombre}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                <CardContent className="pt-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6 items-end">
+                        {/* Selector de Línea (Principal) */}
+                        <div className="lg:col-span-5 flex flex-col gap-2">
+                            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                1. Seleccione la Línea a Contar
+                            </label>
+                            <select
+                                value={lineaFiltro}
+                                onChange={(e) => setLineaFiltro(e.target.value)}
+                                className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium shadow-sm"
+                            >
+                                <option value="TODAS">-- Seleccione una Categoría --</option>
+                                {lineas.map(linea => (
+                                    <option key={linea.codigo} value={linea.codigo}>
+                                        {linea.nombre}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
 
-                            {/* Filtros de Visualización */}
-                            <div className="lg:col-span-7 flex flex-col gap-2">
-                                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                                    2. Filtrar Productos
-                                </label>
-                                <div className="flex flex-wrap gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                                    {[
-                                        { id: 'todos', label: 'Todos', icon: 'fa-list' },
-                                        { id: 'con_stock', label: 'Con Stock', icon: 'fa-box' },
-                                        { id: 'sin_stock', label: 'Sin Stock', icon: 'fa-box-open' },
-                                        { id: 'con_diferencias', label: 'Diferencias', icon: 'fa-exclamation-triangle' }
-                                    ].map((filter) => (
-                                        <button
-                                            key={filter.id}
-                                            onClick={() => setFiltroTipo(filter.id as any)}
-                                            className={`flex-1 min-w-[100px] px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2 ${filtroTipo === filter.id
-                                                ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200 dark:border-slate-600'
-                                                : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700/50'
-                                                }`}
-                                        >
-                                            <i className={`fas ${filter.icon} text-xs`}></i>
-                                            {filter.label}
-                                        </button>
-                                    ))}
-                                </div>
+                        {/* Filtros de Visualización */}
+                        <div className="lg:col-span-7 flex flex-col gap-2">
+                            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                2. Filtrar Productos
+                            </label>
+                            <div className="flex flex-wrap gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                                {[
+                                    { id: 'todos', label: 'Todos', icon: 'fa-list' },
+                                    { id: 'con_stock', label: 'Con Stock', icon: 'fa-box' },
+                                    { id: 'sin_stock', label: 'Sin Stock', icon: 'fa-box-open' },
+                                    { id: 'con_diferencias', label: 'Diferencias', icon: 'fa-exclamation-triangle' }
+                                ].map((filter) => (
+                                    <button
+                                        key={filter.id}
+                                        onClick={() => setFiltroTipo(filter.id as any)}
+                                        className={`flex-1 min-w-[100px] px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2 ${filtroTipo === filter.id
+                                            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200 dark:border-slate-600'
+                                            : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700/50'
+                                            }`}
+                                    >
+                                        <i className={`fas ${filter.icon} text-xs`}></i>
+                                        {filter.label}
+                                    </button>
+                                ))}
                             </div>
                         </div>
-                    </CardContent>
-                </Card>
+                    </div>
+                </CardContent>
+            </Card>
 
             {/* Card de Tabla */}
             <Card className="shadow-lg border border-slate-200 dark:border-slate-800">

@@ -35,23 +35,21 @@ const NuevaFacturaPage: React.FC = () => {
             try {
                 const response = await apiClient.getFacturas();
                 if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
-                    // Try to find the latest specific format e.g. "FAC-XXXXXX"
-                    // Adjust parsing logic based on actual format. Assuming similar to Quotations/Orders
                     const sorted = [...response.data].sort((a: any, b: any) => b.id - a.id);
                     const last = sorted[0];
                     if (last && last.numeroFactura) {
-                        const parts = last.numeroFactura.split('-');
-                        if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
-                            const nextNum = parseInt(parts[1]) + 1;
-                            setNextInvoiceNumber(`FAC-${String(nextNum).padStart(6, '0')}`);
+                        const soloDigitos = String(last.numeroFactura).replace(/\D/g, '');
+                        if (soloDigitos) {
+                            const nextNum = parseInt(soloDigitos, 10) + 1;
+                            setNextInvoiceNumber(String(nextNum).padStart(6, '0'));
                             return;
                         }
                     }
                 }
-                setNextInvoiceNumber('FAC-000001');
+                setNextInvoiceNumber('000001');
             } catch (error) {
                 console.error("Error fetching next invoice number", error);
-                setNextInvoiceNumber('FAC-??????');
+                setNextInvoiceNumber('??????');
             }
         };
 

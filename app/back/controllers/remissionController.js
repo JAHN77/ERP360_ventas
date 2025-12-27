@@ -313,25 +313,22 @@ const createRemission = async (req, res) => {
     transaction = new sql.Transaction(pool);
     await transaction.begin();
 
-    // 1. Generar número de remisión
-    // Obtener el último número para incrementar
     const requestNum = new sql.Request(transaction);
     const numResult = await requestNum.query(`
       SELECT TOP 1 numero_remision 
       FROM ${TABLE_NAMES.remisiones} 
-      WHERE numero_remision LIKE 'REM-%'
       ORDER BY id DESC
     `);
 
     let nextNum = 1;
     if (numResult.recordset.length > 0) {
       const lastNumStr = numResult.recordset[0].numero_remision;
-      const parts = lastNumStr.split('-');
-      if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
-        nextNum = parseInt(parts[1]) + 1;
+      const soloDigitos = String(lastNumStr).replace(/\D/g, '');
+      if (soloDigitos) {
+        nextNum = parseInt(soloDigitos, 10) + 1;
       }
     }
-    const numeroRemision = `REM-${String(nextNum).padStart(5, '0')}`;
+    const numeroRemision = String(nextNum).padStart(6, '0');
 
     // 2. Insertar Encabezado
     const requestEnc = new sql.Request(transaction);

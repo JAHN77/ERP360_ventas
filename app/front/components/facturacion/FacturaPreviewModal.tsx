@@ -18,7 +18,7 @@ interface FacturaPreviewModalProps {
 
 const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onClose, onTimbrar }) => {
     const { addNotification } = useNotifications();
-    const { clientes, datosEmpresa, productos } = useData();
+    const { clientes, datosEmpresa, productos, firmaVendedor } = useData();
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('factura');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -60,17 +60,10 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
             <FacturaPDFDocument
                 factura={factura}
                 cliente={cliente}
-                empresa={{
-                    nombre: datosEmpresa.nombre,
-                    nit: datosEmpresa.nit,
-                    direccion: datosEmpresa.direccion,
-                    ciudad: datosEmpresa.ciudad,
-                    telefono: datosEmpresa.telefono,
-                    resolucionDian: datosEmpresa.resolucionDian,
-                    rangoNumeracion: datosEmpresa.rangoNumeracion
-                }}
+                empresa={datosEmpresa}
                 preferences={preferences}
                 productos={productos}
+                firmaVendedor={firmaVendedor}
             />
         );
     }, [factura, cliente, datosEmpresa, preferences, productos]);
@@ -110,8 +103,15 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
         }, 100);
     };
 
-    const handleConfirmSendEmail = (emailData: { to: string }) => {
+    const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
         if (!factura) return;
+
+        const subjectEncoded = encodeURIComponent(emailData.subject);
+        const bodyEncoded = encodeURIComponent(emailData.body);
+        const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+
+        window.location.href = mailtoLink;
+
         addNotification({
             message: `PDF descargado. Se ha abierto tu cliente de correo para enviar la factura ${factura.numeroFactura}.`,
             type: 'success',

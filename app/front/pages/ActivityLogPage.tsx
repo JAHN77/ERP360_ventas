@@ -30,12 +30,14 @@ const ActivityLogPage: React.FC = () => {
   });
 
   const columns: Column<ActivityLog>[] = [
-    { header: 'Fecha', accessor: 'timestamp', cell: (item) => (
-      <div className="flex flex-col">
-        <span>{new Date(item.timestamp).toLocaleString('es-CO')}</span>
-        <span className="text-xs text-slate-500">{timeSince(item.timestamp)}</span>
-      </div>
-    )},
+    {
+      header: 'Fecha', accessor: 'timestamp', cell: (item) => (
+        <div className="flex flex-col">
+          <span>{new Date(item.timestamp).toLocaleString('es-CO')}</span>
+          <span className="text-xs text-slate-500">{timeSince(item.timestamp)}</span>
+        </div>
+      )
+    },
     { header: 'Usuario', accessor: 'user', cell: (item) => `${item.user.nombre} (${item.user.rol})` },
     { header: 'Acción', accessor: 'action' },
     { header: 'Entidad', accessor: 'entity', cell: (item) => `${item.entity.type}: ${item.entity.name}` },
@@ -47,12 +49,14 @@ const ActivityLogPage: React.FC = () => {
       <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 mb-6">Bitácora de Actividad del Sistema</h1>
       <Card>
         <CardHeader>
-            <CardTitle>Registro de Auditoría</CardTitle>
+          <CardTitle>Registro de Auditoría</CardTitle>
         </CardHeader>
-        <TableToolbar 
-          searchTerm={searchTerm} 
-          onSearchChange={handleSearch}
-        />
+        <div className="p-2 sm:p-3">
+          <TableToolbar
+            searchTerm={searchTerm}
+            onSearchChange={handleSearch}
+          />
+        </div>
         <CardContent className="p-0">
           <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} />
         </CardContent>

@@ -17,7 +17,7 @@ interface RemisionPreviewModalProps {
 
 const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, onClose }) => {
     const { addNotification } = useNotifications();
-    const { pedidos, clientes, datosEmpresa, productos } = useData();
+    const { pedidos, clientes, datosEmpresa, productos, firmaVendedor } = useData();
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('remision');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -43,15 +43,10 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
                 remision={remision}
                 pedido={relatedData.pedido}
                 cliente={relatedData.cliente}
-                empresa={{
-                    nombre: datosEmpresa.nombre,
-                    nit: datosEmpresa.nit,
-                    direccion: datosEmpresa.direccion,
-                    ciudad: datosEmpresa.ciudad,
-                    telefono: datosEmpresa.telefono
-                }}
+                empresa={datosEmpresa}
                 preferences={preferences}
                 productos={productos}
+                firmaVendedor={firmaVendedor}
             />
         );
     };
@@ -94,8 +89,15 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
         }, 100);
     };
 
-    const handleConfirmSendEmail = (emailData: { to: string }) => {
+    const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
         if (!remision) return;
+
+        const subjectEncoded = encodeURIComponent(emailData.subject);
+        const bodyEncoded = encodeURIComponent(emailData.body);
+        const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+
+        window.location.href = mailtoLink;
+
         addNotification({
             message: `PDF descargado. Se ha abierto tu cliente de correo para enviar la remisión ${remision.numeroRemision}.`,
             type: 'success',

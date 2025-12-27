@@ -396,7 +396,7 @@ const PedidosPage: React.FC = () => {
         setSelectedPedido(pedidoAprobado);
 
         addNotification({
-          message: `Pedido ${pedidoAprobado.numeroPedido} aprobado.`,
+          message: `Pedido ${pedidoAprobado.numeroPedido.replace('PED-', '')} aprobado exitosamente.`,
           type: 'success',
         });
       } else {
@@ -420,7 +420,7 @@ const PedidosPage: React.FC = () => {
     const updatedPedido = await marcarPedidoListoParaDespacho(pedidoId);
     if (updatedPedido) {
       setSelectedPedido(updatedPedido);
-      addNotification({ message: `Pedido ${updatedPedido.numeroPedido} listo para despacho.`, type: 'success' });
+      addNotification({ message: `Pedido ${updatedPedido.numeroPedido.replace('PED-', '')} listo para despacho.`, type: 'success' });
     }
   };
 
@@ -436,7 +436,7 @@ const PedidosPage: React.FC = () => {
       header: 'Número',
       accessor: 'numeroPedido',
       cell: (item) => (
-        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroPedido}</span>
+        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{(item.numeroPedido || '').replace('PED-', '')}</span>
       )
     },
     {
@@ -445,12 +445,12 @@ const PedidosPage: React.FC = () => {
       cell: (item) => {
         // Usar numeroCotizacionOrigen si está disponible (viene del JOIN en el backend)
         if (item.numeroCotizacionOrigen) {
-          return <span className="text-sm text-slate-600 dark:text-slate-400">{item.numeroCotizacionOrigen}</span>;
+          return <span className="text-sm text-slate-600 dark:text-slate-400">{item.numeroCotizacionOrigen.replace('C-', '')}</span>;
         }
         // Fallback: buscar en el array de cotizaciones
         if (item.cotizacionId) {
           const cotizacion = cotizaciones.find(c => String(c.id) === String(item.cotizacionId));
-          return <span className="text-sm text-slate-600 dark:text-slate-400">{cotizacion?.numeroCotizacion || 'N/A'}</span>;
+          return <span className="text-sm text-slate-600 dark:text-slate-400">{(cotizacion?.numeroCotizacion || 'N/A').replace('C-', '')}</span>;
         }
         return <span className="text-xs text-slate-400">N/A</span>;
       }
@@ -550,7 +550,7 @@ const PedidosPage: React.FC = () => {
           id="statusFilter"
           value={statusFilter}
           onChange={(e) => handleStatusFilterChange(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {filterOptions.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -568,7 +568,7 @@ const PedidosPage: React.FC = () => {
       />
 
       <Card className="shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+        <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
@@ -626,7 +626,7 @@ const PedidosPage: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-                    Pedido {selectedPedido.numeroPedido}
+                    Pedido {selectedPedido.numeroPedido.replace('PED-', '')}
                   </h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     Detalles y seguimiento
@@ -656,7 +656,7 @@ const PedidosPage: React.FC = () => {
               <ProgressFlow>
                 <ProgressStep title="Cotización" status={selectedPedido.cotizacionId ? 'complete' : 'incomplete'}>
                   {selectedPedido.numeroCotizacionOrigen && (
-                    <span className="text-[10px] font-mono text-slate-500 block mt-1">{selectedPedido.numeroCotizacionOrigen}</span>
+                    <span className="text-[10px] font-mono text-slate-500 block mt-1">{selectedPedido.numeroCotizacionOrigen.replace('C-', '')}</span>
                   )}
                 </ProgressStep>
                 <ProgressStep title="Pedido" status={getPedidoProgressStatus(selectedPedido)}>
@@ -720,9 +720,9 @@ const PedidosPage: React.FC = () => {
                   <div>
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Cotización</p>
                     <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mt-1">
-                      {selectedPedido.numeroCotizacionOrigen ||
+                      {(selectedPedido.numeroCotizacionOrigen ||
                         (selectedPedido.cotizacionId ? cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId))?.numeroCotizacion : 'N/A') ||
-                        'N/A'}
+                        'N/A').replace('C-', '')}
                     </p>
                   </div>
                   <div>
@@ -991,7 +991,7 @@ const PedidosPage: React.FC = () => {
         <Modal
           isOpen={!!pedidoToEdit}
           onClose={() => setPedidoToEdit(null)}
-          title={`Editar Pedido: ${pedidoToEdit.numeroPedido}`}
+          title={`Editar Pedido: ${pedidoToEdit.numeroPedido.replace('PED-', '')}`}
           size="3xl"
         >
           <PedidoEditForm
@@ -1014,7 +1014,7 @@ const PedidosPage: React.FC = () => {
           <DocumentPreviewModal
             isOpen={!!orderToPreview}
             onClose={() => setOrderToPreview(null)}
-            title={`Previsualizar Pedido: ${orderToPreview.numeroPedido}`}
+            title={`Previsualizar Pedido: ${orderToPreview.numeroPedido.replace('PED-', '')}`}
             onConfirm={
               (orderToPreview.estado === 'BORRADOR' || orderToPreview.estado === 'ENVIADA')
                 ? executeApproval
@@ -1056,7 +1056,8 @@ const PedidosPage: React.FC = () => {
             title="¡Pedido Aprobado!"
             message={
               <>
-                El pedido <strong>{pedido.numeroPedido}</strong> ha sido aprobado y está listo para ser remisionado.
+                La cotización <strong>{(cotizaciones.find(c => c.id === pedido.cotizacionId)?.numeroCotizacion || '').replace('C-', '')}</strong> ha concluido satisfactoriamente.
+                Se ha generado el Pedido <strong>{pedido.numeroPedido.replace('PED-', '')}</strong> de forma exitosa.
               </>
             }
             summaryTitle="Resumen del Pedido"
@@ -1072,6 +1073,7 @@ const PedidosPage: React.FC = () => {
                   return cliente?.nombreCompleto || cliente?.razonSocial || pedido.clienteId || 'N/A';
                 })()
               },
+              { label: 'Número de Pedido', value: pedido.numeroPedido.replace('PED-', '') },
               { label: 'Nº Items', value: pedido.items.length },
               { label: 'sep1', value: '', isSeparator: true },
               { label: 'Subtotal Bruto', value: formatCurrency(subtotalBruto) },

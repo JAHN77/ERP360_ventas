@@ -21,10 +21,21 @@ const styles = StyleSheet.create({
         paddingBottom: 5,
     },
     companyTitle: {
-        fontSize: 14, // Smaller title
-        fontWeight: 'bold',
-        color: '#1e293b',
+        fontSize: 16,
+        fontWeight: 'extrabold',
         textTransform: 'uppercase',
+        color: '#1e293b',
+        letterSpacing: 0.5,
+    },
+    logo: {
+        width: 85,
+        height: 50,
+        marginRight: 15,
+        objectFit: 'contain',
+    },
+    headerLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     docTitle: {
         fontSize: 14, // Smaller doc title
@@ -214,13 +225,24 @@ const OrdenCompraPDFDocument: React.FC<OrdenCompraPDFProps> = ({ data, empresa }
 
                 {/* Header ID */}
                 <View style={styles.idHeader}>
-                    <View>
-                        <Text style={styles.companyTitle}>{empresa?.nombre || 'MI EMPRESA'}</Text>
-                        <Text style={{ fontSize: 9 }}>NIT: {empresa?.nit || '800.000.000'} - {empresa?.regimen || 'Responsable de IVA'}</Text>
+                    <View style={styles.headerLeft}>
+                        {empresa?.logoExt && <Image src={empresa.logoExt} style={styles.logo} />}
+                        <View>
+                            <Text style={styles.companyTitle}>{empresa?.nombre || 'MULTIACABADOS'}</Text>
+                            <Text style={styles.subText}>
+                                NIT: {empresa?.nit || '800.000.000'} • {empresa?.regimen || 'Responsable de IVA'}
+                            </Text>
+                            <Text style={styles.subText}>
+                                {empresa?.direccion || ''} • {empresa?.ciudad || ''}
+                            </Text>
+                            <Text style={styles.subText}>
+                                Tel: {empresa?.telefono || ''} • Email: {empresa?.email || ''}
+                            </Text>
+                        </View>
                     </View>
-                    <View style={{ alignItems: 'flex-end' }}>
+                    <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
                         <Text style={styles.docTitle}>ORDEN DE COMPRA</Text>
-                        <Text style={{ fontSize: 10, color: '#64748b' }}>#{data.numcom || data.numeroOrden || 'BORRADOR'}</Text>
+                        <Text style={{ fontSize: 10, color: '#64748b', fontWeight: 'bold' }}>#{data.numcom || data.numeroOrden || 'BORRADOR'}</Text>
                     </View>
                 </View>
 

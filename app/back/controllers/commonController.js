@@ -1,4 +1,6 @@
 const sql = require('mssql');
+const fs = require('fs');
+const path = require('path');
 const { executeQuery, executeQueryWithParams, getConnection } = require('../services/sqlServerClient.cjs');
 const { TABLE_NAMES, QUERIES } = require('../services/dbConfig.cjs');
 
@@ -48,6 +50,53 @@ const getVendedores = async (req, res) => {
   } catch (error) {
     console.error('Error fetching vendedores:', error);
     res.status(500).json({ success: false, message: 'Error obteniendo vendedores', error: error.message });
+  }
+};
+
+const getEmpresa = async (req, res) => {
+  try {
+    const query = `
+      SELECT TOP 1 
+        LTRIM(RTRIM(razemp)) as razonSocial,
+        LTRIM(RTRIM(nitemp)) as nit,
+        LTRIM(RTRIM(diremp)) as direccion,
+        LTRIM(RTRIM(telemp)) as telefono,
+        LTRIM(RTRIM(email)) as email,
+        LTRIM(RTRIM(Ciuemp)) as ciudad,
+        LTRIM(RTRIM(DPTOEMP)) as departamento,
+        LTRIM(RTRIM(Slogan)) as slogan,
+        LTRIM(RTRIM(IMGLOGOEXT)) as logoExt,
+        LTRIM(RTRIM(regimen_empresa)) as regimen
+      FROM gen_empresa
+    `;
+    const result = await executeQuery(query);
+    const empresa = result[0] || null;
+    
+    // Si hay empresa, forzar la carga del logo solicitado por el usuario como base64
+    if (empresa) {
+      try {
+          const logoPath = path.join(__dirname, '../public/assets/images.png');
+
+          if (fs.existsSync(logoPath)) {
+              const bitmap = fs.readFileSync(logoPath);
+              const extension = path.extname(logoPath).replace('.', '') || 'png';
+              const base64Logo = `data:image/${extension};base64,${bitmap.toString('base64')}`;
+              
+              empresa.logoBase64 = base64Logo;
+              empresa.logoExt = base64Logo; 
+              console.log('✅ Logo cargado exitosamente como Base64');
+          } else {
+              console.warn('⚠️ Logo no encontrado en:', logoPath);
+          }
+      } catch (err) {
+          console.warn('⚠️ Error procesando el logo:', err.message);
+      }
+    }
+    
+    res.json({ success: true, data: empresa });
+  } catch (error) {
+    console.error('Error fetching empresa:', error);
+    res.status(500).json({ success: false, message: 'Error obteniendo datos de la empresa', error: error.message });
   }
 };
 
@@ -112,5 +161,5 @@ module.exports = {
   getCiudades,
   executeCustomQuery,
   getHealth,
-
+  getEmpresa
 };

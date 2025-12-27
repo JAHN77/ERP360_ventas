@@ -69,19 +69,29 @@ const NuevaCotizacionPage: React.FC = () => {
                     const sortedQuotes = [...response.data].sort((a: any, b: any) => b.id - a.id);
                     const lastQuote = sortedQuotes[0];
                     if (lastQuote && lastQuote.numeroCotizacion) {
-                        const parts = lastQuote.numeroCotizacion.split('-');
-                        if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
-                            const nextNum = parseInt(parts[1]) + 1;
-                            setNextQuoteNumber(`C-${String(nextNum).padStart(6, '0')}`);
+                        // Extraer solo la parte numérica, descartando cualquier prefijo (ej: C-000001 -> 000001)
+                        const quoteNum = lastQuote.numeroCotizacion;
+                        let lastNum = 0;
+
+                        if (quoteNum.includes('-')) {
+                            const parts = quoteNum.split('-');
+                            lastNum = parseInt(parts[parts.length - 1], 10);
+                        } else {
+                            lastNum = parseInt(quoteNum, 10);
+                        }
+
+                        if (!isNaN(lastNum)) {
+                            const nextNum = lastNum + 1;
+                            setNextQuoteNumber(String(nextNum).padStart(6, '0'));
                             return;
                         }
                     }
                 }
                 // Fallback if no quotes exist or format doesn't match
-                setNextQuoteNumber('C-000001');
+                setNextQuoteNumber('000001');
             } catch (error) {
                 console.error("Error fetching next quote number", error);
-                setNextQuoteNumber('C-??????');
+                setNextQuoteNumber('??????');
             }
         };
 
@@ -338,8 +348,8 @@ const NuevaCotizacionPage: React.FC = () => {
                 <div>
                     <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
                         {isEditing
-                            ? `Editar Cotización: ${initialData?.numeroCotizacion || ''}`
-                            : `Crear Nueva Cotización ${nextQuoteNumber ? `#${nextQuoteNumber}` : ''}`}
+                            ? `Editar Cotización: ${(initialData?.numeroCotizacion || '').replace('C-', '')}`
+                            : `Crear Nueva Cotización ${nextQuoteNumber ? `#${nextQuoteNumber.replace('C-', '')}` : ''}`}
                     </h1>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-1">
                         <p className="text-slate-500 dark:text-slate-400">
@@ -393,7 +403,7 @@ const NuevaCotizacionPage: React.FC = () => {
                             setPreviewCliente(null);
                             setPreviewVendedor(null);
                         }}
-                        title={`Previsualizar Cotización: ${isEditing ? quoteToPreview.numeroCotizacion : 'NUEVA'}`}
+                        title={`Previsualizar Cotización: ${isEditing ? quoteToPreview.numeroCotizacion.replace('C-', '') : 'NUEVA'}`}
                         onConfirm={handleCreateAndApprove}
                         onEdit={() => {
                             setQuoteToPreview(null);
@@ -440,8 +450,8 @@ const NuevaCotizacionPage: React.FC = () => {
                         title="¡Aprobación Exitosa!"
                         message={
                             <>
-                                La cotización <strong>{cotizacion.numeroCotizacion}</strong> ha sido aprobada.
-                                Se ha generado el Pedido <strong>{pedido.numeroPedido}</strong>.
+                                La cotización <strong>{cotizacion.numeroCotizacion.replace('C-', '')}</strong> ha sido aprobada.
+                                Se ha generado el Pedido <strong>{pedido.numeroPedido.replace('P-', '')}</strong>.
                             </>
                         }
                         summaryTitle="Resumen del Pedido Creado"
@@ -490,12 +500,12 @@ const NuevaCotizacionPage: React.FC = () => {
                         title="¡Cotización Guardada!"
                         message={
                             <>
-                                La cotización <strong>{cotizacion.numeroCotizacion}</strong> ha sido guardada y enviada a aprobación.
+                                La cotización <strong>{cotizacion.numeroCotizacion.replace('C-', '')}</strong> ha sido guardada y enviada a aprobación.
                             </>
                         }
                         summaryTitle="Resumen de la Cotización"
                         summaryDetails={[
-                            { label: 'Número', value: cotizacion.numeroCotizacion },
+                            { label: 'Número', value: cotizacion.numeroCotizacion.replace('C-', '') },
                             { label: 'Fecha', value: formatDateOnly(cotizacion.fechaCotizacion) },
                             { label: 'Válida hasta', value: formatDateOnly(cotizacion.fechaVencimiento) },
                             { label: 'Cliente', value: cliente.nombreCompleto || cliente.razonSocial || 'N/A' },

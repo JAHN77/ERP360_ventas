@@ -91,7 +91,7 @@ const HistorialConteosFisicosPage: React.FC = () => {
                 action={
                     <button
                         onClick={handleNuevoConteo}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm"
+                        className="inline-flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm"
                     >
                         <span>+</span>
                         Nuevo Conteo Físico

@@ -259,7 +259,7 @@ const ClientesPage: React.FC = () => {
           id="typeFilter"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="Todos">Todos los Tipos</option>
           {tiposPersona.map(tp => <option key={tp.id} value={tp.id}>{tp.nombre}</option>)}
@@ -271,7 +271,7 @@ const ClientesPage: React.FC = () => {
           id="paymentFilter"
           value={paymentFilter}
           onChange={(e) => setPaymentFilter(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="Todos">Todas las Condic.</option>
           <option value="0">Contado</option>
@@ -300,7 +300,7 @@ const ClientesPage: React.FC = () => {
       */}
 
       <Card className="shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+        <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}

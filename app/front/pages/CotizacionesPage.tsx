@@ -250,6 +250,9 @@ const CotizacionesPage: React.FC = () => {
           message: `Cotización ${finalApprovedQuote?.numeroCotizacion || cotizacion.numeroCotizacion} aprobada exitosamente. Pedido creado.`,
           type: 'success'
         });
+
+        // La previsualización se mantiene abierta, el usuario puede ahora enviar el correo manualmente
+        // o podríamos forzar la apertura del modal de correo aquí si tuviéramos acceso al estado del componente hijo
       } else {
         // Solo se aprobó la cotización sin crear pedido
         /*
@@ -509,7 +512,9 @@ const CotizacionesPage: React.FC = () => {
         header: 'Número',
         accessor: 'numeroCotizacion',
         cell: (item) => (
-          <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroCotizacion}</span>
+          <span className="font-bold font-mono text-slate-700 dark:text-slate-200">
+            {item.numeroCotizacion.replace('C-', '')}
+          </span>
         )
       },
       {
@@ -596,6 +601,13 @@ const CotizacionesPage: React.FC = () => {
             >
               <i className="fas fa-eye"></i>
             </button>
+            <button
+              onClick={() => setQuoteToPreview(item)}
+              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all duration-200"
+              title="Vista Previa PDF / Enviar"
+            >
+              <i className="fas fa-file-pdf"></i>
+            </button>
             <ProtectedComponent permission="cotizaciones:approve">
               {(item.estado === 'ENVIADA' || item.estado === 'BORRADOR') && (
                 <button
@@ -650,7 +662,7 @@ const CotizacionesPage: React.FC = () => {
           id="statusFilter"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {filterOptions.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -668,7 +680,7 @@ const CotizacionesPage: React.FC = () => {
       />
 
       <Card className="shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+        <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
@@ -830,12 +842,18 @@ const CotizacionesPage: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Teléfono</p>
-                      <p className="font-medium text-slate-700 dark:text-slate-300">{clientes.find(c => c.id === selectedCotizacion.clienteId)?.telter || 'N/A'}</p>
+                      <p className="font-medium text-slate-700 dark:text-slate-300">
+                        {(selectedCotizacion as any).clienteTelefono ||
+                          (selectedCotizacion as any).clienteCelular ||
+                          clientes.find(c => c.id === selectedCotizacion.clienteId)?.telter ||
+                          clientes.find(c => c.id === selectedCotizacion.clienteId)?.celter ||
+                          'N/A'}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Email</p>
-                      <p className="font-medium text-slate-700 dark:text-slate-300 truncate" title={clientes.find(c => c.id === selectedCotizacion.clienteId)?.email || ''}>
-                        {clientes.find(c => c.id === selectedCotizacion.clienteId)?.email || 'N/A'}
+                      <p className="font-medium text-slate-700 dark:text-slate-300 truncate" title={(selectedCotizacion as any).clienteEmail || clientes.find(c => c.id === selectedCotizacion.clienteId)?.email || ''}>
+                        {(selectedCotizacion as any).clienteEmail || clientes.find(c => c.id === selectedCotizacion.clienteId)?.email || 'N/A'}
                       </p>
                     </div>
                   </div>
@@ -931,7 +949,7 @@ const CotizacionesPage: React.FC = () => {
                       const itemTotal = itemSubtotal + itemIva;
 
                       return (
-                        <tr key={index} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                        <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                           {['ENVIADA', 'BORRADOR'].includes(selectedCotizacion.estado) && (
                             <td className="px-4 py-3">
                               <input
@@ -1094,7 +1112,7 @@ const CotizacionesPage: React.FC = () => {
             <DocumentPreviewModal
               isOpen={!!quoteToPreview}
               onClose={() => setQuoteToPreview(null)}
-              title={`Previsualizar Cotización: ${quoteToPreview.numeroCotizacion}`}
+              title={`Previsualizar Cotización: ${quoteToPreview.numeroCotizacion?.replace('C-', '')}`}
               onConfirm={() => executeApproval(quoteToPreview, quoteToPreview.items.map(i => i.productoId))}
               isConfirming={isApproving}
               onEdit={() => {
@@ -1106,7 +1124,9 @@ const CotizacionesPage: React.FC = () => {
               documentType="cotizacion"
               clientEmail={cliente.email}
               clientName={cliente.nombreCompleto}
+              documentId={quoteToPreview.id}
             >
+
               <CotizacionPDFDocument
                 cotizacion={quoteToPreview}
                 cliente={cliente}

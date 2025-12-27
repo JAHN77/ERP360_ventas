@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const os = require('os');
@@ -105,6 +106,8 @@ if (compression) {
 }
 
 app.use(express.json({ limit: '5mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
 // Middleware de logging mejorado - CAPTURAR TODAS LAS PETICIONES
 app.use((req, res, next) => {
@@ -322,6 +325,7 @@ app.use('/api', creditNoteRoutes);
 app.use('/api', remissionRoutes); 
 app.use('/api/inventario', inventoryRoutes);
 app.use('/api/categorias', require('./routes/categoryRoutes')); // Registration of category routes
+app.use('/api/medidas', require('./routes/measureRoutes')); // Registration of measure routes
 app.use('/api', require('./routes/commonRoutes')); // Phase 6
 
 // Manejo de rutas no encontradas

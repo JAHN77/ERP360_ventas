@@ -884,7 +884,7 @@ const RemisionesPage: React.FC = () => {
         await loadRemisiones();
 
         addNotification({
-          message: `✅ Remisión ${updatedRemision.numeroRemision} marcada como Entregada. Ahora puede ser facturada.`,
+          message: `✅ Remisión ${updatedRemision.numeroRemision.replace('REM-', '')} marcada como Entregada. Ahora puede ser facturada.`,
           type: 'success',
           link: { page: 'facturacion_electronica' }
         });
@@ -998,7 +998,7 @@ const RemisionesPage: React.FC = () => {
       header: 'Pedido Origen',
       accessor: 'pedido',
       cell: ({ pedido }) => (
-        <span className="font-bold text-slate-700 dark:text-slate-200">{pedido.numeroPedido}</span>
+        <span className="font-bold text-slate-700 dark:text-slate-200">{pedido.numeroPedido.replace('PED-', '')}</span>
       )
     },
     {
@@ -1051,7 +1051,7 @@ const RemisionesPage: React.FC = () => {
                           onClick={() => handleAprobarEntrega(remision.id)}
                           disabled={isDelivering === remision.id}
                           className="p-2 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-lg transition-all duration-200 disabled:opacity-50"
-                          title={`Marcar entrega ${remision.numeroRemision}`}
+                          title={`Marcar entrega ${remision.numeroRemision.replace('REM-', '')}`}
                         >
                           {isDelivering === remision.id ? (
                             <i className="fas fa-spinner fa-spin"></i>
@@ -1083,7 +1083,7 @@ const RemisionesPage: React.FC = () => {
       header: 'Número Pedido',
       accessor: 'numeroPedido',
       cell: (item) => (
-        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroPedido}</span>
+        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroPedido.replace('PED-', '')}</span>
       )
     },
     {
@@ -1133,7 +1133,7 @@ const RemisionesPage: React.FC = () => {
           id="statusFilter"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {groupFilterOptions.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -1173,7 +1173,7 @@ const RemisionesPage: React.FC = () => {
             </div>
           </CardHeader>
 
-          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+          <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
             <TableToolbar searchTerm={pedidosTable.searchTerm} onSearchChange={pedidosTable.handleSearch} placeholder="Buscar pedido..." />
           </div>
 
@@ -1209,7 +1209,7 @@ const RemisionesPage: React.FC = () => {
             </div>
           </CardHeader>
 
-          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+          <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
             <TableToolbar
               searchTerm={searchTerm}
               onSearchChange={handleSearch}
@@ -1256,7 +1256,7 @@ const RemisionesPage: React.FC = () => {
         <Modal
           isOpen={isDetailModalOpen}
           onClose={handleCloseModals}
-          title={`Detalle de Entregas: ${selectedGroup.pedido.numeroPedido}`}
+          title={`Detalle de Entregas: ${selectedGroup.pedido.numeroPedido.replace('PED-', '')}`}
           size="4xl"
         >
           <div className="space-y-8 p-1">
@@ -1280,7 +1280,7 @@ const RemisionesPage: React.FC = () => {
                 <div className="space-y-4 relative z-10">
                   <div className="flex justify-between items-end border-b border-dashed border-slate-200 dark:border-slate-700 pb-3">
                     <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">Número de Pedido</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-100 text-xl font-mono tracking-tight">{selectedGroup.pedido.numeroPedido}</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-xl font-mono tracking-tight">{selectedGroup.pedido.numeroPedido.replace('PED-', '')}</span>
                   </div>
                   <div className="flex justify-between items-center py-1">
                     <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">ID Interno</span>
@@ -1378,7 +1378,7 @@ const RemisionesPage: React.FC = () => {
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2">
                               <h5 className="font-bold text-lg text-slate-800 dark:text-slate-100 font-mono tracking-tight">
-                                {remision.numeroRemision}
+                                {remision.numeroRemision.replace('REM-', '')}
                               </h5>
                               <StatusBadge status={remision.estado as any} />
                             </div>

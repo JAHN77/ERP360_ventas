@@ -12,7 +12,7 @@ import {
     fetchCotizaciones, fetchCotizacionesDetalle, fetchPedidos, fetchPedidosDetalle,
     fetchRemisiones, fetchRemisionesDetalle, fetchNotasCredito, fetchMedidas, fetchCategorias,
     testApiConnection, fetchVendedores, apiCreateCliente, fetchBodegas, apiCreateNotaCredito,
-    apiRegisterInventoryEntry, fetchCiudades
+    apiRegisterInventoryEntry, fetchCiudades, fetchEmpresa, BACKEND_URL
 } from '../services/apiClient';
 import { generarRemisionPDFenBlob, generarFacturaPDFenBlob } from '../utils/pdfGenerator';
 import { defaultPreferences } from '../hooks/useDocumentPreferences';
@@ -120,6 +120,9 @@ interface DataContextType {
     timbrarFactura: (facturaId: string) => Promise<Factura | undefined>;
     refreshFacturasYRemisiones: () => Promise<void>;
     motivosDevolucion: string[];
+    // Firma temporal
+    firmaVendedor: string | null;
+    setFirmaVendedor: (firma: string | null) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -170,6 +173,24 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     // Activity log
     const [activityLog, setActivityLog] = useState<ActivityLog[]>(initialActivityLog);
+
+    // Firma temporal (no persistente en DB por ahora)
+    const [firmaVendedor, setFirmaVendedor] = useState<string | null>(null);
+
+    // Company data state
+    const [datosEmpresa, setDatosEmpresa] = useState<any>({
+        id: 1,
+        nombre: 'MULTIACABADOS',
+        nit: '900.123.456-7',
+        direccion: 'Avenida Siempre Viva 123',
+        ciudad: 'Bogotá D.C.',
+        telefono: '601-555-1234',
+        email: 'ventas@multiacabados.com',
+        resolucionDian: 'Res. DIAN No. 18760000001 de 2023-01-01',
+        rangoNumeracion: 'FC-1 al FC-1000',
+        regimen: 'Responsable de IVA',
+        logoExt: `${BACKEND_URL}/assets/images.png`
+    });
 
     // Phase 1: Load essential catalogs first
     // PRIORIDAD: Esperar a que las bodegas se carguen primero en AuthContext antes de cargar otros datos
@@ -336,6 +357,36 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     setVendedores(processedVendedores as any);
                 } else {
                     setVendedores([]);
+                }
+
+                // PRIORIDAD 3: Cargar datos de la empresa
+                try {
+                    const empresaResp = await fetchEmpresa();
+                    if (empresaResp.success && empresaResp.data) {
+                        const e = empresaResp.data as any;
+                        setDatosEmpresa({
+                            id: 1,
+                            nombre: e.razonSocial || 'MULTIACABADOS',
+                            nit: e.nit || '900.123.456-7',
+                            direccion: e.direccion || 'Avenida Siempre Viva 123',
+                            ciudad: e.ciudad || 'Bogotá D.C.',
+                            telefono: e.telefono || '601-555-1234',
+                            email: e.email || 'ventas@multiacabados.com',
+                            slogan: e.slogan,
+                            departamento: e.departamento,
+                            regimen: e.regimen || 'Responsable de IVA',
+                            resolucionDian: 'Res. DIAN No. 18760000001 de 2023-01-01',
+                            rangoNumeracion: 'FC-1 al FC-1000',
+                            logoExt: e.logoExt ? (
+                                e.logoExt.startsWith('http') || e.logoExt.startsWith('data:')
+                                    ? e.logoExt
+                                    : `${BACKEND_URL}/${e.logoExt.startsWith('/') ? e.logoExt.substring(1) : e.logoExt}`
+                            ) : `${BACKEND_URL}/assets/images.png`
+                        });
+                        logger.log({ prefix: 'DataContext' }, '✅ Datos de la empresa cargados desde BD');
+                    }
+                } catch (empresaError) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando datos de la empresa:', empresaError);
                 }
 
                 setTransportadoras([]);
@@ -1788,18 +1839,6 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             throw e;
         }
     }, [refreshData]);
-
-    const datosEmpresa = useMemo(() => ({
-        id: 1,
-        nombre: 'MULTIACABADOS',
-        nit: '900.123.456-7',
-        direccion: 'Avenida Siempre Viva 123',
-        ciudad: 'Bogotá D.C.',
-        telefono: '601-555-1234',
-        resolucionDian: 'Res. DIAN No. 18760000001 de 2023-01-01',
-        rangoNumeracion: 'FC-1 al FC-1000',
-        regimen: 'Responsable de IVA'
-    }), []);
 
     const getCotizacionById = useCallback((id: string) => cotizaciones.find(c => c.id === id), [cotizaciones]);
 
@@ -3739,7 +3778,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         timbrarFactura,
         refreshFacturasYRemisiones,
         motivosDevolucion,
-        getProductoById
+        getProductoById,
+        firmaVendedor,
+        setFirmaVendedor
     }), [
         isLoading,
         isMainDataLoaded,
@@ -3789,7 +3830,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         crearNotaCredito,
         crearFacturaDesdeRemisiones,
         timbrarFactura,
-        refreshFacturasYRemisiones
+        refreshFacturasYRemisiones,
+        firmaVendedor,
+        setFirmaVendedor
     ]);
 
     return (

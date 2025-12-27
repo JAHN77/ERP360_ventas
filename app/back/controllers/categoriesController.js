@@ -201,6 +201,24 @@ const categoriesController = {
       console.error('Error deleting subline:', error);
       res.status(500).json({ success: false, message: 'Error eliminando sublínea', error: error.message });
     }
+  },
+
+  getAllCategories: async (req, res) => {
+    try {
+      const result = await executeQuery(`
+        SELECT 
+          codline as [id],
+          codline as [codigo],
+          RTRIM(nomline) as [nombre]
+        FROM inv_lineas
+        WHERE estado = 1
+        ORDER BY nomline
+      `);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      res.status(500).json({ success: false, message: 'Error obteniendo categorías', error: error.message });
+    }
   }
 };
 

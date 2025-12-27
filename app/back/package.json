@@ -9,12 +9,14 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-
+    "@react-pdf/renderer": "^4.3.1",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "mssql": "^12.1.0"
-
+    "mssql": "^12.1.0",
+    "nodemailer": "^7.0.12",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
   }
 }

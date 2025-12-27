@@ -27,5 +27,7 @@ router.get('/cotizaciones', quoteController.getAllQuotes);
 router.get('/cotizaciones-detalle', quoteController.getQuoteDetails);
 router.post('/cotizaciones', quoteController.createQuote);
 router.put('/cotizaciones/:id', quoteController.updateQuote);
+router.post('/cotizaciones/:id/send-email', quoteController.sendQuoteEmail);
 
 module.exports = router;
+

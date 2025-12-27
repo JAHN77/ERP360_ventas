@@ -213,7 +213,7 @@ const OrdenesCompraPage: React.FC = () => {
             />
 
             <Card className="shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+                <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
                     <TableToolbar
                         searchTerm={searchTerm}
                         onSearchChange={(e) => {

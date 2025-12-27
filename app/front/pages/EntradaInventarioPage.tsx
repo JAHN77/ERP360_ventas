@@ -557,7 +557,7 @@ const EntradaInventarioPage: React.FC = () => {
                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Orden de Compra</label>
                             <div className="flex items-center gap-2">
                                 <input
-                                    className="w-full px-3 py-2 border border-yellow-300 dark:border-yellow-700 rounded text-sm bg-yellow-50 dark:bg-yellow-900/10 text-slate-900 dark:text-white focus:ring-2 focus:ring-yellow-500 outline-none"
+                                    className="w-full px-3 py-1.5 border border-yellow-300 dark:border-yellow-700 rounded text-sm bg-yellow-50 dark:bg-yellow-900/10 text-slate-900 dark:text-white focus:ring-2 focus:ring-yellow-500 outline-none"
                                     value={ocNumber}
                                     onChange={e => setOcNumber(e.target.value)}
                                     onBlur={handleOcBlur}
@@ -577,15 +577,15 @@ const EntradaInventarioPage: React.FC = () => {
                         </div>
                         <div className="flex flex-col gap-1">
                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Fecha O.C.</label>
-                            <input type="date" className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded text-sm bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300" value={ocDate} readOnly />
+                            <input type="date" className="w-full px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded text-sm bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300" value={ocDate} readOnly />
                         </div>
                         <div className="flex flex-col gap-1">
                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">No. Remisión</label>
-                            <input className="w-full px-3 py-2 border border-blue-300 dark:border-blue-700 rounded text-sm bg-blue-50 dark:bg-blue-900/10 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" value={remissionNumber} onChange={e => setRemissionNumber(e.target.value)} placeholder="Ej: REM-001" />
+                            <input className="w-full px-3 py-1.5 border border-blue-300 dark:border-blue-700 rounded text-sm bg-blue-50 dark:bg-blue-900/10 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" value={remissionNumber} onChange={e => setRemissionNumber(e.target.value)} placeholder="Ej: REM-001" />
                         </div>
                         <div className="flex flex-col gap-1">
                             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Fecha Remisión</label>
-                            <input type="date" className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value={remissionDate} onChange={e => setRemissionDate(e.target.value)} />
+                            <input type="date" className="w-full px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value={remissionDate} onChange={e => setRemissionDate(e.target.value)} />
                         </div>
                     </div>
                 </CardHeader>
@@ -714,7 +714,7 @@ const EntradaInventarioPage: React.FC = () => {
                         <button
                             onClick={handleProcess}
                             disabled={isProcessing || items.length === 0}
-                            className={`flex items-center gap-2 px-8 py-3 rounded-lg font-bold text-white shadow-lg transition-all transform hover:-translate-y-0.5
+                            className={`flex items-center gap-2 px-8 py-2 rounded-lg font-bold text-white shadow-lg transition-all transform hover:-translate-y-0.5
                                 ${isProcessing || items.length === 0
                                     ? 'bg-slate-400 dark:bg-slate-700 cursor-not-allowed shadow-none'
                                     : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-blue-500/30'}

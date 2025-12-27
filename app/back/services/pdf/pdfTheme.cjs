@@ -1,6 +1,6 @@
-import { StyleSheet } from '@react-pdf/renderer';
+const { StyleSheet } = require('@react-pdf/renderer');
 
-export const pdfStyles = StyleSheet.create({
+const pdfStyles = StyleSheet.create({
     page: {
         padding: 40,
         fontFamily: 'Helvetica',
@@ -20,51 +20,33 @@ export const pdfStyles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'flex-start',
     },
-    logoPlaceholder: {
+    logo: {
         width: 60,
         height: 60,
-        backgroundColor: '#f1f5f9',
         marginRight: 10,
-        borderRadius: 4,
-    },
-    logo: {
-        width: 85,
-        height: 60,
         objectFit: 'contain',
     },
     companyInfo: {
         marginLeft: 10,
     },
     companyName: {
-        fontSize: 16,
-        fontWeight: 'extrabold',
+        fontSize: 14,
+        fontWeight: 'bold',
         textTransform: 'uppercase',
-        color: '#1e293b', // slate-800
-        marginBottom: 2,
-        letterSpacing: 0.5,
+        color: '#0f172a', // slate-900
+        marginBottom: 4,
     },
     companyDetails: {
-        fontSize: 6.5,
-        color: '#475569', // slate-600
-        marginBottom: 1,
-        lineHeight: 1.1,
-    },
-    companyAddress: {
-        fontSize: 7,
-        color: '#475569',
-        width: 180, // Defined space for address
-        lineHeight: 1.2,
-    },
-    companyDetailLabel: {
-        fontWeight: 'bold',
-        color: '#64748b',
+        fontSize: 9,
+        color: '#64748b', // slate-500
+        marginBottom: 2,
     },
     documentTitleSection: {
         alignItems: 'flex-end',
     },
     documentBadge: {
         backgroundColor: '#fef2f2', // red-50
-        borderColor: '#fee2e2', // red-100 (Default, can be overridden)
+        borderColor: '#fee2e2', // red-100
         borderWidth: 1,
         borderRadius: 4,
         paddingVertical: 4,
@@ -72,9 +54,9 @@ export const pdfStyles = StyleSheet.create({
         marginBottom: 4,
     },
     documentTitle: {
-        color: '#b91c1c', // red-700 (Default)
+        color: '#b91c1c', // red-700
         fontSize: 12,
-        fontWeight: 'heavy',
+        fontWeight: 'extrabold',
         textTransform: 'uppercase',
     },
     documentNumber: {
@@ -112,9 +94,6 @@ export const pdfStyles = StyleSheet.create({
         borderTopLeftRadius: 5,
         borderBottomRightRadius: 5,
     },
-    cardLabelSecondary: {
-        backgroundColor: '#475569', // slate-600
-    },
     cardContent: {
         marginTop: 15,
     },
@@ -146,8 +125,6 @@ export const pdfStyles = StyleSheet.create({
     // Table
     tableContainer: {
         borderRadius: 6,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
         overflow: 'hidden',
         marginBottom: 20,
     },
@@ -165,7 +142,7 @@ export const pdfStyles = StyleSheet.create({
         paddingVertical: 6,
     },
 
-    // Column Utilities - Optimized widths to prevent text wrapping
+    // Column Utilities
     colCode: { width: '11%', paddingHorizontal: 2 },
     colDesc: { width: '39%', paddingHorizontal: 2 },
     colQty: { width: '10%', paddingHorizontal: 2, textAlign: 'right' },
@@ -262,11 +239,13 @@ export const pdfStyles = StyleSheet.create({
         fontSize: 8,
         color: '#94a3b8',
     },
-
-    // Text colors
-    textRed: { color: '#ef4444' }
 });
 
-export const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+const formatCurrency = (value) => {
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value || 0);
+};
+
+module.exports = {
+    pdfStyles,
+    formatCurrency
 };

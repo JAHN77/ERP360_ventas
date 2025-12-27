@@ -520,7 +520,7 @@ const FacturasPage: React.FC = () => {
         await refreshFacturasYRemisiones();
 
         addNotification({
-          message: `✅ Factura BORRADOR ${nuevaFactura.numeroFactura} generada exitosamente. Las remisiones fueron eliminadas de "Remisiones Entregadas por Facturar" y la factura aparece en el historial. Revise y timbre para finalizar.`,
+          message: `✅ Factura BORRADOR ${nuevaFactura.numeroFactura.replace('FAC-', '')} generada exitosamente. Las remisiones fueron eliminadas de "Remisiones Entregadas por Facturar" y la factura aparece en el historial. Revise y timbre para finalizar.`,
           type: 'success'
         });
         handleOpenDetailModal(nuevaFactura);
@@ -557,19 +557,19 @@ const FacturasPage: React.FC = () => {
         if (facturaTimbrada.estado === 'ENVIADA' && facturaTimbrada.cufe) {
           await refreshFacturasYRemisiones();
           addNotification({
-            message: `✅ Factura ${facturaTimbrada.numeroFactura} timbrada exitosamente.`,
+            message: `✅ Factura ${facturaTimbrada.numeroFactura.replace('FAC-', '')} timbrada exitosamente.`,
             type: 'success'
           });
           setFacturaToPreview(null);
           handleCloseModals();
         } else if (facturaTimbrada.estado === 'RECHAZADA') {
           addNotification({
-            message: `❌ Factura ${facturaTimbrada.numeroFactura} fue rechazada.`,
+            message: `❌ Factura ${facturaTimbrada.numeroFactura.replace('FAC-', '')} fue rechazada.`,
             type: 'warning'
           });
         } else {
           addNotification({
-            message: `✅ Factura ${facturaTimbrada.numeroFactura} timbrada con éxito.`,
+            message: `✅ Factura ${facturaTimbrada.numeroFactura.replace('FAC-', '')} timbrada con éxito.`,
             type: 'success'
           });
           setFacturaToPreview(null);
@@ -789,7 +789,7 @@ const FacturasPage: React.FC = () => {
         handleCloseModals();
 
         addNotification({
-          message: `✅ Nueva factura BORRADOR ${nuevaFactura.numeroFactura} creada desde la factura rechazada. Revise y timbre para finalizar.`,
+          message: `✅ Nueva factura BORRADOR ${nuevaFactura.numeroFactura.replace('FAC-', '')} creada desde la factura rechazada. Revise y timbre para finalizar.`,
           type: 'success'
         });
 
@@ -830,7 +830,7 @@ const FacturasPage: React.FC = () => {
     a.download = `${factura.numeroFactura}.xml`;
     a.click();
     URL.revokeObjectURL(url);
-    addNotification({ message: `XML de ${factura.numeroFactura} descargado.`, type: 'info' });
+    addNotification({ message: `XML de ${factura.numeroFactura.replace('FAC-', '')} descargado.`, type: 'info' });
   };
 
   const handleDescargarAdjunto = async (facturaId: string) => {
@@ -849,10 +849,17 @@ const FacturasPage: React.FC = () => {
     setFacturaToEmail(factura);
   };
 
-  const handleConfirmSendEmail = (emailData: { to: string }) => {
+  const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
     if (!facturaToEmail) return;
+
+    const subjectEncoded = encodeURIComponent(emailData.subject);
+    const bodyEncoded = encodeURIComponent(emailData.body);
+    const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+
+    window.location.href = mailtoLink;
+
     addNotification({
-      message: `Se ha abierto tu cliente de correo para enviar la factura ${facturaToEmail.numeroFactura} a ${emailData.to}.`,
+      message: `Se ha abierto tu cliente de correo para enviar la factura ${facturaToEmail.numeroFactura.replace('FAC-', '')} a ${emailData.to}.`,
       type: 'success',
     });
     setFacturaToEmail(null);
@@ -920,7 +927,7 @@ const FacturasPage: React.FC = () => {
             onClick={() => handlePreviewRemision(item)}
             className="font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 text-left transition-colors"
           >
-            {item.numeroRemision}
+            {item.numeroRemision.replace('REM-', '')}
           </button>
           <span className="text-xs text-slate-500">{formatDateOnly(item.fechaRemision)}</span>
         </div>
@@ -933,7 +940,7 @@ const FacturasPage: React.FC = () => {
         const pedido = pedidos.find(p => p.id === item.pedidoId);
         return pedido ? (
           <span className="font-mono text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-            {pedido.numeroPedido}
+            {pedido.numeroPedido.replace('PED-', '')}
           </span>
         ) : <span className="text-slate-400 italic text-xs">N/A</span>;
       }
@@ -1022,7 +1029,7 @@ const FacturasPage: React.FC = () => {
       accessor: 'numeroFactura',
       cell: (item) => (
         <div className="flex flex-col">
-          <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroFactura}</span>
+          <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroFactura.replace('FAC-', '')}</span>
           {item.documentoContable && (
             <span className="text-[10px] text-slate-400 font-mono">{item.documentoContable}</span>
           )}
@@ -1157,7 +1164,7 @@ const FacturasPage: React.FC = () => {
           id="statusFilter"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="appearance-none pl-3 pr-8 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700"
+          className="appearance-none pl-3 pr-8 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700"
         >
           {filterOptions.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -1199,7 +1206,7 @@ const FacturasPage: React.FC = () => {
                   onClick={handleFacturar}
                   disabled={selectedRemisiones.size === 0 || isFacturando}
                   className={`
-                    relative overflow-hidden group px-6 py-2.5 rounded-xl font-medium text-sm transition-all duration-300
+                    relative overflow-hidden group px-6 py-2 rounded-xl font-medium text-sm transition-all duration-300
                     ${selectedRemisiones.size > 0 && !isFacturando
                       ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 hover:bg-blue-700 hover:shadow-blue-600/40 hover:-translate-y-0.5'
                       : 'bg-slate-100 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-600'}
@@ -1255,7 +1262,7 @@ const FacturasPage: React.FC = () => {
             </div>
           </CardHeader>
 
-          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+          <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
             <TableToolbar
               searchTerm={searchTermInvoices}
               onSearchChange={handleSearchInvoices}
@@ -1296,7 +1303,7 @@ const FacturasPage: React.FC = () => {
         <Modal
           isOpen={isDetailModalOpen}
           onClose={handleCloseModals}
-          title={`Detalle Factura: ${selectedFactura.numeroFactura}`}
+          title={`Detalle Factura: ${selectedFactura.numeroFactura.replace('FAC-', '')}`}
           size="3xl"
         >
           <div className="space-y-6 text-sm">
@@ -1378,8 +1385,8 @@ const FacturasPage: React.FC = () => {
               <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-700">
                 <h5 className="font-semibold text-slate-800 dark:text-slate-300 mb-2">Documentos Relacionados</h5>
                 <div className="space-y-1">
-                  <p><span className="font-semibold text-slate-600 dark:text-slate-400">Pedido:</span> <span>{pedido?.numeroPedido || 'Venta Directa'}</span></p>
-                  <p><span className="font-semibold text-slate-600 dark:text-slate-400">Remisiones:</span> <span>{remisionesRelacionadas.map(r => r.numeroRemision).join(', ') || 'N/A'}</span></p>
+                  <p><span className="font-semibold text-slate-600 dark:text-slate-400">Pedido:</span> <span>{(pedido?.numeroPedido || 'Venta Directa').replace('PED-', '')}</span></p>
+                  <p><span className="font-semibold text-slate-600 dark:text-slate-400">Remisiones:</span> <span>{remisionesRelacionadas.map(r => r.numeroRemision.replace('REM-', '')).join(', ') || 'N/A'}</span></p>
                 </div>
               </div>
             </div>

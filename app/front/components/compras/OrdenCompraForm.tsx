@@ -675,30 +675,30 @@ const OrdenCompraForm: React.FC<OrdenCompraFormProps> = ({ onSubmit, onCancel, o
                     </div>
                 </div>
 
-                <div className="p-5 bg-[#1e293b] border-b border-slate-700">
+                <div className="p-5 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                     <div className="flex flex-col gap-4">
-                        <Label className="text-slate-400 text-xs uppercase tracking-wider font-bold">Selecciona los Productos</Label>
+                        <Label className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider font-bold">Selecciona los Productos</Label>
                         <div className="grid grid-cols-12 gap-3 items-end">
                             {/* Producto Search */}
                             <div className="col-span-12 xl:col-span-4 relative" ref={searchRef}>
-                                <label className="text-[10px] text-slate-400 font-bold uppercase mb-1.5 block tracking-wide">Nombre del Producto</label>
+                                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase mb-1.5 block tracking-wide">Nombre del Producto</label>
                                 <input
                                     type="text"
                                     value={productSearchTerm}
                                     onChange={e => { setProductSearchTerm(e.target.value); setIsProductDropdownOpen(true); }}
                                     onFocus={() => setIsProductDropdownOpen(true)}
                                     placeholder="Buscar insumo..."
-                                    className="w-full h-10 bg-[#0f172a] border border-slate-700 rounded px-3 text-slate-200 text-sm focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 placeholder-slate-600 transition-all outline-none"
+                                    className="w-full h-10 bg-slate-50 dark:bg-[#0f172a] border border-slate-300 dark:border-slate-700 rounded px-3 text-slate-800 dark:text-slate-200 text-sm focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 placeholder-slate-400 dark:placeholder-slate-600 transition-all outline-none"
                                 />
                                 {isProductDropdownOpen && productResults.length > 0 && (
-                                    <div className="absolute z-50 w-full mt-1 bg-[#1e293b] border border-slate-700 shadow-xl rounded-md max-h-60 overflow-y-auto ring-1 ring-black/5">
+                                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-[#1e293b] border border-slate-200 dark:border-slate-700 shadow-xl rounded-md max-h-60 overflow-y-auto ring-1 ring-black/5">
                                         {productResults.map(p => (
                                             <div
                                                 key={p.id}
-                                                className="px-3 py-2 hover:bg-slate-700/50 cursor-pointer border-b border-slate-700/50 last:border-0 group"
+                                                className="px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer border-b border-slate-100 dark:border-slate-700/50 last:border-0 group"
                                                 onClick={() => handleProductSelect(p)}
                                             >
-                                                <div className="font-medium text-sm text-slate-200 group-hover:text-cyan-400 transition-colors">{p.nombre}</div>
+                                                <div className="font-medium text-sm text-slate-700 dark:text-slate-200 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">{p.nombre}</div>
                                                 <div className="text-xs text-slate-500 flex justify-between mt-0.5">
                                                     <span>Ref: {(p as any).referencia || '-'}</span>
                                                     <span className="font-mono text-slate-400">${(p.costoInventario || p.ultimoCosto || 0).toLocaleString()}</span>
@@ -711,61 +711,61 @@ const OrdenCompraForm: React.FC<OrdenCompraFormProps> = ({ onSubmit, onCancel, o
 
                             {/* Unidad */}
                             <div className="col-span-6 xl:col-span-1">
-                                <label className="text-[10px] text-slate-400 font-bold uppercase mb-1.5 block tracking-wide text-center">Unidad</label>
-                                <div className="h-10 bg-[#0f172a] border border-slate-700 rounded flex items-center justify-center text-slate-300 text-sm font-medium">
+                                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase mb-1.5 block tracking-wide text-center">Unidad</label>
+                                <div className="h-10 bg-slate-50 dark:bg-[#0f172a] border border-slate-300 dark:border-slate-700 rounded flex items-center justify-center text-slate-600 dark:text-slate-300 text-sm font-medium">
                                     {selectedProduct?.unidadMedida || ''}
                                 </div>
                             </div>
 
                             {/* IVA % */}
                             <div className="col-span-6 xl:col-span-1">
-                                <label className="text-[10px] text-slate-400 font-bold uppercase mb-1.5 block tracking-wide text-center">IVA %</label>
-                                <div className="h-10 bg-[#0f172a] border border-slate-700 rounded flex items-center justify-center text-slate-300 text-sm font-medium font-mono">
+                                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase mb-1.5 block tracking-wide text-center">IVA %</label>
+                                <div className="h-10 bg-slate-50 dark:bg-[#0f172a] border border-slate-300 dark:border-slate-700 rounded flex items-center justify-center text-slate-600 dark:text-slate-300 text-sm font-medium font-mono">
                                     {selectedProduct?.tasaIva || 0}
                                 </div>
                             </div>
 
                             {/* Cantidad */}
                             <div className="col-span-6 xl:col-span-1">
-                                <label className="text-[10px] text-slate-400 font-bold uppercase mb-1.5 block tracking-wide text-center">Cantidad</label>
+                                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase mb-1.5 block tracking-wide text-center">Cantidad</label>
                                 <input
                                     type="number"
                                     value={currentQuantity}
                                     onChange={e => setCurrentQuantity(e.target.value)}
-                                    className="w-full h-10 bg-[#0f172a] border border-slate-700 rounded px-3 text-white text-sm text-center font-bold focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
+                                    className="w-full h-10 bg-slate-50 dark:bg-[#0f172a] border border-slate-300 dark:border-slate-700 rounded px-3 text-slate-800 dark:text-white text-sm text-center font-bold focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
                                 />
                             </div>
 
                             {/* Costo Unitario */}
                             <div className="col-span-6 xl:col-span-2">
-                                <label className="text-[10px] text-slate-400 font-bold uppercase mb-1.5 block tracking-wide">Vr. Unitario</label>
+                                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase mb-1.5 block tracking-wide">Vr. Unitario</label>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-2.5 text-slate-500 text-xs">$</span>
+                                    <span className="absolute left-3 top-2.5 text-slate-400 text-xs">$</span>
                                     <input
                                         type="number"
                                         value={currentCost}
                                         onChange={e => setCurrentCost(e.target.value)}
-                                        className="w-full h-10 bg-[#0f172a] border border-slate-700 rounded pl-7 pr-3 text-slate-200 text-sm text-right font-mono focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
+                                        className="w-full h-10 bg-slate-50 dark:bg-[#0f172a] border border-slate-300 dark:border-slate-700 rounded pl-7 pr-3 text-slate-800 dark:text-slate-200 text-sm text-right font-mono focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
                                     />
                                 </div>
                             </div>
 
                             {/* Desc % */}
                             <div className="col-span-6 xl:col-span-1">
-                                <label className="text-[10px] text-slate-400 font-bold uppercase mb-1.5 block tracking-wide text-center">Desc %</label>
+                                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase mb-1.5 block tracking-wide text-center">Desc %</label>
                                 <input
                                     type="number"
                                     value={currentDiscount}
                                     onChange={e => setCurrentDiscount(e.target.value)}
-                                    className="w-full h-10 bg-[#0f172a] border border-slate-700 rounded px-3 text-slate-200 text-sm text-center focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
+                                    className="w-full h-10 bg-slate-50 dark:bg-[#0f172a] border border-slate-300 dark:border-slate-700 rounded px-3 text-slate-800 dark:text-slate-200 text-sm text-center focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
                                 />
                             </div>
 
                             {/* Total Preview */}
                             <div className="col-span-6 xl:col-span-1">
-                                <label className="text-[10px] text-slate-400 font-bold uppercase mb-1.5 block tracking-wide">Vr. Total</label>
+                                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase mb-1.5 block tracking-wide">Vr. Total</label>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-2.5 text-slate-500 text-xs">$</span>
+                                    <span className="absolute left-3 top-2.5 text-slate-400 text-xs">$</span>
                                     <input
                                         type="text"
                                         readOnly
@@ -779,7 +779,7 @@ const OrdenCompraForm: React.FC<OrdenCompraFormProps> = ({ onSubmit, onCancel, o
                                             const tax = (sub - desc) * (ivaPct / 100);
                                             return (sub - desc + tax).toLocaleString('es-CO', { maximumFractionDigits: 0 });
                                         })()}
-                                        className="w-full h-10 bg-[#0f172a] border border-slate-700 rounded pl-7 pr-3 text-cyan-400 text-sm font-bold text-right font-mono focus:outline-none"
+                                        className="w-full h-10 bg-slate-50 dark:bg-[#0f172a] border border-slate-300 dark:border-slate-700 rounded pl-7 pr-3 text-cyan-600 dark:text-cyan-400 text-sm font-bold text-right font-mono focus:outline-none"
                                     />
                                 </div>
                             </div>
@@ -799,27 +799,27 @@ const OrdenCompraForm: React.FC<OrdenCompraFormProps> = ({ onSubmit, onCancel, o
                     </div>
                 </div>
 
-                <div className="overflow-x-auto bg-[#1e293b]">
+                <div className="overflow-x-auto bg-white dark:bg-slate-800">
                     <table className="w-full text-xs text-left border-collapse">
                         <thead>
-                            <tr className="bg-[#2d3a4f] text-slate-300 border-b border-slate-600">
-                                <th className="px-3 py-3 text-center border-r border-slate-600/50 uppercase font-bold tracking-wider w-24">Ref</th>
-                                <th className="px-3 py-3 border-r border-slate-600/50 uppercase font-bold tracking-wider">Nombre Producto</th>
-                                <th className="px-3 py-3 text-center border-r border-slate-600/50 uppercase font-bold tracking-wider w-16">Und</th>
-                                <th className="px-3 py-3 text-center border-r border-slate-600/50 uppercase font-bold tracking-wider w-16">% IVA</th>
-                                <th className="px-3 py-3 text-center border-r border-slate-600/50 uppercase font-bold tracking-wider w-16">Cant</th>
-                                <th className="px-3 py-3 text-right border-r border-slate-600/50 uppercase font-bold tracking-wider w-32">V. Unitario</th>
-                                <th className="px-3 py-3 text-center border-r border-slate-600/50 uppercase font-bold tracking-wider w-16">% Desc</th>
-                                <th className="px-3 py-3 text-right border-r border-slate-600/50 uppercase font-bold tracking-wider w-24">Descuento</th>
-                                <th className="px-3 py-3 text-right border-r border-slate-600/50 uppercase font-bold tracking-wider w-24">Fletes</th>
-                                <th className="px-3 py-3 text-right bg-slate-700/50 uppercase font-bold tracking-wider w-32 text-cyan-400">Total</th>
+                            <tr className="bg-slate-100 dark:bg-[#2d3a4f] text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-600">
+                                <th className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-600/50 uppercase font-bold tracking-wider w-24">Ref</th>
+                                <th className="px-3 py-3 border-r border-slate-200 dark:border-slate-600/50 uppercase font-bold tracking-wider">Nombre Producto</th>
+                                <th className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-600/50 uppercase font-bold tracking-wider w-16">Und</th>
+                                <th className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-600/50 uppercase font-bold tracking-wider w-16">% IVA</th>
+                                <th className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-600/50 uppercase font-bold tracking-wider w-16">Cant</th>
+                                <th className="px-3 py-3 text-right border-r border-slate-200 dark:border-slate-600/50 uppercase font-bold tracking-wider w-32">V. Unitario</th>
+                                <th className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-600/50 uppercase font-bold tracking-wider w-16">% Desc</th>
+                                <th className="px-3 py-3 text-right border-r border-slate-200 dark:border-slate-600/50 uppercase font-bold tracking-wider w-24">Descuento</th>
+                                <th className="px-3 py-3 text-right border-r border-slate-200 dark:border-slate-600/50 uppercase font-bold tracking-wider w-24">Fletes</th>
+                                <th className="px-3 py-3 text-right bg-slate-50 dark:bg-slate-700/50 uppercase font-bold tracking-wider w-32 text-cyan-600 dark:text-cyan-400">Total</th>
                                 <th className="px-2 py-3 text-center w-8"></th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-700/50">
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                             {items.length === 0 ? (
                                 <tr>
-                                    <td colSpan={11} className="px-4 py-12 text-center text-slate-500 italic bg-[#1e293b]">
+                                    <td colSpan={11} className="px-4 py-12 text-center text-slate-500 italic bg-white dark:bg-[#1e293b]">
                                         No hay productos agregados a la lista
                                     </td>
                                 </tr>
@@ -827,21 +827,21 @@ const OrdenCompraForm: React.FC<OrdenCompraFormProps> = ({ onSubmit, onCancel, o
                                 const bruto = item.cantidad * item.precioUnitario;
                                 const descVal = bruto * (item.descuentoPorcentaje / 100);
                                 return (
-                                    <tr key={`${item.productoId}-${idx}`} className="hover:bg-slate-700/30 transition-colors bg-[#1e293b]">
-                                        <td className="px-3 py-3 text-center font-mono text-slate-400 border-r border-slate-700/50 text-[11px]">{(item as any).referencia || '-'}</td>
-                                        <td className="px-3 py-3 font-bold text-slate-200 border-r border-slate-700/50">{item.descripcion}</td>
-                                        <td className="px-3 py-3 text-center text-slate-500 border-r border-slate-700/50 uppercase text-[11px]">{item.unidadMedida}</td>
-                                        <td className="px-3 py-3 text-center text-slate-500 border-r border-slate-700/50">{item.ivaPorcentaje}%</td>
-                                        <td className="px-3 py-3 text-center font-bold text-white border-r border-slate-700/50">{item.cantidad}</td>
-                                        <td className="px-3 py-3 text-right font-mono text-slate-300 border-r border-slate-700/50">${item.precioUnitario.toLocaleString()}</td>
-                                        <td className="px-3 py-3 text-center text-slate-500 border-r border-slate-700/50">{item.descuentoPorcentaje > 0 ? item.descuentoPorcentaje : 0}</td>
-                                        <td className="px-3 py-3 text-right font-mono text-slate-500 border-r border-slate-700/50">${descVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                                        <td className="px-3 py-3 text-right font-mono text-slate-500 border-r border-slate-700/50">$0</td>
-                                        <td className="px-3 py-3 text-right font-bold text-cyan-400 font-mono bg-slate-700/20">${item.total.toLocaleString()}</td>
+                                    <tr key={`${item.productoId}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors bg-white dark:bg-[#1e293b]">
+                                        <td className="px-3 py-3 text-center font-mono text-slate-500 dark:text-slate-400 border-r border-slate-100 dark:border-slate-700/50 text-[11px]">{(item as any).referencia || '-'}</td>
+                                        <td className="px-3 py-3 font-bold text-slate-700 dark:text-slate-200 border-r border-slate-100 dark:border-slate-700/50">{item.descripcion}</td>
+                                        <td className="px-3 py-3 text-center text-slate-500 dark:text-slate-500 border-r border-slate-100 dark:border-slate-700/50 uppercase text-[11px]">{item.unidadMedida}</td>
+                                        <td className="px-3 py-3 text-center text-slate-500 dark:text-slate-500 border-r border-slate-100 dark:border-slate-700/50">{item.ivaPorcentaje}%</td>
+                                        <td className="px-3 py-3 text-center font-bold text-slate-800 dark:text-white border-r border-slate-100 dark:border-slate-700/50">{item.cantidad}</td>
+                                        <td className="px-3 py-3 text-right font-mono text-slate-600 dark:text-slate-300 border-r border-slate-100 dark:border-slate-700/50">${item.precioUnitario.toLocaleString()}</td>
+                                        <td className="px-3 py-3 text-center text-slate-500 dark:text-slate-500 border-r border-slate-100 dark:border-slate-700/50">{item.descuentoPorcentaje > 0 ? item.descuentoPorcentaje : 0}</td>
+                                        <td className="px-3 py-3 text-right font-mono text-slate-500 dark:text-slate-500 border-r border-slate-100 dark:border-slate-700/50">${descVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                        <td className="px-3 py-3 text-right font-mono text-slate-500 dark:text-slate-500 border-r border-slate-100 dark:border-slate-700/50">$0</td>
+                                        <td className="px-3 py-3 text-right font-bold text-cyan-600 dark:text-cyan-400 font-mono bg-slate-50 dark:bg-slate-700/20">${item.total.toLocaleString()}</td>
                                         <td className="px-2 py-3 text-center">
                                             <button
                                                 onClick={() => handleRemoveItem(item.productoId)}
-                                                className="text-slate-500 hover:text-red-400 transition-colors"
+                                                className="text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition-colors"
                                             >
                                                 <i className="fas fa-times"></i>
                                             </button>
@@ -969,72 +969,72 @@ const OrdenCompraForm: React.FC<OrdenCompraFormProps> = ({ onSubmit, onCancel, o
 
                 {/* --- Right: Totales --- */}
                 <div className="xl:col-span-5">
-                    <Card className="overflow-hidden border-0 shadow-xl bg-[#1e293b] text-white ring-1 ring-white/10">
+                    <Card className="overflow-hidden border border-slate-200 dark:border-0 shadow-lg bg-white dark:bg-[#1e293b] text-slate-800 dark:text-white dark:ring-1 dark:ring-white/10">
                         {/* Header */}
-                        <div className="bg-[#0f172a]/50 p-6 border-b border-white/5 text-center">
-                            <h3 className="text-xl font-bold text-sky-400 tracking-tight">Totales de la Compra</h3>
-                            <p className="text-xs text-slate-400 mt-1 uppercase tracking-wide opacity-70">Resumen Financiero</p>
+                        <div className="bg-slate-50 dark:bg-[#0f172a]/50 p-6 border-b border-slate-100 dark:border-white/5 text-center">
+                            <h3 className="text-xl font-bold text-sky-600 dark:text-sky-400 tracking-tight">Totales de la Compra</h3>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wide opacity-70">Resumen Financiero</p>
                         </div>
 
                         <div className="p-6 space-y-5">
                             {/* Base de Compra */}
                             <div className="flex justify-between items-center group">
-                                <span className="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">Base de Compra</span>
-                                <span className="font-mono text-slate-200">{totals.baseCompra.toLocaleString()}</span>
+                                <span className="text-sm text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300 transition-colors">Base de Compra</span>
+                                <span className="font-mono text-slate-700 dark:text-slate-200">{totals.baseCompra.toLocaleString()}</span>
                             </div>
 
                             {/* Ajuste al peso */}
-                            <div className="flex justify-between items-center group border-b border-white/5 pb-4">
-                                <span className="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">Ajuste al peso</span>
-                                <div className="flex items-center gap-2 font-mono text-slate-200">
-                                    <span className="text-slate-600 text-xs">$</span>
+                            <div className="flex justify-between items-center group border-b border-slate-100 dark:border-white/5 pb-4">
+                                <span className="text-sm text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300 transition-colors">Ajuste al peso</span>
+                                <div className="flex items-center gap-2 font-mono text-slate-700 dark:text-slate-200">
+                                    <span className="text-slate-400 dark:text-slate-600 text-xs">$</span>
                                     <span>{totals.ajuste.toLocaleString()}</span>
                                 </div>
                             </div>
 
                             {/* Total Fletes */}
                             <div className="flex justify-between items-center group pt-1">
-                                <span className="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">Total Fletes</span>
-                                <div className="flex items-center gap-2 font-mono text-slate-200">
-                                    <span className="text-slate-600 text-xs">$</span>
+                                <span className="text-sm text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300 transition-colors">Total Fletes</span>
+                                <div className="flex items-center gap-2 font-mono text-slate-700 dark:text-slate-200">
+                                    <span className="text-slate-400 dark:text-slate-600 text-xs">$</span>
                                     <span>{totals.totalFletes.toLocaleString()}</span>
                                 </div>
                             </div>
 
                             {/* Total IVA */}
-                            <div className="flex justify-between items-center group border-b border-white/5 pb-4">
-                                <span className="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">Total IVA</span>
-                                <span className="font-mono text-slate-200">{totals.ivaValor.toLocaleString()}</span>
+                            <div className="flex justify-between items-center group border-b border-slate-100 dark:border-white/5 pb-4">
+                                <span className="text-sm text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300 transition-colors">Total IVA</span>
+                                <span className="font-mono text-slate-700 dark:text-slate-200">{totals.ivaValor.toLocaleString()}</span>
                             </div>
 
                             {/* Total Orden Button */}
                             <div className="pt-2 pb-2">
-                                <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-4 flex justify-between items-center">
-                                    <span className="text-sky-400 font-bold text-sm uppercase tracking-wide">Total Orden</span>
-                                    <span className="text-2xl font-bold text-white font-mono tracking-tight">{totals.total.toLocaleString()}</span>
+                                <div className="bg-sky-50 dark:bg-sky-500/10 border border-sky-100 dark:border-sky-500/20 rounded-xl p-4 flex justify-between items-center">
+                                    <span className="text-sky-600 dark:text-sky-400 font-bold text-sm uppercase tracking-wide">Total Orden</span>
+                                    <span className="text-2xl font-bold text-sky-700 dark:text-white font-mono tracking-tight">{totals.total.toLocaleString()}</span>
                                 </div>
                             </div>
 
                             {/* Retenciones Box */}
-                            <div className="bg-[#0f172a]/30 rounded-lg p-4 space-y-3 border border-white/5">
+                            <div className="bg-slate-50 dark:bg-[#0f172a]/30 rounded-lg p-4 space-y-3 border border-slate-100 dark:border-white/5">
                                 <div className="flex justify-between items-center">
                                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-tight">Retefuente</span>
-                                    <span className="font-mono text-sm text-slate-400">{totals.valRetF.toLocaleString()}</span>
+                                    <span className="font-mono text-sm text-slate-600 dark:text-slate-400">{totals.valRetF.toLocaleString()}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-tight">Rete. ICA</span>
-                                    <span className="font-mono text-sm text-slate-400">{totals.valRetIca.toLocaleString()}</span>
+                                    <span className="font-mono text-sm text-slate-600 dark:text-slate-400">{totals.valRetIca.toLocaleString()}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-tight">Rete. IVA</span>
-                                    <span className="font-mono text-sm text-slate-400">{totals.valRetIva.toLocaleString()}</span>
+                                    <span className="font-mono text-sm text-slate-600 dark:text-slate-400">{totals.valRetIva.toLocaleString()}</span>
                                 </div>
                             </div>
 
                             {/* Total Factura */}
-                            <div className="flex justify-between items-center pt-2 border-t border-white/10 m-0">
-                                <span className="text-sm font-bold text-slate-300 uppercase">Total Factura</span>
-                                <span className="text-lg font-bold text-emerald-400 font-mono">{totals.totalFactura.toLocaleString()}</span>
+                            <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-white/10 m-0">
+                                <span className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase">Total Factura</span>
+                                <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400 font-mono">{totals.totalFactura.toLocaleString()}</span>
                             </div>
 
                             {/* Flags */}
@@ -1045,13 +1045,13 @@ const OrdenCompraForm: React.FC<OrdenCompraFormProps> = ({ onSubmit, onCancel, o
                                             type="checkbox"
                                             checked={retencionCualquierBase}
                                             onChange={e => setRetencionCualquierBase(e.target.checked)}
-                                            className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-600 bg-slate-800 checked:border-sky-500 checked:bg-sky-500 transition-all"
+                                            className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 checked:border-sky-500 checked:bg-sky-500 transition-all"
                                         />
                                         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100">
                                             <i className="fas fa-check text-[10px]"></i>
                                         </div>
                                     </div>
-                                    <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors select-none">Ret. s/base</span>
+                                    <span className="text-xs text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-400 transition-colors select-none">Ret. s/base</span>
                                 </label>
                                 <label className="flex items-center gap-2 cursor-pointer group">
                                     <div className="relative flex items-center">
@@ -1059,13 +1059,13 @@ const OrdenCompraForm: React.FC<OrdenCompraFormProps> = ({ onSubmit, onCancel, o
                                             type="checkbox"
                                             checked={redondearDecimales}
                                             onChange={e => setRedondearDecimales(e.target.checked)}
-                                            className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-600 bg-slate-800 checked:border-sky-500 checked:bg-sky-500 transition-all"
+                                            className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 checked:border-sky-500 checked:bg-sky-500 transition-all"
                                         />
                                         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100">
                                             <i className="fas fa-check text-[10px]"></i>
                                         </div>
                                     </div>
-                                    <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors select-none">Redondear</span>
+                                    <span className="text-xs text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-400 transition-colors select-none">Redondear</span>
                                 </label>
                             </div>
 

@@ -36,12 +36,16 @@ export interface RegimenFiscal {
 // --- EMPRESA Y USUARIOS ---
 export interface Empresa {
   id: number;
+  nombre?: string;
   razonSocial: string;
   nit: string;
   direccion?: string;
   ciudad?: string;
   telefono?: string;
   email?: string;
+  logoExt?: string;
+  slogan?: string;
+  regimen?: string;
   sedes?: Sede[];
 }
 

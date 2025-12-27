@@ -8,6 +8,7 @@ router.get('/ciudades', commonController.getCiudades);
 // Duplicate removed
 router.post('/query', commonController.executeCustomQuery);
 router.get('/health', commonController.getHealth);
+router.get('/empresa', commonController.getEmpresa);
 
 
 module.exports = router;

@@ -45,22 +45,21 @@ const NuevoPedidoPage: React.FC = () => {
                 const response = await apiClient.getPedidos();
 
                 if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
-                    // Try to find the latest specific format "PED-XXXXXX"
                     const sorted = [...response.data].sort((a: any, b: any) => b.id - a.id);
                     const last = sorted[0];
                     if (last && last.numeroPedido) {
-                        const parts = last.numeroPedido.split('-');
-                        if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
-                            const nextNum = parseInt(parts[1]) + 1;
-                            setNextOrderNumber(`PED-${String(nextNum).padStart(6, '0')}`);
+                        const soloDigitos = String(last.numeroPedido).replace(/\D/g, '');
+                        if (soloDigitos) {
+                            const nextNum = parseInt(soloDigitos, 10) + 1;
+                            setNextOrderNumber(String(nextNum).padStart(6, '0'));
                             return;
                         }
                     }
                 }
-                setNextOrderNumber('PED-000001');
+                setNextOrderNumber('000001');
             } catch (error) {
                 console.error("Error fetching next order number", error);
-                setNextOrderNumber('PED-??????');
+                setNextOrderNumber('??????');
             }
         };
 

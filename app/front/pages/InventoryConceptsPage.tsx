@@ -130,7 +130,7 @@ const InventoryConceptsPage: React.FC = () => {
     console.log('Current state:', { loading, error, conceptosCount: conceptos.length }); // DEBUG
 
     return (
-        <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in">
+        <div className="p-2 sm:p-3 max-w-7xl mx-auto space-y-6 animate-fade-in">
             {/* Header Section */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -153,7 +153,7 @@ const InventoryConceptsPage: React.FC = () => {
                             placeholder="Buscar concepto..."
                             value={searchTerm}
                             onChange={handleSearch}
-                            className="block w-full sm:w-64 pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm shadow-sm placeholder-slate-400
+                            className="block w-full sm:w-64 pl-10 pr-4 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm shadow-sm placeholder-slate-400
                                      focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200"
                         />
                     </div>
@@ -161,7 +161,7 @@ const InventoryConceptsPage: React.FC = () => {
                     {/* New Concept Button */}
                     <button
                         onClick={handleCreate}
-                        className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg shadow-lg shadow-blue-500/30 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] gap-2"
+                        className="inline-flex items-center justify-center px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg shadow-lg shadow-blue-500/30 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] gap-2"
                     >
                         <i className="fas fa-plus"></i>
                         <span>Nuevo Concepto</span>

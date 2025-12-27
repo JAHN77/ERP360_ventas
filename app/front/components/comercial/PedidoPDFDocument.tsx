@@ -1,5 +1,5 @@
 import React from 'react';
-import { Page, Text, View, Document } from '@react-pdf/renderer';
+import { Page, Text, View, Document, Image } from '@react-pdf/renderer';
 import { Pedido, Cliente, DocumentPreferences, Cotizacion } from '../../types';
 import { pdfStyles, formatCurrency } from '../pdf/pdfTheme';
 
@@ -10,9 +10,10 @@ interface Props {
     preferences: DocumentPreferences;
     productos: any[];
     cotizacionOrigen?: Cotizacion | undefined;
+    firmaVendedor?: string | null;
 }
 
-const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferences, productos, cotizacionOrigen }) => {
+const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferences, productos, cotizacionOrigen, firmaVendedor }) => {
 
     const totalDescuentos = pedido.items.reduce((acc, item) => {
         const itemTotal = (item.precioUnitario || 0) * (item.cantidad || 0);
@@ -23,21 +24,41 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
         <Document>
             <Page size="A4" style={pdfStyles.page}>
                 {/* Header */}
-                <View style={pdfStyles.header}>
+                <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
                     <View style={pdfStyles.logoSection}>
-                        <View style={pdfStyles.logoPlaceholder} />
+                        <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
+                            {empresa.logoExt ? (
+                                <Image src={empresa.logoExt} style={pdfStyles.logo} />
+                            ) : (
+                                <View style={pdfStyles.logoPlaceholder} />
+                            )}
+                        </View>
                         <View style={pdfStyles.companyInfo}>
-                            <Text style={pdfStyles.companyName}>{empresa.nombre}</Text>
-                            <Text style={pdfStyles.companyDetails}>NIT: {empresa.nit}</Text>
-                            <Text style={pdfStyles.companyDetails}>{empresa.direccion}</Text>
-                            <Text style={pdfStyles.companyDetails}>{empresa.telefono}</Text>
+                            <Text style={pdfStyles.companyName}>{empresa.nombre || empresa.razonSocial || 'MULTIACABADOS'}</Text>
+                            <Text style={pdfStyles.companyDetails}>
+                                <Text style={pdfStyles.companyDetailLabel}>NIT: </Text>{empresa.nit} • {empresa.regimen || 'Responsable de IVA'}
+                            </Text>
+                            <View style={{ marginTop: 3, marginBottom: 2 }}>
+                                <Text style={pdfStyles.companyAddress}>
+                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{empresa.direccion}
+                                </Text>
+                                <Text style={pdfStyles.companyDetails}>{empresa.ciudad}</Text>
+                            </View>
+                            <View style={{ gap: 1 }}>
+                                <Text style={pdfStyles.companyDetails}>
+                                    <Text style={pdfStyles.companyDetailLabel}>Tel: </Text>{empresa.telefono}
+                                </Text>
+                                <Text style={pdfStyles.companyDetails}>
+                                    <Text style={pdfStyles.companyDetailLabel}>Email: </Text>{empresa.email}
+                                </Text>
+                            </View>
                         </View>
                     </View>
                     <View style={pdfStyles.documentTitleSection}>
                         <View style={[pdfStyles.documentBadge, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
                             <Text style={[pdfStyles.documentTitle, { color: '#0369a1' }]}>ORDEN DE COMPRA</Text>
                         </View>
-                        <Text style={pdfStyles.documentNumber}>{pedido.numeroPedido}</Text>
+                        <Text style={pdfStyles.documentNumber}>{(pedido.numeroPedido || '').replace('PED-', '')}</Text>
                     </View>
                 </View>
 
@@ -47,8 +68,18 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                         <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0ea5e9' }]}>DIRECCIÓN DE ENTREGA</Text>
                         <View style={pdfStyles.cardContent}>
                             <Text style={pdfStyles.clientName}>{cliente.nombreCompleto}</Text>
-                            <Text style={pdfStyles.companyDetails}>{cliente.direccion}, {cliente.ciudadId}</Text>
-                            <Text style={pdfStyles.companyDetails}>{cliente.telefono}</Text>
+                            <View style={{ flexDirection: 'row', marginTop: 3, marginBottom: 1.5 }}>
+                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Dirección:</Text>
+                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.direccion}</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', marginBottom: 1.5 }}>
+                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Ciudad:</Text>
+                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.ciudadId}</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row' }}>
+                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Teléfono:</Text>
+                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.telefono}</Text>
+                            </View>
                         </View>
                     </View>
                     <View style={pdfStyles.infoCard}>
@@ -60,7 +91,7 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                             </View>
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>Cotización Ref:</Text>
-                                <Text style={pdfStyles.infoValue}>{cotizacionOrigen?.numeroCotizacion || 'Venta Directa'}</Text>
+                                <Text style={pdfStyles.infoValue}>{(cotizacionOrigen?.numeroCotizacion || 'Venta Directa').replace('C-', '')}</Text>
                             </View>
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>Cond. Pago:</Text>
@@ -73,14 +104,14 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                 {/* Table */}
                 <View style={pdfStyles.tableContainer}>
                     <View style={pdfStyles.tableHeader}>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colCode]}>REFERENCIA</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colDesc]}>DESCRIPCIÓN</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '10%', paddingHorizontal: 4, textAlign: 'center' }]}>UNIDAD</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colQty]}>CANT.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colCode]}>Referencia</Text>
+                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colDesc]}>Descripción</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '10%', paddingHorizontal: 4, textAlign: 'center' }]}>Unidad</Text>
+                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colQty]}>Cantidad</Text>
                         {preferences.showPrices ? (
                             <>
-                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colPrice]}>PRECIO</Text>
-                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colTotal]}>SUBTOTAL</Text>
+                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colPrice]}>Precio</Text>
+                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colTotal]}>Subtotal</Text>
                             </>
                         ) : null}
                     </View>

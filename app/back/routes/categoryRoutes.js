@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const categoriesController = require('../controllers/categoriesController');
 
-// Get hierarchical structure
+router.get('/', categoriesController.getAllCategories);
 router.get('/lineas-sublineas', categoriesController.getLinesWithSublines);
 
 // Basic CRUD for Lines

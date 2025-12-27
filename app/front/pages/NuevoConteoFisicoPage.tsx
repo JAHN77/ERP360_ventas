@@ -447,7 +447,7 @@ const NuevoConteoFisicoPage: React.FC = () => {
             {todosLosProductos.length > 0 && (
                 <Card className="overflow-hidden border-0 shadow-md">
                     {/* Search Toolbar */}
-                    <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col md:flex-row gap-4 items-center justify-between">
+                    <div className="px-6 py-2.5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col md:flex-row gap-4 items-center justify-between">
                         <div className="relative w-full md:max-w-md">
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
                                 🔍

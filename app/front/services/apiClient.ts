@@ -1,5 +1,6 @@
 // Cliente API para conectar con el backend SQL Server
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:3001/api';
+export const BACKEND_URL = API_BASE_URL.replace('/api', '');
 
 import { ProductoConteo } from '../types';
 
@@ -388,6 +389,10 @@ class ApiClient {
     return this.request('/ciudades');
   }
 
+  async getEmpresa() {
+    return this.request('/empresa');
+  }
+
   async registerInventoryEntry(data: {
     productoId: number;
     cantidad: number;
@@ -495,6 +500,15 @@ class ApiClient {
       body: JSON.stringify(payload),
     });
   }
+
+  async sendCotizacionEmail(id: string | number, payload: { firmaVendedor?: string | null, destinatario?: string, asunto?: string, mensaje?: string }) {
+    return this.request(`/cotizaciones/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+
 
   async createPedido(payload: any) {
     return this.request('/pedidos', {
@@ -656,6 +670,7 @@ export const fetchCategorias = () => apiClient.getCategorias();
 export const fetchVendedores = () => apiClient.getVendedores();
 export const fetchBodegas = () => apiClient.getBodegas();
 export const fetchCiudades = () => apiClient.getCiudades();
+export const fetchEmpresa = () => apiClient.getEmpresa();
 export const testApiConnection = () => apiClient.testConnection();
 export const executeCustomQuery = (query: string) => apiClient.executeQuery(query);
 export const apiRegisterInventoryEntry = (payload: any) => apiClient.registerInventoryEntry(payload);
@@ -674,6 +689,9 @@ export const apiSearchVendedores = (q: string, limit?: number) => apiClient.sear
 export const apiSearchProductos = (q: string, limit?: number, codalm?: string) => apiClient.searchProductos(q, limit, codalm);
 export const apiCreateCotizacion = (payload: any) => apiClient.createCotizacion(payload);
 export const apiUpdateCotizacion = (id: string | number, payload: any) => apiClient.updateCotizacion(id, payload);
+export const apiSendCotizacionEmail = (id: string | number, payload: { firmaVendedor?: string | null; destinatario?: string; asunto?: string; mensaje?: string }) => apiClient.sendCotizacionEmail(id, payload);
+
+
 export const apiCreatePedido = (payload: any) => apiClient.createPedido(payload);
 export const apiUpdatePedido = (id: string | number, payload: any) => apiClient.updatePedido(id, payload);
 export const apiCreateRemision = (payload: any) => apiClient.createRemision(payload);

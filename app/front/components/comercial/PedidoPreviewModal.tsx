@@ -17,7 +17,7 @@ interface PedidoPreviewModalProps {
 
 const PedidoPreviewModal: React.FC<PedidoPreviewModalProps> = ({ pedido, onClose }) => {
     const { addNotification } = useNotifications();
-    const { clientes, datosEmpresa, productos, cotizaciones } = useData();
+    const { clientes, datosEmpresa, productos, cotizaciones, firmaVendedor } = useData();
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('pedido');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -39,15 +39,11 @@ const PedidoPreviewModal: React.FC<PedidoPreviewModalProps> = ({ pedido, onClose
             <PedidoPDFDocument
                 pedido={pedido}
                 cliente={relatedData.cliente}
-                empresa={{
-                    nombre: datosEmpresa.nombre,
-                    nit: datosEmpresa.nit,
-                    direccion: datosEmpresa.direccion,
-                    telefono: datosEmpresa.telefono
-                }}
+                empresa={datosEmpresa}
                 preferences={preferences}
                 productos={productos}
                 cotizacionOrigen={relatedData.cotizacion}
+                firmaVendedor={firmaVendedor}
             />
         );
     };
@@ -89,8 +85,15 @@ const PedidoPreviewModal: React.FC<PedidoPreviewModalProps> = ({ pedido, onClose
         }, 100);
     };
 
-    const handleConfirmSendEmail = (emailData: { to: string }) => {
+    const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
         if (!pedido) return;
+
+        const subjectEncoded = encodeURIComponent(emailData.subject);
+        const bodyEncoded = encodeURIComponent(emailData.body);
+        const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+
+        window.location.href = mailtoLink;
+
         addNotification({
             message: `PDF descargado. Se ha abierto tu cliente de correo para enviar el pedido ${pedido.numeroPedido}.`,
             type: 'success',

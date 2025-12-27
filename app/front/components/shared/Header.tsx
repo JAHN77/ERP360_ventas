@@ -83,7 +83,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
   // Protección: No renderizar hasta que los datos críticos estén disponibles
   if (!user || !selectedCompany) {
     return (
-      <header className="sticky top-0 z-40 flex justify-between items-center px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-3 md:py-4 bg-white/90 dark:bg-slate-800/90 supports-[backdrop-filter]:backdrop-blur border-b border-slate-200 dark:border-slate-700">
+      <header className="sticky top-0 z-40 flex justify-between items-center px-2 sm:px-4 md:px-6 lg:px-8 py-1.5 sm:py-2 md:py-2.5 bg-white/90 dark:bg-slate-800/90 supports-[backdrop-filter]:backdrop-blur border-b border-slate-200 dark:border-slate-700">
         <div className="flex items-center justify-center w-full">
           <div className="flex items-center gap-2">
             <i className="fas fa-spinner fa-spin text-slate-500"></i>
@@ -154,7 +154,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
   // Ahora usamos los custom hooks useClickOutside y useEscapeKey (ver arriba)
 
   return (
-    <header className="sticky top-0 z-40 flex justify-between items-center px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-3 md:py-4 bg-white/90 dark:bg-slate-800/90 supports-[backdrop-filter]:backdrop-blur border-b border-slate-200 dark:border-slate-700">
+    <header className="sticky top-0 z-40 flex justify-between items-center px-2 sm:px-4 md:px-6 lg:px-8 py-1.5 sm:py-2 md:py-2.5 bg-white/90 dark:bg-slate-800/90 supports-[backdrop-filter]:backdrop-blur border-b border-slate-200 dark:border-slate-700">
       {/* Left Section: Menu, Company, Search */}
       <div className="flex items-center min-w-0 flex-1 gap-2 sm:gap-3 md:gap-4">
         {/* Mobile Menu Button */}

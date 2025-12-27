@@ -274,7 +274,7 @@ const PedidoEditForm: React.FC<PedidoEditFormProps> = ({ initialData, onSubmit, 
             {/* Add new item section (Top) */}
             <div className="border-b border-slate-200 dark:border-slate-700 py-4 mb-4">
                 <h4 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-100">Añadir Productos</h4>
-                <div className="grid grid-cols-1 lg:grid-cols-8 gap-2 lg:gap-3">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 lg:gap-3 items-end">
                     <div ref={searchRef} className="relative lg:col-span-3">
                         <label htmlFor="producto-search" className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Producto</label>
                         <input
@@ -284,7 +284,7 @@ const PedidoEditForm: React.FC<PedidoEditFormProps> = ({ initialData, onSubmit, 
                             onChange={handleProductSearchChange}
                             onFocus={() => setIsProductDropdownOpen(true)}
                             placeholder="Buscar por nombre..."
-                            className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full pl-3 pr-8 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                             autoComplete="off"
                             onBlur={() => {
                                 const trimmed = productSearchTerm.trim();
@@ -318,54 +318,51 @@ const PedidoEditForm: React.FC<PedidoEditFormProps> = ({ initialData, onSubmit, 
                         )}
                     </div>
                     <div className="lg:col-span-1">
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Unidad</label>
-                        <input type="text" value={selectedProduct?.unidadMedida || ''} disabled className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 text-center" />
+                        <label className="block text-xs text-center font-medium text-slate-600 dark:text-slate-300 mb-1">Unidad</label>
+                        <input type="text" value={selectedProduct?.unidadMedida || ''} disabled className="w-full px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 text-center cursor-not-allowed" />
                     </div>
                     <div className="lg:col-span-1">
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Cantidad</label>
+                        <label className="block text-xs text-center font-medium text-slate-600 dark:text-slate-300 mb-1">Cantidad</label>
                         <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentQuantity} onChange={e => {
                             const val = e.target.value.replace(/[^0-9]/g, '');
                             setCurrentQuantity(val);
-                        }} className={`w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-right ${isQuantityValid ? 'border-slate-300 dark:border-slate-600' : 'border-red-500'}`} />
-                        <div className="h-5 text-center text-xs mt-0.5">
-                            {!isQuantityValid && <span className="text-red-500"> &gt; 0</span>}
-                            {isQuantityValid && selectedProduct && (
-                                <>
-                                    <span className="text-slate-500 dark:text-slate-400">Stock: </span>
-                                    <span className={`font-semibold ${((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) < Number(currentQuantity) ? 'text-orange-500' : 'text-slate-500 dark:text-slate-400'}`}>
-                                        {selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}
-                                    </span>
-                                </>
-                            )}
-                        </div>
+                        }} className={`w-full px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-right ${isQuantityValid ? 'border-slate-300 dark:border-slate-600' : 'border-red-500'}`} />
                     </div>
                     <div className="lg:col-span-1">
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Vr. Unit.</label>
-                        <input type="text" value={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} disabled className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 text-right" />
+                        <label className="block text-xs text-center font-medium text-slate-600 dark:text-slate-300 mb-1">Vr. Unit.</label>
+                        <input type="text" value={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} disabled className="w-full px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 text-right cursor-not-allowed" />
                     </div>
                     <div className="lg:col-span-1">
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">% Iva</label>
-                        <input type="text" value={selectedProduct ? ((selectedProduct.tasaIva !== undefined) ? selectedProduct.tasaIva : (selectedProduct.aplicaIva ? '19' : '0')) : ''} disabled className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 text-center" />
+                        <label className="block text-xs text-center font-medium text-slate-600 dark:text-slate-300 mb-1">% Iva</label>
+                        <input type="text" value={selectedProduct ? ((selectedProduct.tasaIva !== undefined) ? selectedProduct.tasaIva : (selectedProduct.aplicaIva ? '19' : '0')) : ''} disabled className="w-full px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md text-slate-500 text-center cursor-not-allowed" />
                     </div>
                     <div className="lg:col-span-1">
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Total</label>
-                        <input type="text" value={formatCurrency(currentItemSubtotalForDisplay)} disabled className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md text-slate-700 font-bold text-right" />
-                    </div>
-                </div>
-                <div className="flex gap-2 mt-3">
-                    <div className="w-auto">
-                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">% Descto</label>
+                        <label className="block text-xs text-center font-medium text-slate-600 dark:text-slate-300 mb-1">% Descto</label>
                         <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentDiscount} onChange={e => {
                             const val = e.target.value.replace(/[^0-9]/g, '');
                             setCurrentDiscount(val === '' ? '' : String(Math.min(100, parseInt(val, 10) || 0)));
-                        }} className={`w-24 px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-right ${isDiscountValid ? 'border-slate-300 dark:border-slate-600' : 'border-red-500'}`} />
+                        }} className={`w-full px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-right ${isDiscountValid ? 'border-slate-300 dark:border-slate-600' : 'border-red-500'}`} />
                     </div>
-                    <div className="flex items-end">
-                        <button type="button" onClick={handleAddItem} disabled={!currentProductId || !isQuantityValid || !isDiscountValid} className="px-6 py-2 bg-sky-600 text-white font-semibold rounded-md hover:bg-sky-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed whitespace-nowrap">
-                            <i className="fas fa-plus mr-2"></i>Añadir Producto
+                    <div className="lg:col-span-2">
+                        <label className="block text-xs text-center font-medium text-slate-600 dark:text-slate-300 mb-1">Total</label>
+                        <input type="text" value={formatCurrency(currentItemSubtotalForDisplay)} disabled className="w-full px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md text-slate-700 dark:text-slate-200 font-bold text-right cursor-not-allowed" />
+                    </div>
+                    <div className="lg:col-span-2">
+                        <button type="button" onClick={handleAddItem} disabled={!currentProductId || !isQuantityValid || !isDiscountValid} className="w-full py-1.5 bg-sky-600 text-white font-semibold rounded-md hover:bg-sky-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed whitespace-nowrap text-sm">
+                            <i className="fas fa-plus mr-1"></i>Añadir
                         </button>
                     </div>
                 </div>
+
+                {/* Stock info shown only if valid quantity and product selected */}
+                {isQuantityValid && selectedProduct && (
+                    <div className="mt-1 text-xs px-2">
+                        <span className="text-slate-500 dark:text-slate-400">Stock disponible: </span>
+                        <span className={`font-semibold ${((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) < Number(currentQuantity) ? 'text-orange-500' : 'text-slate-600 dark:text-slate-300'}`}>
+                            {selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}
+                        </span>
+                    </div>
+                )}
                 {selectedProduct && Number(currentQuantity) > ((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) && (
                     <div className="w-full flex items-center gap-2 text-orange-500 dark:text-orange-400 text-xs mt-2 p-2 bg-orange-50 dark:bg-orange-900/30 rounded-md border border-orange-200 dark:border-orange-800">
                         <i className="fas fa-exclamation-triangle"></i>
@@ -375,138 +372,140 @@ const PedidoEditForm: React.FC<PedidoEditFormProps> = ({ initialData, onSubmit, 
             </div>
 
             {/* Items Table */}
-            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden mb-8">
-                <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
-                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                        <i className="fas fa-list-ul text-slate-400"></i> Items del Pedido
-                    </h4>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded-full">
-                        {items.length} productos
-                    </span>
-                </div>
-                <div className="overflow-x-auto min-h-[200px]">
-                    <table className="min-w-full divide-y divide-slate-100 dark:divide-slate-700/50">
-                        <thead className="bg-slate-50 dark:bg-slate-700/30">
-                            <tr>
-                                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-[30%]">Producto</th>
-                                <th className="px-5 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Unidad</th>
-                                <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-28">Cantidad</th>
-                                <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-36">Precio Unit.</th>
-                                <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Desc. %</th>
-                                <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-20">% IVA</th>
-                                <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-32">Total</th>
-                                <th className="px-5 py-3 text-center w-16"></th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-100 dark:divide-slate-700/50">
-                            {items.length > 0 ? (
-                                items.map(item => {
-                                    const product = productos.find(p => p.id === item.productoId);
-                                    const hasQuantityError = errors[`${item.productoId}`]?.cantidad;
-                                    const hasDiscountError = errors[`${item.productoId}`]?.descuento;
-                                    return (
-                                        <tr key={item.productoId} className="group hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                                            <td className="px-5 py-3">
-                                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{item.descripcion}</div>
-                                                <div className="text-xs text-slate-400 dark:text-slate-500">Ref: {item.productoId}</div>
-                                            </td>
-                                            <td className="px-5 py-3 text-sm text-center text-slate-500 dark:text-slate-400">{item.unidadMedida || product?.unidadMedida || 'Und'}</td>
-                                            <td className="px-5 py-3">
-                                                <div className="relative" title={stockWarnings[`${item.productoId}`] ? `Stock disponible: ${stockWarnings[`${item.productoId}`]}` : ''}>
-                                                    <input
-                                                        type="text" pattern="[0-9]*" inputMode="numeric"
-                                                        value={item.cantidad}
-                                                        onChange={e => handleItemChange(item.productoId, 'cantidad', e.target.value)}
-                                                        className={`w-full px-2 py-1.5 text-right font-medium text-sm bg-white dark:bg-slate-800 border rounded-md focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${hasQuantityError
-                                                            ? 'border-red-500 focus:border-red-500'
-                                                            : (stockWarnings[`${item.productoId}`]
-                                                                ? 'border-orange-500 focus:border-orange-500 text-orange-600'
-                                                                : 'border-slate-200 dark:border-slate-600 focus:border-blue-500')
-                                                            }`}
-                                                    />
-                                                </div>
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                <input
-                                                    type="text" pattern="[0-9]*" inputMode="numeric"
-                                                    value={item.precioUnitario}
-                                                    onChange={e => handleItemChange(item.productoId, 'precioUnitario', e.target.value)}
-                                                    className="w-full px-2 py-1.5 text-right text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                                                />
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                <div className="relative">
-                                                    <input
-                                                        type="text" pattern="[0-9]*" inputMode="numeric"
-                                                        value={item.descuentoPorcentaje}
-                                                        onChange={e => handleItemChange(item.productoId, 'descuentoPorcentaje', e.target.value)}
-                                                        className={`w-full pl-2 pr-6 py-1.5 text-right text-sm bg-white dark:bg-slate-800 border rounded-md focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${hasDiscountError ? 'border-red-500 focus:border-red-500' : 'border-slate-200 dark:border-slate-600 focus:border-blue-500'}`}
-                                                    />
-                                                    <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-slate-400">%</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-5 py-3 text-sm text-right text-slate-500 dark:text-slate-400">
-                                                {(product && product.tasaIva !== undefined) ? Number(product.tasaIva) : (item.ivaPorcentaje || 0)}%
-                                            </td>
-                                            <td className="px-5 py-3 text-sm text-right font-semibold text-slate-700 dark:text-slate-200">{formatCurrency(item.total)}</td>
-                                            <td className="px-5 py-3 text-center">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemoveItem(item.productoId)}
-                                                    className="text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition-colors p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
-                                                    title="Eliminar item"
-                                                >
-                                                    <i className="fas fa-trash-alt"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })
-                            ) : (
+            <div className="space-y-6">
+                <div className="w-full">
+                    <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100">Items del Pedido</h4>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-600">
+                            {items.length} productos
+                        </span>
+                    </div>
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                            <thead className="bg-slate-50 dark:bg-slate-700">
                                 <tr>
-                                    <td colSpan={8} className="px-5 py-12 text-center text-slate-400 dark:text-slate-500">
-                                        <div className="flex flex-col items-center">
-                                            <i className="fas fa-shopping-basket text-4xl mb-3 opacity-20"></i>
-                                            <p>No hay productos en el pedido</p>
-                                            <p className="text-sm mt-1 opacity-70">Utilice el buscador superior para agregar items</p>
-                                        </div>
-                                    </td>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Producto</th>
+                                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Unidad</th>
+                                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-28">Cantidad</th>
+                                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-32">Precio Unit.</th>
+                                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Desc. %</th>
+                                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-20">IVA %</th>
+                                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-32">Total</th>
+                                    <th className="px-4 py-3 text-center w-16">Acción</th>
                                 </tr>
-                            )}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
+                                {items.length > 0 ? (
+                                    items.map(item => {
+                                        const product = productos.find(p => p.id === item.productoId);
+                                        const hasQuantityError = errors[`${item.productoId}`]?.cantidad;
+                                        const hasDiscountError = errors[`${item.productoId}`]?.descuento;
+                                        return (
+                                            <tr key={item.productoId} className="group hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                                                <td className="px-4 py-3 text-sm">
+                                                    <div className="font-medium text-slate-800 dark:text-slate-100">{item.descripcion}</div>
+                                                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">REF: {item.productoId}</div>
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase border border-slate-200 dark:border-slate-600">
+                                                        {item.unidadMedida || product?.unidadMedida || 'UND'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="relative" title={stockWarnings[`${item.productoId}`] ? `Stock disponible: ${stockWarnings[`${item.productoId}`]}` : ''}>
+                                                        <input
+                                                            type="text" pattern="[0-9]*" inputMode="numeric"
+                                                            value={item.cantidad}
+                                                            onChange={e => handleItemChange(item.productoId, 'cantidad', e.target.value)}
+                                                            className={`w-full px-2 py-1.5 text-right font-medium text-sm bg-white dark:bg-slate-800 border rounded-md focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${hasQuantityError
+                                                                ? 'border-red-500 focus:border-red-500'
+                                                                : (stockWarnings[`${item.productoId}`]
+                                                                    ? 'border-orange-500 focus:border-orange-500 text-orange-600'
+                                                                    : 'border-slate-200 dark:border-slate-600 focus:border-blue-500')
+                                                                }`}
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <input
+                                                        type="text" pattern="[0-9]*" inputMode="numeric"
+                                                        value={item.precioUnitario}
+                                                        onChange={e => handleItemChange(item.productoId, 'precioUnitario', e.target.value)}
+                                                        className="w-full px-2 py-1.5 text-right text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-medium text-slate-700 dark:text-slate-300"
+                                                    />
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="relative">
+                                                        <input
+                                                            type="text" pattern="[0-9]*" inputMode="numeric"
+                                                            value={item.descuentoPorcentaje}
+                                                            onChange={e => handleItemChange(item.productoId, 'descuentoPorcentaje', e.target.value)}
+                                                            className={`w-full pl-2 pr-6 py-1.5 text-right text-sm bg-white dark:bg-slate-800 border rounded-md focus:ring-2 focus:ring-blue-500/20 outline-none transition-all font-medium ${hasDiscountError ? 'border-red-500 focus:border-red-500' : 'border-slate-200 dark:border-slate-600 focus:border-blue-500'}`}
+                                                        />
+                                                        <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-[10px] text-slate-400">%</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-right text-slate-500 dark:text-slate-400 font-medium">
+                                                    {(product && product.tasaIva !== undefined) ? Number(product.tasaIva) : (item.ivaPorcentaje || 0)}%
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-right font-bold text-slate-800 dark:text-slate-100">{formatCurrency(item.total)}</td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveItem(item.productoId)}
+                                                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                                                        title="Eliminar item"
+                                                    >
+                                                        <i className="fas fa-trash-alt"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td colSpan={8} className="px-5 py-12 text-center text-slate-400 dark:text-slate-500 bg-slate-50/50 dark:bg-slate-900/20">
+                                            <div className="flex flex-col items-center">
+                                                <i className="fas fa-shopping-basket text-4xl mb-3 opacity-20"></i>
+                                                <p className="font-medium text-slate-500">No hay productos en el pedido</p>
+                                                <p className="text-xs mt-1 opacity-70">Utilice el buscador superior para agregar items</p>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-            </div>
 
-            {/* Totals & Actions */}
-            <div className="flex flex-col sm:flex-row gap-6 justify-end">
-                {/* Totals Card */}
-                <div className="w-full sm:w-80 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-                    <h5 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">
-                        Resumen Económico
-                    </h5>
-                    <div className="space-y-3 text-sm">
-                        <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                            <span>Subtotal Bruto</span>
-                            <span className="font-medium">{formatCurrency(totals.subtotalBruto)}</span>
-                        </div>
-                        {totals.descuentoTotal > 0 && (
-                            <div className="flex justify-between text-red-600 dark:text-red-400">
-                                <span>Descuento</span>
-                                <span className="font-medium">-{formatCurrency(totals.descuentoTotal)}</span>
+                <div className="flex justify-end pt-2">
+                    <div className="w-full sm:w-80 bg-white dark:bg-slate-800 p-5 rounded-xl shadow-md border border-slate-200 dark:border-slate-700">
+                        <h5 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">
+                            Resumen Económico
+                        </h5>
+                        <div className="space-y-3 text-sm">
+                            <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                                <span>Subtotal Bruto:</span>
+                                <span className="font-semibold text-slate-700 dark:text-slate-300">{formatCurrency(totals.subtotalBruto)}</span>
                             </div>
-                        )}
-                        <div className="flex justify-between text-slate-800 dark:text-slate-200 pt-2 border-t border-slate-100 dark:border-slate-700">
-                            <span className="font-medium">Subtotal Neto</span>
-                            <span className="font-bold">{formatCurrency(totals.subtotalNeto)}</span>
-                        </div>
-                        <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                            <span>IVA</span>
-                            <span>{formatCurrency(totals.iva)}</span>
-                        </div>
-                        <div className="flex justify-between items-end pt-3 mt-1 border-t-2 border-slate-100 dark:border-slate-700">
-                            <span className="font-bold text-slate-800 dark:text-slate-100 text-lg">Total</span>
-                            <span className="font-bold text-2xl text-blue-600 dark:text-blue-400">{formatCurrency(totals.total)}</span>
+                            {totals.descuentoTotal > 0 && (
+                                <div className="flex justify-between items-center text-red-500">
+                                    <span className="flex items-center gap-1.5"><i className="fas fa-tag text-[10px]"></i> Descuento:</span>
+                                    <span className="font-semibold">-{formatCurrency(totals.descuentoTotal)}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between items-center pt-1">
+                                <span className="font-medium text-slate-600 dark:text-slate-400">Subtotal Neto:</span>
+                                <span className="font-bold text-slate-800 dark:text-slate-100">{formatCurrency(totals.subtotalNeto)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                                <span>IVA:</span>
+                                <span className="font-semibold text-slate-700 dark:text-slate-300">{formatCurrency(totals.iva)}</span>
+                            </div>
+                            <div className="flex justify-between items-end pt-3 mt-1 border-t-2 border-slate-100 dark:border-slate-700">
+                                <span className="font-bold text-slate-800 dark:text-slate-100 text-base">Total:</span>
+                                <span className="font-black text-2xl text-blue-600 dark:text-blue-400 leading-none">{formatCurrency(totals.total)}</span>
+                            </div>
                         </div>
                     </div>
                 </div>

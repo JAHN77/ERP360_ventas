@@ -383,16 +383,17 @@ const createOrderInternal = async (tx, orderData) => {
           const reqUltimo = new sql.Request(tx);
           const ultimoRes = await reqUltimo.query(`
             SELECT TOP 1 numero_pedido FROM ven_pedidos 
-            WHERE numero_pedido LIKE 'PED-[0-9][0-9][0-9][0-9][0-9]' 
-            ORDER BY numero_pedido DESC
+            WHERE numero_pedido NOT LIKE 'B-%' 
+            ORDER BY id DESC
           `);
           
           let nextNum = 1;
           if (ultimoRes.recordset.length > 0) {
-              const match = ultimoRes.recordset[0].numero_pedido.match(/PED-(\d+)/);
-              if (match) nextNum = parseInt(match[1]) + 1;
+              const lastNum = ultimoRes.recordset[0].numero_pedido;
+              const soloDigitos = String(lastNum).replace(/\D/g, '');
+              if (soloDigitos) nextNum = parseInt(soloDigitos, 10) + 1;
           }
-          numeroPedidoFinal = `PED-${String(nextNum).padStart(5, '0')}`;
+          numeroPedidoFinal = String(nextNum).padStart(6, '0');
       } else {
           // Validar existencia
           const reqCheck = new sql.Request(tx);
@@ -475,8 +476,8 @@ const createOrderInternal = async (tx, orderData) => {
       // 6. Insertar Detalles
       // Generar numped formato 8 char para detalles (legacy support)
       // PED-00001 -> PED00001
-      const numMatch = numeroPedidoFinal.match(/PED-(\d+)/);
-      const numpedLegacy = numMatch ? `PED${String(numMatch[1]).padStart(5, '0')}` : numeroPedidoFinal.substring(0, 8);
+      const soloDigitos = String(numeroPedidoFinal).replace(/\D/g, '');
+      const numpedLegacy = soloDigitos ? soloDigitos.substring(0, 8).padStart(8, '0') : numeroPedidoFinal.substring(0, 8).padStart(8, '0');
 
       for (const item of items) {
           const reqDet = new sql.Request(tx);

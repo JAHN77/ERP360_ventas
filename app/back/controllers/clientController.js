@@ -143,8 +143,8 @@ const clientController = {
       }
 
       let orderByClause = `ORDER BY ${columnExpression} ${orderDirection}`;
-      if (orderByColumn !== 't.id') {
-        orderByClause += `, t.id ASC`;
+      if (orderByColumn !== 't.codter') {
+        orderByClause += `, t.codter ASC`;
       }
 
       console.log('🔍 [DEBUG] Final Query Parts:', { whereClause, orderByClause });

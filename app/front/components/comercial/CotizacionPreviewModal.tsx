@@ -17,7 +17,7 @@ interface CotizacionPreviewModalProps {
 
 const CotizacionPreviewModal: React.FC<CotizacionPreviewModalProps> = ({ cotizacion, onClose }) => {
     const { addNotification } = useNotifications();
-    const { clientes, vendedores, datosEmpresa, productos } = useData();
+    const { clientes, vendedores, datosEmpresa, productos, firmaVendedor } = useData();
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('cotizacion');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -40,14 +40,10 @@ const CotizacionPreviewModal: React.FC<CotizacionPreviewModalProps> = ({ cotizac
                 cotizacion={cotizacion}
                 cliente={relatedData.cliente}
                 vendedor={relatedData.vendedor}
-                empresa={{
-                    nombre: datosEmpresa.nombre,
-                    nit: datosEmpresa.nit,
-                    direccion: datosEmpresa.direccion,
-                    telefono: datosEmpresa.telefono
-                }}
+                empresa={datosEmpresa}
                 preferences={preferences}
                 productos={productos}
+                firmaVendedor={firmaVendedor}
             />
         );
     };
@@ -89,8 +85,15 @@ const CotizacionPreviewModal: React.FC<CotizacionPreviewModalProps> = ({ cotizac
         }, 100);
     };
 
-    const handleConfirmSendEmail = (emailData: { to: string }) => {
+    const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
         if (!cotizacion) return;
+
+        const subjectEncoded = encodeURIComponent(emailData.subject);
+        const bodyEncoded = encodeURIComponent(emailData.body);
+        const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+
+        window.location.href = mailtoLink;
+
         addNotification({
             message: `PDF descargado. Se ha abierto tu cliente de correo para enviar la cotización ${cotizacion.numeroCotizacion}.`,
             type: 'success',

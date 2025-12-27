@@ -7,13 +7,15 @@ import DocumentOptionsToolbar from './DocumentOptionsToolbar';
 import { DocumentPreferences } from '../../types';
 import SendEmailModal from './SendEmailModal';
 import { useData } from '../../hooks/useData';
+import { apiSendCotizacionEmail } from '../../services/apiClient';
 // import { descargarElementoComoPDF } from '../../utils/pdfClient'; // REMOVED
+
 
 interface DocumentPreviewModalProps {
     isOpen: boolean;
     onClose: () => void;
     title: string;
-    onConfirm?: () => void; // Optional
+    onConfirm?: () => Promise<void> | void; // Optional
     onEdit?: () => void; // Optional
     children: React.ReactNode;
     confirmLabel?: string;
@@ -24,6 +26,7 @@ interface DocumentPreviewModalProps {
     documentType: DocumentType;
     clientEmail?: string;
     clientName?: string;
+    documentId?: string | number; // ID del documento para enviar por correo
 }
 
 const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
@@ -41,17 +44,22 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
     documentType,
     clientEmail,
     clientName,
+    documentId,
 }) => {
+
     const { addNotification } = useNotifications();
-    const { datosEmpresa } = useData();
+    const { datosEmpresa, firmaVendedor } = useData();
     // const documentRef = useRef<HTMLDivElement>(null); // Removed ref
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences(documentType);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
 
-    // Clone child to pass preferences
+    // Clone child to pass preferences and temporary signature
     const childWithProps = React.isValidElement(children)
-        ? React.cloneElement(children, { preferences } as { preferences: DocumentPreferences })
+        ? React.cloneElement(children, {
+            preferences,
+            firmaVendedor // Pass signature here
+        } as any)
         : children;
 
     const handleDownload = async () => {
@@ -87,24 +95,80 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         }
     };
 
-    const handleSendNotification = (emailData: { to: string }) => {
-        addNotification({
-            message: `PDF listo. Se ha abierto tu cliente de correo para enviar el documento.`,
-            type: 'success',
-        });
-        setIsEmailModalOpen(false);
+    const handleSendEmail = async (destinatario: string, asunto: string, mensaje: string) => {
+        setIsDownloading(true);
+        try {
+            if (documentType === 'cotizacion' && documentId) {
+                addNotification({ message: 'Enviando correo electrónico...', type: 'info' });
+                // Llamar al backend para enviar el correo con la firma y el contenido personalizado
+                const result = await apiSendCotizacionEmail(documentId, {
+                    firmaVendedor,
+                    destinatario,
+                    asunto,
+                    mensaje
+                });
+
+                if (result.success) {
+                    addNotification({
+                        message: result.message || 'Correo enviado exitosamente',
+                        type: 'success',
+                    });
+                    setIsEmailModalOpen(false);
+                } else {
+                    throw new Error(result.message || 'Error al enviar el correo');
+                }
+            } else {
+                // Fallback para otros documentos: Descargar y Mailto
+                await handleDownload();
+
+                const subjectEncoded = encodeURIComponent(asunto);
+                const bodyEncoded = encodeURIComponent(mensaje);
+                const mailtoLink = `mailto:${destinatario}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+
+                window.location.href = mailtoLink;
+
+                setIsEmailModalOpen(false);
+                addNotification({
+                    message: 'PDF descargado. Se ha abierto tu cliente de correo. Por favor adjunta el archivo manualmente.',
+                    type: 'info'
+                });
+            }
+        } catch (error) {
+            console.error('Error enviando correo:', error);
+            addNotification({
+                message: `Error al enviar el correo: ${error instanceof Error ? error.message : error}`,
+                type: 'error',
+            });
+            throw error;
+        } finally {
+            setIsDownloading(false);
+        }
     };
+
 
     const documentNumber = title.includes(': ') ? title.split(': ')[1] : 'Borrador';
 
+    const handleConfirm = async () => {
+        if (!onConfirm) return;
+        try {
+            await onConfirm();
+            // Después de aprobar con éxito, abrir automáticamente el modal de correo
+            setIsEmailModalOpen(true);
+        } catch (error) {
+            console.error('Error en confirmación:', error);
+        }
+    };
+
     const emailBody = useMemo(() => {
         if (documentType === 'cotizacion') {
-            return `Estimado/a ${clientName || 'cliente'},
+            return `Estimado/a ${clientName || 'Cliente'},
+            
+Nos es grato saludarle y presentarle a continuación nuestra propuesta comercial a través de la cotización N° ${documentNumber}.
+Hemos analizado sus requerimientos y estamos seguros de que esta oferta se ajusta a sus necesidades.
 
-Dando seguimiento a su solicitud, nos complace enviarle la cotización N° ${documentNumber} con el detalle de los productos/servicios solicitados.
-Quedamos a su disposición para cualquier consulta o si desea proceder con el pedido.
+Quedamos atentos a sus comentarios para poder avanzar.
 
-Atentamente,
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`;
         }
         if (documentType === 'pedido') {
@@ -156,38 +220,21 @@ El equipo de ${datosEmpresa.nombre}`;
                             </button>
                             {clientEmail && (
                                 <button
-                                    onClick={async () => {
-                                        // Generate blob implies ready for email attachment if integrated
-                                        // For now just download and open email modal
-                                        await handleDownload();
-                                        if (!isDownloading) {
-                                            setIsEmailModalOpen(true);
-                                        }
-                                    }}
+                                    onClick={() => setIsEmailModalOpen(true)}
                                     disabled={isDownloading}
-                                    title={isDownloading ? "Generando PDF..." : "Enviar por Correo"}
+                                    title="Enviar por Correo"
                                     className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
+                                    <i className={`fas ${isEmailModalOpen ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
                                 </button>
                             )}
                             {/* Divider */}
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
                             {/* Group 2: Main Actions */}
                             <div className="flex items-center gap-1">
-                                {onSaveAndSend && (
-                                    <button
-                                        onClick={onSaveAndSend}
-                                        disabled={isSaving || isConfirming}
-                                        className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-slate-400 flex items-center gap-2"
-                                    >
-                                        {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
-                                        <span className="hidden sm:inline">{saveAndSendLabel}</span>
-                                    </button>
-                                )}
                                 {onConfirm && (
                                     <button
-                                        onClick={onConfirm}
+                                        onClick={handleConfirm}
                                         disabled={isConfirming || isSaving}
                                         className="px-3 py-1.5 text-sm font-semibold text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-slate-400 flex items-center gap-2"
                                     >
@@ -230,9 +277,11 @@ El equipo de ${datosEmpresa.nombre}`;
                 <SendEmailModal
                     isOpen={isEmailModalOpen}
                     onClose={() => setIsEmailModalOpen(false)}
-                    onSend={handleSendNotification}
+                    onSend={async (data) => {
+                        await handleSendEmail(data.to, data.subject, data.body);
+                    }}
                     to={clientEmail}
-                    subject={`${documentType === 'cotizacion' ? 'Cotización' : 'Pedido'}: ${documentNumber} de ${datosEmpresa.nombre}`}
+                    subject={`${documentType === 'cotizacion' ? 'Cotización' : documentType === 'pedido' ? 'Pedido' : 'Documento'}: #${documentNumber} - ${datosEmpresa.nombre}`}
                     body={emailBody}
                 />
             )}

@@ -18,7 +18,8 @@ const mapNotaCreditoHeader = (row) => ({
   motivo: row.motivo,
   estadoDian: row.estadoDian,
   createdAt: row.createdAt,
-  updatedAt: row.updatedAt
+  updatedAt: row.updatedAt,
+  cufe: row.cufe
 });
 
 const generateNumeroNotaCredito = async (transaction) => {
