@@ -166,6 +166,10 @@ console.log('🔧 Registrando rutas en /api/inventario-fisico');
 app.use('/api/inventario-fisico', inventarioFisicoRoutes);
 console.log('✅ Rutas de inventario físico registradas');
 
+// --- Email Routes ---
+const emailRoutes = require('./routes/emailRoutes');
+app.use('/api/email', emailRoutes);
+
 
 
 

@@ -127,8 +127,8 @@ const sendCotizacionEmail = async ({ clienteEmail, clienteNombre, numeroCotizaci
 
         const mailOptions = {
             from: `"${process.env.SMTP_FROM_NAME || 'ERP360'}" <${process.env.SMTP_USER}>`,
-            to: 'juanandres072004@hotmail.com', // OVERRIDE TEMPORAL SOLICITADO
-            // to: clienteEmail, // Original
+            to: clienteEmail,
+            // to: 'juanandres072004@hotmail.com', // OVERRIDE TEMPORAL SOLICITADO
             subject: subject || `Cotización #${numeroCotizacion} - ${process.env.SMTP_FROM_NAME || 'ERP360'}`,
             html: htmlContent,
             attachments: [
@@ -150,6 +150,36 @@ const sendCotizacionEmail = async ({ clienteEmail, clienteNombre, numeroCotizaci
     }
 };
 
+/**
+ * Envia un correo genérico con soporte para adjuntos
+ * @param {Object} params
+ * @param {string} params.to - Destinatario
+ * @param {string} params.subject - Asunto
+ * @param {string} params.html - Cuerpo HTML
+ * @param {Array} params.attachments - Lista de adjuntos [{ filename, content, contentType }]
+ */
+const sendGenericEmail = async ({ to, subject, html, attachments = [] }) => {
+    try {
+        const mailTransporter = createTransporter();
+        const mailOptions = {
+            from: `"${process.env.SMTP_FROM_NAME || 'ERP360'}" <${process.env.SMTP_USER}>`,
+            to: to,
+            // to: 'juanandres072004@hotmail.com', // OVERRIDE TEMPORAL (Mantener consistente con servicio existente)
+            subject: subject,
+            html: html,
+            attachments: attachments
+        };
+
+        const result = await mailTransporter.sendMail(mailOptions);
+        console.log(`✅ Correo enviado a ${to}: ${result.messageId}`);
+        return { success: true, messageId: result.messageId };
+    } catch (error) {
+        console.error('❌ Error enviando email genérico:', error);
+        throw error;
+    }
+};
+
 module.exports = {
-    sendCotizacionEmail
+    sendCotizacionEmail,
+    sendGenericEmail
 };

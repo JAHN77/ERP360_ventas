@@ -16,9 +16,11 @@ import { useNavigation } from '../hooks/useNavigation';
 import { formatDateOnly } from '../utils/formatters';
 import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
-import { fetchFacturasDetalle, apiClient } from '../services/apiClient';
+import { fetchFacturasDetalle, apiClient, apiSendGenericEmail } from '../services/apiClient';
 import PageHeader from '../components/ui/PageHeader';
 import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal'; // New Import
+import { pdf } from '@react-pdf/renderer';
+import FacturaPDFDocument from '../components/facturacion/FacturaPDFDocument';
 
 
 
@@ -846,23 +848,97 @@ const FacturasPage: React.FC = () => {
   };
 
   const handleSendEmail = (factura: Factura) => {
+    // Calcular totales si no están (aunque useMemo seleccionaría, necesitamos pasar datos al modal)
+    // El modal usa "facturaToEmail".
+    // El PDF generator necesitará datos de la factura seleccionada.
     setFacturaToEmail(factura);
   };
 
   const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
     if (!facturaToEmail) return;
 
-    const subjectEncoded = encodeURIComponent(emailData.subject);
-    const bodyEncoded = encodeURIComponent(emailData.body);
-    const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+    // Notificación de inicio
+    addNotification({ message: 'Preparando envío de correo...', type: 'info' });
 
-    window.location.href = mailtoLink;
+    try {
+      // 1. Preparar datos para el PDF
+      // Necesitamos cliente, vendedor, empresa (ya en contexto)
 
-    addNotification({
-      message: `Se ha abierto tu cliente de correo para enviar la factura ${facturaToEmail.numeroFactura.replace('FAC-', '')} a ${emailData.to}.`,
-      type: 'success',
-    });
-    setFacturaToEmail(null);
+      // Buscar cliente
+      const clienteFactura = clientes.find(c =>
+        String(c.id) === String(facturaToEmail.clienteId) ||
+        c.numeroDocumento === facturaToEmail.clienteId ||
+        c.codter === facturaToEmail.clienteId
+      );
+
+      if (!clienteFactura) {
+        addNotification({ message: 'Error: No se encontró la información del cliente para generar el PDF.', type: 'warning' });
+        return;
+      }
+
+      // Buscar vendedor
+      const vendedorFactura = vendedores.find(v =>
+        String(v.id) === String(facturaToEmail.vendedorId) ||
+        v.codigo === facturaToEmail.vendedorId
+      );
+
+      // Items (si no están cargados, habría que cargarlos, pero asumimos que si se abrió el modal de email ya están o se pueden obtener)
+      // Ojo: facturaToEmail viene de la lista. Puede que items vengan parciales o vacíos si no es detalle.
+      // Si items vacío, intentar fetching detalle
+      let itemsFactura = facturaToEmail.items || [];
+      if (itemsFactura.length === 0) {
+        try {
+          const det = await fetchFacturasDetalle(facturaToEmail.id);
+          if (det.success && det.data) itemsFactura = det.data;
+        } catch (e) { console.error('Error fetching details for email PDF', e); }
+      }
+
+      const facturaCompleta = { ...facturaToEmail, items: itemsFactura };
+
+      // 2. Generar Blob del PDF
+      const blob = await pdf(
+        <FacturaPDFDocument
+          factura={facturaCompleta}
+          cliente={clienteFactura}
+          vendedor={vendedorFactura}
+          empresa={datosEmpresa}
+          preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
+        />
+      ).toBlob();
+
+      // 3. Convertir a Base64
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+
+        // 4. Enviar al backend
+        const response = await apiSendGenericEmail({
+          to: emailData.to,
+          subject: emailData.subject,
+          body: emailData.body,
+          attachment: {
+            filename: `Factura_${facturaToEmail.numeroFactura}.pdf`,
+            content: base64data, // Esto incluye "data:application/pdf;base64,...", backend lo limpiará o lo aceptará
+            contentType: 'application/pdf'
+          }
+        });
+
+        if (response.success) {
+          addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
+          setFacturaToEmail(null);
+        } else {
+          addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
+        }
+      };
+      reader.onerror = () => {
+        addNotification({ message: 'Error procesando el archivo PDF para envío.', type: 'error' });
+      };
+
+    } catch (error) {
+      console.error('Error en proceso de envío de email:', error);
+      addNotification({ message: 'Error al generar o enviar el correo.', type: 'error' });
+    }
   };
 
   const totalAFacturar = useMemo(() => {

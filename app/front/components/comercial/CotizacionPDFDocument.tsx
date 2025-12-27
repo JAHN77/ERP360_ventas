@@ -121,31 +121,33 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                 </View>
 
                 {/* Table */}
-                <View style={pdfStyles.tableContainer}>
+                <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}> {/* Reduced marginBottom slightly */}
                     <View style={pdfStyles.tableHeader}>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colCode]}>Referencia</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colDesc]}>Descripción</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '10%', paddingHorizontal: 4, textAlign: 'center' }]}>Unidad</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colQty]}>Cantidad</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '10%' }]}>Referencia</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '31%' }]}>Descripción</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Unidad</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Cant.</Text>
                         {preferences.showPrices ? (
                             <>
-                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colPrice]}>Precio unit.</Text>
-                                <Text style={[pdfStyles.tableHeaderText, { width: '10%', paddingHorizontal: 4, textAlign: 'right', color: '#334155' }]}>Descuento</Text>
-                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colTotal]}>Subtotal</Text>
+                                <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text>
+                                <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Desc.</Text>
+                                <Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text>
+                                <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Total</Text>
                             </>
                         ) : null}
                     </View>
                     {cotizacion.items.map((item, idx) => (
                         <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
-                            <Text style={[pdfStyles.tableCellText, pdfStyles.colCode]}>{(item as any).referencia || (item as any).codProducto || 'N/A'}</Text>
-                            <Text style={[pdfStyles.tableCellText, pdfStyles.colDesc]}>{item.descripcion}</Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 4, textAlign: 'center', fontSize: 9, color: '#334155' }]}>{(item as any).unidadMedida || 'UND'}</Text>
-                            <Text style={[pdfStyles.tableCellText, pdfStyles.colQty]}>{item.cantidad}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '10%', fontSize: 8 }]}>{(item as any).referencia || (item as any).codProducto || 'N/A'}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '31%', fontSize: 8 }]}>{item.descripcion}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>{(item as any).unidadMedida || 'UND'}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>
                             {preferences.showPrices ? (
                                 <>
-                                    <Text style={[pdfStyles.tableCellText, pdfStyles.colPrice]}>{formatCurrency(item.precioUnitario)}</Text>
-                                    <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 4, textAlign: 'right', fontSize: 9, color: '#ef4444' }]}>{(item.descuentoPorcentaje || 0).toFixed(2)}%</Text>
-                                    <Text style={[pdfStyles.tableCellText, pdfStyles.colTotal]}>{formatCurrency(item.total)}</Text>
+                                    <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrency(item.precioUnitario)}</Text>
+                                    <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2, textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>{(item.descuentoPorcentaje || 0).toFixed(2)}%</Text>
+                                    <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>{(item.ivaPorcentaje || 0).toFixed(0)}%</Text>
+                                    <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>{formatCurrency(item.total)}</Text>
                                 </>
                             ) : null}
                         </View>

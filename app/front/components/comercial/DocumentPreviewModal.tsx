@@ -7,7 +7,7 @@ import DocumentOptionsToolbar from './DocumentOptionsToolbar';
 import { DocumentPreferences } from '../../types';
 import SendEmailModal from './SendEmailModal';
 import { useData } from '../../hooks/useData';
-import { apiSendCotizacionEmail } from '../../services/apiClient';
+import { apiSendGenericEmail } from '../../services/apiClient';
 // import { descargarElementoComoPDF } from '../../utils/pdfClient'; // REMOVED
 
 
@@ -97,50 +97,57 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
 
     const handleSendEmail = async (destinatario: string, asunto: string, mensaje: string) => {
         setIsDownloading(true);
+        addNotification({ message: 'Preparando envío de correo...', type: 'info' });
+
         try {
-            if (documentType === 'cotizacion' && documentId) {
-                addNotification({ message: 'Enviando correo electrónico...', type: 'info' });
-                // Llamar al backend para enviar el correo con la firma y el contenido personalizado
-                const result = await apiSendCotizacionEmail(documentId, {
-                    firmaVendedor,
-                    destinatario,
-                    asunto,
-                    mensaje
-                });
+            // 1. Generar PDF Blob (Reutilizando lógica de descarga)
+            const blob = await pdf(childWithProps as React.ReactElement).toBlob();
 
-                if (result.success) {
-                    addNotification({
-                        message: result.message || 'Correo enviado exitosamente',
-                        type: 'success',
+            // 2. Convertir a Base64
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+
+            reader.onloadend = async () => {
+                const base64data = reader.result as string;
+
+                // 3. Enviar al backend usando el servicio genérico
+                try {
+                    const result = await apiSendGenericEmail({
+                        to: destinatario,
+                        subject: asunto,
+                        body: mensaje,
+                        attachment: {
+                            filename: `${documentType === 'cotizacion' ? 'Cotizacion' : documentType === 'pedido' ? 'Pedido' : documentType === 'factura' ? 'Factura' : 'Documento'}_${documentNumber.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+                            content: base64data,
+                            contentType: 'application/pdf'
+                        }
                     });
-                    setIsEmailModalOpen(false);
-                } else {
-                    throw new Error(result.message || 'Error al enviar el correo');
+
+                    if (result.success) {
+                        addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
+                        setIsEmailModalOpen(false);
+                    } else {
+                        throw new Error(result.message || 'Error al enviar el correo');
+                    }
+                } catch (apiError) {
+                    console.error('Error API Email:', apiError);
+                    addNotification({ message: `Error enviando correo: ${apiError instanceof Error ? apiError.message : 'Error desconocido'}`, type: 'error' });
+                } finally {
+                    setIsDownloading(false);
                 }
-            } else {
-                // Fallback para otros documentos: Descargar y Mailto
-                await handleDownload();
+            };
 
-                const subjectEncoded = encodeURIComponent(asunto);
-                const bodyEncoded = encodeURIComponent(mensaje);
-                const mailtoLink = `mailto:${destinatario}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+            reader.onerror = () => {
+                addNotification({ message: 'Error procesando el archivo PDF para envío.', type: 'error' });
+                setIsDownloading(false);
+            };
 
-                window.location.href = mailtoLink;
-
-                setIsEmailModalOpen(false);
-                addNotification({
-                    message: 'PDF descargado. Se ha abierto tu cliente de correo. Por favor adjunta el archivo manualmente.',
-                    type: 'info'
-                });
-            }
         } catch (error) {
-            console.error('Error enviando correo:', error);
+            console.error('Error generando PDF para email:', error);
             addNotification({
-                message: `Error al enviar el correo: ${error instanceof Error ? error.message : error}`,
+                message: `Error al generar el documento para envío: ${error instanceof Error ? error.message : error}`,
                 type: 'error',
             });
-            throw error;
-        } finally {
             setIsDownloading(false);
         }
     };

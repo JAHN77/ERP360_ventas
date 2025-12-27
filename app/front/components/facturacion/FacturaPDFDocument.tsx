@@ -117,27 +117,31 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                 </View>
 
                 {/* Items Table */}
-                <View style={pdfStyles.tableContainer}>
+                <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}> {/* Reduced marginBottom slightly */}
                     <View style={pdfStyles.tableHeader}>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colCode]}>Ref.</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colDesc]}>Descripción</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colQty]}>Cant.</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colPrice]}>Precio</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colDisc]}>Dcto.</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colTotal]}>Neto</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '10%' }]}>Ref.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '37%' }]}>Descripción</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Cant.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Dcto.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '17%', textAlign: 'right' }]}>Neto</Text>
                     </View>
                     {factura.items.map((item, index) => (
-                        <View key={index} style={pdfStyles.tableRow}>
-                            <Text style={[pdfStyles.tableCellText, pdfStyles.colCode]}>{item.codProducto || 'N/A'}</Text>
-                            <Text style={[pdfStyles.tableCellText, pdfStyles.colDesc]}>{item.descripcion}</Text>
-                            <Text style={[pdfStyles.tableCellText, pdfStyles.colQty]}>{item.cantidad}</Text>
-                            <Text style={[pdfStyles.tableCellText, pdfStyles.colPrice]}>
+                        <View key={index} style={[pdfStyles.tableRow, { backgroundColor: index % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
+                            <Text style={[pdfStyles.tableCellText, { width: '10%', fontSize: 8 }]}>{item.codProducto || 'N/A'}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '37%', fontSize: 8 }]}>{item.descripcion}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>
                                 {preferences.showPrices ? formatCurrency(item.precioUnitario) : '***'}
                             </Text>
-                            <Text style={[pdfStyles.tableCellText, pdfStyles.colDisc]}>
-                                {item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje}%` : '0%'}
+                            <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>
+                                {item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje.toFixed(0)}%` : '-'}
                             </Text>
-                            <Text style={[pdfStyles.tableCellText, pdfStyles.colTotal]}>
+                            <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>
+                                {(item.ivaPorcentaje || 0).toFixed(0)}%
+                            </Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '17%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>
                                 {preferences.showPrices ? formatCurrency(item.total) : '***'}
                             </Text>
                         </View>

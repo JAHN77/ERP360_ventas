@@ -20,7 +20,9 @@ import { useAuth } from '../hooks/useAuth';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { logger } from '../utils/logger';
-import { apiClient, fetchPedidosDetalle } from '../services/apiClient';
+import { apiClient, fetchPedidosDetalle, apiSendGenericEmail } from '../services/apiClient';
+import SendEmailModal from '../components/comercial/SendEmailModal';
+import { pdf } from '@react-pdf/renderer';
 import { formatDateOnly } from '../utils/formatters';
 import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
@@ -70,6 +72,7 @@ const PedidosPage: React.FC = () => {
   const [selectedPedido, setSelectedPedido] = useState<Pedido | null>(null);
   const [pedidoToEdit, setPedidoToEdit] = useState<Pedido | null>(null);
   const [orderToPreview, setOrderToPreview] = useState<Pedido | null>(null);
+  const [pedidoToEmail, setPedidoToEmail] = useState<Pedido | null>(null);
   const [approvalResult, setApprovalResult] = useState<Pedido | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
@@ -431,6 +434,77 @@ const PedidosPage: React.FC = () => {
     setPage('remisiones', { openCreateForPedidoId: pedidoId });
   };
 
+  const handleSendEmail = (pedido: Pedido) => {
+    setPedidoToEmail(pedido);
+  };
+
+  const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
+    if (!pedidoToEmail) return;
+
+    addNotification({ message: 'Preparando envío de correo...', type: 'info' });
+
+    try {
+      // Buscar cliente para datos
+      const clientePedido = clientes.find(c =>
+        String(c.id) === String(pedidoToEmail.clienteId) ||
+        c.numeroDocumento === pedidoToEmail.clienteId ||
+        c.codter === pedidoToEmail.clienteId
+      );
+
+      if (!clientePedido) {
+        addNotification({ message: 'Error: No se encontró la información del cliente.', type: 'warning' });
+        return;
+      }
+
+      const cotizacionOrigen = cotizaciones.find(c => String(c.id) === String(pedidoToEmail.cotizacionId));
+
+      // Generar Blob del PDF
+      const blob = await pdf(
+        <PedidoPDFDocument
+          pedido={pedidoToEmail}
+          cliente={clientePedido}
+          empresa={datosEmpresa}
+          preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
+          productos={productos}
+          cotizacionOrigen={cotizacionOrigen}
+        />
+      ).toBlob();
+
+      // Convertir a Base64
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+
+        // Enviar al backend
+        const response = await apiSendGenericEmail({
+          to: emailData.to,
+          subject: emailData.subject,
+          body: emailData.body,
+          attachment: {
+            filename: `Pedido_${pedidoToEmail.numeroPedido}.pdf`,
+            content: base64data,
+            contentType: 'application/pdf'
+          }
+        });
+
+        if (response.success) {
+          addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
+          setPedidoToEmail(null);
+        } else {
+          addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
+        }
+      };
+      reader.onerror = () => {
+        addNotification({ message: 'Error procesando el archivo PDF para envío.', type: 'error' });
+      };
+
+    } catch (error) {
+      console.error('Error en proceso de envío de email:', error);
+      addNotification({ message: 'Error al generar o enviar el correo.', type: 'error' });
+    }
+  };
+
   const columns: Column<Pedido>[] = [
     {
       header: 'Número',
@@ -525,6 +599,13 @@ const PedidosPage: React.FC = () => {
             title="Ver Detalles"
           >
             <i className="fas fa-eye"></i>
+          </button>
+          <button
+            onClick={() => handleSendEmail(item)}
+            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+            title="Enviar Email"
+          >
+            <i className="fas fa-paper-plane"></i>
           </button>
           <ProtectedComponent permission="pedidos:approve">
             {(item.estado === 'ENVIADA' || item.estado === 'BORRADOR') && (
@@ -977,6 +1058,13 @@ const PedidosPage: React.FC = () => {
                     <i className="fas fa-truck-loading"></i> Crear Remisión
                   </button>
                 )}
+
+                <button
+                  onClick={() => handleSendEmail(selectedPedido)}
+                  className="px-5 py-2.5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-semibold rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm flex items-center gap-2"
+                >
+                  <i className="fas fa-paper-plane"></i> Enviar Email
+                </button>
               </div>
             </div>
 
@@ -1038,6 +1126,24 @@ const PedidosPage: React.FC = () => {
               cotizacionOrigen={cotizaciones.find(c => c.id === orderToPreview.cotizacionId)}
             />
           </DocumentPreviewModal>
+        );
+      })()}
+
+      {pedidoToEmail && (() => {
+        const clientePedido = clientes.find(c =>
+          String(c.id) === String(pedidoToEmail.clienteId) ||
+          c.numeroDocumento === pedidoToEmail.clienteId ||
+          c.codter === pedidoToEmail.clienteId
+        );
+        return (
+          <SendEmailModal
+            isOpen={!!pedidoToEmail}
+            onClose={() => setPedidoToEmail(null)}
+            onSend={handleConfirmSendEmail}
+            to={clientePedido?.email || ''}
+            subject={`Pedido ${pedidoToEmail.numeroPedido} - ${datosEmpresa.nombre}`}
+            body={`Estimado cliente ${clientePedido?.nombreCompleto || ''},\n\nAdjuntamos el pedido de la referencia.\n\nCordialmente,\n${datosEmpresa.nombre}`}
+          />
         );
       })()}
 

@@ -21,7 +21,9 @@ import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { findClienteByIdentifier } from '../utils/clientes';
 import { formatDateOnly } from '../utils/formatters';
-import { fetchCotizacionesDetalle } from '../services/apiClient';
+import { fetchCotizacionesDetalle, apiSendGenericEmail } from '../services/apiClient';
+import SendEmailModal from '../components/comercial/SendEmailModal';
+import { pdf } from '@react-pdf/renderer';
 import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
 
@@ -91,6 +93,7 @@ const CotizacionesPage: React.FC = () => {
   const [approvedItems, setApprovedItems] = useState<Set<number>>(new Set());
 
   const [quoteToPreview, setQuoteToPreview] = useState<Cotizacion | null>(null);
+  const [quoteToEmail, setQuoteToEmail] = useState<Cotizacion | null>(null);
   const [approvalResult, setApprovalResult] = useState<{ cotizacion: Cotizacion, pedido: Pedido } | null>(null);
 
   const ENABLE_BATCH_APPROVAL = false;
@@ -500,6 +503,73 @@ const CotizacionesPage: React.FC = () => {
   }, [selectedCotizacion, approvedItems]);
 
 
+
+  const handleSendEmail = (cotizacion: Cotizacion) => {
+    setQuoteToEmail(cotizacion);
+  };
+
+  const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
+    if (!quoteToEmail) return;
+
+    addNotification({ message: 'Preparando envío de correo...', type: 'info' });
+
+    try {
+      const clienteCotizacion = clientes.find(c => String(c.id) === String(quoteToEmail.clienteId));
+      if (!clienteCotizacion) return;
+
+      let vendedor = null;
+      if (quoteToEmail.vendedorId) {
+        vendedor = vendedores.find(v => String(v.id) === String(quoteToEmail.vendedorId));
+      }
+
+      // Generar Blob del PDF
+      const blob = await pdf(
+        <CotizacionPDFDocument
+          cotizacion={quoteToEmail}
+          cliente={clienteCotizacion}
+          vendedor={vendedor || undefined}
+          empresa={datosEmpresa}
+          preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
+          productos={productos}
+        />
+      ).toBlob();
+
+      // Convertir a Base64
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+
+        // Enviar al backend
+        const response = await apiSendGenericEmail({
+          to: emailData.to,
+          subject: emailData.subject,
+          body: emailData.body,
+          attachment: {
+            filename: `Cotizacion_${quoteToEmail.numeroCotizacion}.pdf`,
+            content: base64data,
+            contentType: 'application/pdf'
+          }
+        });
+
+        if (response.success) {
+          addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
+          setQuoteToEmail(null);
+        } else {
+          addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
+        }
+      };
+      reader.onerror = () => {
+        addNotification({ message: 'Error procesando el archivo PDF para envío.', type: 'error' });
+      };
+
+    } catch (error) {
+      console.error('Error en proceso de envío de email:', error);
+      addNotification({ message: 'Error al generar o enviar el correo.', type: 'error' });
+    }
+  };
+
+
   // Limpiar selección cuando cambia el filtro o página
   useEffect(() => {
     if (!ENABLE_BATCH_APPROVAL) return;
@@ -604,9 +674,16 @@ const CotizacionesPage: React.FC = () => {
             <button
               onClick={() => setQuoteToPreview(item)}
               className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all duration-200"
-              title="Vista Previa PDF / Enviar"
+              title="Vista Previa PDF"
             >
               <i className="fas fa-file-pdf"></i>
+            </button>
+            <button
+              onClick={() => handleSendEmail(item)}
+              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+              title="Enviar Email"
+            >
+              <i className="fas fa-paper-plane"></i>
             </button>
             <ProtectedComponent permission="cotizaciones:approve">
               {(item.estado === 'ENVIADA' || item.estado === 'BORRADOR') && (
@@ -1309,6 +1386,20 @@ const CotizacionesPage: React.FC = () => {
           </Modal>
         )
       }
+
+      {quoteToEmail && (() => {
+        const clienteCotizacion = clientes.find(c => String(c.id) === String(quoteToEmail.clienteId));
+        return (
+          <SendEmailModal
+            isOpen={!!quoteToEmail}
+            onClose={() => setQuoteToEmail(null)}
+            onSend={handleConfirmSendEmail}
+            to={clienteCotizacion?.email || ''}
+            subject={`Cotización ${quoteToEmail.numeroCotizacion} - ${datosEmpresa.nombre}`}
+            body={`Estimado cliente ${clienteCotizacion?.nombreCompleto || 'Cliente'},\n\nAdjuntamos la cotización de los productos de su interés.\n\nCordialmente,\n${datosEmpresa.nombre}`}
+          />
+        );
+      })()}
 
     </PageContainer>
   );

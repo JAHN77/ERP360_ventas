@@ -646,6 +646,12 @@ class ApiClient {
       body: JSON.stringify(data)
     });
   }
+  async sendEmail(payload: { to: string, subject: string, body: string, attachment?: { filename: string, content: string, contentType: string } }) {
+    return this.request('/email/send', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
 }
 
 // Instancia singleton del cliente API
@@ -762,5 +768,7 @@ export const apiAplicarConteo = async (idconteo: number) => {
     body: JSON.stringify({})
   });
 };
+
+export const apiSendGenericEmail = (payload: { to: string, subject: string, body: string, attachment?: { filename: string, content: string, contentType: string } }) => apiClient.sendEmail(payload);
 
 export default apiClient;
