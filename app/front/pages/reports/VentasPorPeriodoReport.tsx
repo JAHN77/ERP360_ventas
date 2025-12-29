@@ -7,7 +7,7 @@ import { useData } from '../../hooks/useData';
 import { exportToCSV } from '../../utils/exportUtils';
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 const dateRangeOptions: DateRangeOption[] = [
@@ -32,7 +32,7 @@ const VentasPorPeriodoReport: React.FC = () => {
                 start.setDate(1);
                 break;
             case '90':
-                 start.setDate(end.getDate() - 89);
+                start.setDate(end.getDate() - 89);
                 break;
             case '30':
             default:
@@ -68,11 +68,11 @@ const VentasPorPeriodoReport: React.FC = () => {
 
         const totalSales = relevantInvoices.reduce((sum, f) => {
             const totalDevuelto = notasCredito
-              .filter(nc => nc.facturaId === f.id)
-              .reduce((devSum, nc) => devSum + nc.total, 0);
+                .filter(nc => nc.facturaId === f.id)
+                .reduce((devSum, nc) => devSum + nc.total, 0);
             return sum + (f.total - totalDevuelto);
         }, 0);
-        
+
         const invoiceCount = relevantInvoices.length;
         const averageSale = invoiceCount > 0 ? totalSales / invoiceCount : 0;
 
@@ -80,7 +80,7 @@ const VentasPorPeriodoReport: React.FC = () => {
     }, [facturas, notasCredito, startDate, endDate]);
 
     const handleExport = () => {
-        const exportColumns: {header: string, accessor: 'date' | 'sales'}[] = [
+        const exportColumns: { header: string, accessor: 'date' | 'sales' }[] = [
             { header: 'Fecha', accessor: 'date' },
             { header: 'Ventas', accessor: 'sales' },
         ];
@@ -93,12 +93,12 @@ const VentasPorPeriodoReport: React.FC = () => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                 <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Análisis de Ventas por Período</h2>
                 <div className="flex items-center gap-3 flex-wrap">
-                    <DateRangePicker 
+                    <DateRangePicker
                         options={dateRangeOptions}
                         activeOption={activeRange}
                         onOptionChange={setActiveRange}
                     />
-                    <button 
+                    <button
                         onClick={handleExport}
                         className="px-4 py-1.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow-sm hover:shadow-md text-sm flex items-center justify-center"
                     >
@@ -107,7 +107,7 @@ const VentasPorPeriodoReport: React.FC = () => {
                     </button>
                 </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                 <StatCard title="Ventas Totales" value={formatCurrency(stats.totalSales)} icon="fa-dollar-sign" colorName="blue" />
                 <StatCard title="Nº de Facturas" value={stats.invoiceCount.toString()} icon="fa-file-invoice" colorName="green" />

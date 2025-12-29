@@ -23,12 +23,12 @@ import type { Permission } from '../config/rolesConfig';
 type Documento = Cotizacion | Pedido | Remision | Factura | NotaCredito;
 type Tab = 'cotizaciones' | 'pedidos' | 'remisiones' | 'facturas' | 'notasCredito';
 
-const formatCurrency = (value: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+const formatCurrency = (value: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 
 const DemasInformesPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<Tab>('cotizaciones');
     const { addNotification } = useNotifications();
-    const { 
+    const {
         cotizaciones, pedidos, remisiones, facturas, notasCredito, clientes,
         borrarCotizacion, borrarPedido, borrarRemision, borrarFactura, borrarNotaCredito
     } = useData();
@@ -45,7 +45,7 @@ const DemasInformesPage: React.FC = () => {
             else if ('numeroRemision' in docToDelete) { deletedDocName = docToDelete.numeroRemision; await borrarRemision(docToDelete.id); }
             else if ('numeroFactura' in docToDelete) { deletedDocName = docToDelete.numeroFactura; await borrarFactura(docToDelete.id); }
             else if ('numero' in docToDelete) { deletedDocName = docToDelete.numero; await borrarNotaCredito(docToDelete.id); }
-            
+
             addNotification({ message: `Documento ${deletedDocName} eliminado con éxito.`, type: 'success' });
         } catch (error) {
             addNotification({ message: (error as Error).message, type: 'warning' });
@@ -57,11 +57,10 @@ const DemasInformesPage: React.FC = () => {
     const TabButton: React.FC<{ tabId: Tab; label: string; icon: string }> = ({ tabId, label, icon }) => (
         <button
             onClick={() => setActiveTab(tabId)}
-            className={`flex items-center gap-2 whitespace-nowrap py-3 px-4 border-b-2 font-semibold text-sm rounded-t-lg ${
-                activeTab === tabId
+            className={`flex items-center gap-2 whitespace-nowrap py-3 px-4 border-b-2 font-semibold text-sm rounded-t-lg ${activeTab === tabId
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-slate-500 hover:border-slate-300 dark:hover:border-slate-600'
-            }`}
+                }`}
         >
             <i className={`fas ${icon}`}></i>
             {label}

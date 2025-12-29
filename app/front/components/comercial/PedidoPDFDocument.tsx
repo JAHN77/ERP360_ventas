@@ -58,7 +58,7 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                         <View style={[pdfStyles.documentBadge, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
                             <Text style={[pdfStyles.documentTitle, { color: '#0369a1' }]}>ORDEN DE COMPRA</Text>
                         </View>
-                        <Text style={pdfStyles.documentNumber}>{(pedido.numeroPedido || '').replace('PED-', '')}</Text>
+                        <Text style={pdfStyles.documentNumber}>N° {(pedido.numeroPedido || '').replace('PED-', '')}</Text>
                     </View>
                 </View>
 

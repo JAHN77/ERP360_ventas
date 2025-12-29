@@ -16,10 +16,10 @@ import { useData } from '../hooks/useData';
 import { fetchFacturasDetalle } from '../services/apiClient';
 import { useClientesConFacturasAceptadas } from '../hooks/useClientesConFacturasAceptadas';
 import SendEmailModal from '../components/comercial/SendEmailModal';
-import { apiSendGenericEmail } from '../services/apiClient';
+import apiClient from '../services/apiClient';
 import { pdf } from '@react-pdf/renderer';
 
-const formatCurrency = (value: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 2 }).format(value);
+const formatCurrency = (value: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 
 interface DevolucionItem {
     productoId: number;
@@ -94,6 +94,21 @@ const DevolucionesPage: React.FC = () => {
     const [selectedNotaParaVer, setSelectedNotaParaVer] = useState<NotaCredito | null>(null);
     const [notaParaImprimir, setNotaParaImprimir] = useState<NotaCredito | null>(null);
     const [notaToEmail, setNotaToEmail] = useState<NotaCredito | null>(null);
+    const [nextNoteNumber, setNextNoteNumber] = useState<string>('');
+
+    useEffect(() => {
+        const fetchNextNumber = async () => {
+            try {
+                const res = await apiClient.getNextCreditNoteNumber();
+                if (res.success && res.data) {
+                    setNextNoteNumber(res.data.nextNumber);
+                }
+            } catch (err) {
+                console.error("Error fetching next credit note number", err);
+            }
+        };
+        fetchNextNumber();
+    }, []);
 
     // Hooks
     const { addNotification } = useNotifications();
@@ -750,7 +765,7 @@ const DevolucionesPage: React.FC = () => {
 
             const draftNota: NotaCredito = {
                 id: 'draft',
-                numero: 'BORRADOR', // Will function as preview title
+                numero: nextNoteNumber || 'BORRADOR', // Will function as preview title
                 clienteId: selectedCliente.id,
                 facturaId: selectedFactura.id,
                 fechaEmision: new Date().toISOString(),
@@ -782,45 +797,30 @@ const DevolucionesPage: React.FC = () => {
         }
     };
 
-    const handleOpenDetailModal = (nota: NotaCredito) => {
-        setSelectedNotaParaVer(nota);
-        setIsDetailModalOpen(true);
-    };
-
-    const handleOpenPrintModal = (nota: NotaCredito) => {
-        setNotaParaImprimir(nota);
-    };
-
     const handleSendEmail = (nota: NotaCredito) => {
         setNotaToEmail(nota);
     };
 
     const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
         if (!notaToEmail) return;
-
         addNotification({ message: 'Preparando envío de correo...', type: 'info' });
 
         try {
-            // Buscar cliente y factura relacionados
-            const clienteNota = clientes.find(c =>
-                String(c.id) === String(notaToEmail.clienteId) ||
-                c.numeroDocumento === notaToEmail.clienteId ||
-                c.codter === notaToEmail.clienteId
-            );
-
+            // Recuperar datos completos para el PDF (cliente, factura)
+            const clienteNota = clientes.find(c => String(c.id) === String(notaToEmail.clienteId) || c.numeroDocumento === notaToEmail.clienteId);
             const facturaNota = facturas.find(f => String(f.id) === String(notaToEmail.facturaId));
 
             if (!clienteNota) {
-                addNotification({ message: 'Error: No se encontró información del cliente.', type: 'warning' });
+                addNotification({ message: 'Error: No se encontró cliente asociado.', type: 'warning' });
                 return;
             }
 
-            // Generar Blob PDF
+            // Generar PDF Blob usando el componente existente
             const blob = await pdf(
                 <NotaCreditoPDFDocument
                     notaCredito={notaToEmail}
-                    factura={facturaNota || { ...selectedFactura, items: [] } as any} // Fallback seguro
-                    cliente={clienteNota as any}
+                    factura={facturaNota || { numeroFactura: 'N/A' } as any}
+                    cliente={clienteNota}
                     empresa={{
                         nombre: datosEmpresa.nombre || 'Mi Empresa',
                         nit: datosEmpresa.nit || '',
@@ -836,15 +836,11 @@ const DevolucionesPage: React.FC = () => {
             reader.onloadend = async () => {
                 const base64data = reader.result as string;
 
-                const response = await apiSendGenericEmail({
-                    to: emailData.to,
-                    subject: emailData.subject,
-                    body: emailData.body,
-                    attachment: {
-                        filename: `NotaCredito_${notaToEmail.numero}.pdf`,
-                        content: base64data,
-                        contentType: 'application/pdf'
-                    }
+                const response = await apiClient.sendNotaCreditoEmail(notaToEmail.id, {
+                    destinatario: emailData.to,
+                    asunto: emailData.subject,
+                    mensaje: emailData.body,
+                    pdfBase64: base64data
                 });
 
                 if (response.success) {
@@ -854,15 +850,23 @@ const DevolucionesPage: React.FC = () => {
                     addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
                 }
             };
-            reader.onerror = () => {
-                addNotification({ message: 'Error procesando el archivo PDF.', type: 'error' });
-            };
 
         } catch (error) {
-            console.error('Error enviando email:', error);
+            console.error('Error email nota credito:', error);
             addNotification({ message: 'Error al enviar el correo.', type: 'error' });
         }
     };
+
+    const handleOpenDetailModal = (nota: NotaCredito) => {
+        setSelectedNotaParaVer(nota);
+        setIsDetailModalOpen(true);
+    };
+
+    const handleOpenPrintModal = (nota: NotaCredito) => {
+        setNotaParaImprimir(nota);
+    };
+
+
 
     // ✅ Protección: Asegurar que notasCredito sea siempre un array
     const safeNotasCredito = Array.isArray(notasCredito) ? notasCredito : [];
@@ -1351,6 +1355,18 @@ const DevolucionesPage: React.FC = () => {
                     </div>
                 )}
             </Modal>
+
+            {notaToEmail && (
+                <SendEmailModal
+                    isOpen={true}
+                    onClose={() => setNotaToEmail(null)}
+                    onSend={handleConfirmSendEmail}
+                    to={notaToEmail.clienteId ? (clientes.find(c => String(c.id) === String(notaToEmail.clienteId) || c.codter === notaToEmail.clienteId)?.email || '') : ''}
+                    subject={`Nota de Crédito - ${notaToEmail.numero} - ${datosEmpresa?.nombre || ''}`}
+                    body={`Cordial saludo,\n\nAdjuntamos la nota de crédito número ${notaToEmail.numero}.\n\nAtentamente,\n${datosEmpresa?.nombre || ''}`}
+                />
+            )}
+
 
             {
                 selectedNotaParaVer && (() => {

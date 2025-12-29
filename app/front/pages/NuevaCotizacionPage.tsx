@@ -60,35 +60,12 @@ const NuevaCotizacionPage: React.FC = () => {
 
         const fetchNextNumber = async () => {
             try {
-                // Fetch latest quotations to determine the next number
-                // Assuming getCotizaciones returns the latest ones first
-                const response = await apiClient.getCotizaciones();
-                if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
-                    // Try to find the latest specific format "C-XXXXXX"
-                    // Sort by ID descending to be safe if the API default sort isn't guaranteed
-                    const sortedQuotes = [...response.data].sort((a: any, b: any) => b.id - a.id);
-                    const lastQuote = sortedQuotes[0];
-                    if (lastQuote && lastQuote.numeroCotizacion) {
-                        // Extraer solo la parte numérica, descartando cualquier prefijo (ej: C-000001 -> 000001)
-                        const quoteNum = lastQuote.numeroCotizacion;
-                        let lastNum = 0;
-
-                        if (quoteNum.includes('-')) {
-                            const parts = quoteNum.split('-');
-                            lastNum = parseInt(parts[parts.length - 1], 10);
-                        } else {
-                            lastNum = parseInt(quoteNum, 10);
-                        }
-
-                        if (!isNaN(lastNum)) {
-                            const nextNum = lastNum + 1;
-                            setNextQuoteNumber(String(nextNum).padStart(6, '0'));
-                            return;
-                        }
-                    }
+                const response = await apiClient.getNextQuoteNumber();
+                if (response.success && response.data) {
+                    setNextQuoteNumber(response.data.nextNumber);
+                } else {
+                    setNextQuoteNumber('000001');
                 }
-                // Fallback if no quotes exist or format doesn't match
-                setNextQuoteNumber('000001');
             } catch (error) {
                 console.error("Error fetching next quote number", error);
                 setNextQuoteNumber('??????');
@@ -171,7 +148,7 @@ const NuevaCotizacionPage: React.FC = () => {
 
             const previewData: Cotizacion = {
                 id: 'temp-preview',
-                numeroCotizacion: 'COT-PREVIEW',
+                numeroCotizacion: nextQuoteNumber ? `C-${nextQuoteNumber}` : 'COT-PREVIEW',
                 fechaCotizacion: today.toISOString().split('T')[0],
                 fechaVencimiento: expiryDate.toISOString().split('T')[0],
                 clienteId: formData.clienteId,
@@ -349,7 +326,7 @@ const NuevaCotizacionPage: React.FC = () => {
                     <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
                         {isEditing
                             ? `Editar Cotización: ${(initialData?.numeroCotizacion || '').replace('C-', '')}`
-                            : `Crear Nueva Cotización ${nextQuoteNumber ? `#${nextQuoteNumber.replace('C-', '')}` : ''}`}
+                            : `Nueva Cotización ${nextQuoteNumber ? `#${nextQuoteNumber.replace('C-', '')}` : ''}`}
                     </h1>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-1">
                         <p className="text-slate-500 dark:text-slate-400">

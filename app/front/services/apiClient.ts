@@ -501,8 +501,36 @@ class ApiClient {
     });
   }
 
-  async sendCotizacionEmail(id: string | number, payload: { firmaVendedor?: string | null, destinatario?: string, asunto?: string, mensaje?: string }) {
+  async sendCotizacionEmail(id: string | number, payload: { firmaVendedor?: string | null, destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
     return this.request(`/cotizaciones/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async sendPedidoEmail(id: string | number, payload: { destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
+    return this.request(`/pedidos/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async sendRemisionEmail(id: string | number, payload: { destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
+    return this.request(`/remisiones/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async sendFacturaEmail(id: string | number, payload: { destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
+    return this.request(`/facturas/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async sendNotaCreditoEmail(id: string | number, payload: { destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
+    return this.request(`/notas-credito/${id}/email`, { // Note: controller path is /:id/email or /:id/send-email? I should check routes.
       method: 'POST',
       body: JSON.stringify(payload),
     });
@@ -652,6 +680,22 @@ class ApiClient {
       body: JSON.stringify(payload)
     });
   }
+
+  public async getNextQuoteNumber(): Promise<ApiResponse<{ nextNumber: string }>> {
+    return this.request<{ nextNumber: string }>('/cotizaciones/next-number');
+  }
+
+  public async getNextOrderNumber(): Promise<ApiResponse<{ nextNumber: string }>> {
+    return this.request<{ nextNumber: string }>('/pedidos/next-number');
+  }
+
+  public async getNextInvoiceNumber(): Promise<ApiResponse<{ nextNumber: string }>> {
+    return this.request<{ nextNumber: string }>('/facturas/next-number');
+  }
+
+  public async getNextCreditNoteNumber(): Promise<ApiResponse<{ nextNumber: string }>> {
+    return this.request<{ nextNumber: string }>('/notas-credito/next-number');
+  }
 }
 
 // Instancia singleton del cliente API
@@ -695,7 +739,10 @@ export const apiSearchVendedores = (q: string, limit?: number) => apiClient.sear
 export const apiSearchProductos = (q: string, limit?: number, codalm?: string) => apiClient.searchProductos(q, limit, codalm);
 export const apiCreateCotizacion = (payload: any) => apiClient.createCotizacion(payload);
 export const apiUpdateCotizacion = (id: string | number, payload: any) => apiClient.updateCotizacion(id, payload);
-export const apiSendCotizacionEmail = (id: string | number, payload: { firmaVendedor?: string | null; destinatario?: string; asunto?: string; mensaje?: string }) => apiClient.sendCotizacionEmail(id, payload);
+export const apiSendCotizacionEmail = (id: string | number, payload: { firmaVendedor?: string | null; destinatario?: string; asunto?: string; mensaje?: string; pdfBase64?: string }) => apiClient.sendCotizacionEmail(id, payload);
+export const apiSendPedidoEmail = (id: string | number, payload: { destinatario?: string; asunto?: string; mensaje?: string; pdfBase64?: string }) => apiClient.sendPedidoEmail(id, payload);
+export const apiSendRemisionEmail = (id: string | number, payload: { destinatario?: string; asunto?: string; mensaje?: string; pdfBase64?: string }) => apiClient.sendRemisionEmail(id, payload);
+export const apiSendFacturaEmail = (id: string | number, payload: { destinatario?: string; asunto?: string; mensaje?: string; pdfBase64?: string }) => apiClient.sendFacturaEmail(id, payload);
 
 
 export const apiCreatePedido = (payload: any) => apiClient.createPedido(payload);
@@ -770,5 +817,18 @@ export const apiAplicarConteo = async (idconteo: number) => {
 };
 
 export const apiSendGenericEmail = (payload: { to: string, subject: string, body: string, attachment?: { filename: string, content: string, contentType: string } }) => apiClient.sendEmail(payload);
+
+export const apiGetNextQuoteNumber = () => apiClient.getNextQuoteNumber();
+export const apiGetNextOrderNumber = () => apiClient.getNextOrderNumber();
+export const apiGetNextInvoiceNumber = () => apiClient.getNextInvoiceNumber();
+export const apiGetNextCreditNoteNumber = () => apiClient.getNextCreditNoteNumber();
+
+// Enviar email de Nota Crédito específico
+export const apiSendCreditNoteEmail = async (id: number, data: { destinatario?: string; asunto?: string; mensaje?: string; pdfBase64: string }): Promise<ApiResponse<any>> => {
+  return apiClient.request(`/notas-credito/${id}/email`, { // Ajustar ruta según tu router backend
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+};
 
 export default apiClient;

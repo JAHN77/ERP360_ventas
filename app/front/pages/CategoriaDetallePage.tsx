@@ -9,7 +9,7 @@ import TablePagination from '../components/ui/TablePagination';
 import { InvProducto } from '../types';
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 const CategoriaDetallePage: React.FC = () => {

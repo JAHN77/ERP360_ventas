@@ -20,7 +20,7 @@ import { useAuth } from '../hooks/useAuth';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { logger } from '../utils/logger';
-import { apiClient, fetchPedidosDetalle, apiSendGenericEmail } from '../services/apiClient';
+import { apiClient, fetchPedidosDetalle, apiSendGenericEmail, apiSendPedidoEmail } from '../services/apiClient';
 import SendEmailModal from '../components/comercial/SendEmailModal';
 import { pdf } from '@react-pdf/renderer';
 import { formatDateOnly } from '../utils/formatters';
@@ -28,7 +28,7 @@ import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 const getPedidoProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'incomplete' => {
@@ -206,9 +206,9 @@ const PedidosPage: React.FC = () => {
       );
 
       // Use product tax rate if available, else item tax rate (fallback)
-      const taxRate = (product && product.tasaIva !== undefined && product.tasaIva !== null)
-        ? Number(product.tasaIva)
-        : Number(item.ivaPorcentaje || 0);
+      const taxRate = (item.ivaPorcentaje !== undefined && item.ivaPorcentaje !== null)
+        ? Number(item.ivaPorcentaje)
+        : (product && product.tasaIva !== undefined && product.tasaIva !== null ? Number(product.tasaIva) : 0);
 
       const qty = Number(item.cantidad || 0);
       const price = Number(item.precioUnitario || 0);
@@ -477,15 +477,12 @@ const PedidosPage: React.FC = () => {
         const base64data = reader.result as string;
 
         // Enviar al backend
-        const response = await apiSendGenericEmail({
-          to: emailData.to,
-          subject: emailData.subject,
-          body: emailData.body,
-          attachment: {
-            filename: `Pedido_${pedidoToEmail.numeroPedido}.pdf`,
-            content: base64data,
-            contentType: 'application/pdf'
-          }
+        // Enviar al backend usando el endpoint específico de Pedidos
+        const response = await apiSendPedidoEmail(pedidoToEmail.id!, {
+          destinatario: emailData.to,
+          asunto: emailData.subject,
+          mensaje: emailData.body,
+          pdfBase64: base64data
         });
 
         if (response.success) {
@@ -879,9 +876,9 @@ const PedidosPage: React.FC = () => {
                         const price = Number(item.precioUnitario || 0);
                         const discountPct = Number(item.descuentoPorcentaje || 0);
 
-                        const ivaPct = (product && product.tasaIva !== undefined && product.tasaIva !== null)
-                          ? Number(product.tasaIva)
-                          : Number(item.ivaPorcentaje || 0);
+                        const ivaPct = (item.ivaPorcentaje !== undefined && item.ivaPorcentaje !== null)
+                          ? Number(item.ivaPorcentaje)
+                          : (product && product.tasaIva !== undefined && product.tasaIva !== null ? Number(product.tasaIva) : 0);
 
                         const itemSubtotal = price * qty * (1 - discountPct / 100);
                         const itemIva = itemSubtotal * (ivaPct / 100);
@@ -1116,6 +1113,7 @@ const PedidosPage: React.FC = () => {
             documentType="pedido"
             clientEmail={cliente.email}
             clientName={cliente.nombreCompleto}
+            documentId={orderToPreview.id}
           >
             <PedidoPDFDocument
               pedido={orderToPreview}
@@ -1142,7 +1140,7 @@ const PedidosPage: React.FC = () => {
             onSend={handleConfirmSendEmail}
             to={clientePedido?.email || ''}
             subject={`Pedido ${pedidoToEmail.numeroPedido} - ${datosEmpresa.nombre}`}
-            body={`Estimado cliente ${clientePedido?.nombreCompleto || ''},\n\nAdjuntamos el pedido de la referencia.\n\nCordialmente,\n${datosEmpresa.nombre}`}
+            body={`Estimado/a ${clientePedido?.nombreCompleto || 'Cliente'},\n\nEsperamos que este mensaje le encuentre bien.\n\nAdjuntamos la orden de pedido N° ${pedidoToEmail.numeroPedido.replace('PED-', '')} con el detalle de los productos solicitados.\n\nPor favor proceda con la revisión del documento. Quedamos atentos a cualquier inquietud.\n\nCordialmente,\nEl equipo de ${datosEmpresa.nombre}`}
           />
         );
       })()}

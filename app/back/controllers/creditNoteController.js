@@ -929,6 +929,113 @@ const creditNoteController = {
       console.error('❌ Error general en PUT /api/notas-credito/:id', error);
       res.status(500).json({ success: false, message: error.message || 'Error actualizando nota de crédito' });
     }
+  },
+  getNextCreditNoteNumber: async (req, res) => {
+    try {
+      const pool = await getConnection();
+      
+      const consecutivoRequest = new sql.Request(pool);
+      const minConsecutivoResult = await consecutivoRequest.query(`
+        SELECT MIN(consecutivo) as minConsecutivo 
+        FROM gen_movimiento_notas 
+        WHERE consecutivo <= 100000 AND consecutivo > 90000
+      `);
+
+      let nextConsecutivo;
+      const minConsecutivo = minConsecutivoResult.recordset[0]?.minConsecutivo;
+      
+      if (minConsecutivo) {
+        nextConsecutivo = minConsecutivo - 1;
+      } else {
+        nextConsecutivo = 100000;
+      }
+      
+      const now = new Date();
+      const year = now.getFullYear();
+      const nextNumber = `${year}-${nextConsecutivo}`;
+      
+      res.json({ success: true, data: { nextNumber } });
+    } catch (error) {
+      console.error('Error getting next credit note number:', error);
+      res.status(500).json({ success: false, message: 'Error interno al obtener el consecutivo' });
+    }
+  },
+
+  // POST /api/notas-credito/:id/email
+  sendCreditNoteEmail: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { destinatario, asunto, mensaje, pdfBase64 } = req.body; 
+
+      const pool = await getConnection();
+      const idNum = parseInt(id, 10);
+      
+      // 1. Obtener Datos de Nota Crédito
+      const notaQuery = `
+        SELECT 
+          n.consecutivo, 
+          n.fecha, 
+          n.total_nota,
+          n.detalle as motivo,
+          f.numfact as facturaNumero,
+          c.nomter, 
+          c.EMAIL 
+        FROM gen_movimiento_notas n
+        LEFT JOIN con_terceros c ON LTRIM(RTRIM(c.codter)) = LTRIM(RTRIM(n.codter))
+        LEFT JOIN ${TABLE_NAMES.facturas} f ON f.id = n.id_factura
+        WHERE n.id = @id
+      `;
+      const notaRes = await executeQueryWithParams(notaQuery, { id: idNum });
+      
+      if (notaRes.length === 0) {
+        return res.status(404).json({ success: false, message: 'Nota de crédito no encontrada' });
+      }
+
+      const nota = notaRes[0];
+      const clienteEmail = destinatario || nota.EMAIL;
+
+      if (!clienteEmail) {
+         return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado.' });
+      }
+
+      // 2. Preparar PDF
+      let pdfBuffer;
+      if (pdfBase64) {
+          pdfBuffer = pdfBase64;
+      } else {
+          return res.status(400).json({ success: false, message: 'Se requiere el PDF generado.' });
+      }
+
+      // 3. Preparar Detalles
+      const formatCurrency = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(val);
+      const documentDetails = [
+          { label: 'Total Nota', value: formatCurrency(nota.total_nota || 0) },
+          { label: 'Fecha Emisión', value: new Date(nota.fecha).toLocaleDateString('es-CO') },
+          { label: 'Factura Afectada', value: nota.facturaNumero || 'N/A' }
+      ];
+
+      // 4. Enviar Correo
+      const { sendDocumentEmail } = require('../services/emailService.cjs');
+      await sendDocumentEmail({
+          to: clienteEmail,
+          customerName: nota.nomter,
+          documentNumber: nota.consecutivo,
+          documentType: 'Nota Crédito',
+          pdfBuffer,
+          subject,
+          body: mensaje,
+          documentDetails,
+          processSteps: `
+            <p>Hemos generado esta Nota Crédito para aplicar el ajuste correspondiente a la factura <strong>${nota.facturaNumero || 'N/A'}</strong> debido a: <strong>${nota.motivo || 'Ajuste administrativo'}</strong>. El saldo a favor ha sido aplicado.</p>
+          `
+      });
+
+      res.json({ success: true, message: 'Correo de nota de crédito enviado exitosamente' });
+
+    } catch (error) {
+      console.error('Error enviando correo de nota de crédito:', error);
+      res.status(500).json({ success: false, message: 'Error enviando correo', error: error.message });
+    }
   }
 };
 

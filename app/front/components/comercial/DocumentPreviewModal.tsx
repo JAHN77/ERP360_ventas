@@ -7,7 +7,7 @@ import DocumentOptionsToolbar from './DocumentOptionsToolbar';
 import { DocumentPreferences } from '../../types';
 import SendEmailModal from './SendEmailModal';
 import { useData } from '../../hooks/useData';
-import { apiSendGenericEmail } from '../../services/apiClient';
+import { apiSendGenericEmail, apiSendPedidoEmail, apiSendRemisionEmail, apiSendFacturaEmail, apiSendCotizacionEmail } from '../../services/apiClient';
 // import { descargarElementoComoPDF } from '../../utils/pdfClient'; // REMOVED
 
 
@@ -110,18 +110,37 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
             reader.onloadend = async () => {
                 const base64data = reader.result as string;
 
-                // 3. Enviar al backend usando el servicio genérico
+                // 3. Enviar al backend usando el servicio específico
                 try {
-                    const result = await apiSendGenericEmail({
-                        to: destinatario,
-                        subject: asunto,
-                        body: mensaje,
-                        attachment: {
-                            filename: `${documentType === 'cotizacion' ? 'Cotizacion' : documentType === 'pedido' ? 'Pedido' : documentType === 'factura' ? 'Factura' : 'Documento'}_${documentNumber.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
-                            content: base64data,
-                            contentType: 'application/pdf'
-                        }
-                    });
+                    let result;
+                    const payload = {
+                        destinatario: destinatario,
+                        asunto: asunto,
+                        mensaje: mensaje,
+                        pdfBase64: base64data
+                    };
+
+                    if (documentType === 'pedido') {
+                        result = await apiSendPedidoEmail(typeof documentId === 'string' ? parseInt(documentId) : (documentId || 0), payload);
+                    } else if (documentType === 'remision') {
+                        result = await apiSendRemisionEmail(typeof documentId === 'string' ? parseInt(documentId) : (documentId || 0), payload);
+                    } else if (documentType === 'factura') {
+                        result = await apiSendFacturaEmail(typeof documentId === 'string' ? parseInt(documentId) : (documentId || 0), payload);
+                    } else if (documentType === 'cotizacion') {
+                        result = await apiSendCotizacionEmail(typeof documentId === 'string' ? parseInt(documentId) : (documentId || 0), payload);
+                    } else {
+                        // Fallback genérico
+                        result = await apiSendGenericEmail({
+                            to: destinatario,
+                            subject: asunto,
+                            body: mensaje,
+                            attachment: {
+                                filename: `Documento_${documentNumber.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+                                content: base64data,
+                                contentType: 'application/pdf'
+                            }
+                        });
+                    }
 
                     if (result.success) {
                         addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
@@ -179,32 +198,58 @@ Cordialmente,
 El equipo de ${datosEmpresa.nombre}`;
         }
         if (documentType === 'pedido') {
-            return `Estimado/a ${clientName || 'cliente'},
+            return `Estimado/a ${clientName || 'Cliente'},
 
-Este correo es para confirmar que hemos recibido y estamos procesando su orden de compra N° ${documentNumber}.
-Adjuntamos una copia del pedido para sus registros. Le notificaremos una vez que sus productos hayan sido despachados.
+Esperamos que este mensaje le encuentre bien.
 
-¡Gracias por su compra!
+Adjuntamos la orden de pedido N° ${documentNumber} con el detalle de los productos solicitados.
 
-Atentamente,
+Por favor proceda con la revisión del documento. Quedamos atentos a cualquier inquietud.
+
+Cordialmente,
+El equipo de ${datosEmpresa.nombre}`;
+        }
+        if (documentType === 'factura') {
+            return `Estimado/a ${clientName || 'Cliente'},
+
+Esperamos que este mensaje le encuentre bien.
+
+Adjuntamos su Factura Electrónica N° ${documentNumber} correspondiente a su reciente compra.
+
+Agradecemos su pago oportuno. Puede encontrar los detalles de pago dentro del documento adjunto.
+
+Cordialmente,
+El equipo de ${datosEmpresa.nombre}`;
+        }
+        if (documentType === 'remision') {
+            return `Estimado/a ${clientName || 'Cliente'},
+
+Adjuntamos la remisión N° ${documentNumber} correspondiente a su pedido.
+
+El documento incluye el detalle de los productos entregados/despachados.
+Por favor verifique la mercancía al momento de recibirla.
+
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`;
         }
         if (documentType === 'nota_credito') {
-            return `Estimado/a ${clientName || 'cliente'},
+            return `Estimado/a ${clientName || 'Cliente'},
 
-Le informamos que se ha generado la Nota de Crédito N° ${documentNumber}.
+Le informamos que se ha generado la Nota de Crédito N° ${documentNumber} a su favor.
+
 Adjuntamos el documento para sus registros contables.
 
-Atentamente,
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`;
         }
         // Fallback genérico
-        return `Estimado ${clientName || 'cliente'},
+        return `Estimado/a ${clientName || 'Cliente'},
 
-Adjuntamos su documento ${documentNumber} de ${datosEmpresa.nombre}.
+Adjuntamos su documento #${documentNumber}.
 
-Por favor, no dude en contactarnos si tiene alguna pregunta.
-Atentamente,
+Gracias por confiar en nosotros.
+
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`;
     }, [documentType, clientName, documentNumber, datosEmpresa.nombre]);
 

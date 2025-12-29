@@ -38,25 +38,12 @@ const NuevoPedidoPage: React.FC = () => {
 
         const fetchNextNumber = async () => {
             try {
-                // Fetch latest orders to determine the next number
-                // Assuming getPedidos returns the latest ones first or we can sort
-                // We need to import apiClient for this if useData doesn't expose it directly suitable for this
-                // Since this page consumes useData, let's see if we can use apiClient directly or add it to imports
-                const response = await apiClient.getPedidos();
-
-                if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
-                    const sorted = [...response.data].sort((a: any, b: any) => b.id - a.id);
-                    const last = sorted[0];
-                    if (last && last.numeroPedido) {
-                        const soloDigitos = String(last.numeroPedido).replace(/\D/g, '');
-                        if (soloDigitos) {
-                            const nextNum = parseInt(soloDigitos, 10) + 1;
-                            setNextOrderNumber(String(nextNum).padStart(6, '0'));
-                            return;
-                        }
-                    }
+                const response = await apiClient.getNextOrderNumber();
+                if (response.success && response.data) {
+                    setNextOrderNumber(response.data.nextNumber);
+                } else {
+                    setNextOrderNumber('000001');
                 }
-                setNextOrderNumber('000001');
             } catch (error) {
                 console.error("Error fetching next order number", error);
                 setNextOrderNumber('??????');
@@ -112,7 +99,7 @@ const NuevoPedidoPage: React.FC = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-2">
                 <div>
                     <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-                        Crear Nuevo Pedido {nextOrderNumber ? `#${nextOrderNumber}` : ''}
+                        Nuevo Pedido {nextOrderNumber ? `#${nextOrderNumber}` : ''}
                     </h1>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-1">
                         <p className="text-slate-500 dark:text-slate-400">

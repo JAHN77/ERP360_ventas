@@ -9,7 +9,7 @@ import { apiSearchClientes, apiSearchVendedores, apiCreateCotizacion, apiSearchP
 // apiSetClienteListaPrecios comentado temporalmente - lista de precios no implementada en frontend
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 interface CotizacionFormData {

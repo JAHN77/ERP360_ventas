@@ -4,6 +4,8 @@ const emailController = {
   sendEmail: async (req, res) => {
     try {
       const { to, subject, body, attachment } = req.body;
+      console.log('DEBUG Email Body:', body ? body.substring(0, 50) : 'No body');
+      if (body) console.log('DEBUG Body trim starts with <:', body.trim().startsWith('<'));
 
       if (!to || !subject) {
         return res.status(400).json({ success: false, message: 'Faltan campos requeridos (to, subject)' });

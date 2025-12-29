@@ -33,20 +33,12 @@ const NuevaFacturaPage: React.FC = () => {
 
         const fetchNextNumber = async () => {
             try {
-                const response = await apiClient.getFacturas();
-                if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
-                    const sorted = [...response.data].sort((a: any, b: any) => b.id - a.id);
-                    const last = sorted[0];
-                    if (last && last.numeroFactura) {
-                        const soloDigitos = String(last.numeroFactura).replace(/\D/g, '');
-                        if (soloDigitos) {
-                            const nextNum = parseInt(soloDigitos, 10) + 1;
-                            setNextInvoiceNumber(String(nextNum).padStart(6, '0'));
-                            return;
-                        }
-                    }
+                const response = await apiClient.getNextInvoiceNumber();
+                if (response.success && response.data) {
+                    setNextInvoiceNumber(response.data.nextNumber);
+                } else {
+                    setNextInvoiceNumber('000001');
                 }
-                setNextInvoiceNumber('000001');
             } catch (error) {
                 console.error("Error fetching next invoice number", error);
                 setNextInvoiceNumber('??????');
@@ -100,7 +92,7 @@ const NuevaFacturaPage: React.FC = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-2">
                 <div>
                     <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-                        Crear Nueva Factura {nextInvoiceNumber ? `#${nextInvoiceNumber}` : ''}
+                        Nueva Factura {nextInvoiceNumber ? `#${nextInvoiceNumber}` : ''}
                     </h1>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-1">
                         <p className="text-slate-500 dark:text-slate-400">

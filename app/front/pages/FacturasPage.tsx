@@ -16,7 +16,7 @@ import { useNavigation } from '../hooks/useNavigation';
 import { formatDateOnly } from '../utils/formatters';
 import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
-import { fetchFacturasDetalle, apiClient, apiSendGenericEmail } from '../services/apiClient';
+import { apiClient, fetchFacturasDetalle, apiSendGenericEmail, apiSendFacturaEmail } from '../services/apiClient';
 import PageHeader from '../components/ui/PageHeader';
 import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal'; // New Import
 import { pdf } from '@react-pdf/renderer';
@@ -25,7 +25,7 @@ import FacturaPDFDocument from '../components/facturacion/FacturaPDFDocument';
 
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 const filterOptions = [
@@ -912,16 +912,12 @@ const FacturasPage: React.FC = () => {
       reader.onloadend = async () => {
         const base64data = reader.result as string;
 
-        // 4. Enviar al backend
-        const response = await apiSendGenericEmail({
-          to: emailData.to,
-          subject: emailData.subject,
-          body: emailData.body,
-          attachment: {
-            filename: `Factura_${facturaToEmail.numeroFactura}.pdf`,
-            content: base64data, // Esto incluye "data:application/pdf;base64,...", backend lo limpiará o lo aceptará
-            contentType: 'application/pdf'
-          }
+        // 4. Enviar al backend usando endpoint específico
+        const response = await apiSendFacturaEmail(facturaToEmail.id!, {
+          destinatario: emailData.to,
+          asunto: emailData.subject,
+          mensaje: emailData.body,
+          pdfBase64: base64data
         });
 
         if (response.success) {

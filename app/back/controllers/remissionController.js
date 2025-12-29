@@ -458,6 +458,53 @@ const createRemission = async (req, res) => {
       }
     }
 
+    // 4. Actualizar estado del Pedido
+    if (pedidoId) {
+      const requestStatus = new sql.Request(transaction);
+      requestStatus.input('pid', sql.Int, pedidoId);
+      
+      // Calcular si todos los items han sido totalmente remitidos
+      // Se compara cantidad pedida vs (suma de cantidades enviadas en remisiones no anuladas)
+      // FIX: ven_detapedidos NO tiene columna 'id', se agrupa por codins
+      const statusQuery = `
+        WITH ItemStatus AS (
+          SELECT 
+            pd.codins,
+            pd.canped as CantidadPedida,
+            ISNULL(SUM(rd.cantidad_enviada), 0) as CantidadRemitida
+          FROM ${TABLE_NAMES.pedidos_detalle} pd
+          LEFT JOIN ${TABLE_NAMES.remisiones_detalle} rd ON rd.deta_pedido_id IS NULL 
+               AND rd.remision_id IN (SELECT id FROM ${TABLE_NAMES.remisiones} WHERE pedido_id = @pid AND (estado IS NULL OR estado != 'ANULADA'))
+               AND LTRIM(RTRIM(rd.codins)) = LTRIM(RTRIM(pd.codins))
+          WHERE pd.pedido_id = @pid
+          GROUP BY pd.codins, pd.canped
+        )
+        SELECT 
+          CASE 
+            WHEN COUNT(*) = 0 THEN 'C' -- CONFIRMADO -> 'C'
+            WHEN MIN(CantidadRemitida - CantidadPedida) >= 0 THEN 'M' -- REMITIDO -> 'M'
+            ELSE 'L' -- PARCIALMENTE_REMITIDO -> 'L' (FIXED collision with P/Timbrando)
+          END as NuevoEstado
+        FROM ItemStatus
+      `;
+      
+      const statusResult = await requestStatus.query(statusQuery);
+      
+      if (statusResult.recordset.length > 0) {
+        let nuevoEstado = statusResult.recordset[0].NuevoEstado;
+        
+        // Validar si el estado calculado es PARCIALMENTE_REMITIDO pero no se envió nada (caso raro)
+        // O si ya estaba REMITIDO, no devolverlo a PARCIALMENTE si hay sobre-entrega (ya manejado por >= 0)
+        
+        const updatePed = new sql.Request(transaction);
+        updatePed.input('nest', sql.VarChar(20), nuevoEstado);
+        updatePed.input('pid', sql.Int, pedidoId);
+        await updatePed.query(`UPDATE ${TABLE_NAMES.pedidos} SET estado = @nest WHERE id = @pid`);
+        
+        console.log(`🔄 Estado del pedido ${pedidoId} actualizado a: ${nuevoEstado}`);
+      }
+    }
+
     await transaction.commit();
 
     res.json({
@@ -486,9 +533,80 @@ const createRemission = async (req, res) => {
   }
 };
 
+const { sendDocumentEmail } = require('../services/emailService.cjs');
+
+const sendRemissionEmail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { destinatario, asunto, mensaje, pdfBase64 } = req.body; 
+
+    const pool = await getConnection();
+    const idNum = parseInt(id, 10);
+    
+    // 1. Obtener Datos de Remisión
+    const remQuery = `
+      SELECT 
+        r.numero_remision, 
+        r.fecha_remision, 
+        c.nomter, 
+        c.EMAIL 
+      FROM ${TABLE_NAMES.remisiones} r
+      LEFT JOIN ${TABLE_NAMES.clientes} c ON LTRIM(RTRIM(c.codter)) = LTRIM(RTRIM(r.codter))
+      WHERE r.id = @id
+    `;
+    const remRes = await executeQueryWithParams(remQuery, { id: idNum });
+    
+    if (remRes.length === 0) {
+      return res.status(404).json({ success: false, message: 'Remisión no encontrada' });
+    }
+
+    const remision = remRes[0];
+    const clienteEmail = destinatario || remision.EMAIL;
+
+    if (!clienteEmail) {
+       return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado.' });
+    }
+
+    // 2. Preparar PDF
+    let pdfBuffer;
+    if (pdfBase64) {
+        pdfBuffer = pdfBase64;
+    } else {
+        return res.status(400).json({ success: false, message: 'Se requiere el PDF generado.' });
+    }
+
+    // 3. Preparar Detalles
+    const documentDetails = [
+        { label: 'Fecha Remisión', value: new Date(remision.fecha_remision).toLocaleDateString('es-CO') }
+    ];
+
+    // 4. Enviar Correo
+    await sendDocumentEmail({
+        to: clienteEmail,
+        customerName: remision.nomter,
+        documentNumber: remision.numero_remision,
+        documentType: 'Remisión',
+        pdfBuffer,
+        subject: asunto,
+        body: mensaje,
+        documentDetails,
+        processSteps: `
+            <p>Le informamos que su pedido ha sido despachado. Adjuntamos la remisión para que pueda validar las cantidades físicas al momento de la recepción. Por favor, devuélvanos una copia firmada o confirme por este medio.</p>
+        `
+    });
+
+    res.json({ success: true, message: 'Correo de remisión enviado exitosamente' });
+
+  } catch (error) {
+    console.error('Error enviando correo de remisión:', error);
+    res.status(500).json({ success: false, message: 'Error enviando correo', error: error.message });
+  }
+};
+
 module.exports = {
   getAllRemissions,
   getRemissionDetails,
   updateRemission,
-  createRemission
+  createRemission,
+  sendRemissionEmail
 };

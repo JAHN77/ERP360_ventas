@@ -9,7 +9,7 @@ import { useData } from '../../hooks/useData';
 import { exportToCSV } from '../../utils/exportUtils';
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 interface ClientSalesData {
@@ -22,7 +22,7 @@ interface ClientSalesData {
 
 const VentasPorClienteReport: React.FC = () => {
     const { getSalesDataByClient } = useData();
-    
+
     // ✅ Validación defensiva: Verificar que la función existe
     const salesData = useMemo(() => {
         if (typeof getSalesDataByClient !== 'function') {
@@ -79,7 +79,7 @@ const VentasPorClienteReport: React.FC = () => {
     return (
         <div>
             <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">Análisis de Ventas por Cliente</h2>
-            
+
             <Card className="mb-8">
                 <CardHeader>
                     <CardTitle>Top 10 Clientes por Ventas</CardTitle>
@@ -93,8 +93,8 @@ const VentasPorClienteReport: React.FC = () => {
                 <CardHeader>
                     <CardTitle>Ranking General de Clientes</CardTitle>
                 </CardHeader>
-                <TableToolbar 
-                    searchTerm={searchTerm} 
+                <TableToolbar
+                    searchTerm={searchTerm}
                     onSearchChange={handleSearch}
                     onExportAction={handleExport}
                     exportActionLabel="Exportar CSV"

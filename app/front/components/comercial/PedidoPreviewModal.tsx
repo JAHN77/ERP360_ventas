@@ -9,6 +9,7 @@ import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
 import { pdf, PDFViewer } from '@react-pdf/renderer';
 import PedidoPDFDocument from './PedidoPDFDocument';
+import { apiSendPedidoEmail } from '../../services/apiClient';
 
 interface PedidoPreviewModalProps {
     pedido: Pedido | null;
@@ -78,27 +79,66 @@ const PedidoPreviewModal: React.FC<PedidoPreviewModalProps> = ({ pedido, onClose
         }
     };
 
-    const handleSendEmail = async () => {
-        await handleDownload();
-        setTimeout(() => {
-            setIsEmailModalOpen(true);
-        }, 100);
+    const handleSendEmail = () => {
+        setIsEmailModalOpen(true);
     };
 
     const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
-        if (!pedido) return;
+        if (!pedido || !relatedData?.cliente) return;
 
-        const subjectEncoded = encodeURIComponent(emailData.subject);
-        const bodyEncoded = encodeURIComponent(emailData.body);
-        const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+        setIsGenerating(true);
+        addNotification({ message: 'Preparando y enviando correo...', type: 'info' });
 
-        window.location.href = mailtoLink;
+        try {
+            // 1. Generar PDF
+            const doc = getDocumentComponent();
+            if (!doc) throw new Error('No se pudo generar el documento PDF');
 
-        addNotification({
-            message: `PDF descargado. Se ha abierto tu cliente de correo para enviar el pedido ${pedido.numeroPedido}.`,
-            type: 'success',
-        });
-        setIsEmailModalOpen(false);
+            const blob = await pdf(doc).toBlob();
+
+            // 2. Convertir a Base64
+            const base64Content = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const result = reader.result as string;
+                    // Remover prefijo data:application/pdf;base64,
+                    const base64 = result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+
+            // 3. Enviar al backend usando endpoint específico
+            const safeClientName = relatedData.cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
+            // const filename = `Pedido-${pedido.numeroPedido}-${safeClientName}.pdf`; // Ya no se necesita filename aqui, el backend lo genera
+
+            const response = await apiSendPedidoEmail(pedido.id!, {
+                destinatario: emailData.to,
+                asunto: emailData.subject,
+                mensaje: emailData.body,
+                pdfBase64: base64Content
+            });
+
+            if (response.success) {
+                addNotification({
+                    message: `Correo enviado exitosamente a ${emailData.to}`,
+                    type: 'success',
+                });
+                setIsEmailModalOpen(false);
+            } else {
+                throw new Error(response.message || 'Error al enviar el correo');
+            }
+
+        } catch (error) {
+            console.error('Error sending email:', error);
+            addNotification({
+                message: error instanceof Error ? error.message : 'Error al enviar el correo.',
+                type: 'error'
+            });
+        } finally {
+            setIsGenerating(false);
+        }
     };
 
     if (!pedido || !relatedData || !relatedData.cliente) {
@@ -170,10 +210,13 @@ const PedidoPreviewModal: React.FC<PedidoPreviewModalProps> = ({ pedido, onClose
                     subject={`Pedido ${pedido.numeroPedido} de ${datosEmpresa.nombre}`}
                     body={`Estimado/a ${relatedData.cliente.nombreCompleto},
 
-Adjuntamos la orden de compra N° ${pedido.numeroPedido} para su registro.
+Esperamos que este mensaje le encuentre bien.
 
-Gracias por su compra.
-Atentamente,
+Adjuntamos la orden de pedido N° ${pedido.numeroPedido} con el detalle de los productos solicitados.
+
+Por favor proceda con la revisión del documento. Quedamos atentos a cualquier inquietud.
+
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`}
                 />
             )}

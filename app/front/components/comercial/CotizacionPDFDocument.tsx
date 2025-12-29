@@ -65,7 +65,7 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                         <View style={[pdfStyles.documentBadge, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
                             <Text style={[pdfStyles.documentTitle, { color: '#0369a1' }]}>COTIZACIÓN</Text>
                         </View>
-                        <Text style={pdfStyles.documentNumber}>#{cotizacion.numeroCotizacion?.replace('C-', '')}</Text>
+                        <Text style={pdfStyles.documentNumber}>N° {cotizacion.numeroCotizacion?.replace('C-', '')}</Text>
                     </View>
                 </View>
 

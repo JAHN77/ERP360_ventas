@@ -60,7 +60,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                         <View style={pdfStyles.documentBadge}>
                             <Text style={pdfStyles.documentTitle}>FACTURA DE VENTA</Text>
                         </View>
-                        <Text style={pdfStyles.documentNumber}>{String(factura.numeroFactura || '').replace('FAC-', '')}</Text>
+                        <Text style={pdfStyles.documentNumber}>N° {String(factura.numeroFactura || '').replace('FAC-', '')}</Text>
                     </View>
                 </View>
 

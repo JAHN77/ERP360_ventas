@@ -8,7 +8,7 @@ const {
   validateDecimal5_2 
 } = require('../utils/helpers');
 const { generateQuotePdfBuffer } = require('../services/pdfService.cjs');
-const { sendCotizacionEmail } = require('../services/emailService.cjs');
+// sendCotizacionEmail removed (using sendDocumentEmail directly)
 const { getCompanyLogo } = require('../utils/imageUtils.cjs');
 
 const getAllQuotes = async (req, res) => {
@@ -675,7 +675,7 @@ const updateQuote = async (req, res) => {
 const sendQuoteEmail = async (req, res) => {
   try {
     const { id } = req.params;
-    const { firmaVendedor, destinatario, asunto, mensaje } = req.body; 
+    const { firmaVendedor, destinatario, asunto, mensaje, pdfBase64 } = req.body; 
 
     const idNum = parseInt(id, 10);
     if (isNaN(idNum)) {
@@ -813,35 +813,50 @@ const sendQuoteEmail = async (req, res) => {
       },
     };
 
-    // Generar el PDF
-    const pdfBuffer = await generateQuotePdfBuffer(pdfComponentProps);
+    // Generar el PDF    // 2. Preparar PDF
+    let pdfBuffer;
+    if (pdfBase64) {
+        // Enviar string base64 directamente a emailService para limpieza centralizada
+        pdfBuffer = pdfBase64;
+    } else {
+        pdfBuffer = await generateQuotePdfBuffer(pdfComponentProps);
+    }
     
     // Helper para formatear moneda en el backend
     const formatCurrencyCO = (value) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value || 0);
     const formatDateCO = (date) => new Date(date).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
 
-    // Enviar el correo
-    await sendCotizacionEmail({
-      clienteEmail: destinatario || cotizacion.clienteEmail,
-      clienteNombre: cotizacion.clienteNombre,
-      numeroCotizacion: cotizacion.numcot,
-      pdfBuffer,
-      subject: asunto,
-      body: mensaje,
-      quoteDetails: {
-          total: formatCurrencyCO(cotizacion.subtotal - cotizacion.val_descuento + cotizacion.val_iva),
-          fechaVencimiento: formatDateCO(cotizacion.fecha_vence),
-          fechaCotizacion: formatDateCO(cotizacion.fecha),
-          vendedor: cotizacion.vendedorNombre || 'Asesor Comercial'
-      }
+    // Preparar detalles para el documento
+    const documentDetails = [
+        { label: 'Total Propuesta', value: formatCurrencyCO(cotizacion.subtotal - cotizacion.val_descuento + cotizacion.val_iva) },
+        { label: 'Válida Hasta', value: formatDateCO(cotizacion.fecha_vence) },
+        { label: 'Fecha Emisión', value: formatDateCO(cotizacion.fecha) },
+        { label: 'Asesor Comercial', value: cotizacion.vendedorNombre || 'Asesor Comercial' }
+    ];
+
+    // Calcular días de validez
+    const diasValidez = Math.ceil((new Date(cotizacion.fecha_vence) - new Date(cotizacion.fecha)) / (1000 * 60 * 60 * 24));
+
+    // Enviar el correo usando sendDocumentEmail
+    const { sendDocumentEmail } = require('../services/emailService.cjs');
+    await sendDocumentEmail({
+      to: destinatario || cotizacion.clienteEmail,
+      customerName: cotizacion.clienteNombre,
+      documentNumber: cotizacion.numcot,
+      documentType: 'Cotización',
+      pdfBuffer: pdfBuffer,
+      subject: asunto, // Puede venir nulo, sendDocumentEmail maneja el default
+      body: mensaje, // Mensaje adicional del usuario (opcional)
+      documentDetails: documentDetails,
+      processSteps: `
+          <p>Esta propuesta tiene una validez de <strong>${diasValidez}</strong> días. Estamos listos para iniciar con el proyecto tan pronto recibamos su aprobación o la orden de compra respectiva.</p>
+      `
     });
 
     res.json({
       success: true,
       message: `Cotización enviada exitosamente a ${cotizacion.clienteEmail}`,
     });
-
-
   } catch (error) {
     console.error('Error enviando cotización por correo:', error);
     res.status(500).json({
@@ -852,11 +867,46 @@ const sendQuoteEmail = async (req, res) => {
   }
 };
 
+const getNextQuoteNumber = async (req, res) => {
+  try {
+    const pool = await getConnection();
+    const result = await pool.request().query(`
+      SELECT TOP 1 numcot 
+      FROM ${TABLE_NAMES.cotizaciones} 
+      ORDER BY id DESC
+    `);
+    
+    let nextNum = '000001';
+    if (result.recordset.length > 0) {
+      const lastNum = result.recordset[0].numcot;
+      console.log('🔍 [DEBUG] getNextQuoteNumber - Found lastNum:', lastNum);
+
+      const soloDigitos = lastNum.replace(/\D/g, '');
+      const consecutivo = parseInt(soloDigitos, 10);
+      console.log('🔍 [DEBUG] getNextQuoteNumber - Parsed consecutive:', consecutivo);
+
+      if (!isNaN(consecutivo)) {
+        nextNum = String(consecutivo + 1).padStart(6, '0');
+        console.log('🔍 [DEBUG] getNextQuoteNumber - Calculated next:', nextNum);
+      }
+    } else {
+       console.log('🔍 [DEBUG] getNextQuoteNumber - No existing quotes found, defaulting to 000001');
+    }
+    
+    res.json({ success: true, data: { nextNumber: nextNum } });
+  } catch (error) {
+    console.error('Error getting next quote number:', error);
+    res.status(500).json({ success: false, message: 'Error interno al obtener el consecutivo' });
+  }
+};
+
 module.exports = {
   getAllQuotes,
   getQuoteDetails,
   createQuote,
   updateQuote,
-  sendQuoteEmail
+  sendQuoteEmail,
+  getNextQuoteNumber
 };
+
 

@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
 });
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 interface Props {
@@ -331,7 +331,7 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
                         <View style={styles.documentBadge}>
                             <Text style={styles.documentTitle}>NOTA DE CRÉDITO</Text>
                         </View>
-                        <Text style={styles.documentNumber}>{String(notaCredito.numero || '').replace(/\D/g, '') || notaCredito.numero}</Text>
+                        <Text style={styles.documentNumber}>N° {String(notaCredito.numero || '').replace(/\D/g, '') || notaCredito.numero}</Text>
                     </View>
                 </View>
 

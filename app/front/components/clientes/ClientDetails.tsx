@@ -46,8 +46,8 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({ cliente }) => {
                     <div className="flex items-center gap-3 mb-1">
                         <h2 className="text-2xl font-bold text-slate-800 dark:text-white">{cliente.nombreCompleto}</h2>
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${cliente.activo
-                                ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800'
-                                : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800'
+                            ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800'
+                            : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800'
                             }`}>
                             <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${cliente.activo ? 'bg-green-600 dark:bg-green-400' : 'bg-red-600 dark:bg-red-400'}`}></span>
                             {cliente.activo ? 'Activo' : 'Inactivo'}
@@ -98,7 +98,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({ cliente }) => {
                                 <div className="p-4 text-center">
                                     <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Cupo de Crédito</p>
                                     <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                                        {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(Number(cliente.limiteCredito || 0))}
+                                        {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(cliente.limiteCredito || 0))}
                                     </p>
                                 </div>
                                 <div className="p-4 text-center">

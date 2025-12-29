@@ -7,6 +7,7 @@ import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
 import { pdf, PDFViewer } from '@react-pdf/renderer';
 import NotaCreditoPDFDocument from './NotaCreditoPDFDocument';
+import { apiSendCreditNoteEmail } from '../../services/apiClient';
 
 interface NotaCreditoPreviewModalProps {
     notaCredito: NotaCredito | null;
@@ -78,25 +79,63 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
         }
     };
 
-    const handleSendEmail = async () => {
-        await handleDownload();
+    const handleSendEmail = () => {
         setIsEmailModalOpen(true);
     };
 
     const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
-        if (!notaCredito) return;
+        if (!notaCredito || !relatedData?.cliente) return;
 
-        const subjectEncoded = encodeURIComponent(emailData.subject);
-        const bodyEncoded = encodeURIComponent(emailData.body);
-        const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+        setIsGenerating(true);
+        addNotification({ message: 'Preparando y enviando correo...', type: 'info' });
 
-        window.location.href = mailtoLink;
+        try {
+            // 1. Generar PDF
+            const doc = getDocumentComponent();
+            if (!doc) throw new Error('No se pudo generar el documento PDF');
 
-        addNotification({
-            message: `PDF generado. Se ha abierto tu cliente de correo para enviar la Nota de Crédito ${notaCredito.numero}.`,
-            type: 'success',
-        });
-        setIsEmailModalOpen(false);
+            const blob = await pdf(doc).toBlob();
+
+            // 2. Convertir a Base64
+            const base64Content = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const result = reader.result as string;
+                    // Remover prefijo data:application/pdf;base64,
+                    const base64 = result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+
+            // 3. Enviar al backend usando endpoint específico
+            const response = await apiSendCreditNoteEmail(notaCredito.id!, {
+                destinatario: emailData.to,
+                asunto: emailData.subject,
+                mensaje: emailData.body,
+                pdfBase64: base64Content
+            });
+
+            if (response.success) {
+                addNotification({
+                    message: `Correo enviado exitosamente a ${emailData.to}`,
+                    type: 'success',
+                });
+                setIsEmailModalOpen(false);
+            } else {
+                throw new Error(response.message || 'Error al enviar el correo');
+            }
+
+        } catch (error) {
+            console.error('Error sending email:', error);
+            addNotification({
+                message: error instanceof Error ? error.message : 'Error al enviar el correo.',
+                type: 'error'
+            });
+        } finally {
+            setIsGenerating(false);
+        }
     };
 
 
@@ -167,15 +206,16 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
                     onSend={handleConfirmSendEmail}
                     to={relatedData.cliente.email}
                     subject={`Nota de Crédito ${notaCredito.numero} de ${datosEmpresa.nombre}`}
-                    body={
-                        `Estimado/a ${relatedData.cliente.nombreCompleto},
+                    body={`Estimado/a ${relatedData.cliente.nombreCompleto},
+
+Esperamos que este mensaje le encuentre bien.
 
 Le informamos que hemos procesado una nota de crédito a su favor con el número ${notaCredito.numero}.
-El documento PDF se ha generado y descargado para su referencia.
+
+Adjunto a este correo encontrará el documento PDF para su referencia.
 
 Atentamente,
-El equipo de ${datosEmpresa.nombre}`
-                    }
+El equipo de ${datosEmpresa.nombre}`}
                 />
             )}
         </>

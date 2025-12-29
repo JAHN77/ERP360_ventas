@@ -78,7 +78,7 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                         <View style={[pdfStyles.documentBadge, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
                             <Text style={[pdfStyles.documentTitle, { color: '#0369a1' }]}>REMISIÓN</Text>
                         </View>
-                        <Text style={pdfStyles.documentNumber}>{remision.numeroRemision.replace('REM-', '')}</Text>
+                        <Text style={pdfStyles.documentNumber}>N° {remision.numeroRemision.replace('REM-', '')}</Text>
                     </View>
                 </View>
 
@@ -139,14 +139,15 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                 {/* Table */}
                 <View style={pdfStyles.tableContainer}>
                     <View style={pdfStyles.tableHeader}>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colCode]}>Código</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colDesc]}>Descripción</Text>
-                        <Text style={[pdfStyles.tableHeaderText, pdfStyles.colQty]}>Cantidad</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '10%', paddingHorizontal: 2 }]}>Código</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '34%', paddingHorizontal: 2 }]}>Descripción</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', paddingHorizontal: 2, textAlign: 'right' }]}>Cant.</Text>
                         {preferences.showPrices ? (
                             <>
-                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colPrice]}>Precio</Text>
-                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colDisc]}>Desc.</Text>
-                                <Text style={[pdfStyles.tableHeaderText, pdfStyles.colTotal]}>Total</Text>
+                                <Text style={[pdfStyles.tableHeaderText, { width: '13%', paddingHorizontal: 2, textAlign: 'right' }]}>Precio</Text>
+                                <Text style={[pdfStyles.tableHeaderText, { width: '10%', paddingHorizontal: 2, textAlign: 'right' }]}>Desc.</Text>
+                                <Text style={[pdfStyles.tableHeaderText, { width: '8%', paddingHorizontal: 2, textAlign: 'right' }]}>IVA</Text>
+                                <Text style={[pdfStyles.tableHeaderText, { width: '17%', paddingHorizontal: 2, textAlign: 'right' }]}>Total</Text>
                             </>
                         ) : (
                             <Text style={[pdfStyles.tableHeaderText, { flex: 1 }]}></Text>
@@ -162,16 +163,19 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
 
                         return (
                             <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
-                                <Text style={[pdfStyles.tableCellText, pdfStyles.colCode]}>{referencia}</Text>
-                                <Text style={[pdfStyles.tableCellText, pdfStyles.colDesc]}>{productoNombre}</Text>
-                                <Text style={[pdfStyles.tableCellText, pdfStyles.colQty]}>{item.cantidad}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2 }]}>{referencia}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '34%', paddingHorizontal: 2 }]}>{productoNombre}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'right' }]}>{item.cantidad}</Text>
                                 {preferences.showPrices ? (
                                     <>
-                                        <Text style={[pdfStyles.tableCellText, pdfStyles.colPrice]}>{formatCurrency(item.precioUnitario)}</Text>
-                                        <Text style={[pdfStyles.tableCellText, pdfStyles.colDisc, item.descuentoPorcentaje > 0 ? pdfStyles.textRed : {}]}>
+                                        <Text style={[pdfStyles.tableCellText, { width: '13%', paddingHorizontal: 2, textAlign: 'right' }]}>{formatCurrency(item.precioUnitario)}</Text>
+                                        <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2, textAlign: 'right', color: item.descuentoPorcentaje > 0 ? '#ef4444' : '#334155' }]}>
                                             {item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje}%` : '-'}
                                         </Text>
-                                        <Text style={[pdfStyles.tableCellText, pdfStyles.colTotal]}>{formatCurrency(item.subtotal)}</Text>
+                                        <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'right', color: '#64748b' }]}>
+                                            {(item.ivaPorcentaje || 0) > 0 ? `${item.ivaPorcentaje}%` : '0%'}
+                                        </Text>
+                                        <Text style={[pdfStyles.tableCellText, { width: '17%', paddingHorizontal: 2, textAlign: 'right', fontWeight: 'bold' }]}>{formatCurrency(item.subtotal)}</Text>
                                     </>
                                 ) : (
                                     <Text style={[pdfStyles.tableCellText, { flex: 1 }]}></Text>

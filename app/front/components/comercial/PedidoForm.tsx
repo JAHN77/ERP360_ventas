@@ -8,7 +8,7 @@ import { useNotifications } from '../../hooks/useNotifications';
 import { apiSearchClientes, apiSearchVendedores, apiSearchProductos, apiGetClienteById } from '../../services/apiClient';
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 interface PedidoFormData {
@@ -669,367 +669,65 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     </button>
                 </div>
 
-                {/* Campo de búsqueda de cotizaciones - Solo visible cuando se selecciona "Con Cotización" */}
+                {/* Campo de búsqueda de cotizaciones y Forma de Pago */}
                 {tipoPedido === 'con-cotizacion' && (
-                    <div ref={cotizacionRef} className="relative mt-4">
-                        <label htmlFor="cotizacion-search" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-                            Buscar Cotización <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                            id="cotizacion-search"
-                            type="text"
-                            value={cotizacionSearch}
-                            onChange={(e) => {
-                                setCotizacionSearch(e.target.value);
-                                setIsCotizacionOpen(true);
-                                if (!e.target.value.trim()) {
-                                    setCotizacionId('');
-                                    setSelectedCotizacion(null);
-                                    handleCotizacionChange('');
-                                }
-                            }}
-                            onFocus={() => {
-                                if (cotizacionSearch.trim().length >= 2) {
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+                        <div ref={cotizacionRef} className="relative md:col-span-3">
+                            <label htmlFor="cotizacion-search" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
+                                Buscar Cotización <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                id="cotizacion-search"
+                                type="text"
+                                value={cotizacionSearch}
+                                onChange={(e) => {
+                                    setCotizacionSearch(e.target.value);
                                     setIsCotizacionOpen(true);
-                                }
-                            }}
-                            placeholder="Buscar por número de cotización o cliente (min 2 caracteres)..."
-                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        {isCotizacionOpen && cotizacionResults.length > 0 && (
-                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-60 overflow-auto">
-                                {cotizacionResults.map((cotizacion) => {
-                                    const cliente = clientes.find(c => c.id === cotizacion.clienteId);
-                                    return (
-                                        <div
-                                            key={cotizacion.id}
-                                            onClick={() => handleCotizacionSelect(cotizacion)}
-                                            className="px-4 py-2 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0"
-                                        >
-                                            <div className="font-medium text-slate-800 dark:text-slate-200">
-                                                {cotizacion.numeroCotizacion}
-                                            </div>
-                                            <div className="text-xs text-slate-600 dark:text-slate-400">
-                                                Cliente: {cliente?.nombreCompleto || cliente?.razonSocial || 'N/A'}
-                                            </div>
-                                            <div className="text-xs text-slate-500 dark:text-slate-500">
-                                                Total: {formatCurrency(cotizacion.total || 0)}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                        {isCotizacionOpen && cotizacionSearch.trim().length >= 2 && cotizacionResults.length === 0 && (
-                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg p-4 text-sm text-slate-600 dark:text-slate-400">
-                                No se encontraron cotizaciones aprobadas
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-
-            {tipoPedido === 'sin-cotizacion' && (
-                <div className="grid md:grid-cols-3 gap-6 mb-6">
-                    <div ref={clienteRef} className="relative">
-                        <label htmlFor="cliente" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cliente <span className="text-red-500">*</span></label>
-                        <input
-                            id="cliente"
-                            value={clienteSearch}
-                            onChange={(e) => {
-                                setClienteSearch(e.target.value);
-                                setIsClienteOpen(true);
-                                setClienteId('');
-                                setSelectedCliente(null);
-                            }}
-                            onFocus={() => { if (clienteSearch.trim().length >= 2) setIsClienteOpen(true); }}
-                            onBlur={() => {
-                                // Solo buscar coincidencia si hay texto en el campo y no hay cliente seleccionado
-                                if (clienteSearch.trim().length >= 2 && !selectedCliente) {
-                                    const list = clienteResults.length > 0 ? clienteResults : clientes;
-                                    const exactMatch = list.find(c => {
-                                        // Validar que el cliente tenga un ID válido
-                                        if (!c || !c.id || String(c.id).trim() === '') {
-                                            return false; // Ignorar clientes sin ID válido
-                                        }
-                                        const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim()).toLowerCase();
-                                        const doc = (c.numeroDocumento || '').toLowerCase();
-                                        const search = clienteSearch.toLowerCase();
-                                        return nombre === search || doc === search;
-                                    });
-                                    if (exactMatch && !selectedCliente) {
-                                        pickCliente(exactMatch);
+                                    if (!e.target.value.trim()) {
+                                        setCotizacionId('');
+                                        setSelectedCotizacion(null);
+                                        handleCotizacionChange('');
                                     }
-                                }
-                                // Si el campo está vacío o solo espacios, limpiar la selección
-                                if (clienteSearch.trim() === '' && selectedCliente) {
-                                    setClienteId('');
-                                    setSelectedCliente(null);
-                                }
-                                setTimeout(() => {
-                                    setIsClienteOpen(false);
-                                }, 200);
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Escape') setIsClienteOpen(false);
-                                if (e.key === 'Enter') {
-                                    const list = clienteResults.length > 0 ? clienteResults : clientes;
-                                    const filtered = list.filter(c => {
-                                        // Validar que el cliente tenga un ID válido
-                                        if (!c || !c.id || String(c.id).trim() === '') {
-                                            return false; // Ignorar clientes sin ID válido
-                                        }
-                                        const nombre = c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim().toLowerCase();
-                                        const doc = (c.numeroDocumento || '').toLowerCase();
-                                        const search = clienteSearch.toLowerCase();
-                                        return nombre.includes(search) || doc.includes(search);
-                                    });
-                                    if (filtered.length > 0) { e.preventDefault(); pickCliente(filtered[0] as any); }
-                                }
-                            }}
-                            placeholder="Buscar cliente (min 2, nombre o documento)"
-                            className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                        {isClienteOpen && clienteSearch.trim().length >= 2 && (
-                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
-                                {(() => {
-                                    const listaMostrar = clienteResults.length > 0 ? clienteResults : clientes;
-                                    // Filter out clients without email
-                                    const validClients = listaMostrar.filter(c => c.email && c.email.trim().length > 0);
-
-                                    // Filtrar primero por ID válido, luego por búsqueda
-                                    const filtered = validClients.filter(c => {
-                                        // Validar que el cliente tenga un ID válido
-                                        if (!c || !c.id || String(c.id).trim() === '') {
-                                            return false; // Ignorar clientes sin ID válido
-                                        }
-                                        const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || '').toLowerCase();
-                                        const doc = (c.numeroDocumento || '').toLowerCase();
-                                        const search = clienteSearch.toLowerCase();
-                                        return nombre.includes(search) || doc.includes(search);
-                                    });
-                                    if (filtered.length === 0) {
-                                        return (
-                                            <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
-                                                No se encontraron clientes con "{clienteSearch}"
-                                            </div>
-                                        );
+                                }}
+                                onFocus={() => {
+                                    if (cotizacionSearch.trim().length >= 2) {
+                                        setIsCotizacionOpen(true);
                                     }
-                                    return filtered.slice(0, 20).map(c => {
-                                        const nombreDisplay = c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || 'Sin nombre';
-                                        const docDisplay = c.numeroDocumento || '';
+                                }}
+                                placeholder="Buscar por número de cotización o cliente (min 2 caracteres)..."
+                                className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            {isCotizacionOpen && cotizacionResults.length > 0 && (
+                                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-60 overflow-auto">
+                                    {cotizacionResults.map((cotizacion) => {
+                                        const cliente = clientes.find(c => c.id === cotizacion.clienteId);
                                         return (
                                             <div
-                                                key={c.id}
-                                                onMouseDown={() => pickCliente(c)}
-                                                className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
+                                                key={cotizacion.id}
+                                                onClick={() => handleCotizacionSelect(cotizacion)}
+                                                className="px-4 py-2 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0"
                                             >
-                                                <div className="font-medium">{nombreDisplay}</div>
-                                                {docDisplay && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Doc: {docDisplay}</div>}
+                                                <div className="font-medium text-slate-800 dark:text-slate-200">
+                                                    {cotizacion.numeroCotizacion}
+                                                </div>
+                                                <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    Cliente: {cliente?.nombreCompleto || cliente?.razonSocial || 'N/A'}
+                                                </div>
+                                                <div className="text-xs text-slate-500 dark:text-slate-500">
+                                                    Total: {formatCurrency(cotizacion.total || 0)}
+                                                </div>
                                             </div>
                                         );
-                                    });
-                                })()}
-                            </div>
-                        )}
-                    </div>
-                    <div ref={vendedorRef} className="relative">
-                        <label htmlFor="vendedor" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Vendedor</label>
-                        <input
-                            id="vendedor"
-                            value={vendedorSearch}
-                            onChange={(e) => {
-                                setVendedorSearch(e.target.value);
-                                setIsVendedorOpen(true);
-                                setVendedorId('');
-                                setSelectedVendedor(null);
-                            }}
-                            onFocus={() => { if (vendedorSearch.trim().length >= 2) setIsVendedorOpen(true); }}
-                            onBlur={() => {
-                                const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
-                                const exactMatch = list.find(v => {
-                                    const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).trim().toLowerCase();
-                                    const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
-                                    const search = vendedorSearch.toLowerCase();
-                                    return nombre === search || codigo === search;
-                                });
-                                if (exactMatch) {
-                                    pickVendedor(exactMatch);
-                                }
-                                setTimeout(() => {
-                                    setIsVendedorOpen(false);
-                                }, 200);
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Escape') setIsVendedorOpen(false);
-                                if (e.key === 'Enter') {
-                                    const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
-                                    const filtered = list.filter(v => {
-                                        const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).toLowerCase();
-                                        const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
-                                        const search = vendedorSearch.toLowerCase();
-                                        return nombre.includes(search) || codigo.includes(search);
-                                    });
-                                    if (filtered.length > 0) { e.preventDefault(); pickVendedor(filtered[0] as any); }
-                                }
-                            }}
-                            placeholder="Buscar vendedor (min 2, nombre o código)"
-                            className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                        {isVendedorOpen && vendedorSearch.trim().length >= 2 && (
-                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
-                                {(() => {
-                                    const listaMostrar = vendedorResults.length > 0 ? vendedorResults : vendedores;
-                                    const filtered = listaMostrar.filter(v => {
-                                        const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).toLowerCase();
-                                        const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
-                                        const search = vendedorSearch.toLowerCase();
-                                        return nombre.includes(search) || codigo.includes(search);
-                                    });
-                                    if (filtered.length === 0) {
-                                        return (
-                                            <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
-                                                No se encontraron vendedores con "{vendedorSearch}"
-                                            </div>
-                                        );
-                                    }
-                                    return filtered.slice(0, 20).map(v => {
-                                        const nombreCompleto = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).trim() || 'Sin nombre';
-                                        const codigoDisplay = v.codigo || v.codigoVendedor || '';
-                                        return (
-                                            <div
-                                                key={v.id}
-                                                onMouseDown={() => pickVendedor(v)}
-                                                className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
-                                            >
-                                                <div className="font-medium">{nombreCompleto}</div>
-                                                {codigoDisplay && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Código: {codigoDisplay}</div>}
-                                            </div>
-                                        );
-                                    });
-                                })()}
-                            </div>
-                        )}
-                    </div>
-                    <div>
-                        <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Forma de Pago</label>
-                        <select
-                            id="formaPago"
-                            value={formaPago}
-                            onChange={(e) => setFormaPago(e.target.value)}
-                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                            <option value="1">Contado</option>
-                            <option value="2">Crédito</option>
-                        </select>
-                    </div>
-                    {(selectedCliente || selectedVendedor) && (
-                        <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {selectedCliente && (
-                                <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                                    <div className="space-y-1">
-                                        <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
-                                            {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
-                                        </p>
-                                        {(selectedCliente.dirter || selectedCliente.direccion) && (
-                                            <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
-                                                <i className="fas fa-map-marker-alt mr-1"></i>
-                                                {selectedCliente.dirter || selectedCliente.direccion}
-                                                {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
-                                            </p>
-                                        )}
-                                        <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                            {selectedCliente.numeroDocumento && (
-                                                <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
-                                            )}
-                                            {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
-                                                <span>
-                                                    <i className="fas fa-phone mr-1"></i>
-                                                    {[
-                                                        selectedCliente.telefono || (selectedCliente as any).telefono,
-                                                        (selectedCliente as any).celular || selectedCliente.celter
-                                                    ].filter(Boolean).join(' | ')}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                </Card>
+                                    })}
+                                </div>
                             )}
-                            {selectedVendedor && (
-                                <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                                    <div className="space-y-1">
-                                        <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
-                                            {selectedVendedor.primerNombre && selectedVendedor.primerApellido
-                                                ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
-                                                : selectedVendedor.nombreCompleto || selectedVendedor.nombre || 'Sin nombre'}
-                                        </p>
-                                        <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                            {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
-                                                <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
-                                            )}
-                                            {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
-                                                <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                </Card>
+                            {isCotizacionOpen && cotizacionSearch.trim().length >= 2 && cotizacionResults.length === 0 && (
+                                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg p-4 text-sm text-slate-600 dark:text-slate-400">
+                                    No se encontraron cotizaciones aprobadas
+                                </div>
                             )}
                         </div>
-                    )}
-                </div>
-            )}
-
-            {tipoPedido === 'con-cotizacion' && (selectedCliente || selectedVendedor) && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    {selectedCliente && (
-                        <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                            <div className="space-y-1">
-                                <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
-                                    {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
-                                </p>
-                                {(selectedCliente.dirter || selectedCliente.direccion) && (
-                                    <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
-                                        <i className="fas fa-map-marker-alt mr-1"></i>
-                                        {selectedCliente.dirter || selectedCliente.direccion}
-                                        {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
-                                    </p>
-                                )}
-                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                    {selectedCliente.numeroDocumento && (
-                                        <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
-                                    )}
-                                    {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
-                                        <span>
-                                            <i className="fas fa-phone mr-1"></i>
-                                            {[
-                                                selectedCliente.telefono || (selectedCliente as any).telefono,
-                                                (selectedCliente as any).celular || selectedCliente.celter
-                                            ].filter(Boolean).join(' | ')}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        </Card>
-                    )}
-                    {selectedVendedor && (
-                        <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                            <div className="space-y-1">
-                                <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
-                                    {selectedVendedor.primerNombre && selectedVendedor.primerApellido
-                                        ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
-                                        : selectedVendedor.nombreCompleto || selectedVendedor.nombre || 'Sin nombre'}
-                                </p>
-                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                    {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
-                                        <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
-                                    )}
-                                    {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
-                                        <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
-                                    )}
-                                </div>
-                            </div>
-                        </Card>
-                    )}
-                    <div className="flex items-center">
-                        <div className="w-full">
+                        <div className="md:col-span-1">
                             <label htmlFor="formaPagoCtx" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Forma de Pago</label>
                             <select
                                 id="formaPagoCtx"
@@ -1042,8 +740,314 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                             </select>
                         </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
+
+            {
+                tipoPedido === 'sin-cotizacion' && (
+                    <div className="grid md:grid-cols-3 gap-6 mb-6">
+                        <div ref={clienteRef} className="relative">
+                            <label htmlFor="cliente" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cliente <span className="text-red-500">*</span></label>
+                            <input
+                                id="cliente"
+                                value={clienteSearch}
+                                onChange={(e) => {
+                                    setClienteSearch(e.target.value);
+                                    setIsClienteOpen(true);
+                                    setClienteId('');
+                                    setSelectedCliente(null);
+                                }}
+                                onFocus={() => { if (clienteSearch.trim().length >= 2) setIsClienteOpen(true); }}
+                                onBlur={() => {
+                                    // Solo buscar coincidencia si hay texto en el campo y no hay cliente seleccionado
+                                    if (clienteSearch.trim().length >= 2 && !selectedCliente) {
+                                        const list = clienteResults.length > 0 ? clienteResults : clientes;
+                                        const exactMatch = list.find(c => {
+                                            // Validar que el cliente tenga un ID válido
+                                            if (!c || !c.id || String(c.id).trim() === '') {
+                                                return false; // Ignorar clientes sin ID válido
+                                            }
+                                            const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim()).toLowerCase();
+                                            const doc = (c.numeroDocumento || '').toLowerCase();
+                                            const search = clienteSearch.toLowerCase();
+                                            return nombre === search || doc === search;
+                                        });
+                                        if (exactMatch && !selectedCliente) {
+                                            pickCliente(exactMatch);
+                                        }
+                                    }
+                                    // Si el campo está vacío o solo espacios, limpiar la selección
+                                    if (clienteSearch.trim() === '' && selectedCliente) {
+                                        setClienteId('');
+                                        setSelectedCliente(null);
+                                    }
+                                    setTimeout(() => {
+                                        setIsClienteOpen(false);
+                                    }, 200);
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Escape') setIsClienteOpen(false);
+                                    if (e.key === 'Enter') {
+                                        const list = clienteResults.length > 0 ? clienteResults : clientes;
+                                        const filtered = list.filter(c => {
+                                            // Validar que el cliente tenga un ID válido
+                                            if (!c || !c.id || String(c.id).trim() === '') {
+                                                return false; // Ignorar clientes sin ID válido
+                                            }
+                                            const nombre = c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim().toLowerCase();
+                                            const doc = (c.numeroDocumento || '').toLowerCase();
+                                            const search = clienteSearch.toLowerCase();
+                                            return nombre.includes(search) || doc.includes(search);
+                                        });
+                                        if (filtered.length > 0) { e.preventDefault(); pickCliente(filtered[0] as any); }
+                                    }
+                                }}
+                                placeholder="Buscar cliente (min 2, nombre o documento)"
+                                className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            {isClienteOpen && clienteSearch.trim().length >= 2 && (
+                                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
+                                    {(() => {
+                                        const listaMostrar = clienteResults.length > 0 ? clienteResults : clientes;
+                                        // Filter out clients without email
+                                        const validClients = listaMostrar.filter(c => c.email && c.email.trim().length > 0);
+
+                                        // Filtrar primero por ID válido, luego por búsqueda
+                                        const filtered = validClients.filter(c => {
+                                            // Validar que el cliente tenga un ID válido
+                                            if (!c || !c.id || String(c.id).trim() === '') {
+                                                return false; // Ignorar clientes sin ID válido
+                                            }
+                                            const nombre = (c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || '').toLowerCase();
+                                            const doc = (c.numeroDocumento || '').toLowerCase();
+                                            const search = clienteSearch.toLowerCase();
+                                            return nombre.includes(search) || doc.includes(search);
+                                        });
+                                        if (filtered.length === 0) {
+                                            return (
+                                                <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
+                                                    No se encontraron clientes con "{clienteSearch}"
+                                                </div>
+                                            );
+                                        }
+                                        return filtered.slice(0, 20).map(c => {
+                                            const nombreDisplay = c.nombreCompleto || c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim() || 'Sin nombre';
+                                            const docDisplay = c.numeroDocumento || '';
+                                            return (
+                                                <div
+                                                    key={c.id}
+                                                    onMouseDown={() => pickCliente(c)}
+                                                    className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
+                                                >
+                                                    <div className="font-medium">{nombreDisplay}</div>
+                                                    {docDisplay && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Doc: {docDisplay}</div>}
+                                                </div>
+                                            );
+                                        });
+                                    })()}
+                                </div>
+                            )}
+                        </div>
+                        <div ref={vendedorRef} className="relative">
+                            <label htmlFor="vendedor" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Vendedor</label>
+                            <input
+                                id="vendedor"
+                                value={vendedorSearch}
+                                onChange={(e) => {
+                                    setVendedorSearch(e.target.value);
+                                    setIsVendedorOpen(true);
+                                    setVendedorId('');
+                                    setSelectedVendedor(null);
+                                }}
+                                onFocus={() => { if (vendedorSearch.trim().length >= 2) setIsVendedorOpen(true); }}
+                                onBlur={() => {
+                                    const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
+                                    const exactMatch = list.find(v => {
+                                        const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).trim().toLowerCase();
+                                        const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
+                                        const search = vendedorSearch.toLowerCase();
+                                        return nombre === search || codigo === search;
+                                    });
+                                    if (exactMatch) {
+                                        pickVendedor(exactMatch);
+                                    }
+                                    setTimeout(() => {
+                                        setIsVendedorOpen(false);
+                                    }, 200);
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Escape') setIsVendedorOpen(false);
+                                    if (e.key === 'Enter') {
+                                        const list = vendedorResults.length > 0 ? vendedorResults : vendedores;
+                                        const filtered = list.filter(v => {
+                                            const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).toLowerCase();
+                                            const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
+                                            const search = vendedorSearch.toLowerCase();
+                                            return nombre.includes(search) || codigo.includes(search);
+                                        });
+                                        if (filtered.length > 0) { e.preventDefault(); pickVendedor(filtered[0] as any); }
+                                    }
+                                }}
+                                placeholder="Buscar vendedor (min 2, nombre o código)"
+                                className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            {isVendedorOpen && vendedorSearch.trim().length >= 2 && (
+                                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-xl max-h-60 overflow-y-auto">
+                                    {(() => {
+                                        const listaMostrar = vendedorResults.length > 0 ? vendedorResults : vendedores;
+                                        const filtered = listaMostrar.filter(v => {
+                                            const nombre = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).toLowerCase();
+                                            const codigo = (v.codigo || v.codigoVendedor || '').toLowerCase();
+                                            const search = vendedorSearch.toLowerCase();
+                                            return nombre.includes(search) || codigo.includes(search);
+                                        });
+                                        if (filtered.length === 0) {
+                                            return (
+                                                <div className="px-3 py-4 text-sm text-slate-500 italic text-center">
+                                                    No se encontraron vendedores con "{vendedorSearch}"
+                                                </div>
+                                            );
+                                        }
+                                        return filtered.slice(0, 20).map(v => {
+                                            const nombreCompleto = ((v.primerNombre || '') + ' ' + (v.primerApellido || '')).trim() || 'Sin nombre';
+                                            const codigoDisplay = v.codigo || v.codigoVendedor || '';
+                                            return (
+                                                <div
+                                                    key={v.id}
+                                                    onMouseDown={() => pickVendedor(v)}
+                                                    className="px-3 py-2.5 text-sm hover:bg-blue-500 hover:text-white cursor-pointer border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors"
+                                                >
+                                                    <div className="font-medium">{nombreCompleto}</div>
+                                                    {codigoDisplay && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Código: {codigoDisplay}</div>}
+                                                </div>
+                                            );
+                                        });
+                                    })()}
+                                </div>
+                            )}
+                        </div>
+                        <div>
+                            <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Forma de Pago</label>
+                            <select
+                                id="formaPago"
+                                value={formaPago}
+                                onChange={(e) => setFormaPago(e.target.value)}
+                                className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="1">Contado</option>
+                                <option value="2">Crédito</option>
+                            </select>
+                        </div>
+                        {(selectedCliente || selectedVendedor) && (
+                            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {selectedCliente && (
+                                    <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                                        <div className="space-y-1">
+                                            <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                                {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
+                                            </p>
+                                            {(selectedCliente.dirter || selectedCliente.direccion) && (
+                                                <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                                                    <i className="fas fa-map-marker-alt mr-1"></i>
+                                                    {selectedCliente.dirter || selectedCliente.direccion}
+                                                    {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
+                                                </p>
+                                            )}
+                                            <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                                {selectedCliente.numeroDocumento && (
+                                                    <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
+                                                )}
+                                                {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
+                                                    <span>
+                                                        <i className="fas fa-phone mr-1"></i>
+                                                        {[
+                                                            selectedCliente.telefono || (selectedCliente as any).telefono,
+                                                            (selectedCliente as any).celular || selectedCliente.celter
+                                                        ].filter(Boolean).join(' | ')}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </Card>
+                                )}
+                                {selectedVendedor && (
+                                    <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                                        <div className="space-y-1">
+                                            <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                                {selectedVendedor.primerNombre && selectedVendedor.primerApellido
+                                                    ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
+                                                    : selectedVendedor.nombreCompleto || selectedVendedor.nombre || 'Sin nombre'}
+                                            </p>
+                                            <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                                {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
+                                                    <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
+                                                )}
+                                                {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
+                                                    <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </Card>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )
+            }
+
+            {
+                tipoPedido === 'con-cotizacion' && (selectedCliente || selectedVendedor) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        {selectedCliente && (
+                            <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                                <div className="space-y-1">
+                                    <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                        {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
+                                    </p>
+                                    {(selectedCliente.dirter || selectedCliente.direccion) && (
+                                        <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                                            <i className="fas fa-map-marker-alt mr-1"></i>
+                                            {selectedCliente.dirter || selectedCliente.direccion}
+                                            {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
+                                        </p>
+                                    )}
+                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                        {selectedCliente.numeroDocumento && (
+                                            <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
+                                        )}
+                                        {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
+                                            <span>
+                                                <i className="fas fa-phone mr-1"></i>
+                                                {[
+                                                    selectedCliente.telefono || (selectedCliente as any).telefono,
+                                                    (selectedCliente as any).celular || selectedCliente.celter
+                                                ].filter(Boolean).join(' | ')}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </Card>
+                        )}
+                        {selectedVendedor && (
+                            <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                                <div className="space-y-1">
+                                    <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                        {selectedVendedor.primerNombre && selectedVendedor.primerApellido
+                                            ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
+                                            : selectedVendedor.nombreCompleto || selectedVendedor.nombre || 'Sin nombre'}
+                                    </p>
+                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                        {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
+                                            <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
+                                        )}
+                                        {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
+                                            <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </Card>
+                        )}
+                    </div>
+                )
+            }
 
             <div className="grid md:grid-cols-2 gap-6 mb-6">
                 <div>
@@ -1349,7 +1353,7 @@ const PedidoForm: React.FC<PedidoFormProps> = ({ onSubmit, onCancel, onDirtyChan
                     )}
                 </button>
             </div>
-        </form>
+        </form >
     );
 };
 

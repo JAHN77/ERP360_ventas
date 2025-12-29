@@ -71,6 +71,19 @@ const SendEmailModal: React.FC<SendEmailModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Enviar Documento por Correo" size="2xl">
       <div className="space-y-4">
+        {/* Info Banner */}
+        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-start gap-3">
+          <div className="text-blue-500 dark:text-blue-400 mt-0.5">
+            <i className="fas fa-info-circle text-lg"></i>
+          </div>
+          <div>
+            <h4 className="font-semibold text-blue-900 dark:text-blue-100 text-sm">Plantilla Corporativa</h4>
+            <p className="text-blue-800 dark:text-blue-200 text-xs mt-0.5">
+              Este mensaje se incluirá automáticamente dentro de la <strong>plantilla oficial de la empresa</strong>, junto con el logo, los detalles del documento y sus datos de contacto.
+            </p>
+          </div>
+        </div>
+
         <div>
           <label htmlFor="to" className={labelClasses}>Para:</label>
           <input

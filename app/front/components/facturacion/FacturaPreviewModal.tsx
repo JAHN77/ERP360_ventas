@@ -9,6 +9,7 @@ import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
 import { pdf, PDFViewer } from '@react-pdf/renderer';
 import FacturaPDFDocument from './FacturaPDFDocument';
+import { apiSendFacturaEmail } from '../../services/apiClient';
 
 interface FacturaPreviewModalProps {
     factura: Factura | null;
@@ -96,27 +97,65 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
         }
     };
 
-    const handleSendEmail = async () => {
-        await handleDownload();
-        setTimeout(() => {
-            setIsEmailModalOpen(true);
-        }, 100);
+    const handleSendEmail = () => {
+        setIsEmailModalOpen(true);
     };
 
     const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
-        if (!factura) return;
+        if (!factura || !cliente) return;
 
-        const subjectEncoded = encodeURIComponent(emailData.subject);
-        const bodyEncoded = encodeURIComponent(emailData.body);
-        const mailtoLink = `mailto:${emailData.to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
+        setIsGenerating(true);
+        addNotification({ message: 'Preparando y enviando correo...', type: 'info' });
 
-        window.location.href = mailtoLink;
+        try {
+            // 1. Generar PDF
+            // Ensure we use the document component logic
+            if (!documentComponent) throw new Error('No se pudo generar el documento PDF');
 
-        addNotification({
-            message: `PDF descargado. Se ha abierto tu cliente de correo para enviar la factura ${factura.numeroFactura}.`,
-            type: 'success',
-        });
-        setIsEmailModalOpen(false);
+            const blob = await pdf(documentComponent).toBlob();
+
+            // 2. Convertir a Base64
+            const base64Content = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const result = reader.result as string;
+                    // Remover prefijo data:application/pdf;base64,
+                    const base64 = result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+
+            // 3. Enviar al backend usando endpoint específico
+            const safeClientName = cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
+
+            const response = await apiSendFacturaEmail(factura.id!, {
+                destinatario: emailData.to,
+                asunto: emailData.subject,
+                mensaje: emailData.body,
+                pdfBase64: base64Content
+            });
+
+            if (response.success) {
+                addNotification({
+                    message: `Correo enviado exitosamente a ${emailData.to}`,
+                    type: 'success',
+                });
+                setIsEmailModalOpen(false);
+            } else {
+                throw new Error(response.message || 'Error al enviar el correo');
+            }
+
+        } catch (error) {
+            console.error('Error sending email:', error);
+            addNotification({
+                message: error instanceof Error ? error.message : 'Error al enviar el correo.',
+                type: 'error'
+            });
+        } finally {
+            setIsGenerating(false);
+        }
     };
 
     if (!factura) {
@@ -238,10 +277,13 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
                     subject={`Factura ${factura.numeroFactura} de ${datosEmpresa.nombre}`}
                     body={`Estimado/a ${cliente.nombreCompleto},
 
-Adjuntamos su factura electrónica N° ${factura.numeroFactura}.
+Esperamos que este mensaje le encuentre bien.
 
-Gracias por su compra.
-Atentamente,
+Adjuntamos su Factura Electrónica N° ${factura.numeroFactura} correspondiente a su reciente compra.
+
+Agradecemos su pago oportuno. Puede encontrar los detalles de pago dentro del documento adjunto.
+
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`}
                 />
             )}

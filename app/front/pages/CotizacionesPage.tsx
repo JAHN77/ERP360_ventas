@@ -21,14 +21,14 @@ import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { findClienteByIdentifier } from '../utils/clientes';
 import { formatDateOnly } from '../utils/formatters';
-import { fetchCotizacionesDetalle, apiSendGenericEmail } from '../services/apiClient';
+import apiClient, { fetchCotizacionesDetalle } from '../services/apiClient';
 import SendEmailModal from '../components/comercial/SendEmailModal';
 import { pdf } from '@react-pdf/renderer';
 import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 // --- Status Calculation Logic ---
@@ -540,16 +540,12 @@ const CotizacionesPage: React.FC = () => {
       reader.onloadend = async () => {
         const base64data = reader.result as string;
 
-        // Enviar al backend
-        const response = await apiSendGenericEmail({
-          to: emailData.to,
-          subject: emailData.subject,
-          body: emailData.body,
-          attachment: {
-            filename: `Cotizacion_${quoteToEmail.numeroCotizacion}.pdf`,
-            content: base64data,
-            contentType: 'application/pdf'
-          }
+        // Enviar al backend usando el endpoint específico
+        const response = await apiClient.sendCotizacionEmail(quoteToEmail.id, {
+          destinatario: emailData.to,
+          asunto: emailData.subject,
+          mensaje: emailData.body,
+          pdfBase64: base64data
         });
 
         if (response.success) {

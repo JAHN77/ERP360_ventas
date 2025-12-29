@@ -17,4 +17,9 @@ router.put('/facturas/:id', invoiceController.updateInvoice);
 // POST /api/facturas/:id/timbrar - Timbrar factura existente
 router.post('/facturas/:id/timbrar', invoiceController.stampInvoice);
 
+// POST /api/facturas/:id/send-email
+router.post('/facturas/:id/send-email', invoiceController.sendInvoiceEmail);
+
+router.get('/facturas/next-number', invoiceController.getNextInvoiceNumber);
+
 module.exports = router;

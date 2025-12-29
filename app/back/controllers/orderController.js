@@ -281,6 +281,7 @@ const getOrderDetails = async (req, res) => {
         (pd.canped * pd.valins) - pd.dctped + pd.ivaped as total,
         COALESCE(i.referencia, '') as referencia,
         COALESCE(i.undins, 'UND') as unidadMedida,
+        COALESCE(i.tasa_iva, 0) as productoTasaIva,
         0 as descuentoPorcentaje, 
         0 as ivaPorcentaje 
       FROM ${TABLE_NAMES.pedidos_detalle} pd
@@ -295,11 +296,23 @@ const getOrderDetails = async (req, res) => {
     // Calcular porcentajes aproximados
     const detalles = result.map(d => {
         const subtotal = d.cantidad * d.precioUnitario;
+        const baseForIva = subtotal - d.descuentoValor;
+        
+        // Calculate IVA percentage: 
+        // 1. If stored IVA value exists (>0), calculate percentage from it (Historical accuracy)
+        // 2. If stored IVA is 0, fallback to product's current tax rate (Fix for missing data)
+        let calculatedIvaPct = 0;
+        if (baseForIva > 0 && d.valorIva > 0) {
+            calculatedIvaPct = (d.valorIva / baseForIva) * 100;
+        } else {
+            calculatedIvaPct = d.productoTasaIva || 0;
+        }
+
         return {
             ...d,
             subtotal: subtotal, 
             descuentoPorcentaje: subtotal > 0 ? (d.descuentoValor / subtotal) * 100 : 0,
-            ivaPorcentaje: (subtotal - d.descuentoValor) > 0 ? (d.valorIva / (subtotal - d.descuentoValor)) * 100 : 0
+            ivaPorcentaje: calculatedIvaPct
         };
     });
 
@@ -614,10 +627,111 @@ const updateOrder = async (req, res) => {
   }
 };
 
+const getNextOrderNumber = async (req, res) => {
+  try {
+    const pool = await getConnection();
+    const result = await pool.request().query(`
+      SELECT TOP 1 numero_pedido 
+      FROM ${TABLE_NAMES.pedidos} 
+      ORDER BY id DESC
+    `);
+    
+    let nextNum = '000001';
+    if (result.recordset.length > 0) {
+      const lastNum = result.recordset[0].numero_pedido;
+      const soloDigitos = lastNum.replace(/\D/g, '');
+      const consecutivo = parseInt(soloDigitos, 10);
+      if (!isNaN(consecutivo)) {
+        nextNum = String(consecutivo + 1).padStart(6, '0');
+      }
+    }
+    
+    res.json({ success: true, data: { nextNumber: nextNum } });
+  } catch (error) {
+    console.error('Error getting next order number:', error);
+    res.status(500).json({ success: false, message: 'Error interno al obtener el consecutivo' });
+  }
+};
+
+const { sendDocumentEmail } = require('../services/emailService.cjs');
+
+const sendOrderEmail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { destinatario, asunto, mensaje, pdfBase64 } = req.body; 
+
+    const pool = await getConnection();
+    const idNum = parseInt(id, 10);
+    
+    // 1. Obtener Datos del Pedido
+    const orderQuery = `
+      SELECT 
+        p.numero_pedido, 
+        p.fecha_pedido, 
+        p.total, 
+        c.nomter, 
+        c.EMAIL 
+      FROM ${TABLE_NAMES.pedidos} p
+      LEFT JOIN ${TABLE_NAMES.clientes} c ON LTRIM(RTRIM(c.codter)) = LTRIM(RTRIM(p.codter))
+      WHERE p.id = @id
+    `;
+    const orderRes = await executeQueryWithParams(orderQuery, { id: idNum });
+    
+    if (orderRes.length === 0) {
+      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+    }
+
+    const pedido = orderRes[0];
+    const clienteEmail = destinatario || pedido.EMAIL;
+
+    if (!clienteEmail) {
+       return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado y no se proporcionó uno alternativo.' });
+    }
+
+    // 2. Preparar PDF
+    let pdfBuffer;
+    if (pdfBase64) {
+        pdfBuffer = pdfBase64;
+    } else {
+        return res.status(400).json({ success: false, message: 'Se requiere el PDF generado para enviar el correo (pdfBase64).' });
+    }
+
+    // 3. Preparar Detalles para el Correo
+    const formatCurrency = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(val);
+    const documentDetails = [
+        { label: 'Total Pedido', value: formatCurrency(pedido.total || 0) },
+        { label: 'Fecha', value: new Date(pedido.fecha_pedido).toLocaleDateString('es-CO') }
+    ];
+
+    // 4. Enviar Correo
+    await sendDocumentEmail({
+        to: clienteEmail,
+        customerName: pedido.nomter,
+        documentNumber: pedido.numero_pedido,
+        documentType: 'Pedido',
+        pdfBuffer,
+        subject,
+        body: mensaje,
+        documentDetails,
+        processSteps: `
+            <p>Hemos recibido su orden correctamente. En este momento el equipo de almacén está preparando sus productos. Le notificaremos en cuanto el despacho sea realizado.</p>
+        `
+    });
+
+    res.json({ success: true, message: 'Correo de pedido enviado exitosamente' });
+
+  } catch (error) {
+    console.error('Error enviando correo de pedido:', error);
+    res.status(500).json({ success: false, message: 'Error enviando correo', error: error.message });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderDetails,
   createOrder,
   createOrderInternal,
-  updateOrder
+  updateOrder,
+  getNextOrderNumber,
+  sendOrderEmail
 };
