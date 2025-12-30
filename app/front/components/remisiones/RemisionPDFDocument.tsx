@@ -224,14 +224,18 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                 )}
 
                 {/* Footer */}
-                {preferences.signatureType === 'physical' ? (
+                {(preferences.signatureType === 'physical' || preferences.signatureType === 'digital') ? (
                     <View style={pdfStyles.footer}>
                         <View style={pdfStyles.signatureBox}>
+                            <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>
+                                {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
+                            </View>
                             <View style={pdfStyles.signatureLine} />
                             <Text style={pdfStyles.footerText}>ENTREGADO POR</Text>
                             <Text style={pdfStyles.footerSubText}>(Nombre y Firma)</Text>
                         </View>
                         <View style={pdfStyles.signatureBox}>
+                            <View style={{ height: 40 }} />
                             <View style={pdfStyles.signatureLine} />
                             <Text style={pdfStyles.footerText}>RECIBIDO A CONFORMIDAD</Text>
                             <Text style={pdfStyles.footerSubText}>(Nombre, Firma, C.C. y Sello)</Text>

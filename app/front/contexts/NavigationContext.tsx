@@ -19,7 +19,9 @@ export type Page =
   'factura_profesional' |
   'activity_log' |
   'inventory_concepts' |
-  'conteo_fisico';
+  'conteo_fisico' |
+  'usuarios' |
+  'perfil';
 
 interface NavigationState {
   page: Page;

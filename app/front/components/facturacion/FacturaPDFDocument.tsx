@@ -104,10 +104,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                                 <Text style={pdfStyles.infoLabel}>Vence:</Text>
                                 <Text style={pdfStyles.infoValue}>{factura.fechaVencimiento || 'N/A'}</Text>
                             </View>
-                            <View style={pdfStyles.infoRow}>
-                                <Text style={pdfStyles.infoLabel}>Vendedor:</Text>
-                                <Text style={pdfStyles.infoValue}>{vendedor?.nombreCompleto || 'N/A'}</Text>
-                            </View>
+
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>F. Pago:</Text>
                                 <Text style={pdfStyles.infoValue}>{factura.formaPago || 'Contado'}</Text>
@@ -203,7 +200,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                 </View>
 
                 {/* Signatures at the Bottom */}
-                {preferences.signatureType === 'physical' && (
+                {(preferences.signatureType === 'physical' || preferences.signatureType === 'digital') && (
                     <View style={[pdfStyles.footer, { marginTop: 'auto', paddingTop: 20 }]}>
                         <View style={pdfStyles.signatureBox}>
                             <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>

@@ -2,6 +2,7 @@ const { sendGenericEmail } = require('../services/emailService.cjs');
 
 const emailController = {
   sendEmail: async (req, res) => {
+    // ... existing logic ... (keep it identical)
     try {
       const { to, subject, body, attachment } = req.body;
       console.log('DEBUG Email Body:', body ? body.substring(0, 50) : 'No body');
@@ -13,9 +14,6 @@ const emailController = {
 
       let attachments = [];
       if (attachment && attachment.content && attachment.filename) {
-        // Convertir base64 a Buffer si es necesario, o enviarlo como string si nodemailer lo soporta
-        // Nodemailer soporta base64 string si se pone encoding: 'base64' o si es un buffer.
-        // Asumiremos que el frontend envía el contenido en base64 puro (sin data:application/pdf;base64,) o lo limpiaremos.
         let content = attachment.content;
         if (typeof content === 'string' && content.startsWith('data:')) {
             content = content.split(',')[1];
@@ -29,7 +27,6 @@ const emailController = {
         });
       }
 
-      // Convertir body simple a HTML básico si no es HTML
       let htmlContent = body;
       if (!body.trim().startsWith('<')) {
         htmlContent = `
@@ -60,6 +57,41 @@ const emailController = {
       res.status(500).json({
         success: false,
         message: 'Error enviando el correo',
+        error: error.message
+      });
+    }
+  },
+
+  sendCreditNoteEmail: async (req, res) => {
+    try {
+      const { id, to, body, pdfBase64, customerName } = req.body;
+
+      if (!to || !pdfBase64) {
+        return res.status(400).json({ success: false, message: 'Faltan campos requeridos (to, pdfBase64)' });
+      }
+
+      const { sendDocumentEmail } = require('../services/emailService.cjs');
+
+      const result = await sendDocumentEmail({
+        to,
+        customerName: customerName || 'Cliente',
+        documentNumber: id,
+        documentType: 'Nota de Crédito',
+        pdfBuffer: pdfBase64,
+        subject: req.body.subject, // Optional, sendDocumentEmail generates one if missing
+        body: body // Optional custom message
+      });
+
+      res.json({
+        success: true,
+        message: 'Nota de crédito enviada correctamente',
+        messageId: result.messageId
+      });
+    } catch (error) {
+      console.error('Error sending credit note email:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error enviando nota de crédito',
         error: error.message
       });
     }

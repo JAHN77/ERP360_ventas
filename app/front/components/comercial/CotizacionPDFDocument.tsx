@@ -110,7 +110,7 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                             </View>
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>Vendedor:</Text>
-                                <Text style={pdfStyles.infoValue}>{vendedor.nombreCompleto}</Text>
+                                <Text style={pdfStyles.infoValue}>{vendedor?.nombreCompleto || 'N/A'}</Text>
                             </View>
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>Cond. Pago:</Text>
@@ -191,14 +191,14 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                 </View>
 
                 {/* Signatures at the Bottom */}
-                {preferences.signatureType === 'physical' && (
+                {(preferences.signatureType === 'physical' || preferences.signatureType === 'digital') && (
                     <View style={[pdfStyles.footer, { marginTop: 'auto', paddingTop: 20 }]}>
                         <View style={pdfStyles.signatureBox}>
                             <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>
                                 {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
                             </View>
                             <View style={pdfStyles.signatureLine} />
-                            <Text style={pdfStyles.footerText}>{vendedor.nombreCompleto}</Text>
+                            <Text style={pdfStyles.footerText}>{vendedor?.nombreCompleto || 'N/A'}</Text>
                             <Text style={pdfStyles.footerSubText}>Asesor Comercial, {empresa.nombre}</Text>
                         </View>
                         <View style={pdfStyles.signatureBox}>

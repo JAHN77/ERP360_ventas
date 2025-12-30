@@ -1223,7 +1223,7 @@ const invoiceController = {
           documentNumber: factura.numfact,
           documentType: 'Factura',
           pdfBuffer,
-          subject,
+          subject: asunto,
           body: mensaje,
           documentDetails,
         processSteps: `

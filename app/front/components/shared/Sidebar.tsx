@@ -115,7 +115,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarOpen, setIsSidebarOpen }) =>
             'inventario': ['productos', 'entrada_inventario', 'remisiones', 'inventory_concepts', 'categorias', 'conteo_fisico'],
             'informes': ['reportes'],
             'compras': ['ordenes_compra', 'nueva_orden_compra'],
-            'config': ['activity_log', 'factura_profesional']
+            'config': ['activity_log', 'factura_profesional', 'usuarios']
         };
 
         const currentGroup = Object.keys(groups).find(key => groups[key].includes(page));
@@ -250,6 +250,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarOpen, setIsSidebarOpen }) =>
                         onToggle={() => handleGroupToggle('config')}
                     >
                         <NavItem label="Actividad" active={page === 'activity_log'} onClick={() => setPage('activity_log')} indent />
+                        <NavItem label="Mi Perfil" active={page === 'perfil'} onClick={() => setPage('perfil')} indent />
+                        <NavItem label="Usuarios" active={page === 'usuarios'} onClick={() => setPage('usuarios')} indent />
                     </NavGroup>
 
                 </div>

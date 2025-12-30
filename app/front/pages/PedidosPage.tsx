@@ -20,7 +20,7 @@ import { useAuth } from '../hooks/useAuth';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { logger } from '../utils/logger';
-import { apiClient, fetchPedidosDetalle, apiSendGenericEmail, apiSendPedidoEmail } from '../services/apiClient';
+import { apiClient, fetchPedidosDetalle, apiSendGenericEmail, apiSendPedidoEmail, apiArchiveDocumentToDrive } from '../services/apiClient';
 import SendEmailModal from '../components/comercial/SendEmailModal';
 import { pdf } from '@react-pdf/renderer';
 import { formatDateOnly } from '../utils/formatters';
@@ -56,7 +56,7 @@ const PedidosPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const { user } = useAuth();
   const { addNotification } = useNotifications();
-  const { clientes, cotizaciones, datosEmpresa, productos, aprobarPedido, actualizarPedido, marcarPedidoListoParaDespacho } = useData();
+  const { clientes, cotizaciones, datosEmpresa, productos, vendedores, aprobarPedido, actualizarPedido, marcarPedidoListoParaDespacho } = useData();
 
   // Estados para paginación del servidor
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -444,7 +444,7 @@ const PedidosPage: React.FC = () => {
     addNotification({ message: 'Preparando envío de correo...', type: 'info' });
 
     try {
-      // Buscar cliente para datos
+
       const clientePedido = clientes.find(c =>
         String(c.id) === String(pedidoToEmail.clienteId) ||
         c.numeroDocumento === pedidoToEmail.clienteId ||
@@ -456,7 +456,15 @@ const PedidosPage: React.FC = () => {
         return;
       }
 
+      let vendedor = null;
+      if (pedidoToEmail.vendedorId) {
+        vendedor = vendedores.find(v => String(v.id) === String(pedidoToEmail.vendedorId) || v.codigoVendedor === pedidoToEmail.vendedorId);
+      }
+
       const cotizacionOrigen = cotizaciones.find(c => String(c.id) === String(pedidoToEmail.cotizacionId));
+
+      // Priorizar firma del usuario
+      const firmaFinal = user?.firma || vendedor?.firma;
 
       // Generar Blob del PDF
       const blob = await pdf(
@@ -467,6 +475,7 @@ const PedidosPage: React.FC = () => {
           preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
           productos={productos}
           cotizacionOrigen={cotizacionOrigen}
+          firmaVendedor={firmaFinal}
         />
       ).toBlob();
 
@@ -488,6 +497,51 @@ const PedidosPage: React.FC = () => {
         if (response.success) {
           addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
           setPedidoToEmail(null);
+
+          // --- Archivar en Google Drive ---
+          try {
+            addNotification({ message: 'Archivando en Google Drive...', type: 'info' });
+            // Extraer base64 raw
+            const base64Content = base64data.split(',')[1] || base64data;
+
+            const archiveResponse = await apiArchiveDocumentToDrive({
+              type: 'pedido',
+              number: pedidoToEmail.numeroPedido,
+              date: pedidoToEmail.fechaPedido || new Date().toISOString(),
+              recipientName: clientePedido?.razonSocial || 'Cliente',
+              fileBase64: base64Content
+            });
+
+            if (archiveResponse.success) {
+              addNotification({ message: 'Documento archivado en Drive.', type: 'success' });
+            } else if (archiveResponse.code === 'FILE_EXISTS') {
+              // Prompt for replacement
+              const shouldReplace = window.confirm(`El archivo ya existe en Drive. ¿Desea reemplazarlo?`);
+              if (shouldReplace) {
+                addNotification({ message: 'Reemplazando archivo en Drive...', type: 'info' });
+                const retryResponse = await apiArchiveDocumentToDrive({
+                  type: 'pedido',
+                  number: pedidoToEmail.numeroPedido,
+                  date: pedidoToEmail.fechaPedido || new Date().toISOString(),
+                  recipientName: clientePedido?.razonSocial || 'Cliente',
+                  fileBase64: base64Content,
+                  replace: true
+                });
+
+                if (retryResponse.success) {
+                  addNotification({ message: 'Archivo actualizado correctamente.', type: 'success' });
+                } else {
+                  addNotification({ message: 'Error actualizando archivo.', type: 'error' });
+                }
+              } else {
+                addNotification({ message: 'Se canceló el archivado.', type: 'info' });
+              }
+            } else {
+              console.warn('Error archivando en Drive:', archiveResponse);
+            }
+          } catch (driveError) {
+            console.error('Error llamando a apiArchiveDocumentToDrive:', driveError);
+          }
         } else {
           addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
         }

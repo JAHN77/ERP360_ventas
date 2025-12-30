@@ -7,7 +7,9 @@ import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
 import { pdf, PDFViewer } from '@react-pdf/renderer';
 import NotaCreditoPDFDocument from './NotaCreditoPDFDocument';
-import { apiSendCreditNoteEmail } from '../../services/apiClient';
+import { apiSendCreditNoteEmail, apiArchiveDocumentToDrive } from '../../services/apiClient';
+import { useDocumentPreferences } from '../../hooks/useDocumentPreferences';
+import DocumentOptionsToolbar from '../comercial/DocumentOptionsToolbar';
 
 interface NotaCreditoPreviewModalProps {
     notaCredito: NotaCredito | null;
@@ -17,6 +19,7 @@ interface NotaCreditoPreviewModalProps {
 const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaCredito, onClose }) => {
     const { addNotification } = useNotifications();
     const { facturas: allFacturas, clientes, datosEmpresa, productos, firmaVendedor } = useData();
+    const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('nota_credito');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
 
@@ -45,6 +48,7 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
                 empresa={datosEmpresa}
                 productos={productos}
                 firmaVendedor={firmaVendedor}
+                preferences={preferences}
             />
         );
     };
@@ -110,18 +114,40 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
             });
 
             // 3. Enviar al backend usando endpoint específico
-            const response = await apiSendCreditNoteEmail(notaCredito.id!, {
-                destinatario: emailData.to,
-                asunto: emailData.subject,
-                mensaje: emailData.body,
-                pdfBase64: base64Content
-            });
+            const response = await apiSendCreditNoteEmail(
+                Number(notaCredito.id),
+                emailData.to,
+                emailData.body,
+                base64Content,
+                relatedData.cliente.razonSocial
+            );
 
             if (response.success) {
                 addNotification({
                     message: `Correo enviado exitosamente a ${emailData.to}`,
                     type: 'success',
                 });
+
+                // --- 4. Archivar en Google Drive ---
+                try {
+                    addNotification({ message: 'Archivando en Google Drive...', type: 'info' });
+                    const archiveResponse = await apiArchiveDocumentToDrive({
+                        type: 'nota_credito',
+                        number: notaCredito.numero,
+                        date: notaCredito.fechaEmision,
+                        recipientName: relatedData.cliente.razonSocial,
+                        fileBase64: base64Content
+                    });
+
+                    if (archiveResponse.success) {
+                        addNotification({ message: 'Documento archivado en Drive.', type: 'success' });
+                    } else {
+                        console.warn('Error archivando en Drive:', archiveResponse);
+                    }
+                } catch (driveError) {
+                    console.error('Error llamando a apiArchiveDocumentToDrive:', driveError);
+                }
+
                 setIsEmailModalOpen(false);
             } else {
                 throw new Error(response.message || 'Error al enviar el correo');
@@ -181,6 +207,19 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
                     </div>
                 </div>
 
+                <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-2">
+                    <DocumentOptionsToolbar
+                        preferences={preferences}
+                        onPreferenceChange={updatePreferences}
+                        onReset={resetPreferences}
+                        supportedOptions={{
+                            prices: true,
+                            signatures: true,
+                            details: false
+                        }}
+                    />
+                </div>
+
                 <div className="bg-slate-100 dark:bg-slate-900 h-[80vh] flex justify-center overflow-hidden">
                     <PDFViewer
                         width="100%"
@@ -195,6 +234,7 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
                             empresa={datosEmpresa}
                             productos={productos}
                             firmaVendedor={firmaVendedor}
+                            preferences={preferences}
                         />
                     </PDFViewer>
                 </div>
@@ -206,16 +246,7 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
                     onSend={handleConfirmSendEmail}
                     to={relatedData.cliente.email}
                     subject={`Nota de Crédito ${notaCredito.numero} de ${datosEmpresa.nombre}`}
-                    body={`Estimado/a ${relatedData.cliente.nombreCompleto},
-
-Esperamos que este mensaje le encuentre bien.
-
-Le informamos que hemos procesado una nota de crédito a su favor con el número ${notaCredito.numero}.
-
-Adjunto a este correo encontrará el documento PDF para su referencia.
-
-Atentamente,
-El equipo de ${datosEmpresa.nombre}`}
+                    body={`Estimado/a ${relatedData.cliente.nombreCompleto} ,\n\nEsperamos que este mensaje le encuentre bien.\n\nLe informamos que hemos procesado una nota de crédito a su favor con el número ${notaCredito.numero}.\n\nAdjunto a este correo encontrará el documento PDF para su referencia.`}
                 />
             )}
         </>

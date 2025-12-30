@@ -1022,7 +1022,7 @@ const creditNoteController = {
           documentNumber: nota.consecutivo,
           documentType: 'Nota Crédito',
           pdfBuffer,
-          subject,
+          subject: asunto,
           body: mensaje,
           documentDetails,
           processSteps: `

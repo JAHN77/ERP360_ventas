@@ -174,8 +174,15 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     // Activity log
     const [activityLog, setActivityLog] = useState<ActivityLog[]>(initialActivityLog);
 
-    // Firma temporal (no persistente en DB por ahora)
+    // Firma temporal (no persistente en DB por ahora), inicializada con la firma del usuario
     const [firmaVendedor, setFirmaVendedor] = useState<string | null>(null);
+
+    // Sincronizar firma desde el perfil del usuario
+    useEffect(() => {
+        if (user?.firma && !firmaVendedor) {
+            setFirmaVendedor(user.firma);
+        }
+    }, [user, firmaVendedor]);
 
     // Company data state
     const [datosEmpresa, setDatosEmpresa] = useState<any>({

@@ -21,7 +21,7 @@ import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { findClienteByIdentifier } from '../utils/clientes';
 import { formatDateOnly } from '../utils/formatters';
-import apiClient, { fetchCotizacionesDetalle } from '../services/apiClient';
+import apiClient, { fetchCotizacionesDetalle, apiArchiveDocumentToDrive } from '../services/apiClient';
 import SendEmailModal from '../components/comercial/SendEmailModal';
 import { pdf } from '@react-pdf/renderer';
 import PageContainer from '../components/ui/PageContainer';
@@ -522,12 +522,18 @@ const CotizacionesPage: React.FC = () => {
         vendedor = vendedores.find(v => String(v.id) === String(quoteToEmail.vendedorId));
       }
 
+      // DETERMINAR FIRMA: Priorizar la firma del usuario logueado ('user.firma') si existe,
+      // de lo contrario usar la del vendedor asignado a la cotización.
+      // El usuario solicitó explícitamente: "quiero que se guarde y envie con la firma del usuario que esta ejecutando el programa"
+      const firmaFinal = user?.firma || vendedor?.firma;
+
       // Generar Blob del PDF
       const blob = await pdf(
         <CotizacionPDFDocument
           cotizacion={quoteToEmail}
           cliente={clienteCotizacion}
           vendedor={vendedor || undefined}
+          firmaVendedor={firmaFinal}
           empresa={datosEmpresa}
           preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
           productos={productos}
@@ -551,6 +557,52 @@ const CotizacionesPage: React.FC = () => {
         if (response.success) {
           addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
           setQuoteToEmail(null);
+
+          // --- Archivar en Google Drive ---
+          try {
+            addNotification({ message: 'Archivando en Google Drive...', type: 'info' });
+            // Extraer base64 raw
+            const base64Content = base64data.split(',')[1] || base64data;
+
+            const archiveResponse = await apiArchiveDocumentToDrive({
+              type: 'cotizacion',
+              number: quoteToEmail.numeroCotizacion,
+              date: quoteToEmail.fechaCotizacion || new Date().toISOString(),
+              recipientName: clienteCotizacion?.razonSocial || 'Cliente',
+              fileBase64: base64Content
+            });
+
+            if (archiveResponse.success) {
+              addNotification({ message: 'Documento archivado en Drive.', type: 'success' });
+            } else if (archiveResponse.code === 'FILE_EXISTS') {
+              // Prompt for replacement
+              const shouldReplace = window.confirm(`El archivo ya existe en Drive. ¿Desea reemplazarlo?`);
+              if (shouldReplace) {
+                addNotification({ message: 'Reemplazando archivo en Drive...', type: 'info' });
+                const retryResponse = await apiArchiveDocumentToDrive({
+                  type: 'cotizacion',
+                  number: quoteToEmail.numeroCotizacion,
+                  date: quoteToEmail.fechaCotizacion || new Date().toISOString(),
+                  recipientName: clienteCotizacion?.razonSocial || 'Cliente',
+                  fileBase64: base64Content,
+                  replace: true
+                });
+
+                if (retryResponse.success) {
+                  addNotification({ message: 'Archivo actualizado correctamente.', type: 'success' });
+                } else {
+                  addNotification({ message: 'Error actualizando archivo.', type: 'error' });
+                }
+              } else {
+                addNotification({ message: 'Se canceló el archivado.', type: 'info' });
+              }
+            } else {
+              console.warn('Error archivando en Drive:', archiveResponse);
+            }
+          } catch (driveError) {
+            console.error('Error llamando a apiArchiveDocumentToDrive:', driveError);
+          }
+
         } else {
           addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
         }

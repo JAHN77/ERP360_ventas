@@ -181,6 +181,9 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                 {preferences.signatureType === 'physical' && (
                     <View style={[pdfStyles.footer, { borderTopWidth: 0, marginTop: 40 }]}>
                         <View style={[pdfStyles.signatureBox, { width: '100%' }]}>
+                            <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5, width: '100%' }}>
+                                {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
+                            </View>
                             <View style={[pdfStyles.signatureLine, { width: '50%' }]} />
                             <Text style={pdfStyles.footerText}>APROBADO POR</Text>
                             <Text style={pdfStyles.footerSubText}>(Firma, Nombre y Sello)</Text>

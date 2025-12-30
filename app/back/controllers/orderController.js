@@ -85,10 +85,12 @@ const getAllOrders = async (req, res) => {
         COALESCE(p.iva_porcentaje, 0) as ivaPorcentaje,
         COALESCE(p.impoconsumo_valor, 0) as impoconsumoValor,
         LTRIM(RTRIM(COALESCE(p.instrucciones_entrega, ''))) as instruccionesEntrega,
-        LTRIM(RTRIM(COALESCE(p.formapago, '01'))) as formaPago
+        LTRIM(RTRIM(COALESCE(p.formapago, '01'))) as formaPago,
+        u.firma as firmaVendedor
       FROM ${TABLE_NAMES.pedidos} p
       LEFT JOIN ven_cotizacion c ON c.id = p.cotizacion_id
       LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(p.codter)) AND cli.activo = 1
+      LEFT JOIN ${TABLE_NAMES.usuarios} u ON LTRIM(RTRIM(u.codusu)) = LTRIM(RTRIM(p.codven))
       ${where}
       ORDER BY p.fecha_pedido DESC, p.id DESC
       OFFSET ${offset} ROWS
@@ -710,7 +712,7 @@ const sendOrderEmail = async (req, res) => {
         documentNumber: pedido.numero_pedido,
         documentType: 'Pedido',
         pdfBuffer,
-        subject,
+        subject: asunto,
         body: mensaje,
         documentDetails,
         processSteps: `

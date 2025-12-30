@@ -105,7 +105,7 @@ if (compression) {
   console.log('✅ Compresión de respuestas HTTP habilitada');
 }
 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
@@ -169,6 +169,17 @@ console.log('✅ Rutas de inventario físico registradas');
 // --- Email Routes ---
 const emailRoutes = require('./routes/emailRoutes');
 app.use('/api/email', emailRoutes);
+
+const driveController = require('./controllers/driveController.js');
+
+// --- RUTAS DE DRIVE ---
+app.post('/api/drive/archive', driveController.archiveDocument);
+
+// --- Auth Routes ---
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 
 
 

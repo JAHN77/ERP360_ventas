@@ -535,6 +535,8 @@ const createRemission = async (req, res) => {
 
 const { sendDocumentEmail } = require('../services/emailService.cjs');
 
+const driveService = require('../services/driveService.js');
+
 const sendRemissionEmail = async (req, res) => {
   try {
     const { id } = req.params;
@@ -543,7 +545,7 @@ const sendRemissionEmail = async (req, res) => {
     const pool = await getConnection();
     const idNum = parseInt(id, 10);
     
-    // 1. Obtener Datos de Remisión
+    // Obtener Datos de Remición
     const remQuery = `
       SELECT 
         r.numero_remision, 
@@ -563,43 +565,57 @@ const sendRemissionEmail = async (req, res) => {
     const remision = remRes[0];
     const clienteEmail = destinatario || remision.EMAIL;
 
-    if (!clienteEmail) {
-       return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado.' });
+    // --- NUEVA LÓGICA DE GOOGLE DRIVE ---
+    // Convertir el PDF de Base64 a Buffer para poder subirlo
+    const cleanBase64 = pdfBase64.split(',')[1] || pdfBase64;
+    const pdfBuffer = Buffer.from(cleanBase64, 'base64');
+
+    try {
+        // 1. Asegurar jerarquía (Remisiones -> Año -> Mes)
+        const fechaDoc = new Date(remision.fecha_remision);
+        const folderId = await driveService.ensureHierarchy('Remisiones', fechaDoc);
+
+        // 2. Subir a Drive
+        const safeRecipient = (remision.nomter || 'Cliente').replace(/[^a-zA-Z0-9]/g, '_');
+        const nombreArchivo = `REM-${remision.numero_remision}-${safeRecipient}.pdf`;
+
+        const driveFile = await driveService.uploadFile(
+            nombreArchivo, 
+            'application/pdf', 
+            pdfBuffer, 
+            folderId,
+            true // replace=true
+        );
+        
+        console.log('✅ Guardado en Drive OK:', driveFile.id);
+    } catch (driveErr) {
+        // Logueamos el error pero no detenemos el proceso de email si Drive falla
+        console.error('❌ Error al guardar en Google Drive:', driveErr);
     }
 
-    // 2. Preparar PDF
-    let pdfBuffer;
-    if (pdfBase64) {
-        pdfBuffer = pdfBase64;
-    } else {
-        return res.status(400).json({ success: false, message: 'Se requiere el PDF generado.' });
-    }
-
-    // 3. Preparar Detalles
+    // --- CONTINUACIÓN ENVÍO DE EMAIL ---
     const documentDetails = [
         { label: 'Fecha Remisión', value: new Date(remision.fecha_remision).toLocaleDateString('es-CO') }
     ];
 
-    // 4. Enviar Correo
     await sendDocumentEmail({
         to: clienteEmail,
         customerName: remision.nomter,
         documentNumber: remision.numero_remision,
         documentType: 'Remisión',
-        pdfBuffer,
+        pdfBuffer: pdfBuffer, 
         subject: asunto,
         body: mensaje,
         documentDetails,
-        processSteps: `
-            <p>Le informamos que su pedido ha sido despachado. Adjuntamos la remisión para que pueda validar las cantidades físicas al momento de la recepción. Por favor, devuélvanos una copia firmada o confirme por este medio.</p>
-        `
+        processSteps: `<p>Le informamos que su pedido ha sido despachado. Adjuntamos la remisión para que pueda validar las cantidades físicas al momento de la recepción. Por favor, devuélvanos una copia firmada o confirme por este medio.</p>`
     });
 
-    res.json({ success: true, message: 'Correo de remisión enviado exitosamente' });
+    // Respuesta unificada
+    res.json({ success: true, message: 'Remisión guardada en Drive y correo enviado' });
 
   } catch (error) {
-    console.error('Error enviando correo de remisión:', error);
-    res.status(500).json({ success: false, message: 'Error enviando correo', error: error.message });
+    console.error('Error general enviando remisión:', error);
+    res.status(500).json({ success: false, message: 'Error en el proceso', error: error.message });
   }
 };
 

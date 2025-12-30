@@ -7,7 +7,8 @@ import DocumentOptionsToolbar from './DocumentOptionsToolbar';
 import { DocumentPreferences } from '../../types';
 import SendEmailModal from './SendEmailModal';
 import { useData } from '../../hooks/useData';
-import { apiSendGenericEmail, apiSendPedidoEmail, apiSendRemisionEmail, apiSendFacturaEmail, apiSendCotizacionEmail } from '../../services/apiClient';
+import { apiSendGenericEmail, apiSendPedidoEmail, apiSendRemisionEmail, apiSendFacturaEmail, apiSendCotizacionEmail, apiArchiveDocumentToDrive } from '../../services/apiClient';
+import { useAuth } from '../../hooks/useAuth';
 // import { descargarElementoComoPDF } from '../../utils/pdfClient'; // REMOVED
 
 
@@ -49,6 +50,9 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
 
     const { addNotification } = useNotifications();
     const { datosEmpresa, firmaVendedor } = useData();
+    const { user } = useAuth();
+    // Priorizar firma del usuario
+    const firmaFinal = user?.firma || firmaVendedor;
     // const documentRef = useRef<HTMLDivElement>(null); // Removed ref
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences(documentType);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -58,7 +62,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
     const childWithProps = React.isValidElement(children)
         ? React.cloneElement(children, {
             preferences,
-            firmaVendedor // Pass signature here
+            firmaVendedor: firmaFinal // Pass signature here
         } as any)
         : children;
 
@@ -145,6 +149,35 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
                     if (result.success) {
                         addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
                         setIsEmailModalOpen(false);
+
+                        // --- Archivar en Google Drive ---
+                        try {
+                            const base64Content = base64data.split(',')[1] || base64data;
+                            const archiveResponse = await apiArchiveDocumentToDrive({
+                                type: documentType,
+                                number: documentNumber,
+                                date: new Date().toISOString(),
+                                recipientName: clientName || 'Cliente',
+                                fileBase64: base64Content
+                            });
+                            if (archiveResponse.success) {
+                                addNotification({ message: 'Documento archivado en Drive.', type: 'success' });
+                            } else if (archiveResponse.code === 'FILE_EXISTS') {
+                                // Prompt for replacement can be tricky in modal, assuming overwrite for now or skipping
+                                // For simplicity in this global modal, we will try to overwrite if exists for consistency with user request "quiero que se guarde"
+                                const retryResponse = await apiArchiveDocumentToDrive({
+                                    type: documentType,
+                                    number: documentNumber,
+                                    date: new Date().toISOString(),
+                                    recipientName: clientName || 'Cliente',
+                                    fileBase64: base64Content,
+                                    replace: true
+                                });
+                                if (retryResponse.success) addNotification({ message: 'Archivo actualizado en Drive.', type: 'success' });
+                            }
+                        } catch (driveErr) {
+                            console.error('Error archivando desde modal:', driveErr);
+                        }
                     } else {
                         throw new Error(result.message || 'Error al enviar el correo');
                     }

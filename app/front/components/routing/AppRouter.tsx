@@ -36,6 +36,8 @@ const ConteoFisicoPage = lazy(() => import('../../pages/ConteoFisicoPage'));
 const HistorialConteosFisicosPage = lazy(() => import('../../pages/HistorialConteosFisicosPage'));
 const NuevoConteoFisicoPage = lazy(() => import('../../pages/NuevoConteoFisicoPage'));
 const DetalleConteoFisicoPage = lazy(() => import('../../pages/DetalleConteoFisicoPage'));
+const UsersPage = lazy(() => import('../../pages/UsersPage'));
+const ProfilePage = lazy(() => import('../../pages/ProfilePage'));
 
 /**
  * Componente de ruta protegida que verifica permisos
@@ -378,6 +380,33 @@ const AppRouter: React.FC = () => {
             element={
               <ProtectedRoute page="activity_log">
                 <ActivityLogPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Perfil */}
+          <Route
+            path={routeMap.perfil}
+            element={
+              <ProtectedRoute page="perfil">
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path={routeMap.perfil}
+            element={
+              <ProtectedRoute page="perfil">
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/configuracion/usuarios"
+            element={
+              <ProtectedRoute page="usuarios">
+                <UsersPage />
               </ProtectedRoute>
             }
           />

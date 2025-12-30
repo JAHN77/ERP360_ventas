@@ -11,9 +11,10 @@ import StatusBadge from '../components/ui/StatusBadge';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import NotaCreditoPreviewModal from '../components/devoluciones/NotaCreditoPreviewModal';
 import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
-import NotaCreditoPDFDocument from '../components/devoluciones/NotaCreditoPDFDocument';
-import { useData } from '../hooks/useData';
+import NotaCreditoPDFDocument from '../components/devoluciones/NotaCreditoPDFDocument'; import { defaultPreferences } from '../hooks/useDocumentPreferences';
+import { apiSendCreditNoteEmail, apiArchiveDocumentToDrive } from '../services/apiClient'; import { useData } from '../hooks/useData';
 import { fetchFacturasDetalle } from '../services/apiClient';
+import { useAuth } from '../hooks/useAuth';
 import { useClientesConFacturasAceptadas } from '../hooks/useClientesConFacturasAceptadas';
 import SendEmailModal from '../components/comercial/SendEmailModal';
 import apiClient from '../services/apiClient';
@@ -39,6 +40,7 @@ const DevolucionesPage: React.FC = () => {
         clientes, // Restoring strict needed
         facturas // Restoring strict needed
     } = useData();
+    const { user } = useAuth();
 
     // Nueva lógica estricta para clientes y facturas
     const { clientes: clientesEstrictos, isLoading: isLoadingClientes } = useClientesConFacturasAceptadas();
@@ -822,11 +824,19 @@ const DevolucionesPage: React.FC = () => {
                     factura={facturaNota || { numeroFactura: 'N/A' } as any}
                     cliente={clienteNota}
                     empresa={{
-                        nombre: datosEmpresa.nombre || 'Mi Empresa',
+                        ...datosEmpresa,
+                        // Ensure legacy Props compatibility if needed, but spreading request data is best
+                        nombre: datosEmpresa.nombre || datosEmpresa.razonSocial || 'Mi Empresa',
                         nit: datosEmpresa.nit || '',
-                        direccion: datosEmpresa.direccion || ''
+                        direccion: datosEmpresa.direccion || '',
+                        telefono: datosEmpresa.telefono || '',
+                        email: datosEmpresa.email || '',
+                        ciudad: datosEmpresa.ciudad || '',
+                        logoExt: datosEmpresa.logoExt || datosEmpresa.logo
                     }}
                     productos={productos}
+                    firmaVendedor={user?.firma}
+                    preferences={defaultPreferences.nota_credito}
                 />
             ).toBlob();
 
@@ -835,17 +845,63 @@ const DevolucionesPage: React.FC = () => {
             reader.readAsDataURL(blob);
             reader.onloadend = async () => {
                 const base64data = reader.result as string;
+                // Extraer solo la parte base64 sin el prefijo data:
+                const base64Content = base64data.split(',')[1] || base64data;
 
-                const response = await apiClient.sendNotaCreditoEmail(notaToEmail.id, {
-                    destinatario: emailData.to,
-                    asunto: emailData.subject,
-                    mensaje: emailData.body,
-                    pdfBase64: base64data
-                });
+                const response = await apiSendCreditNoteEmail(
+                    notaToEmail.id,
+                    emailData.to,
+                    emailData.body,
+                    base64Content,
+                    clienteNota?.razonSocial || 'Cliente'
+                );
 
                 if (response.success) {
                     addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
                     setNotaToEmail(null);
+
+                    // --- Archivar en Google Drive ---
+                    try {
+                        addNotification({ message: 'Archivando en Google Drive...', type: 'info' });
+                        const archiveResponse = await apiArchiveDocumentToDrive({
+                            type: 'nota_credito',
+                            number: notaToEmail.numero,
+                            date: notaToEmail.fechaEmision || new Date().toISOString(), // Fallback date if missing
+                            recipientName: clienteNota?.razonSocial || 'Cliente',
+                            fileBase64: base64Content
+                        });
+
+                        if (archiveResponse.success) {
+                            addNotification({ message: 'Documento archivado en Drive.', type: 'success' });
+                        } else if (archiveResponse.code === 'FILE_EXISTS') {
+                            // Prompt for replacement
+                            const shouldReplace = window.confirm(`El archivo ya existe en Drive. ¿Desea reemplazarlo?`);
+                            if (shouldReplace) {
+                                addNotification({ message: 'Reemplazando archivo en Drive...', type: 'info' });
+                                const retryResponse = await apiArchiveDocumentToDrive({
+                                    type: 'nota_credito',
+                                    number: notaToEmail.numero,
+                                    date: notaToEmail.fechaEmision || new Date().toISOString(),
+                                    recipientName: clienteNota?.razonSocial || 'Cliente',
+                                    fileBase64: base64Content,
+                                    replace: true
+                                });
+
+                                if (retryResponse.success) {
+                                    addNotification({ message: 'Archivo actualizado correctamente.', type: 'success' });
+                                } else {
+                                    addNotification({ message: 'Error actualizando archivo.', type: 'error' });
+                                }
+                            } else {
+                                addNotification({ message: 'Se canceló el archivado.', type: 'info' });
+                            }
+                        } else {
+                            console.warn('Error archivando en Drive:', archiveResponse);
+                        }
+                    } catch (driveError) {
+                        console.error('Error llamando a apiArchiveDocumentToDrive:', driveError);
+                    }
+
                 } else {
                     addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
                 }
@@ -1363,7 +1419,7 @@ const DevolucionesPage: React.FC = () => {
                     onSend={handleConfirmSendEmail}
                     to={notaToEmail.clienteId ? (clientes.find(c => String(c.id) === String(notaToEmail.clienteId) || c.codter === notaToEmail.clienteId)?.email || '') : ''}
                     subject={`Nota de Crédito - ${notaToEmail.numero} - ${datosEmpresa?.nombre || ''}`}
-                    body={`Cordial saludo,\n\nAdjuntamos la nota de crédito número ${notaToEmail.numero}.\n\nAtentamente,\n${datosEmpresa?.nombre || ''}`}
+                    body={`Estimado/a ${notaToEmail.clienteId ? (clientes.find(c => String(c.id) === String(notaToEmail.clienteId) || c.codter === notaToEmail.clienteId)?.nombreCompleto || 'Cliente') : 'Cliente'} ,\n\nEsperamos que este mensaje le encuentre bien.\n\nLe informamos que hemos procesado una nota de crédito a su favor con el número ${notaToEmail.numero}.\n\nAdjunto a este correo encontrará el documento PDF para su referencia.`}
                 />
             )}
 

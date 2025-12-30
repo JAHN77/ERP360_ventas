@@ -13,24 +13,26 @@ const getVendedores = async (req, res) => {
     const { search } = req.query;
     let query = `
       SELECT 
-        CAST(ideven AS VARCHAR(20)) as id,
-        CAST(ideven AS VARCHAR(20)) as numeroDocumento,
-        LTRIM(RTRIM(nomven)) as nombreCompleto,
-        codven as codigoVendedor,
-        CAST(ideven AS VARCHAR(20)) as codiEmple,
+        CAST(v.ideven AS VARCHAR(20)) as id,
+        CAST(v.ideven AS VARCHAR(20)) as numeroDocumento,
+        LTRIM(RTRIM(v.nomven)) as nombreCompleto,
+        v.codven as codigoVendedor,
+        CAST(v.ideven AS VARCHAR(20)) as codiEmple,
         '' as email,
-        CAST(Activo AS INT) as activo
-      FROM ven_vendedor
-      WHERE Activo = 1
+        CAST(v.Activo AS INT) as activo,
+        u.firma
+      FROM ven_vendedor v
+      LEFT JOIN gen_usuarios u ON CAST(v.ideven AS VARCHAR(20)) = u.codusu
+      WHERE v.Activo = 1
     `;
 
     const params = {};
     if (search) {
-        query += ` AND (codven LIKE @search OR nomven LIKE @search OR CAST(ideven AS VARCHAR) LIKE @search)`;
+        query += ` AND (v.codven LIKE @search OR v.nomven LIKE @search OR CAST(v.ideven AS VARCHAR) LIKE @search)`;
         params.search = `%${search}%`;
     }
     
-    query += ` ORDER BY nomven`;
+    query += ` ORDER BY v.nomven`;
 
     const data = await executeQueryWithParams(query, params);
 
@@ -42,7 +44,8 @@ const getVendedores = async (req, res) => {
         primerNombre: partes[0] || '',
         primerApellido: partes.length > 1 ? partes.slice(1).join(' ') : '',
         nombreCompleto: nombreCompleto.trim(),
-        empresaId: 1
+        empresaId: 1,
+        firma: item.firma // Include firma in result
       };
     });
 

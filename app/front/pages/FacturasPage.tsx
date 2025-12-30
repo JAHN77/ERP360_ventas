@@ -12,11 +12,12 @@ import FacturaPreviewModal from '../components/facturacion/FacturaPreviewModal';
 import SendEmailModal from '../components/comercial/SendEmailModal';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
+import { useAuth } from '../hooks/useAuth';
 import { useNavigation } from '../hooks/useNavigation';
 import { formatDateOnly } from '../utils/formatters';
 import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
-import { apiClient, fetchFacturasDetalle, apiSendGenericEmail, apiSendFacturaEmail } from '../services/apiClient';
+import { apiClient, fetchFacturasDetalle, apiSendGenericEmail, apiSendFacturaEmail, apiArchiveDocumentToDrive } from '../services/apiClient';
 import PageHeader from '../components/ui/PageHeader';
 import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal'; // New Import
 import { pdf } from '@react-pdf/renderer';
@@ -39,6 +40,7 @@ const filterOptions = [
 
 const FacturasPage: React.FC = () => {
   const { params, setPage } = useNavigation();
+  const { user } = useAuth();
   const { remisiones, clientes, pedidos, cotizaciones, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones } = useData();
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [selectedRemisiones, setSelectedRemisiones] = useState<Set<string>>(new Set());
@@ -877,10 +879,13 @@ const FacturasPage: React.FC = () => {
       }
 
       // Buscar vendedor
+
       const vendedorFactura = vendedores.find(v =>
         String(v.id) === String(facturaToEmail.vendedorId) ||
-        v.codigo === facturaToEmail.vendedorId
+        v.codigoVendedor === facturaToEmail.vendedorId ||
+        String(v.codiEmple) === String(facturaToEmail.vendedorId)
       );
+
 
       // Items (si no están cargados, habría que cargarlos, pero asumimos que si se abrió el modal de email ya están o se pueden obtener)
       // Ojo: facturaToEmail viene de la lista. Puede que items vengan parciales o vacíos si no es detalle.
@@ -895,16 +900,21 @@ const FacturasPage: React.FC = () => {
 
       const facturaCompleta = { ...facturaToEmail, items: itemsFactura };
 
+      // Priorizar firma del usuario
+      const firmaFinal = user?.firma || vendedorFactura?.firma;
+
       // 2. Generar Blob del PDF
       const blob = await pdf(
         <FacturaPDFDocument
           factura={facturaCompleta}
           cliente={clienteFactura}
-          vendedor={vendedorFactura}
           empresa={datosEmpresa}
           preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
+          firmaVendedor={firmaFinal}
+          vendedor={vendedorFactura}
         />
       ).toBlob();
+
 
       // 3. Convertir a Base64
       const reader = new FileReader();
@@ -923,6 +933,51 @@ const FacturasPage: React.FC = () => {
         if (response.success) {
           addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
           setFacturaToEmail(null);
+
+          // --- Archivar en Google Drive ---
+          try {
+            addNotification({ message: 'Archivando en Google Drive...', type: 'info' });
+            // Extraer base64 raw
+            const base64Content = base64data.split(',')[1] || base64data;
+
+            const archiveResponse = await apiArchiveDocumentToDrive({
+              type: 'factura',
+              number: facturaToEmail.numeroFactura,
+              date: facturaToEmail.fechaFactura || new Date().toISOString(),
+              recipientName: clienteFactura?.razonSocial || 'Cliente',
+              fileBase64: base64Content
+            });
+
+            if (archiveResponse.success) {
+              addNotification({ message: 'Documento archivado en Drive.', type: 'success' });
+            } else if (archiveResponse.code === 'FILE_EXISTS') {
+              // Prompt for replacement
+              const shouldReplace = window.confirm(`El archivo ya existe en Drive. ¿Desea reemplazarlo?`);
+              if (shouldReplace) {
+                addNotification({ message: 'Reemplazando archivo en Drive...', type: 'info' });
+                const retryResponse = await apiArchiveDocumentToDrive({
+                  type: 'factura',
+                  number: facturaToEmail.numeroFactura,
+                  date: facturaToEmail.fechaFactura || new Date().toISOString(),
+                  recipientName: clienteFactura?.razonSocial || 'Cliente',
+                  fileBase64: base64Content,
+                  replace: true
+                });
+
+                if (retryResponse.success) {
+                  addNotification({ message: 'Archivo actualizado correctamente.', type: 'success' });
+                } else {
+                  addNotification({ message: 'Error actualizando archivo.', type: 'error' });
+                }
+              } else {
+                addNotification({ message: 'Se canceló el archivado.', type: 'info' });
+              }
+            } else {
+              console.warn('Error archivando en Drive:', archiveResponse);
+            }
+          } catch (driveError) {
+            console.error('Error llamando a apiArchiveDocumentToDrive:', driveError);
+          }
         } else {
           addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
         }

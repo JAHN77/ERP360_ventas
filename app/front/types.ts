@@ -74,6 +74,7 @@ export interface Usuario {
   rol: Role;
   empresas: Empresa[];
   nombre?: string;
+  firma?: string;
 }
 
 // --- ENTIDADES COMERCIALES ---
@@ -136,6 +137,7 @@ export interface Vendedor {
   nombreCompleto?: string; // Nombre completo del vendedor
   activo?: number | boolean; // Estado activo (1 = activo, 0 = inactivo)
   empresaId: number;
+  firma?: string; // URL o Base64 de la firma
 }
 
 

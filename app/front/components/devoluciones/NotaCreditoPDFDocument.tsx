@@ -1,6 +1,6 @@
 import React from 'react';
 import { Page, Text, View, Document, StyleSheet, Image, Font, Link } from '@react-pdf/renderer';
-import { NotaCredito, Factura, Cliente } from '../../types';
+import { NotaCredito, Factura, Cliente, DocumentPreferences } from '../../types';
 
 // Registrar fuentes si se desea usar alguna específica (opcional, usaremos estándar por ahora)
 // Font.register({ family: 'Roboto', src: 'path/to/font.ttf' });
@@ -175,11 +175,12 @@ const styles = StyleSheet.create({
         borderBottomColor: '#f1f5f9',
         paddingVertical: 6,
     },
-    colCode: { width: '15%', paddingHorizontal: 4 },
-    colDesc: { width: '35%', paddingHorizontal: 4 },
+    colCode: { width: '13%', paddingHorizontal: 4 },
+    colDesc: { width: '32%', paddingHorizontal: 4 },
     colQty: { width: '10%', paddingHorizontal: 4, textAlign: 'right' },
     colPrice: { width: '15%', paddingHorizontal: 4, textAlign: 'right' },
-    colDisc: { width: '10%', paddingHorizontal: 4, textAlign: 'right', color: '#ef4444' }, // red-500
+    colDisc: { width: '8%', paddingHorizontal: 4, textAlign: 'right', color: '#ef4444' }, // red-500
+    colIva: { width: '7%', paddingHorizontal: 4, textAlign: 'right' },
     colTotal: { width: '15%', paddingHorizontal: 4, textAlign: 'right', fontWeight: 'bold' },
 
     tableHeaderText: {
@@ -284,9 +285,10 @@ interface Props {
     empresa: any;
     productos: any[];
     firmaVendedor?: string | null;
+    preferences: DocumentPreferences;
 }
 
-const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente, empresa, productos, firmaVendedor }) => {
+const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente, empresa, productos, firmaVendedor, preferences }) => {
 
     const totalDescuentos = notaCredito.itemsDevueltos.reduce((acc, item) => {
         const itemTotal = item.precioUnitario * item.cantidad;
@@ -382,6 +384,7 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
                         <Text style={[styles.tableHeaderText, styles.colQty]}>Cantidad</Text>
                         <Text style={[styles.tableHeaderText, styles.colPrice]}>Precio</Text>
                         <Text style={[styles.tableHeaderText, styles.colDisc]}>Desc.</Text>
+                        <Text style={[styles.tableHeaderText, styles.colIva]}>IVA</Text>
                         <Text style={[styles.tableHeaderText, styles.colTotal]}>Total</Text>
                     </View>
                     {notaCredito.itemsDevueltos.map((item, idx) => {
@@ -399,6 +402,7 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
                                 <Text style={[styles.tableCellText, styles.colQty]}>{item.cantidad}</Text>
                                 <Text style={[styles.tableCellText, styles.colPrice]}>{formatCurrency(item.precioUnitario)}</Text>
                                 <Text style={[styles.tableCellText, styles.colDisc]}>{item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje}%` : '-'}</Text>
+                                <Text style={[styles.tableCellText, styles.colIva]}>{item.ivaPorcentaje > 0 ? `${item.ivaPorcentaje}%` : '0%'}</Text>
                                 <Text style={[styles.tableCellText, styles.colTotal]}>{formatCurrency(item.subtotal ?? totalItem)}</Text>
                             </View>
                         );
@@ -453,20 +457,22 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
                 </View>
 
                 {/* Signatures (Bottom) */}
-                <View style={[styles.footer, { marginTop: 'auto' }]}>
-                    <View style={styles.signatureBox}>
-                        <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>
-                            {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
+                {(preferences.signatureType === 'physical' || preferences.signatureType === 'digital') && (
+                    <View style={[styles.footer, { marginTop: 'auto' }]}>
+                        <View style={styles.signatureBox}>
+                            <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>
+                                {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
+                            </View>
+                            <View style={styles.signatureLine} />
+                            <Text style={styles.signatureText}>Firma Autorizada</Text>
                         </View>
-                        <View style={styles.signatureLine} />
-                        <Text style={styles.signatureText}>Firma Autorizada</Text>
+                        <View style={styles.signatureBox}>
+                            <View style={{ height: 40 }} />
+                            <View style={styles.signatureLine} />
+                            <Text style={styles.signatureText}>Recibido por (Firma y Sello)</Text>
+                        </View>
                     </View>
-                    <View style={styles.signatureBox}>
-                        <View style={{ height: 40 }} />
-                        <View style={styles.signatureLine} />
-                        <Text style={styles.signatureText}>Recibido por (Firma y Sello)</Text>
-                    </View>
-                </View>
+                )}
             </Page>
         </Document>
     );

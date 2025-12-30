@@ -11,6 +11,7 @@ export interface ApiResponse<T> {
   error?: string;
   details?: any;
   status?: number;
+  code?: string;
   pagination?: {
     page: number;
     pageSize: number;
@@ -23,6 +24,70 @@ class ApiClient {
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
+  }
+
+  public async login(username: string, password: string): Promise<ApiResponse<any>> {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+  }
+
+  public async sendCreditNoteEmail(id: number | string, to: string, body: string, pdfBase64?: string, customerName?: string) {
+    return this.request('/email/credit-note', {
+      method: 'POST',
+      body: JSON.stringify({ id, to, body, pdfBase64, customerName })
+    });
+  }
+
+  async archiveDocumentToDrive(data: {
+    type: 'cotizacion' | 'pedido' | 'remision' | 'factura' | 'nota_credito';
+    number: string;
+    date?: string | Date;
+    recipientName: string;
+    fileBase64: string;
+    replace?: boolean;
+  }) {
+    return this.request('/drive/archive', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public async updateSignature(firmaBase64: string): Promise<ApiResponse<any>> {
+    return this.request('/auth/firma', {
+      method: 'POST',
+      body: JSON.stringify({ firmaBase64 })
+    });
+  }
+
+  public async getMe(): Promise<ApiResponse<any>> {
+    return this.request('/auth/me');
+  }
+
+  // --- Users Management ---
+  public async getUsers(): Promise<ApiResponse<any[]>> {
+    return this.request('/users');
+  }
+
+  public async createUser(userData: any): Promise<ApiResponse<any>> {
+    return this.request('/users', {
+      method: 'POST',
+      body: JSON.stringify(userData)
+    });
+  }
+
+  public async updateUser(id: number, userData: any): Promise<ApiResponse<any>> {
+    return this.request(`/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(userData)
+    });
+  }
+
+  public async deleteUser(id: number): Promise<ApiResponse<any>> {
+    return this.request(`/users/${id}`, {
+      method: 'DELETE'
+    });
   }
 
   public async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
@@ -53,14 +118,17 @@ class ApiClient {
       }
 
       try {
-        const response = await fetch(url, {
+        const fetchOptions: RequestInit = {
+          ...options,
           headers: {
             'Content-Type': 'application/json',
+            ...(typeof window !== 'undefined' && localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {}),
             ...options.headers,
           },
-          ...options,
-          signal: controller?.signal || existingSignal, // Usar el signal del controller o el existente
-        });
+          signal: controller?.signal || existingSignal,
+        };
+
+        const response = await fetch(url, fetchOptions);
 
         // Limpiar timeout solo si lo creamos nosotros
         if (timeoutId) {
@@ -766,6 +834,7 @@ export const fetchStock = (productoId: number | string, codalm: string) => apiCl
 export const fetchInventoryMovements = (page?: number, pageSize?: number, search?: string, sortBy?: string, sortOrder?: 'asc' | 'desc') => apiClient.getInventoryMovements(page, pageSize, search, sortBy, sortOrder);
 
 
+
 // Lines and Sublines exports
 export const fetchLinesWithSublines = () => apiClient.getLinesWithSublines();
 export const apiCreateLine = (data: any) => apiClient.createLine(data);
@@ -823,12 +892,10 @@ export const apiGetNextOrderNumber = () => apiClient.getNextOrderNumber();
 export const apiGetNextInvoiceNumber = () => apiClient.getNextInvoiceNumber();
 export const apiGetNextCreditNoteNumber = () => apiClient.getNextCreditNoteNumber();
 
-// Enviar email de Nota Crédito específico
-export const apiSendCreditNoteEmail = async (id: number, data: { destinatario?: string; asunto?: string; mensaje?: string; pdfBase64: string }): Promise<ApiResponse<any>> => {
-  return apiClient.request(`/notas-credito/${id}/email`, { // Ajustar ruta según tu router backend
-    method: 'POST',
-    body: JSON.stringify(data)
-  });
-};
+
+
+// Export standalone functions for easier usage
+export const apiSendCreditNoteEmail = (id: string | number, to: string, body: string, pdfBase64?: string, customerName?: string) => apiClient.sendCreditNoteEmail(id, to, body, pdfBase64, customerName);
+export const apiArchiveDocumentToDrive = (data: any) => apiClient.archiveDocumentToDrive(data);
 
 export default apiClient;

@@ -68,6 +68,8 @@ export const routeMap: Record<Page, string> = {
   // Administración
   activity_log: '/admin/actividad',
   factura_profesional: '/facturas/profesional',
+  usuarios: '/configuracion/usuarios',
+  perfil: '/perfil',
 };
 
 /**

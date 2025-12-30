@@ -80,6 +80,7 @@ const getAllQuotes = async (req, res) => {
         c.cod_usuario          AS codUsuario,
         c.id_usuario           AS idUsuario,
         c.COD_TARIFA           AS codTarifa,
+        u.firma                AS firmaVendedor,
         c.fecsys               AS fechaCreacion,
         NULL                   AS observacionesInternas,
         NULL                   AS listaPrecioId,
@@ -89,6 +90,7 @@ const getAllQuotes = async (req, res) => {
         NULL                   AS approvedItems
       FROM ${TABLE_NAMES.cotizaciones} c
       LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter)) AND cli.activo = 1
+      LEFT JOIN ${TABLE_NAMES.usuarios} u ON LTRIM(RTRIM(u.codusu)) = LTRIM(RTRIM(c.cod_usuario))
       -- JOIN mejorado: Intenta match exacto de string O match numérico para caso 15 vs 015
       LEFT JOIN ${TABLE_NAMES.vendedores} v ON (
           LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, '')))

@@ -1,3 +1,8 @@
+import { Buffer } from 'buffer';
+if (typeof window !== 'undefined') {
+  (window as any).Buffer = Buffer;
+}
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Table, { Column } from '../components/ui/Table';
 import Card, { CardHeader, CardTitle, CardContent } from '../components/ui/Card';
@@ -14,7 +19,8 @@ import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
-import apiClient, { fetchPedidosDetalle } from '../services/apiClient';
+import { useAuth } from '../hooks/useAuth';
+import apiClient, { fetchPedidosDetalle, apiArchiveDocumentToDrive } from '../services/apiClient';
 import { formatDateOnly } from '../utils/formatters';
 import SendEmailModal from '../components/comercial/SendEmailModal';
 import { pdf } from '@react-pdf/renderer';
@@ -53,6 +59,7 @@ const groupFilterOptions = [
 
 const RemisionesPage: React.FC = () => {
   const { params, setPage } = useNavigation();
+  const { user } = useAuth();
   const { addNotification } = useNotifications();
 
   const {
@@ -61,6 +68,7 @@ const RemisionesPage: React.FC = () => {
     datosEmpresa,
     productos,
     productos: allProducts,
+    vendedores,
     aprobarRemision,
     crearRemision,
     archivosAdjuntos,
@@ -550,14 +558,25 @@ const RemisionesPage: React.FC = () => {
         return;
       }
 
+      let vendedor = null;
+      if (remisionToEmail.vendedorId) {
+        vendedor = vendedores.find(v => String(v.id) === String(remisionToEmail.vendedorId) || v.codigoVendedor === remisionToEmail.vendedorId);
+      } else if (relatedData.pedido?.vendedorId) {
+        vendedor = vendedores.find(v => String(v.id) === String(relatedData.pedido?.vendedorId) || v.codigoVendedor === relatedData.pedido?.vendedorId);
+      }
+
+      // Priorizar firma del usuario
+      const firmaFinal = user?.firma || vendedor?.firma;
+
       const blob = await pdf(
         <RemisionPDFDocument
           remision={remisionToEmail}
           pedido={relatedData.pedido!}
-          cliente={relatedData.cliente}
+          cliente={relatedData.cliente!}
           empresa={datosEmpresa}
           preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
           productos={productos}
+          firmaVendedor={firmaFinal}
         />
       ).toBlob();
 
@@ -572,13 +591,17 @@ const RemisionesPage: React.FC = () => {
           pdfBase64: base64data
         });
 
+        console.log('📧 Respuesta sendRemisionEmail:', response);
+
         if (response.success) {
-          addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
+          console.log('✅ Correo reportado como exitoso.');
+          addNotification({ message: response.message || '✅ Correo enviado y copia guardada en Drive.', type: 'success' });
           setRemisionToEmail(null);
         } else {
           addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
         }
       };
+
       reader.onerror = () => {
         addNotification({ message: 'Error procesando el PDF.', type: 'error' });
       };

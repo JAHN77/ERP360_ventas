@@ -47,7 +47,8 @@ const TABLE_NAMES = {
   vendedores: 'ven_vendedor',
   transportadoras: 'transportadoras',
   ordenes_compra: 'com_maeocompra',
-  ordenes_compra_detalle: 'com_ocompra'
+  ordenes_compra_detalle: 'com_ocompra',
+  usuarios: 'gen_usuarios'
 };
 
 // Configuración de consultas comunes
