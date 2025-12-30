@@ -20,7 +20,7 @@ import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal'
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
-import apiClient, { fetchPedidosDetalle, apiArchiveDocumentToDrive } from '../services/apiClient';
+import apiClient, { fetchPedidosDetalle } from '../services/apiClient';
 import { formatDateOnly } from '../utils/formatters';
 import SendEmailModal from '../components/comercial/SendEmailModal';
 import { pdf } from '@react-pdf/renderer';
@@ -591,10 +591,9 @@ const RemisionesPage: React.FC = () => {
           pdfBase64: base64data
         });
 
-        console.log('📧 Respuesta sendRemisionEmail:', response);
+
 
         if (response.success) {
-          console.log('✅ Correo reportado como exitoso.');
           addNotification({ message: response.message || '✅ Correo enviado y copia guardada en Drive.', type: 'success' });
           setRemisionToEmail(null);
         } else {

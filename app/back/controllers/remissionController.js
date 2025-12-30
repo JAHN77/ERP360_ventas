@@ -570,47 +570,56 @@ const sendRemissionEmail = async (req, res) => {
     const cleanBase64 = pdfBase64.split(',')[1] || pdfBase64;
     const pdfBuffer = Buffer.from(cleanBase64, 'base64');
 
-    try {
-        // 1. Asegurar jerarquía (Remisiones -> Año -> Mes)
-        const fechaDoc = new Date(remision.fecha_remision);
-        const folderId = await driveService.ensureHierarchy('Remisiones', fechaDoc);
+    // --- PARALELIZACIÓN: Drive + Email ---
+    // Ejecutamos ambas tareas simultáneamente para reducir el tiempo de espera del usuario
+    
+    // Tarea 1: Subir a Drive
+    const driveTask = async () => {
+        try {
+            const fechaDoc = new Date(remision.fecha_remision);
+            const folderId = await driveService.ensureHierarchy('Remisiones', fechaDoc);
+            const safeRecipient = (remision.nomter || 'Cliente').replace(/[^a-zA-Z0-9]/g, '_');
+            const nombreArchivo = `REM-${remision.numero_remision}-${safeRecipient}.pdf`;
 
-        // 2. Subir a Drive
-        const safeRecipient = (remision.nomter || 'Cliente').replace(/[^a-zA-Z0-9]/g, '_');
-        const nombreArchivo = `REM-${remision.numero_remision}-${safeRecipient}.pdf`;
+            const driveFile = await driveService.uploadFile(
+                nombreArchivo, 'application/pdf', pdfBuffer, folderId, true
+            );
+            console.log('✅ Guardado en Drive OK:', driveFile.id);
+            return { success: true, type: 'drive' };
+        } catch (driveErr) {
+            console.error('❌ Error Drive:', driveErr.message);
+            return { success: false, type: 'drive', error: driveErr.message };
+        }
+    };
 
-        const driveFile = await driveService.uploadFile(
-            nombreArchivo, 
-            'application/pdf', 
-            pdfBuffer, 
-            folderId,
-            true // replace=true
-        );
-        
-        console.log('✅ Guardado en Drive OK:', driveFile.id);
-    } catch (driveErr) {
-        // Logueamos el error pero no detenemos el proceso de email si Drive falla
-        console.error('❌ Error al guardar en Google Drive:', driveErr);
+    // Tarea 2: Enviar Email
+    const emailTask = async () => {
+        const documentDetails = [
+            { label: 'Fecha Remisión', value: new Date(remision.fecha_remision).toLocaleDateString('es-CO') }
+        ];
+        await sendDocumentEmail({
+            to: clienteEmail,
+            customerName: remision.nomter,
+            documentNumber: remision.numero_remision,
+            documentType: 'Remisión',
+            pdfBuffer: pdfBuffer, 
+            subject: asunto,
+            body: mensaje,
+            documentDetails,
+            processSteps: `<p>Le informamos que su pedido ha sido despachado. Adjuntamos la remisión para que pueda validar las cantidades físicas al momento de la recepción. Por favor, devuélvanos una copia firmada o confirme por este medio.</p>`
+        });
+        return { success: true, type: 'email' };
+    };
+
+    // Ejecutar en paralelo
+    console.log('🚀 Iniciando envío paralelo (Drive + Email)...');
+    const [driveResult, emailResult] = await Promise.all([driveTask(), emailTask()]);
+
+    // Verificar si el email falló (que es lo crítico para el usuario)
+    if (!emailResult.success) {
+        throw new Error('El envío del correo falló.');
     }
 
-    // --- CONTINUACIÓN ENVÍO DE EMAIL ---
-    const documentDetails = [
-        { label: 'Fecha Remisión', value: new Date(remision.fecha_remision).toLocaleDateString('es-CO') }
-    ];
-
-    await sendDocumentEmail({
-        to: clienteEmail,
-        customerName: remision.nomter,
-        documentNumber: remision.numero_remision,
-        documentType: 'Remisión',
-        pdfBuffer: pdfBuffer, 
-        subject: asunto,
-        body: mensaje,
-        documentDetails,
-        processSteps: `<p>Le informamos que su pedido ha sido despachado. Adjuntamos la remisión para que pueda validar las cantidades físicas al momento de la recepción. Por favor, devuélvanos una copia firmada o confirme por este medio.</p>`
-    });
-
-    // Respuesta unificada
     res.json({ success: true, message: 'Remisión guardada en Drive y correo enviado' });
 
   } catch (error) {
