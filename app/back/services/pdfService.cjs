@@ -1,5 +1,5 @@
 const React = require('react');
-const { renderToStream } = require('@react-pdf/renderer');
+// @react-pdf/renderer must be imported dynamically in CommonJS
 const CotizacionPDFDocument = require('./pdf/CotizacionPDFDocument.cjs');
 
 /**
@@ -9,7 +9,12 @@ const CotizacionPDFDocument = require('./pdf/CotizacionPDFDocument.cjs');
  */
 const generateQuotePdfStream = async (data) => {
     try {
-        const doc = React.createElement(CotizacionPDFDocument, data);
+        const { renderToStream, ...renderer } = await import('@react-pdf/renderer');
+        
+        // Inyectamos los componentes de renderer en las props
+        const propsWithRenderer = { ...data, renderer };
+        
+        const doc = React.createElement(CotizacionPDFDocument, propsWithRenderer);
         return await renderToStream(doc);
     } catch (error) {
         console.error('❌ Error rendering PDF to stream:', error);

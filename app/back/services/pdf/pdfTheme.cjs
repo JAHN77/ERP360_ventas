@@ -1,6 +1,6 @@
-const { StyleSheet } = require('@react-pdf/renderer');
-
-const pdfStyles = StyleSheet.create({
+// React-PDF accepts plain objects for styles, no need for StyleSheet.create in this file
+// This avoids the ESM require error at startup
+const pdfStyles = {
     page: {
         padding: 40,
         fontFamily: 'Helvetica',
@@ -239,7 +239,7 @@ const pdfStyles = StyleSheet.create({
         fontSize: 8,
         color: '#94a3b8',
     },
-});
+};
 
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value || 0);

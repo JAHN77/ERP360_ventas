@@ -1,13 +1,16 @@
 const React = require('react');
-const { Page, Text, View, Document, Image } = require('@react-pdf/renderer');
 const { pdfStyles, formatCurrency } = require('./pdfTheme.cjs');
 
+// Recibimos los componentes de ReactPDF como prop 'renderer'
 const CotizacionPDFDocument = ({
     cotizacion,
     cliente,
     vendedor,
-    empresa
+    empresa,
+    renderer // { Page, Text, View, Document, Image } injected here
 }) => {
+    const { Page, Text, View, Document, Image } = renderer;
+    
     // Calcular descuento total
     const totalDescuentos = (cotizacion.items || []).reduce((acc, item) => {
         const itemTotal = (item.precioUnitario || 0) * (item.cantidad || 0);
