@@ -7,6 +7,8 @@ const orderController = require('../controllers/orderController');
 router.get('/pedidos', orderController.getAllOrders);
 router.get('/pedidos-detalle', orderController.getOrderDetails);
 router.post('/pedidos', orderController.createOrder);
+router.post('/pedidos/:id/send-email', orderController.sendOrderEmail);
 router.put('/pedidos/:id', orderController.updateOrder);
+router.get('/pedidos/next-number', orderController.getNextOrderNumber);
 
 module.exports = router;

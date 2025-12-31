@@ -9,6 +9,7 @@ import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
 import { pdf, PDFViewer } from '@react-pdf/renderer';
 import RemisionPDFDocument from './RemisionPDFDocument';
+import { apiSendRemisionEmail } from '../../services/apiClient';
 
 interface RemisionPreviewModalProps {
     remision: Remision | null;
@@ -17,7 +18,7 @@ interface RemisionPreviewModalProps {
 
 const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, onClose }) => {
     const { addNotification } = useNotifications();
-    const { pedidos, clientes, datosEmpresa, productos } = useData();
+    const { pedidos, clientes, datosEmpresa, productos, firmaVendedor } = useData();
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('remision');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -43,15 +44,10 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
                 remision={remision}
                 pedido={relatedData.pedido}
                 cliente={relatedData.cliente}
-                empresa={{
-                    nombre: datosEmpresa.nombre,
-                    nit: datosEmpresa.nit,
-                    direccion: datosEmpresa.direccion,
-                    ciudad: datosEmpresa.ciudad,
-                    telefono: datosEmpresa.telefono
-                }}
+                empresa={datosEmpresa}
                 preferences={preferences}
                 productos={productos}
+                firmaVendedor={firmaVendedor}
             />
         );
     };
@@ -86,21 +82,65 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
         }
     };
 
-    const handleSendEmail = async () => {
-        await handleDownload();
-        // Esperar a que termine la descarga antes de abrir el modal
-        setTimeout(() => {
-            setIsEmailModalOpen(true);
-        }, 100);
+    const handleSendEmail = () => {
+        setIsEmailModalOpen(true);
     };
 
-    const handleConfirmSendEmail = (emailData: { to: string }) => {
-        if (!remision) return;
-        addNotification({
-            message: `PDF descargado. Se ha abierto tu cliente de correo para enviar la remisión ${remision.numeroRemision}.`,
-            type: 'success',
-        });
-        setIsEmailModalOpen(false);
+    const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
+        if (!remision || !relatedData?.cliente) return;
+
+        setIsGenerating(true);
+        addNotification({ message: 'Preparando y enviando correo...', type: 'info' });
+
+        try {
+            // 1. Generar PDF
+            const doc = getDocumentComponent();
+            if (!doc) throw new Error('No se pudo generar el documento PDF');
+
+            const blob = await pdf(doc).toBlob();
+
+            // 2. Convertir a Base64
+            const base64Content = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const result = reader.result as string;
+                    // Remover prefijo data:application/pdf;base64,
+                    const base64 = result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+
+            // 3. Enviar al backend usando endpoint específico
+            const safeClientName = relatedData.cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
+
+            const response = await apiSendRemisionEmail(remision.id!, {
+                destinatario: emailData.to,
+                asunto: emailData.subject,
+                mensaje: emailData.body,
+                pdfBase64: base64Content
+            });
+
+            if (response.success) {
+                addNotification({
+                    message: `Correo enviado exitosamente a ${emailData.to}`,
+                    type: 'success',
+                });
+                setIsEmailModalOpen(false);
+            } else {
+                throw new Error(response.message || 'Error al enviar el correo');
+            }
+
+        } catch (error) {
+            console.error('Error sending email:', error);
+            addNotification({
+                message: error instanceof Error ? error.message : 'Error al enviar el correo.',
+                type: 'error'
+            });
+        } finally {
+            setIsGenerating(false);
+        }
     };
 
 
@@ -174,7 +214,10 @@ const RemisionPreviewModal: React.FC<RemisionPreviewModalProps> = ({ remision, o
                     body={
                         `Estimado/a ${relatedData.cliente.nombreCompleto},
 
+Esperamos que este mensaje le encuentre bien.
+
 Le escribimos para informarle que su pedido está en camino. Adjuntamos la nota de remisión N° ${remision.numeroRemision} con los detalles de los productos despachados.
+
 Puede utilizar este documento para verificar la mercancía al momento de la entrega.
 
 Atentamente,

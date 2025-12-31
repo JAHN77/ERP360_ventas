@@ -108,14 +108,19 @@ const inventoryController = {
   // POST /api/inventario/entrada
   createInventoryEntry: async (req, res) => {
     const body = req.body || {};
+    console.log('📦 [INVENTORY] createInventoryEntry called with body:', JSON.stringify(body));
+
     try {
       const { 
         productoId, cantidad, costoUnitario, 
-        documentoRef, motivo, codalm = '001', codusu = 'SISTEMA' 
+        documentoRef, motivo, codalm = '001', codusu = 'SISTEMA',
+        codcon, 
+        numComprobante, numRemision, clienteId 
       } = body;
 
       // Validación básica
       if (!productoId || !cantidad || !costoUnitario) {
+        console.log('❌ [INVENTORY] Missing required fields');
         return res.status(400).json({ success: false, message: 'Faltan campos obligatorios: productoId, cantidad, costoUnitario' });
       }
 
@@ -125,30 +130,51 @@ const inventoryController = {
       if (isNaN(cantidadNum) || cantidadNum <= 0) return res.status(400).json({ success: false, message: 'La cantidad debe ser mayor a 0' });
       if (isNaN(costoNum) || costoNum < 0) return res.status(400).json({ success: false, message: 'El costo debe ser mayor o igual a 0' });
 
+      // Determine movement type from Concept
+      let tipoMovimiento = 'EN'; // Default
+      let isSalida = false;
+
+      if (codcon) {
+        const conceptQuery = `SELECT tipcon FROM inv_conceptos WHERE codcon = @codcon`;
+        const conceptResult = await executeQueryWithParams(conceptQuery, { codcon });
+        
+        if (conceptResult.length > 0) {
+          const { tipcon } = conceptResult[0];
+          isSalida = tipcon === 'S';
+          tipoMovimiento = isSalida ? 'SA' : 'EN';
+        }
+      }
+
       const pool = await getConnection();
       const tx = new sql.Transaction(pool);
       await tx.begin();
 
       try {
-        // Usar el servicio centralizado
-        // Intentar parsear documentoRef a entero para dockar, si no es número usar 0 o lo que corresponda a política
         const docInt = parseInt(String(documentoRef).replace(/\D/g, '')) || 0;
-
-        await InventoryService.registrarEntrada({
+        
+        const commonParams = {
           transaction: tx,
           productoId,
           cantidad: cantidadNum,
           bodega: codalm,
           numeroDocumentoInt: docInt,
-          tipoMovimiento: 'EN', // Entrada manual
+          tipoMovimiento: isSalida ? 'SA' : 'EN', 
           costo: costoNum,
-          observaciones: motivo || 'Entrada manual',
+          observaciones: motivo || (isSalida ? 'Salida manual' : 'Entrada manual'),
           codUsuario: codusu,
-          clienteId: '', // Inventario interno
-        });
+          clienteId: clienteId || '', // Use passed clienteId
+          numComprobante: parseInt(numComprobante) || 0,
+          numRemision: parseInt(numRemision) || 0
+        };
+
+        if (isSalida) {
+             await InventoryService.registrarSalida(commonParams);
+        } else {
+             await InventoryService.registrarEntrada(commonParams);
+        }
 
         await tx.commit();
-        res.json({ success: true, message: 'Entrada inventario registrada' });
+        res.json({ success: true, message: isSalida ? 'Salida de inventario registrada' : 'Entrada de inventario registrada' });
 
       } catch (inner) {
         await tx.rollback();
@@ -156,14 +182,14 @@ const inventoryController = {
       }
     } catch (error) {
       console.error('Error creating inventory entry:', error);
-      res.status(500).json({ success: false, message: 'Error creando entrada', error: error.message });
+      res.status(500).json({ success: false, message: 'Error creando movimiento', error: error.message });
     }
   },
   // GET /api/inventario/stock/:productoId
   // GET /api/inventario/movimientos - Obtener todos los movimientos de inventario (Global)
   getInventoryMovements: async (req, res) => {
     try {
-      const { page = '1', pageSize = '20', search = '', sortBy = 'fecha', sortOrder = 'desc' } = req.query;
+      const { page = '1', pageSize = '20', search = '', sortBy = 'fecha', sortOrder = 'desc', codalm, tipo } = req.query;
       const pageNum = Math.max(1, parseInt(page) || 1);
       const pageSizeNum = Math.min(200, Math.max(5, parseInt(pageSize) || 20));
       const offset = (pageNum - 1) * pageSizeNum;
@@ -176,6 +202,23 @@ const inventoryController = {
         params.search = `%${search}%`;
       }
 
+      if (codalm) {
+        whereClause += ` AND k.codalm = @codalm`;
+        params.codalm = codalm;
+      }
+
+      if (tipo) {
+        if (tipo === 'ENTRADA') {
+             // User requested only standard entries (EN) for the Inventory Entry section
+             whereClause += ` AND k.tipkar = 'EN'`; 
+        } else if (tipo === 'SALIDA') {
+             whereClause += ` AND k.tipkar IN ('S', 'SA', 'SD')`;
+        } else {
+             whereClause += ` AND k.tipkar = @tipo`;
+             params.tipo = tipo;
+        }
+      }
+
       // Mapping frontend sort keys to DB columns
       const sortMapping = {
         'fecha': 'k.feckar',
@@ -185,7 +228,8 @@ const inventoryController = {
         'costo': 'k.coskar',
         'precioVenta': 'k.venkar', // Actually logic is calculated, but venkar is the column
         'usuario': 'k.codusu',
-        'referencia': 'k.observa'
+        'referencia': 'k.observa',
+        'fecsys': 'k.fecsys'
       };
 
       const dbSortCol = sortMapping[sortBy] || 'k.feckar';

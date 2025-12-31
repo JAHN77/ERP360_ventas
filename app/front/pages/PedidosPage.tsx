@@ -14,15 +14,21 @@ import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
 import PedidoPDFDocument from '../components/comercial/PedidoPDFDocument';
 import PedidoEditForm from '../components/comercial/PedidoEditForm';
+import PageHeader from '../components/ui/PageHeader';
+import { SectionLoader } from '../components/ui/SectionLoader';
 import { useAuth } from '../hooks/useAuth';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { logger } from '../utils/logger';
-import { apiClient, fetchPedidosDetalle } from '../services/apiClient';
+import { apiClient, fetchPedidosDetalle, apiSendGenericEmail, apiSendPedidoEmail, apiArchiveDocumentToDrive } from '../services/apiClient';
+import SendEmailModal from '../components/comercial/SendEmailModal';
+import { pdf } from '@react-pdf/renderer';
 import { formatDateOnly } from '../utils/formatters';
+import PageContainer from '../components/ui/PageContainer';
+import SectionHeader from '../components/ui/SectionHeader';
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 const getPedidoProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'incomplete' => {
@@ -33,7 +39,7 @@ const getPedidoProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'inco
 
 const getRemisionProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'incomplete' => {
   if (!pedido || pedido.estado === 'CANCELADO') return 'incomplete';
-  if (pedido.estado === 'REMITIDO' || pedido.estado === 'ENTREGADO') return 'complete';
+  if (pedido.estado === 'REMITIDO') return 'complete';
   if (pedido.estado === 'EN_PROCESO' || pedido.estado === 'PARCIALMENTE_REMITIDO') return 'current';
   return 'incomplete';
 }
@@ -50,7 +56,7 @@ const PedidosPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const { user } = useAuth();
   const { addNotification } = useNotifications();
-  const { clientes, cotizaciones, datosEmpresa, productos, aprobarPedido, actualizarPedido, marcarPedidoListoParaDespacho } = useData();
+  const { clientes, cotizaciones, datosEmpresa, productos, vendedores, aprobarPedido, actualizarPedido, marcarPedidoListoParaDespacho } = useData();
 
   // Estados para paginación del servidor
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -66,6 +72,7 @@ const PedidosPage: React.FC = () => {
   const [selectedPedido, setSelectedPedido] = useState<Pedido | null>(null);
   const [pedidoToEdit, setPedidoToEdit] = useState<Pedido | null>(null);
   const [orderToPreview, setOrderToPreview] = useState<Pedido | null>(null);
+  const [pedidoToEmail, setPedidoToEmail] = useState<Pedido | null>(null);
   const [approvalResult, setApprovalResult] = useState<Pedido | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
@@ -199,9 +206,9 @@ const PedidosPage: React.FC = () => {
       );
 
       // Use product tax rate if available, else item tax rate (fallback)
-      const taxRate = (product && product.tasaIva !== undefined && product.tasaIva !== null)
-        ? Number(product.tasaIva)
-        : Number(item.ivaPorcentaje || 0);
+      const taxRate = (item.ivaPorcentaje !== undefined && item.ivaPorcentaje !== null)
+        ? Number(item.ivaPorcentaje)
+        : (product && product.tasaIva !== undefined && product.tasaIva !== null ? Number(product.tasaIva) : 0);
 
       const qty = Number(item.cantidad || 0);
       const price = Number(item.precioUnitario || 0);
@@ -392,7 +399,7 @@ const PedidosPage: React.FC = () => {
         setSelectedPedido(pedidoAprobado);
 
         addNotification({
-          message: `Pedido ${pedidoAprobado.numeroPedido} aprobado.`,
+          message: `Pedido ${pedidoAprobado.numeroPedido.replace('PED-', '')} aprobado exitosamente.`,
           type: 'success',
         });
       } else {
@@ -416,7 +423,7 @@ const PedidosPage: React.FC = () => {
     const updatedPedido = await marcarPedidoListoParaDespacho(pedidoId);
     if (updatedPedido) {
       setSelectedPedido(updatedPedido);
-      addNotification({ message: `Pedido ${updatedPedido.numeroPedido} listo para despacho.`, type: 'success' });
+      addNotification({ message: `Pedido ${updatedPedido.numeroPedido.replace('PED-', '')} listo para despacho.`, type: 'success' });
     }
   };
 
@@ -427,12 +434,134 @@ const PedidosPage: React.FC = () => {
     setPage('remisiones', { openCreateForPedidoId: pedidoId });
   };
 
+  const handleSendEmail = (pedido: Pedido) => {
+    setPedidoToEmail(pedido);
+  };
+
+  const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
+    if (!pedidoToEmail) return;
+
+    addNotification({ message: 'Preparando envío de correo...', type: 'info' });
+
+    try {
+
+      const clientePedido = clientes.find(c =>
+        String(c.id) === String(pedidoToEmail.clienteId) ||
+        c.numeroDocumento === pedidoToEmail.clienteId ||
+        c.codter === pedidoToEmail.clienteId
+      );
+
+      if (!clientePedido) {
+        addNotification({ message: 'Error: No se encontró la información del cliente.', type: 'warning' });
+        return;
+      }
+
+      let vendedor = null;
+      if (pedidoToEmail.vendedorId) {
+        vendedor = vendedores.find(v => String(v.id) === String(pedidoToEmail.vendedorId) || v.codigoVendedor === pedidoToEmail.vendedorId);
+      }
+
+      const cotizacionOrigen = cotizaciones.find(c => String(c.id) === String(pedidoToEmail.cotizacionId));
+
+      // Priorizar firma del usuario
+      const firmaFinal = user?.firma || vendedor?.firma;
+
+      // Generar Blob del PDF
+      const blob = await pdf(
+        <PedidoPDFDocument
+          pedido={pedidoToEmail}
+          cliente={clientePedido}
+          empresa={datosEmpresa}
+          preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
+          productos={productos}
+          cotizacionOrigen={cotizacionOrigen}
+          firmaVendedor={firmaFinal}
+        />
+      ).toBlob();
+
+      // Convertir a Base64
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+
+        // Enviar al backend
+        // Enviar al backend usando el endpoint específico de Pedidos
+        const response = await apiSendPedidoEmail(pedidoToEmail.id!, {
+          destinatario: emailData.to,
+          asunto: emailData.subject,
+          mensaje: emailData.body,
+          pdfBase64: base64data
+        });
+
+        if (response.success) {
+          addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
+          setPedidoToEmail(null);
+
+          // --- Archivar en Google Drive ---
+          try {
+            addNotification({ message: 'Archivando en Google Drive...', type: 'info' });
+            // Extraer base64 raw
+            const base64Content = base64data.split(',')[1] || base64data;
+
+            const archiveResponse = await apiArchiveDocumentToDrive({
+              type: 'pedido',
+              number: pedidoToEmail.numeroPedido,
+              date: pedidoToEmail.fechaPedido || new Date().toISOString(),
+              recipientName: clientePedido?.razonSocial || 'Cliente',
+              fileBase64: base64Content
+            });
+
+            if (archiveResponse.success) {
+              addNotification({ message: 'Documento archivado en Drive.', type: 'success' });
+            } else if (archiveResponse.code === 'FILE_EXISTS') {
+              // Prompt for replacement
+              const shouldReplace = window.confirm(`El archivo ya existe en Drive. ¿Desea reemplazarlo?`);
+              if (shouldReplace) {
+                addNotification({ message: 'Reemplazando archivo en Drive...', type: 'info' });
+                const retryResponse = await apiArchiveDocumentToDrive({
+                  type: 'pedido',
+                  number: pedidoToEmail.numeroPedido,
+                  date: pedidoToEmail.fechaPedido || new Date().toISOString(),
+                  recipientName: clientePedido?.razonSocial || 'Cliente',
+                  fileBase64: base64Content,
+                  replace: true
+                });
+
+                if (retryResponse.success) {
+                  addNotification({ message: 'Archivo actualizado correctamente.', type: 'success' });
+                } else {
+                  addNotification({ message: 'Error actualizando archivo.', type: 'error' });
+                }
+              } else {
+                addNotification({ message: 'Se canceló el archivado.', type: 'info' });
+              }
+            } else {
+              console.warn('Error archivando en Drive:', archiveResponse);
+            }
+          } catch (driveError) {
+            console.error('Error llamando a apiArchiveDocumentToDrive:', driveError);
+          }
+        } else {
+          addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
+        }
+      };
+      reader.onerror = () => {
+        addNotification({ message: 'Error procesando el archivo PDF para envío.', type: 'error' });
+      };
+
+    } catch (error) {
+      console.error('Error en proceso de envío de email:', error);
+      addNotification({ message: 'Error al generar o enviar el correo.', type: 'error' });
+    }
+  };
+
   const columns: Column<Pedido>[] = [
     {
       header: 'Número',
       accessor: 'numeroPedido',
       cell: (item) => (
-        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroPedido}</span>
+        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{(item.numeroPedido || '').replace('PED-', '')}</span>
       )
     },
     {
@@ -441,12 +570,12 @@ const PedidosPage: React.FC = () => {
       cell: (item) => {
         // Usar numeroCotizacionOrigen si está disponible (viene del JOIN en el backend)
         if (item.numeroCotizacionOrigen) {
-          return <span className="text-sm text-slate-600 dark:text-slate-400">{item.numeroCotizacionOrigen}</span>;
+          return <span className="text-sm text-slate-600 dark:text-slate-400">{item.numeroCotizacionOrigen.replace('C-', '')}</span>;
         }
         // Fallback: buscar en el array de cotizaciones
         if (item.cotizacionId) {
           const cotizacion = cotizaciones.find(c => String(c.id) === String(item.cotizacionId));
-          return <span className="text-sm text-slate-600 dark:text-slate-400">{cotizacion?.numeroCotizacion || 'N/A'}</span>;
+          return <span className="text-sm text-slate-600 dark:text-slate-400">{(cotizacion?.numeroCotizacion || 'N/A').replace('C-', '')}</span>;
         }
         return <span className="text-xs text-slate-400">N/A</span>;
       }
@@ -522,6 +651,13 @@ const PedidosPage: React.FC = () => {
           >
             <i className="fas fa-eye"></i>
           </button>
+          <button
+            onClick={() => handleSendEmail(item)}
+            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+            title="Enviar Email"
+          >
+            <i className="fas fa-paper-plane"></i>
+          </button>
           <ProtectedComponent permission="pedidos:approve">
             {(item.estado === 'ENVIADA' || item.estado === 'BORRADOR') && (
               <button
@@ -546,7 +682,7 @@ const PedidosPage: React.FC = () => {
           id="statusFilter"
           value={statusFilter}
           onChange={(e) => handleStatusFilterChange(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {filterOptions.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -557,20 +693,14 @@ const PedidosPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-            Gestión de Pedidos
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Administra y da seguimiento a los pedidos de venta.
-          </p>
-        </div>
-      </div>
+    <PageContainer>
+      <SectionHeader
+        title="Gestión de Pedidos"
+        subtitle="Administra y da seguimiento a los pedidos de venta."
+      />
 
-      <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+      <Card className="shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
@@ -583,10 +713,7 @@ const PedidosPage: React.FC = () => {
 
         <CardContent className="p-0">
           {isLoadingPedidos ? (
-            <div className="p-12 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center gap-3">
-              <i className="fas fa-spinner fa-spin text-3xl text-blue-500"></i>
-              <span className="font-medium">Cargando pedidos...</span>
-            </div>
+            <SectionLoader text="Cargando pedidos..." height="h-64" />
           ) : (
             <Table
               columns={columns}
@@ -631,7 +758,7 @@ const PedidosPage: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-                    Pedido {selectedPedido.numeroPedido}
+                    Pedido {selectedPedido.numeroPedido.replace('PED-', '')}
                   </h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     Detalles y seguimiento
@@ -661,7 +788,7 @@ const PedidosPage: React.FC = () => {
               <ProgressFlow>
                 <ProgressStep title="Cotización" status={selectedPedido.cotizacionId ? 'complete' : 'incomplete'}>
                   {selectedPedido.numeroCotizacionOrigen && (
-                    <span className="text-[10px] font-mono text-slate-500 block mt-1">{selectedPedido.numeroCotizacionOrigen}</span>
+                    <span className="text-[10px] font-mono text-slate-500 block mt-1">{selectedPedido.numeroCotizacionOrigen.replace('C-', '')}</span>
                   )}
                 </ProgressStep>
                 <ProgressStep title="Pedido" status={getPedidoProgressStatus(selectedPedido)}>
@@ -725,9 +852,9 @@ const PedidosPage: React.FC = () => {
                   <div>
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Cotización</p>
                     <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mt-1">
-                      {selectedPedido.numeroCotizacionOrigen ||
+                      {(selectedPedido.numeroCotizacionOrigen ||
                         (selectedPedido.cotizacionId ? cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId))?.numeroCotizacion : 'N/A') ||
-                        'N/A'}
+                        'N/A').replace('C-', '')}
                     </p>
                   </div>
                   <div>
@@ -803,9 +930,9 @@ const PedidosPage: React.FC = () => {
                         const price = Number(item.precioUnitario || 0);
                         const discountPct = Number(item.descuentoPorcentaje || 0);
 
-                        const ivaPct = (product && product.tasaIva !== undefined && product.tasaIva !== null)
-                          ? Number(product.tasaIva)
-                          : Number(item.ivaPorcentaje || 0);
+                        const ivaPct = (item.ivaPorcentaje !== undefined && item.ivaPorcentaje !== null)
+                          ? Number(item.ivaPorcentaje)
+                          : (product && product.tasaIva !== undefined && product.tasaIva !== null ? Number(product.tasaIva) : 0);
 
                         const itemSubtotal = price * qty * (1 - discountPct / 100);
                         const itemIva = itemSubtotal * (ivaPct / 100);
@@ -982,6 +1109,13 @@ const PedidosPage: React.FC = () => {
                     <i className="fas fa-truck-loading"></i> Crear Remisión
                   </button>
                 )}
+
+                <button
+                  onClick={() => handleSendEmail(selectedPedido)}
+                  className="px-5 py-2.5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-semibold rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm flex items-center gap-2"
+                >
+                  <i className="fas fa-paper-plane"></i> Enviar Email
+                </button>
               </div>
             </div>
 
@@ -996,7 +1130,7 @@ const PedidosPage: React.FC = () => {
         <Modal
           isOpen={!!pedidoToEdit}
           onClose={() => setPedidoToEdit(null)}
-          title={`Editar Pedido: ${pedidoToEdit.numeroPedido}`}
+          title={`Editar Pedido: ${pedidoToEdit.numeroPedido.replace('PED-', '')}`}
           size="3xl"
         >
           <PedidoEditForm
@@ -1019,7 +1153,7 @@ const PedidosPage: React.FC = () => {
           <DocumentPreviewModal
             isOpen={!!orderToPreview}
             onClose={() => setOrderToPreview(null)}
-            title={`Previsualizar Pedido: ${orderToPreview.numeroPedido}`}
+            title={`Previsualizar Pedido: ${orderToPreview.numeroPedido.replace('PED-', '')}`}
             onConfirm={
               (orderToPreview.estado === 'BORRADOR' || orderToPreview.estado === 'ENVIADA')
                 ? executeApproval
@@ -1033,6 +1167,7 @@ const PedidosPage: React.FC = () => {
             documentType="pedido"
             clientEmail={cliente.email}
             clientName={cliente.nombreCompleto}
+            documentId={orderToPreview.id}
           >
             <PedidoPDFDocument
               pedido={orderToPreview}
@@ -1043,6 +1178,24 @@ const PedidosPage: React.FC = () => {
               cotizacionOrigen={cotizaciones.find(c => c.id === orderToPreview.cotizacionId)}
             />
           </DocumentPreviewModal>
+        );
+      })()}
+
+      {pedidoToEmail && (() => {
+        const clientePedido = clientes.find(c =>
+          String(c.id) === String(pedidoToEmail.clienteId) ||
+          c.numeroDocumento === pedidoToEmail.clienteId ||
+          c.codter === pedidoToEmail.clienteId
+        );
+        return (
+          <SendEmailModal
+            isOpen={!!pedidoToEmail}
+            onClose={() => setPedidoToEmail(null)}
+            onSend={handleConfirmSendEmail}
+            to={clientePedido?.email || ''}
+            subject={`Pedido ${pedidoToEmail.numeroPedido} - ${datosEmpresa.nombre}`}
+            body={`Estimado/a ${clientePedido?.nombreCompleto || 'Cliente'},\n\nEsperamos que este mensaje le encuentre bien.\n\nAdjuntamos la orden de pedido N° ${pedidoToEmail.numeroPedido.replace('PED-', '')} con el detalle de los productos solicitados.\n\nPor favor proceda con la revisión del documento. Quedamos atentos a cualquier inquietud.\n\nCordialmente,\nEl equipo de ${datosEmpresa.nombre}`}
+          />
         );
       })()}
 
@@ -1061,7 +1214,8 @@ const PedidosPage: React.FC = () => {
             title="¡Pedido Aprobado!"
             message={
               <>
-                El pedido <strong>{pedido.numeroPedido}</strong> ha sido aprobado y está listo para ser remisionado.
+                La cotización <strong>{(cotizaciones.find(c => c.id === pedido.cotizacionId)?.numeroCotizacion || '').replace('C-', '')}</strong> ha concluido satisfactoriamente.
+                Se ha generado el Pedido <strong>{pedido.numeroPedido.replace('PED-', '')}</strong> de forma exitosa.
               </>
             }
             summaryTitle="Resumen del Pedido"
@@ -1077,6 +1231,7 @@ const PedidosPage: React.FC = () => {
                   return cliente?.nombreCompleto || cliente?.razonSocial || pedido.clienteId || 'N/A';
                 })()
               },
+              { label: 'Número de Pedido', value: pedido.numeroPedido.replace('PED-', '') },
               { label: 'Nº Items', value: pedido.items.length },
               { label: 'sep1', value: '', isSeparator: true },
               { label: 'Subtotal Bruto', value: formatCurrency(subtotalBruto) },
@@ -1093,7 +1248,7 @@ const PedidosPage: React.FC = () => {
         );
       })()}
 
-    </div>
+    </PageContainer>
   );
 };
 

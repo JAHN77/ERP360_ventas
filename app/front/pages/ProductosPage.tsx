@@ -11,9 +11,11 @@ import { apiClient } from '../services/apiClient';
 import { useColumnManager } from '../hooks/useColumnManager';
 import ColumnManagerModal from '../components/ui/ColumnManagerModal';
 import ProductDetails from '../components/productos/ProductDetails';
+import PageContainer from '../components/ui/PageContainer';
+import SectionHeader from '../components/ui/SectionHeader';
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 const ProductosPage: React.FC = () => {
@@ -226,20 +228,14 @@ const ProductosPage: React.FC = () => {
   const additionalFilters = null;
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-            Gestión de Productos
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Administra el catálogo de productos y su inventario.
-          </p>
-        </div>
-      </div>
+    <PageContainer>
+      <SectionHeader
+        title="Gestión de Productos"
+        subtitle="Administra el catálogo de productos y su inventario."
+      />
 
       <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+        <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
@@ -303,12 +299,12 @@ const ProductosPage: React.FC = () => {
           isOpen={isModalOpen}
           onClose={handleCloseModal}
           title={`Detalle del Producto: ${selectedProducto.nombre}`}
-          size="xl"
+          size="4xl"
         >
           <ProductDetails producto={selectedProducto} />
         </Modal>
       )}
-    </div>
+    </PageContainer>
   );
 };
 

@@ -21,26 +21,43 @@ export const pdfStyles = StyleSheet.create({
         alignItems: 'flex-start',
     },
     logoPlaceholder: {
-        width: 50,
-        height: 50,
+        width: 60,
+        height: 60,
         backgroundColor: '#f1f5f9',
         marginRight: 10,
         borderRadius: 4,
+    },
+    logo: {
+        width: 85,
+        height: 60,
+        objectFit: 'contain',
     },
     companyInfo: {
         marginLeft: 10,
     },
     companyName: {
-        fontSize: 14,
-        fontWeight: 'bold',
+        fontSize: 16,
+        fontWeight: 'extrabold',
         textTransform: 'uppercase',
-        color: '#0f172a', // slate-900
-        marginBottom: 4,
+        color: '#1e293b', // slate-800
+        marginBottom: 2,
+        letterSpacing: 0.5,
     },
     companyDetails: {
-        fontSize: 9,
-        color: '#64748b', // slate-500
-        marginBottom: 2,
+        fontSize: 6.5,
+        color: '#475569', // slate-600
+        marginBottom: 1,
+        lineHeight: 1.1,
+    },
+    companyAddress: {
+        fontSize: 7,
+        color: '#475569',
+        width: 180, // Defined space for address
+        lineHeight: 1.2,
+    },
+    companyDetailLabel: {
+        fontWeight: 'bold',
+        color: '#64748b',
     },
     documentTitleSection: {
         alignItems: 'flex-end',
@@ -102,10 +119,10 @@ export const pdfStyles = StyleSheet.create({
         marginTop: 15,
     },
     clientName: {
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: 'bold',
         color: '#0f172a',
-        marginBottom: 4,
+        marginBottom: 2,
     },
     infoRow: {
         flexDirection: 'row',
@@ -148,21 +165,21 @@ export const pdfStyles = StyleSheet.create({
         paddingVertical: 6,
     },
 
-    // Column Utilities
-    colCode: { width: '15%', paddingHorizontal: 4 },
-    colDesc: { width: '35%', paddingHorizontal: 4 },
-    colQty: { width: '10%', paddingHorizontal: 4, textAlign: 'right' },
-    colPrice: { width: '15%', paddingHorizontal: 4, textAlign: 'right' },
-    colDisc: { width: '10%', paddingHorizontal: 4, textAlign: 'right' },
-    colTotal: { width: '15%', paddingHorizontal: 4, textAlign: 'right', fontWeight: 'bold' },
+    // Column Utilities - Optimized widths to prevent text wrapping
+    colCode: { width: '11%', paddingHorizontal: 2 },
+    colDesc: { width: '39%', paddingHorizontal: 2 },
+    colQty: { width: '10%', paddingHorizontal: 2, textAlign: 'right' },
+    colPrice: { width: '13%', paddingHorizontal: 2, textAlign: 'right' },
+    colDisc: { width: '13%', paddingHorizontal: 2, textAlign: 'right' },
+    colTotal: { width: '14%', paddingHorizontal: 2, textAlign: 'right', fontWeight: 'bold' },
 
     tableHeaderText: {
-        fontSize: 9,
+        fontSize: 7,
         fontWeight: 'bold',
         color: '#334155',
     },
     tableCellText: {
-        fontSize: 9,
+        fontSize: 8,
         color: '#334155',
     },
 
@@ -251,5 +268,5 @@ export const pdfStyles = StyleSheet.create({
 });
 
 export const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };

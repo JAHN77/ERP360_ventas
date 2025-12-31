@@ -7,13 +7,16 @@ import DocumentOptionsToolbar from './DocumentOptionsToolbar';
 import { DocumentPreferences } from '../../types';
 import SendEmailModal from './SendEmailModal';
 import { useData } from '../../hooks/useData';
+import { apiSendGenericEmail, apiSendPedidoEmail, apiSendRemisionEmail, apiSendFacturaEmail, apiSendCotizacionEmail, apiArchiveDocumentToDrive } from '../../services/apiClient';
+import { useAuth } from '../../hooks/useAuth';
 // import { descargarElementoComoPDF } from '../../utils/pdfClient'; // REMOVED
+
 
 interface DocumentPreviewModalProps {
     isOpen: boolean;
     onClose: () => void;
     title: string;
-    onConfirm?: () => void; // Optional
+    onConfirm?: () => Promise<void> | void; // Optional
     onEdit?: () => void; // Optional
     children: React.ReactNode;
     confirmLabel?: string;
@@ -24,6 +27,7 @@ interface DocumentPreviewModalProps {
     documentType: DocumentType;
     clientEmail?: string;
     clientName?: string;
+    documentId?: string | number; // ID del documento para enviar por correo
 }
 
 const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
@@ -41,17 +45,25 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
     documentType,
     clientEmail,
     clientName,
+    documentId,
 }) => {
+
     const { addNotification } = useNotifications();
-    const { datosEmpresa } = useData();
+    const { datosEmpresa, firmaVendedor } = useData();
+    const { user } = useAuth();
+    // Priorizar firma del usuario
+    const firmaFinal = user?.firma || firmaVendedor;
     // const documentRef = useRef<HTMLDivElement>(null); // Removed ref
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences(documentType);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
 
-    // Clone child to pass preferences
+    // Clone child to pass preferences and temporary signature
     const childWithProps = React.isValidElement(children)
-        ? React.cloneElement(children, { preferences } as { preferences: DocumentPreferences })
+        ? React.cloneElement(children, {
+            preferences,
+            firmaVendedor: firmaFinal // Pass signature here
+        } as any)
         : children;
 
     const handleDownload = async () => {
@@ -87,53 +99,190 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         }
     };
 
-    const handleSendNotification = (emailData: { to: string }) => {
-        addNotification({
-            message: `PDF listo. Se ha abierto tu cliente de correo para enviar el documento.`,
-            type: 'success',
-        });
-        setIsEmailModalOpen(false);
+    const handleSendEmail = async (destinatario: string, asunto: string, mensaje: string) => {
+        setIsDownloading(true);
+        addNotification({ message: 'Preparando envío de correo...', type: 'info' });
+
+        try {
+            // 1. Generar PDF Blob (Reutilizando lógica de descarga)
+            const blob = await pdf(childWithProps as React.ReactElement).toBlob();
+
+            // 2. Convertir a Base64
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+
+            reader.onloadend = async () => {
+                const base64data = reader.result as string;
+
+                // 3. Enviar al backend usando el servicio específico
+                try {
+                    let result;
+                    const payload = {
+                        destinatario: destinatario,
+                        asunto: asunto,
+                        mensaje: mensaje,
+                        pdfBase64: base64data
+                    };
+
+                    if (documentType === 'pedido') {
+                        result = await apiSendPedidoEmail(typeof documentId === 'string' ? parseInt(documentId) : (documentId || 0), payload);
+                    } else if (documentType === 'remision') {
+                        result = await apiSendRemisionEmail(typeof documentId === 'string' ? parseInt(documentId) : (documentId || 0), payload);
+                    } else if (documentType === 'factura') {
+                        result = await apiSendFacturaEmail(typeof documentId === 'string' ? parseInt(documentId) : (documentId || 0), payload);
+                    } else if (documentType === 'cotizacion') {
+                        result = await apiSendCotizacionEmail(typeof documentId === 'string' ? parseInt(documentId) : (documentId || 0), payload);
+                    } else {
+                        // Fallback genérico
+                        result = await apiSendGenericEmail({
+                            to: destinatario,
+                            subject: asunto,
+                            body: mensaje,
+                            attachment: {
+                                filename: `Documento_${documentNumber.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+                                content: base64data,
+                                contentType: 'application/pdf'
+                            }
+                        });
+                    }
+
+                    if (result.success) {
+                        addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
+                        setIsEmailModalOpen(false);
+
+                        // --- Archivar en Google Drive ---
+                        try {
+                            const base64Content = base64data.split(',')[1] || base64data;
+                            const archiveResponse = await apiArchiveDocumentToDrive({
+                                type: documentType,
+                                number: documentNumber,
+                                date: new Date().toISOString(),
+                                recipientName: clientName || 'Cliente',
+                                fileBase64: base64Content
+                            });
+                            if (archiveResponse.success) {
+                                addNotification({ message: 'Documento archivado en Drive.', type: 'success' });
+                            } else if (archiveResponse.code === 'FILE_EXISTS') {
+                                // Prompt for replacement can be tricky in modal, assuming overwrite for now or skipping
+                                // For simplicity in this global modal, we will try to overwrite if exists for consistency with user request "quiero que se guarde"
+                                const retryResponse = await apiArchiveDocumentToDrive({
+                                    type: documentType,
+                                    number: documentNumber,
+                                    date: new Date().toISOString(),
+                                    recipientName: clientName || 'Cliente',
+                                    fileBase64: base64Content,
+                                    replace: true
+                                });
+                                if (retryResponse.success) addNotification({ message: 'Archivo actualizado en Drive.', type: 'success' });
+                            }
+                        } catch (driveErr) {
+                            console.error('Error archivando desde modal:', driveErr);
+                        }
+                    } else {
+                        throw new Error(result.message || 'Error al enviar el correo');
+                    }
+                } catch (apiError) {
+                    console.error('Error API Email:', apiError);
+                    addNotification({ message: `Error enviando correo: ${apiError instanceof Error ? apiError.message : 'Error desconocido'}`, type: 'error' });
+                } finally {
+                    setIsDownloading(false);
+                }
+            };
+
+            reader.onerror = () => {
+                addNotification({ message: 'Error procesando el archivo PDF para envío.', type: 'error' });
+                setIsDownloading(false);
+            };
+
+        } catch (error) {
+            console.error('Error generando PDF para email:', error);
+            addNotification({
+                message: `Error al generar el documento para envío: ${error instanceof Error ? error.message : error}`,
+                type: 'error',
+            });
+            setIsDownloading(false);
+        }
     };
+
 
     const documentNumber = title.includes(': ') ? title.split(': ')[1] : 'Borrador';
 
+    const handleConfirm = async () => {
+        if (!onConfirm) return;
+        try {
+            await onConfirm();
+            // Después de aprobar con éxito, abrir automáticamente el modal de correo
+            setIsEmailModalOpen(true);
+        } catch (error) {
+            console.error('Error en confirmación:', error);
+        }
+    };
+
     const emailBody = useMemo(() => {
         if (documentType === 'cotizacion') {
-            return `Estimado/a ${clientName || 'cliente'},
+            return `Estimado/a ${clientName || 'Cliente'},
+            
+Nos es grato saludarle y presentarle a continuación nuestra propuesta comercial a través de la cotización N° ${documentNumber}.
+Hemos analizado sus requerimientos y estamos seguros de que esta oferta se ajusta a sus necesidades.
 
-Dando seguimiento a su solicitud, nos complace enviarle la cotización N° ${documentNumber} con el detalle de los productos/servicios solicitados.
-Quedamos a su disposición para cualquier consulta o si desea proceder con el pedido.
+Quedamos atentos a sus comentarios para poder avanzar.
 
-Atentamente,
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`;
         }
         if (documentType === 'pedido') {
-            return `Estimado/a ${clientName || 'cliente'},
+            return `Estimado/a ${clientName || 'Cliente'},
 
-Este correo es para confirmar que hemos recibido y estamos procesando su orden de compra N° ${documentNumber}.
-Adjuntamos una copia del pedido para sus registros. Le notificaremos una vez que sus productos hayan sido despachados.
+Esperamos que este mensaje le encuentre bien.
 
-¡Gracias por su compra!
+Adjuntamos la orden de pedido N° ${documentNumber} con el detalle de los productos solicitados.
 
-Atentamente,
+Por favor proceda con la revisión del documento. Quedamos atentos a cualquier inquietud.
+
+Cordialmente,
+El equipo de ${datosEmpresa.nombre}`;
+        }
+        if (documentType === 'factura') {
+            return `Estimado/a ${clientName || 'Cliente'},
+
+Esperamos que este mensaje le encuentre bien.
+
+Adjuntamos su Factura Electrónica N° ${documentNumber} correspondiente a su reciente compra.
+
+Agradecemos su pago oportuno. Puede encontrar los detalles de pago dentro del documento adjunto.
+
+Cordialmente,
+El equipo de ${datosEmpresa.nombre}`;
+        }
+        if (documentType === 'remision') {
+            return `Estimado/a ${clientName || 'Cliente'},
+
+Adjuntamos la remisión N° ${documentNumber} correspondiente a su pedido.
+
+El documento incluye el detalle de los productos entregados/despachados.
+Por favor verifique la mercancía al momento de recibirla.
+
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`;
         }
         if (documentType === 'nota_credito') {
-            return `Estimado/a ${clientName || 'cliente'},
+            return `Estimado/a ${clientName || 'Cliente'},
 
-Le informamos que se ha generado la Nota de Crédito N° ${documentNumber}.
+Le informamos que se ha generado la Nota de Crédito N° ${documentNumber} a su favor.
+
 Adjuntamos el documento para sus registros contables.
 
-Atentamente,
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`;
         }
         // Fallback genérico
-        return `Estimado ${clientName || 'cliente'},
+        return `Estimado/a ${clientName || 'Cliente'},
 
-Adjuntamos su documento ${documentNumber} de ${datosEmpresa.nombre}.
+Adjuntamos su documento #${documentNumber}.
 
-Por favor, no dude en contactarnos si tiene alguna pregunta.
-Atentamente,
+Gracias por confiar en nosotros.
+
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`;
     }, [documentType, clientName, documentNumber, datosEmpresa.nombre]);
 
@@ -156,38 +305,21 @@ El equipo de ${datosEmpresa.nombre}`;
                             </button>
                             {clientEmail && (
                                 <button
-                                    onClick={async () => {
-                                        // Generate blob implies ready for email attachment if integrated
-                                        // For now just download and open email modal
-                                        await handleDownload();
-                                        if (!isDownloading) {
-                                            setIsEmailModalOpen(true);
-                                        }
-                                    }}
+                                    onClick={() => setIsEmailModalOpen(true)}
                                     disabled={isDownloading}
-                                    title={isDownloading ? "Generando PDF..." : "Enviar por Correo"}
+                                    title="Enviar por Correo"
                                     className="h-8 w-8 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <i className={`fas ${isDownloading ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
+                                    <i className={`fas ${isEmailModalOpen ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`}></i>
                                 </button>
                             )}
                             {/* Divider */}
                             <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1"></div>
                             {/* Group 2: Main Actions */}
                             <div className="flex items-center gap-1">
-                                {onSaveAndSend && (
-                                    <button
-                                        onClick={onSaveAndSend}
-                                        disabled={isSaving || isConfirming}
-                                        className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-slate-400 flex items-center gap-2"
-                                    >
-                                        {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
-                                        <span className="hidden sm:inline">{saveAndSendLabel}</span>
-                                    </button>
-                                )}
                                 {onConfirm && (
                                     <button
-                                        onClick={onConfirm}
+                                        onClick={handleConfirm}
                                         disabled={isConfirming || isSaving}
                                         className="px-3 py-1.5 text-sm font-semibold text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-slate-400 flex items-center gap-2"
                                     >
@@ -230,9 +362,11 @@ El equipo de ${datosEmpresa.nombre}`;
                 <SendEmailModal
                     isOpen={isEmailModalOpen}
                     onClose={() => setIsEmailModalOpen(false)}
-                    onSend={handleSendNotification}
+                    onSend={async (data) => {
+                        await handleSendEmail(data.to, data.subject, data.body);
+                    }}
                     to={clientEmail}
-                    subject={`${documentType === 'cotizacion' ? 'Cotización' : 'Pedido'}: ${documentNumber} de ${datosEmpresa.nombre}`}
+                    subject={`${documentType === 'cotizacion' ? 'Cotización' : documentType === 'pedido' ? 'Pedido' : 'Documento'}: #${documentNumber} - ${datosEmpresa.nombre}`}
                     body={emailBody}
                 />
             )}

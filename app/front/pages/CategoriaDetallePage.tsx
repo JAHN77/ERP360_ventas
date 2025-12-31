@@ -9,16 +9,16 @@ import TablePagination from '../components/ui/TablePagination';
 import { InvProducto } from '../types';
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 const CategoriaDetallePage: React.FC = () => {
     const { params, setPage } = useNavigation();
     const { categorias, productos } = useData();
-    
+
     const categoryId = Number(params.id);
     const categoria = useMemo(() => categorias.find(c => c.id === categoryId), [categorias, categoryId]);
-    
+
     const productosEnCategoria = useMemo(() => {
         if (!categoryId) return [];
         return productos.filter(p => p.idCategoria === categoryId);
@@ -63,7 +63,7 @@ const CategoriaDetallePage: React.FC = () => {
     return (
         <div>
             <div className="flex items-center gap-4 mb-6">
-                 <button onClick={() => setPage('categorias')} className="px-3 py-2 text-sm bg-slate-200 dark:bg-slate-700 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600">
+                <button onClick={() => setPage('categorias')} className="px-3 py-2 text-sm bg-slate-200 dark:bg-slate-700 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600">
                     <i className="fas fa-arrow-left"></i>
                 </button>
                 <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">
@@ -72,7 +72,9 @@ const CategoriaDetallePage: React.FC = () => {
             </div>
 
             <Card>
-                <TableToolbar searchTerm={searchTerm} onSearchChange={handleSearch} />
+                <div className="p-2 sm:p-3">
+                    <TableToolbar searchTerm={searchTerm} onSearchChange={handleSearch} />
+                </div>
                 <CardContent className="p-0">
                     <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} />
                 </CardContent>

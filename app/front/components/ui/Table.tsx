@@ -1,4 +1,5 @@
 import React from 'react';
+import { Skeleton } from './Skeleton';
 
 type SortDirection = 'asc' | 'desc';
 
@@ -20,9 +21,11 @@ interface TableProps<T> {
   sortConfig: SortConfig<T> | null;
   highlightRowId?: string | number;
   highlightClassName?: string;
+  isLoading?: boolean;
+  emptyMessage?: string;
 }
 
-const Table = <T extends { id: string | number }>({ columns, data, onSort, sortConfig, highlightRowId, highlightClassName }: TableProps<T>) => {
+const Table = <T extends { id: string | number }>({ columns, data, onSort, sortConfig, highlightRowId, highlightClassName, isLoading = false, emptyMessage }: TableProps<T>) => {
   const getSortIcon = (key: keyof T) => {
     if (!sortConfig || sortConfig.key !== key) {
       return <i className="fas fa-sort text-slate-400 dark:text-slate-500 ml-2 opacity-50"></i>;
@@ -40,7 +43,15 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
     <div className="w-full max-w-full">
       {/* Mobile cards */}
       <div className="space-y-3 md:hidden">
-        {data.length > 0 ? (
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-slate-200/70 p-4 space-y-3 bg-white">
+              <Skeleton className="h-4 w-1/3 mb-2" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ))
+        ) : data.length > 0 ? (
           data.map((item) => {
             const isHighlighted = resolvedHighlightId !== null && String(item.id) === resolvedHighlightId;
             return (
@@ -64,7 +75,7 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
           <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
             <div className="flex flex-col items-center gap-2">
               <i className="fas fa-inbox text-3xl text-slate-400 dark:text-slate-600"></i>
-              <p className="font-semibold">No se encontraron resultados</p>
+              <p className="font-semibold">{emptyMessage || 'No se encontraron resultados'}</p>
               <span className="text-xs">Intenta modificar los filtros o la búsqueda.</span>
             </div>
           </div>
@@ -76,9 +87,9 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
         <div className="relative">
           <div className="overflow-x-auto">
             <div className="inline-block min-w-full align-middle">
-              <div className="shadow-lg ring-1 ring-slate-200/60 dark:ring-slate-700/70 border border-slate-200/70 dark:border-slate-700/60 sm:rounded-lg w-full">
+              <div className="shadow-sm border border-slate-200 dark:border-slate-700 sm:rounded-lg w-full overflow-hidden">
                 <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 table-auto">
-                  <thead className="bg-slate-100 dark:bg-slate-700">
+                  <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       {columns.map((col, colIndex) => (
                         <th
@@ -97,7 +108,17 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-transparent divide-y divide-slate-200 dark:divide-slate-700">
-                    {data.length > 0 ? data.map((item) => {
+                    {isLoading ? (
+                      Array.from({ length: 5 }).map((_, rowIndex) => (
+                        <tr key={`skeleton-${rowIndex}`}>
+                          {columns.map((_, colIndex) => (
+                            <td key={`skeleton-cell-${rowIndex}-${colIndex}`} className="px-2 py-3">
+                              <Skeleton className="h-4 w-full" />
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    ) : data.length > 0 ? data.map((item) => {
                       const isHighlighted = resolvedHighlightId !== null && String(item.id) === resolvedHighlightId;
                       return (
                         <tr key={item.id} className={`hover:bg-slate-50 dark:hover:bg-slate-900/20 transition-colors ${isHighlighted ? resolvedHighlightClass : ''}`}>
@@ -113,7 +134,7 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
                         <td colSpan={columns.length} className="text-center py-10 sm:py-12 text-slate-500 dark:text-slate-400 text-sm">
                           <div className="flex flex-col items-center">
                             <i className="fas fa-inbox text-3xl sm:text-4xl text-slate-400 dark:text-slate-500 mb-3"></i>
-                            <p className="font-semibold">No se encontraron resultados</p>
+                            <p className="font-semibold">{emptyMessage || 'No se encontraron resultados'}</p>
                             <p className="text-xs">Intente ajustar su búsqueda o filtros.</p>
                           </div>
                         </td>

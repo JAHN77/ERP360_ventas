@@ -10,7 +10,7 @@ const mapEstadoToDb = (estado) => {
     'CONFIRMADO': 'C',
     'EN_PROCESO': 'P',
     'TIMBRANDO': 'P', // Usar 'P' para estado de timbrado en proceso
-    'PARCIALMENTE_REMITIDO': 'P', // Si la columna es CHAR(1), usar 'P' en lugar de 'PR'
+    'PARCIALMENTE_REMITIDO': 'L', // FIXED: Cambiado de 'P' a 'L' para evitar colisión con TIMBRANDO
     'REMITIDO': 'M', // Cambiar de 'M' a 'R' para REMITIDO -> FIXED: Usar 'M' para evitar colisión con RECHAZADA ('R')
     'CANCELADO': 'X',
     'EN_TRANSITO': 'T',
@@ -34,7 +34,8 @@ const mapEstadoFromDb = (estado) => {
     'V': 'VENCIDA',
     'C': 'CONFIRMADO',
     'P': 'TIMBRANDO', // 'P' = TIMBRANDO (estado temporal mientras DIAN procesa)
-    'PR': 'PARCIALMENTE_REMITIDO',
+    'L': 'PARCIALMENTE_REMITIDO', // FIXED: 'L' = PARCIALMENTE_REMITIDO
+    'PR': 'PARCIALMENTE_REMITIDO', // Mantener compatibilidad legacy
     'M': 'REMITIDO',
     'X': 'CANCELADO',
     'T': 'EN_TRANSITO',

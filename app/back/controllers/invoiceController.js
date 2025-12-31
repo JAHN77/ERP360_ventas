@@ -4,6 +4,7 @@ const { TABLE_NAMES } = require('../services/dbConfig.cjs');
 const { mapEstadoFromDb, mapEstadoToDb } = require('../utils/helpers.js');
 const DIANService = require('../services/dian-service.cjs');
 const InventoryService = require('../services/inventoryService.js');
+const { sendDocumentEmail } = require('../services/emailService.cjs');
 
 const invoiceController = {
   // GET /api/facturas
@@ -16,7 +17,9 @@ const invoiceController = {
         estado, 
         fechaInicio, 
         fechaFin,
-        clienteId 
+        clienteId,
+        sortBy = 'fechaFactura',
+        sortOrder = 'desc'
       } = req.query;
 
       const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
@@ -26,22 +29,26 @@ const invoiceController = {
       const params = { offset, pageSize: pageSizeNum };
       let whereClauses = [];
 
+      // Filtros de Fecha
       if (fechaInicio && fechaFin) {
         whereClauses.push('f.fecfac BETWEEN @fechaInicio AND @fechaFin');
         params.fechaInicio = new Date(fechaInicio);
         params.fechaFin = new Date(fechaFin);
       }
 
+      // Filtro de Cliente
       if (clienteId) {
         whereClauses.push('f.codter = @clienteId');
         params.clienteId = clienteId;
       }
 
+      // Búsqueda Global (Global Search)
       let searchTerm = '';
       if (search && String(search).trim()) {
         searchTerm = String(search).trim();
       }
 
+      // Filtro de Estado
       let estadoDb = estado;
       if (estado) {
         const estadoUpper = String(estado).toUpperCase();
@@ -54,12 +61,42 @@ const invoiceController = {
         params.estado = estadoDb;
       }
 
+      // Aplicar Búsqueda
       if (searchTerm) {
-        whereClauses.push('(f.numfact LIKE @search OR f.codter LIKE @search OR f.Observa LIKE @search)');
+        // Búsqueda en múltiples campos para ser "Global"
+        // Busca en: Número de factura, Código Cliente, Observaciones, CUFE, Vendedor
+        whereClauses.push(`(
+          f.numfact LIKE @search OR 
+          f.codter LIKE @search OR 
+          f.Observa LIKE @search OR
+          f.CUFE LIKE @search OR
+          f.codven LIKE @search
+        )`);
         params.search = `%${searchTerm}%`;
       }
 
       const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+      // Mapeo de columnas para ordenamiento
+      const sortMapping = {
+        'numeroFactura': 'f.numfact',
+        'fechaFactura': 'f.fecfac',
+        'clienteId': 'f.codter',
+        'total': 'f.netfac',
+        'estado': 'f.estfac',
+        'vendedorId': 'f.codven',
+        'id': 'f.ID'
+      };
+
+      // Construcción dinámica de ORDER BY
+      let orderByColumn = sortMapping[sortBy] || 'f.fecfac';
+      const orderDirection = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+      
+      // Aseguramos un ordenamiento determinista agregando ID al final
+      let orderByClause = `ORDER BY ${orderByColumn} ${orderDirection}`;
+      if (orderByColumn !== 'f.ID') {
+        orderByClause += `, f.ID DESC`;
+      }
 
       const query = `
         SELECT 
@@ -107,7 +144,7 @@ const invoiceController = {
           f.Valnotas as valorNotas
         FROM ${TABLE_NAMES.facturas} f
         ${whereClause}
-        ORDER BY f.fecfac DESC, f.numfact DESC, f.ID DESC
+        ${orderByClause}
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
       `;
 
@@ -119,7 +156,7 @@ const invoiceController = {
 
       const [facturas, countResult] = await Promise.all([
         executeQueryWithParams(query, params),
-        executeQueryWithParams(countQuery, estadoDb || searchTerm || fechaInicio || clienteId ? params : {})
+        executeQueryWithParams(countQuery, params) // Pass params to count query as well
       ]);
 
       const facturasMapeadas = facturas.map(f => ({
@@ -1102,6 +1139,103 @@ const invoiceController = {
     } catch (error) {
         console.error('Error stamping invoice:', error);
         res.status(500).json({ success: false, message: 'Error timbrando factura', error: error.message });
+    }
+  },
+  getNextInvoiceNumber: async (req, res) => {
+    try {
+      const pool = await getConnection();
+      const result = await pool.request().query(`
+        SELECT TOP 1 numfact 
+        FROM ${TABLE_NAMES.facturas} 
+        ORDER BY ID DESC
+      `);
+      
+      let nextNum = '000001';
+      if (result.recordset.length > 0) {
+        const lastNum = result.recordset[0].numfact;
+        const soloDigitos = lastNum.replace(/\D/g, '');
+        const consecutivo = parseInt(soloDigitos, 10);
+        if (!isNaN(consecutivo)) {
+            nextNum = String(consecutivo + 1).padStart(6, '0');
+        }
+      }
+      
+      res.json({ success: true, data: { nextNumber: nextNum } });
+    } catch (error) {
+      console.error('Error getting next invoice number:', error);
+      res.status(500).json({ success: false, message: 'Error interno al obtener el consecutivo' });
+    }
+  },
+
+  // Enviar Factura por Email
+  sendInvoiceEmail: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { destinatario, asunto, mensaje, pdfBase64 } = req.body; 
+
+      const pool = await getConnection();
+      const idNum = parseInt(id, 10);
+      
+      // 1. Obtener Datos de Factura
+      const factQuery = `
+        SELECT 
+          f.numfact, 
+          f.fecfac, 
+          f.netfac,
+          c.nomter, 
+          c.EMAIL 
+        FROM ${TABLE_NAMES.facturas} f
+        LEFT JOIN ${TABLE_NAMES.clientes} c ON LTRIM(RTRIM(c.codter)) = LTRIM(RTRIM(f.codter))
+        WHERE f.ID = @id
+      `;
+      const factRes = await executeQueryWithParams(factQuery, { id: idNum });
+      
+      if (factRes.length === 0) {
+        return res.status(404).json({ success: false, message: 'Factura no encontrada' });
+      }
+
+      const factura = factRes[0];
+      const clienteEmail = destinatario || factura.EMAIL;
+
+      if (!clienteEmail) {
+         return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado.' });
+      }
+
+      // 2. Preparar PDF
+      let pdfBuffer;
+      if (pdfBase64) {
+          pdfBuffer = pdfBase64;
+      } else {
+          return res.status(400).json({ success: false, message: 'Se requiere el PDF generado.' });
+      }
+
+      // 3. Preparar Detalles
+      const formatCurrency = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(val);
+      const documentDetails = [
+          { label: 'Total Factura', value: formatCurrency(factura.netfac || 0) },
+          { label: 'Fecha Emisión', value: new Date(factura.fecfac).toLocaleDateString('es-CO') }
+      ];
+
+      // 4. Enviar Correo
+      await sendDocumentEmail({
+          to: clienteEmail,
+          customerName: factura.nomter,
+          documentNumber: factura.numfact,
+          documentType: 'Factura',
+          pdfBuffer,
+          subject: asunto,
+          body: mensaje,
+          documentDetails,
+        processSteps: `
+            <p>Le recordamos que puede realizar su pago a través de nuestros canales de recaudo autorizados. Si ya realizó el pago, por favor ignore este mensaje o envíenos el comprobante.</p>
+        `
+    });
+
+      res.json({ success: true, message: 'Correo de factura enviado exitosamente' });
+
+    } catch (error) {
+      console.error('Error enviando correo de factura:', error);
+      res.status(500).json({ success: false, message: 'Error enviando correo', error: error.message });
     }
   }
 };

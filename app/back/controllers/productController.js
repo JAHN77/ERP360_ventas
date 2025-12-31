@@ -39,14 +39,15 @@ const productController = {
             ins.codigo_linea           AS codigoLinea,
             ins.codigo_sublinea        AS codigoSublinea,
             ins.Codigo_Medida          AS idMedida,
-            -- Prioritize undins (from inv_insumos) as requested by user, then fallback to Measure Name then 'Und'
-            COALESCE(ins.undins, m.nommed, 'Und') AS unidadMedida,
+            -- Prioritize undins (Exact DB value) as requested by user, then fallback to Measure Name
+            COALESCE(ins.undins, m.nommed, '') AS unidadMedida,
             ins.tasa_iva               AS tasaIva,
             -- Precio base SIN IVA (Tarifa 07)
             COALESCE(
                 CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(10,2)),
                 ins.ultimo_costo
             ) AS ultimoCosto,
+            ins.ultimo_costo           AS ultimoCostoCompra, -- Raw cost for Inventory Entry
             ins.costo_promedio         AS costoPromedio,
             ins.referencia,
             ins.karins                 AS controlaExistencia,
@@ -69,7 +70,7 @@ const productController = {
       if (searchTerm) {
         // PERFORMANCE: Use LIKE with parameters.
         // RECOMMENDATION: Create Index on (nomins) and (referencia) for better performance.
-        query += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search)`;
+        query += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search OR ins.codins LIKE @search)`;
       }
 
       // Group By - Required for aggregation (SUM(stock))
@@ -122,7 +123,7 @@ const productController = {
         WHERE ins.activo = 1
       `;
       if (searchTerm) {
-        countQuery += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search)`;
+        countQuery += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search OR ins.codins LIKE @search)`;
       }
       const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {});
       const totalRecords = countResult[0]?.total || 0;
@@ -153,48 +154,52 @@ const productController = {
    */
   searchProducts: async (req, res) => {
     try {
-      const { search = '', limit = 20 } = req.query;
+      const { search = '', limit = 20, codalm = null } = req.query;
       if (String(search).trim().length < 2) {
         return res.status(400).json({ success: false, message: 'Ingrese al menos 2 caracteres' });
       }
-
+  
       const query = `
         SELECT TOP (@limit)
           ins.id,
+          ins.codins,
           ins.nomins AS nombre,
           LTRIM(RTRIM(COALESCE(ins.referencia, ''))) AS referencia,
           COALESCE(
              CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(10,2)),
              ins.ultimo_costo
           ) AS ultimoCosto,
+          ins.ultimo_costo AS ultimoCostoCompra, -- Raw cost for Inventory Entry
+          COALESCE(MAX(inv.ucoins), 0) AS costoInventario,
           COALESCE(SUM(inv.caninv), 0) AS stock,
           ins.undins AS unidadMedidaCodigo,
           m.nommed AS unidadMedidaNombre,
-          COALESCE(ins.undins, m.nommed, 'Und') AS unidadMedida,
+          -- Prioritize undins (Exact DB value) as requested by user, then fallback to Measure Name
+          COALESCE(ins.undins, m.nommed, '') AS unidadMedida,
           ins.tasa_iva AS tasaIva,
           dp.valins AS precioConIva
         FROM ${TABLE_NAMES.productos} ins
-        LEFT JOIN inv_invent inv ON inv.codins = ins.codins
+        LEFT JOIN inv_invent inv ON inv.codins = ins.codins AND (@codalm IS NULL OR inv.codalm = @codalm)
         LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
         LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
-        WHERE ins.activo = 1 AND (ins.nomins LIKE @like OR ins.referencia LIKE @like)
-        GROUP BY ins.id, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva, dp.valins
+        WHERE ins.activo = 1 AND (ins.nomins LIKE @like OR ins.referencia LIKE @like OR ins.codins LIKE @like)
+        GROUP BY ins.id, ins.codins, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva, dp.valins
         ORDER BY ins.nomins
       `;
-
+  
       const data = await executeQueryWithParams(query, { 
           like: `%${search}%`, 
-          limit: Math.min(parseInt(limit) || 20, 100) 
+          limit: Math.min(parseInt(limit) || 20, 100),
+          codalm: codalm || null
       });
-
+  
       res.json({ success: true, data });
-
+  
     } catch (error) {
        console.error('Error in searchProducts:', error);
        res.status(500).json({ success: false, message: 'Error en búsqueda de productos', error: error.message });
     }
-  }
-  ,
+  },
   /**
    * Get product stock breakdown by warehouse
    */

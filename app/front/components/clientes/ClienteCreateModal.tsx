@@ -275,7 +275,7 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
     const isNit = formData.tipoDocumento === '31';
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Nuevo Tercero / Cliente" size="xb" >
+        <Modal isOpen={isOpen} onClose={onClose} title="Nuevo Tercero / Cliente" size="5xl" >
             <div className="p-1.5 text-slate-800 dark:text-slate-100 bg-[#f8fafc] dark:bg-[#0f172a] min-h-[600px]">
                 <form onSubmit={handleSubmit} className="px-4 pb-4">
 

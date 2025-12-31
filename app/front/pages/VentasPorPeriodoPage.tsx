@@ -6,7 +6,7 @@ import DateRangePicker, { DateRangeOption } from '../components/ui/DateRangePick
 import { useData } from '../hooks/useData';
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 const dateRangeOptions: DateRangeOption[] = [
@@ -31,7 +31,7 @@ const VentasPorPeriodoPage: React.FC = () => {
                 start.setDate(1);
                 break;
             case '90':
-                 start.setDate(end.getDate() - 89);
+                start.setDate(end.getDate() - 89);
                 break;
             case '30':
             default:
@@ -67,11 +67,11 @@ const VentasPorPeriodoPage: React.FC = () => {
 
         const totalSales = relevantInvoices.reduce((sum, f) => {
             const totalDevuelto = notasCredito
-              .filter(nc => nc.facturaId === f.id)
-              .reduce((devSum, nc) => devSum + nc.total, 0);
+                .filter(nc => nc.facturaId === f.id)
+                .reduce((devSum, nc) => devSum + nc.total, 0);
             return sum + (f.total - totalDevuelto);
         }, 0);
-        
+
         const invoiceCount = relevantInvoices.length;
         const averageSale = invoiceCount > 0 ? totalSales / invoiceCount : 0;
 
@@ -82,13 +82,13 @@ const VentasPorPeriodoPage: React.FC = () => {
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                 <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Estadísticas de Ventas por Período</h1>
-                <DateRangePicker 
+                <DateRangePicker
                     options={dateRangeOptions}
                     activeOption={activeRange}
                     onOptionChange={setActiveRange}
                 />
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                 <StatCard title="Ventas Totales" value={formatCurrency(stats.totalSales)} icon="fa-dollar-sign" colorName="blue" />
                 <StatCard title="Nº de Facturas" value={stats.invoiceCount.toString()} icon="fa-file-invoice" colorName="green" />

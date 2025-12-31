@@ -45,7 +45,10 @@ const TABLE_NAMES = {
   tipos_persona: 'tipos_persona',
   regimenes_fiscal: 'Dian_Regimenes',
   vendedores: 'ven_vendedor',
-  transportadoras: 'transportadoras'
+  transportadoras: 'transportadoras',
+  ordenes_compra: 'com_maeocompra',
+  ordenes_compra_detalle: 'com_ocompra',
+  usuarios: 'gen_usuarios'
 };
 
 // Configuración de consultas comunes

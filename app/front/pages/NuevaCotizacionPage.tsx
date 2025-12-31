@@ -11,6 +11,7 @@ import ApprovalSuccessModal from '../components/ui/ApprovalSuccessModal';
 import { useData } from '../hooks/useData';
 import { findClienteByIdentifier } from '../utils/clientes';
 import { formatDateOnly } from '../utils/formatters';
+import apiClient from '../services/apiClient';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -50,6 +51,31 @@ const NuevaCotizacionPage: React.FC = () => {
     const [isApproving, setIsApproving] = useState(false);
     const [approvalResult, setApprovalResult] = useState<{ cotizacion: Cotizacion, pedido: Pedido } | null>(null);
     const [savedCotizacion, setSavedCotizacion] = useState<Cotizacion | null>(null);
+    const [nextQuoteNumber, setNextQuoteNumber] = useState<string>('');
+    const [currentDateString, setCurrentDateString] = useState<string>('');
+
+    useEffect(() => {
+        const today = new Date();
+        setCurrentDateString(today.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }));
+
+        const fetchNextNumber = async () => {
+            try {
+                const response = await apiClient.getNextQuoteNumber();
+                if (response.success && response.data) {
+                    setNextQuoteNumber(response.data.nextNumber);
+                } else {
+                    setNextQuoteNumber('000001');
+                }
+            } catch (error) {
+                console.error("Error fetching next quote number", error);
+                setNextQuoteNumber('??????');
+            }
+        };
+
+        if (!isEditing) {
+            fetchNextNumber();
+        }
+    }, [isEditing]);
 
     useEffect(() => {
         if (isEditing && params.id) {
@@ -122,7 +148,7 @@ const NuevaCotizacionPage: React.FC = () => {
 
             const previewData: Cotizacion = {
                 id: 'temp-preview',
-                numeroCotizacion: 'COT-PREVIEW',
+                numeroCotizacion: nextQuoteNumber ? `C-${nextQuoteNumber}` : 'COT-PREVIEW',
                 fechaCotizacion: today.toISOString().split('T')[0],
                 fechaVencimiento: expiryDate.toISOString().split('T')[0],
                 clienteId: formData.clienteId,
@@ -294,15 +320,25 @@ const NuevaCotizacionPage: React.FC = () => {
     };
 
     return (
-        <div className="animate-fade-in space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+        <div className="animate-fade-in space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-2">
                 <div>
                     <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-                        {isEditing ? `Editar Cotización: ${initialData?.numeroCotizacion || ''}` : 'Crear Nueva Cotización'}
+                        {isEditing
+                            ? `Editar Cotización: ${(initialData?.numeroCotizacion || '').replace('C-', '')}`
+                            : `Nueva Cotización ${nextQuoteNumber ? `#${nextQuoteNumber.replace('C-', '')}` : ''}`}
                     </h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-1">
-                        {isEditing ? 'Modifica los detalles de la cotización existente.' : 'Diligencia el formulario para generar una nueva cotización.'}
-                    </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-1">
+                        <p className="text-slate-500 dark:text-slate-400">
+                            {isEditing ? 'Modifica los detalles de la cotización existente.' : 'Diligencia el formulario para generar una nueva cotización.'}
+                        </p>
+                        {!isEditing && currentDateString && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                <i className="far fa-calendar-alt mr-1"></i>
+                                {currentDateString}
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
             <Card>
@@ -344,7 +380,7 @@ const NuevaCotizacionPage: React.FC = () => {
                             setPreviewCliente(null);
                             setPreviewVendedor(null);
                         }}
-                        title={`Previsualizar Cotización: ${isEditing ? quoteToPreview.numeroCotizacion : 'NUEVA'}`}
+                        title={`Previsualizar Cotización: ${isEditing ? quoteToPreview.numeroCotizacion.replace('C-', '') : 'NUEVA'}`}
                         onConfirm={handleCreateAndApprove}
                         onEdit={() => {
                             setQuoteToPreview(null);
@@ -391,8 +427,8 @@ const NuevaCotizacionPage: React.FC = () => {
                         title="¡Aprobación Exitosa!"
                         message={
                             <>
-                                La cotización <strong>{cotizacion.numeroCotizacion}</strong> ha sido aprobada.
-                                Se ha generado el Pedido <strong>{pedido.numeroPedido}</strong>.
+                                La cotización <strong>{cotizacion.numeroCotizacion.replace('C-', '')}</strong> ha sido aprobada.
+                                Se ha generado el Pedido <strong>{pedido.numeroPedido.replace('P-', '')}</strong>.
                             </>
                         }
                         summaryTitle="Resumen del Pedido Creado"
@@ -441,12 +477,12 @@ const NuevaCotizacionPage: React.FC = () => {
                         title="¡Cotización Guardada!"
                         message={
                             <>
-                                La cotización <strong>{cotizacion.numeroCotizacion}</strong> ha sido guardada y enviada a aprobación.
+                                La cotización <strong>{cotizacion.numeroCotizacion.replace('C-', '')}</strong> ha sido guardada y enviada a aprobación.
                             </>
                         }
                         summaryTitle="Resumen de la Cotización"
                         summaryDetails={[
-                            { label: 'Número', value: cotizacion.numeroCotizacion },
+                            { label: 'Número', value: cotizacion.numeroCotizacion.replace('C-', '') },
                             { label: 'Fecha', value: formatDateOnly(cotizacion.fechaCotizacion) },
                             { label: 'Válida hasta', value: formatDateOnly(cotizacion.fechaVencimiento) },
                             { label: 'Cliente', value: cliente.nombreCompleto || cliente.razonSocial || 'N/A' },

@@ -52,7 +52,17 @@ const clientController = {
    */
   getAllClients: async (req, res) => {
     try {
-      const { page = '1', pageSize = '100', search } = req.query;
+      const { 
+        page = '1', 
+        pageSize = '100', 
+        search,
+        sortBy = 'razonSocial',
+        sortOrder = 'asc',
+        isProveedor,
+        tipoPersonaId,
+        diasCredito
+      } = req.query;
+
       const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
       const pageSizeNum = Math.min(10000, Math.max(10, parseInt(String(pageSize), 10) || 100));
       const offset = (pageNum - 1) * pageSizeNum;
@@ -63,66 +73,147 @@ const clientController = {
         searchTerm = String(search).trim();
       }
 
-      // Base Conditon (Active Clients + Email Required)
-      // USER REQUEST: WHERE tipter = 2 and activo=1 AND LTRIM(RTRIM(email)) <> '' AND email IS NOT NULL
-      let whereClause = "WHERE activo = 1 AND tipter = 2 AND EMAIL IS NOT NULL AND LTRIM(RTRIM(EMAIL)) <> ''";
+      // Base Conditon (Active Terceros + Email Required)
+      let whereClause = "WHERE t.activo = 1 AND t.EMAIL IS NOT NULL AND LTRIM(RTRIM(t.EMAIL)) <> ''";
       
-      console.log('🔍 [DEBUG] getAllClients - Params:', { page, pageSize, search });
+      console.log('🔍 [DEBUG] getAllClients - Params:', { page, pageSize, search, sortBy, sortOrder, isProveedor, tipoPersonaId, diasCredito });
+
+      const params = { offset, pageSize: pageSizeNum };
 
       if (searchTerm) {
-        whereClause += ` AND (nomter LIKE @search OR codter LIKE @search OR EMAIL LIKE @search)`;
-        console.log('🔍 [DEBUG] Search term applied:', searchTerm);
+        whereClause += ` AND (
+            t.nomter LIKE @search OR 
+            t.codter LIKE @search OR 
+            t.EMAIL LIKE @search OR 
+            t.coddane LIKE @search
+        )`;
+        params.search = `%${searchTerm}%`;
+      }
+
+      // Filter by Provider Status (Critical for Tabs)
+      if (isProveedor !== undefined && isProveedor !== null && isProveedor !== 'Todos') {
+        const isProvBool = String(isProveedor) === 'true' || String(isProveedor) === '1';
+        if (isProvBool) {
+            whereClause += " AND (t.isproveedor = 1)";
+        } else {
+            whereClause += " AND (t.isproveedor = 0 OR t.isproveedor IS NULL)";
+        }
+      }
+
+      // Filter by Type
+      if (tipoPersonaId && tipoPersonaId !== 'Todos') {
+          whereClause += " AND t.tipter = @tipoPersonaId";
+          params.tipoPersonaId = tipoPersonaId;
+      }
+
+      // Filter by Payment Condition (diasCredito)
+      if (diasCredito && diasCredito !== 'Todos') {
+          whereClause += " AND t.plazo = @diasCredito";
+          params.diasCredito = diasCredito;
       }
       
-      console.log('🔍 [DEBUG] Final WhereClause:', whereClause);
+      // Mapeo de columnas para ordenamiento
+      const sortMapping = {
+        'razonSocial': 't.nomter',
+        'nombreCompleto': 't.nomter',
+        'numeroDocumento': 't.codter',
+        'email': 't.EMAIL',
+        'ciudad': 'ciudad', // Special handling
+        'ciudadId': 'ciudad', // Special handling
+        'direccion': 't.dirter',
+        'telefono': 't.TELTER',
+        'telter': 't.TELTER',
+        'fechaIngreso': 't.FECING',
+        'id': 't.id'
+      };
 
-      // Optimization: Select specific columns
+      let orderByColumn = sortMapping[sortBy] || 't.nomter';
+      const orderDirection = sortOrder.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+      
+      let columnExpression = orderByColumn;
+      
+      // Special sort for 'ciudad': Resolve name from code if possible
+      if (sortBy === 'ciudad' || sortBy === 'ciudadId') {
+          columnExpression = `LTRIM(ISNULL(COALESCE(gm.nommun, t.ciudad), ''))`;
+      } else {
+        const stringColumns = ['t.nomter', 't.codter', 't.EMAIL', 't.dirter', 't.TELTER'];
+        if (stringColumns.includes(orderByColumn)) {
+            columnExpression = `LTRIM(ISNULL(${orderByColumn}, ''))`;
+        }
+      }
+
+      let orderByClause = `ORDER BY ${columnExpression} ${orderDirection}`;
+      if (orderByColumn !== 't.codter') {
+        orderByClause += `, t.codter ASC`;
+      }
+
+      console.log('🔍 [DEBUG] Final Query Parts:', { whereClause, orderByClause });
+
+      // Optimization: Select specific columns with aliases to avoid ambiguity
       const query = `
         SELECT 
-          id,
-          codter as numeroDocumento,
-          nomter as razonSocial,
-          apl1 as primerApellido,
-          apl2 as segundoApellido,
-          nom1 as primerNombre,
-          nom2 as segundoNombre,
-          dirter as direccion,
-          TELTER as telefono,
-          CELTER as celular,
-          EMAIL as email,
-          ciudad,
-          ciudad as ciudadId,
-          codven as vendedorId,
-          COALESCE(cupo_credito, 0) as limiteCredito,
-          COALESCE(plazo, 0) as diasCredito,
-          COALESCE(tasa_descuento, 0) as tasaDescuento,
-          Forma_pago as formaPago,
-          regimen_tributario as regimenTributario,
-          CAST(activo AS INT) as activo,
-          contacto,
-          codacteconomica,
-          coddane as codigoPostal,
-          Tipo_documento as tipoDocumento,
-          FECING as fechaIngreso
-        FROM ${TABLE_NAMES.clientes}
+          t.id,
+          t.codter as numeroDocumento,
+          t.nomter as razonSocial,
+          t.apl1 as primerApellido,
+          t.apl2 as segundoApellido,
+          t.nom1 as primerNombre,
+          t.nom2 as segundoNombre,
+          t.dirter as direccion,
+          t.TELTER as telefono,
+          t.CELTER as celular,
+          t.EMAIL as email,
+          t.ciudad,
+          t.ciudad as ciudadId,
+          t.codven as vendedorId,
+          COALESCE(t.cupo_credito, 0) as limiteCredito,
+          COALESCE(t.plazo, 0) as diasCredito,
+          COALESCE(t.tasa_descuento, 0) as tasaDescuento,
+          t.Forma_pago as formaPago,
+          t.regimen_tributario as regimenTributario,
+          CAST(t.activo AS INT) as activo,
+          t.contacto,
+          t.codacteconomica,
+          t.coddane as codigoPostal,
+          t.Tipo_documento as tipoDocumento,
+          t.tipter,
+          t.isproveedor, 
+          t.FECING as fechaIngreso
+        FROM ${TABLE_NAMES.clientes} t
+        LEFT JOIN gen_municipios gm ON LTRIM(RTRIM(t.ciudad)) = LTRIM(RTRIM(gm.coddane))
         ${whereClause}
-        ORDER BY nomter
+        ${orderByClause}
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
       `;
 
       const countQuery = `
         SELECT COUNT(*) as total
-        FROM ${TABLE_NAMES.clientes}
+        FROM ${TABLE_NAMES.clientes} t
+        LEFT JOIN gen_municipios gm ON LTRIM(RTRIM(t.ciudad)) = LTRIM(RTRIM(gm.coddane))
         ${whereClause}
       `;
-
-      const params = { offset, pageSize: pageSizeNum };
-      if (searchTerm) params.search = `%${searchTerm}%`;
 
       const [clientes, countResult] = await Promise.all([
         executeQueryWithParams(query, params),
         executeQueryWithParams(countQuery, searchTerm ? { search: params.search } : {})
       ]);
+
+
+
+      const processedClientes = clientes.map(c => ({
+          ...c,
+          nombreCompleto: c.razonSocial || [c.primerNombre, c.segundoNombre, c.primerApellido, c.segundoApellido].filter(Boolean).join(' ').trim() || 'Sin Nombre'
+      }));
+
+      // DEBUG: Inspect actual data being returned
+      if (processedClientes.length > 0) {
+          console.log('🔍 [DEBUG] First 5 rows:', processedClientes.slice(0, 5).map(c => ({ 
+              id: c.id, 
+              nombre: c.nombreCompleto, 
+              ciudadRaw: c.ciudad, 
+              ciudadId: c.ciudadId 
+          })));
+      }
 
       const total = countResult[0]?.total || 0;
       console.log('🔍 [DEBUG] Total found:', total);
@@ -130,7 +221,7 @@ const clientController = {
 
       res.json({
         success: true,
-        data: clientes,
+        data: processedClientes,
         pagination: {
           page: pageNum,
           pageSize: pageSizeNum,
@@ -170,10 +261,11 @@ const clientController = {
           CELTER as celular,
           EMAIL as email,
           ciudad,
-          codven as vendedorId
+          codven as vendedorId,
+          tipter,
+          isproveedor
         FROM con_terceros
         WHERE activo = 1 
-          AND tipter = 2
           AND (nomter LIKE @like OR codter LIKE @like) -- Reduced fields for speed if needed, but keeping main ones
         ORDER BY nomter`;
 

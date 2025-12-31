@@ -17,4 +17,7 @@ router.put('/remisiones/:id', remissionController.updateRemission);
 // POST /api/remisiones
 router.post('/remisiones', remissionController.createRemission);
 
+// POST /api/remisiones/:id/send-email
+router.post('/remisiones/:id/send-email', remissionController.sendRemissionEmail);
+
 module.exports = router;

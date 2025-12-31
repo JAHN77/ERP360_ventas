@@ -15,15 +15,20 @@ import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
 import CotizacionPDFDocument from '../components/comercial/CotizacionPDFDocument';
 import CotizacionForm from '../components/comercial/CotizacionForm';
+import PageHeader from '../components/ui/PageHeader';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { findClienteByIdentifier } from '../utils/clientes';
 import { formatDateOnly } from '../utils/formatters';
-import { fetchCotizacionesDetalle } from '../services/apiClient';
+import apiClient, { fetchCotizacionesDetalle, apiArchiveDocumentToDrive } from '../services/apiClient';
+import SendEmailModal from '../components/comercial/SendEmailModal';
+import { pdf } from '@react-pdf/renderer';
+import PageContainer from '../components/ui/PageContainer';
+import SectionHeader from '../components/ui/SectionHeader';
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 // --- Status Calculation Logic ---
@@ -79,7 +84,7 @@ const CotizacionesPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const { addNotification } = useNotifications();
   const { user } = useAuth();
-  const { cotizaciones, clientes, vendedores, aprobarCotizacion, pedidos, remisiones, facturas, datosEmpresa, productos, getCotizacionById, actualizarCotizacion } = useData();
+  const { cotizaciones, clientes, vendedores, aprobarCotizacion, pedidos, remisiones, facturas, datosEmpresa, productos, getCotizacionById, actualizarCotizacion, isLoading } = useData();
 
   const [statusFilter, setStatusFilter] = useState('Todos');
 
@@ -88,6 +93,7 @@ const CotizacionesPage: React.FC = () => {
   const [approvedItems, setApprovedItems] = useState<Set<number>>(new Set());
 
   const [quoteToPreview, setQuoteToPreview] = useState<Cotizacion | null>(null);
+  const [quoteToEmail, setQuoteToEmail] = useState<Cotizacion | null>(null);
   const [approvalResult, setApprovalResult] = useState<{ cotizacion: Cotizacion, pedido: Pedido } | null>(null);
 
   const ENABLE_BATCH_APPROVAL = false;
@@ -247,6 +253,9 @@ const CotizacionesPage: React.FC = () => {
           message: `Cotización ${finalApprovedQuote?.numeroCotizacion || cotizacion.numeroCotizacion} aprobada exitosamente. Pedido creado.`,
           type: 'success'
         });
+
+        // La previsualización se mantiene abierta, el usuario puede ahora enviar el correo manualmente
+        // o podríamos forzar la apertura del modal de correo aquí si tuviéramos acceso al estado del componente hijo
       } else {
         // Solo se aprobó la cotización sin crear pedido
         /*
@@ -494,6 +503,121 @@ const CotizacionesPage: React.FC = () => {
   }, [selectedCotizacion, approvedItems]);
 
 
+
+  const handleSendEmail = (cotizacion: Cotizacion) => {
+    setQuoteToEmail(cotizacion);
+  };
+
+  const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
+    if (!quoteToEmail) return;
+
+    addNotification({ message: 'Preparando envío de correo...', type: 'info' });
+
+    try {
+      const clienteCotizacion = clientes.find(c => String(c.id) === String(quoteToEmail.clienteId));
+      if (!clienteCotizacion) return;
+
+      let vendedor = null;
+      if (quoteToEmail.vendedorId) {
+        vendedor = vendedores.find(v => String(v.id) === String(quoteToEmail.vendedorId));
+      }
+
+      // DETERMINAR FIRMA: Priorizar la firma del usuario logueado ('user.firma') si existe,
+      // de lo contrario usar la del vendedor asignado a la cotización.
+      // El usuario solicitó explícitamente: "quiero que se guarde y envie con la firma del usuario que esta ejecutando el programa"
+      const firmaFinal = user?.firma || vendedor?.firma;
+
+      // Generar Blob del PDF
+      const blob = await pdf(
+        <CotizacionPDFDocument
+          cotizacion={quoteToEmail}
+          cliente={clienteCotizacion}
+          vendedor={vendedor || undefined}
+          firmaVendedor={firmaFinal}
+          empresa={datosEmpresa}
+          preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
+          productos={productos}
+        />
+      ).toBlob();
+
+      // Convertir a Base64
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+
+        // Enviar al backend usando el endpoint específico
+        const response = await apiClient.sendCotizacionEmail(quoteToEmail.id, {
+          destinatario: emailData.to,
+          asunto: emailData.subject,
+          mensaje: emailData.body,
+          pdfBase64: base64data
+        });
+
+        if (response.success) {
+          addNotification({ message: '✅ Correo enviado exitosamente.', type: 'success' });
+          setQuoteToEmail(null);
+
+          // --- Archivar en Google Drive ---
+          try {
+            addNotification({ message: 'Archivando en Google Drive...', type: 'info' });
+            // Extraer base64 raw
+            const base64Content = base64data.split(',')[1] || base64data;
+
+            const archiveResponse = await apiArchiveDocumentToDrive({
+              type: 'cotizacion',
+              number: quoteToEmail.numeroCotizacion,
+              date: quoteToEmail.fechaCotizacion || new Date().toISOString(),
+              recipientName: clienteCotizacion?.razonSocial || 'Cliente',
+              fileBase64: base64Content
+            });
+
+            if (archiveResponse.success) {
+              addNotification({ message: 'Documento archivado en Drive.', type: 'success' });
+            } else if (archiveResponse.code === 'FILE_EXISTS') {
+              // Prompt for replacement
+              const shouldReplace = window.confirm(`El archivo ya existe en Drive. ¿Desea reemplazarlo?`);
+              if (shouldReplace) {
+                addNotification({ message: 'Reemplazando archivo en Drive...', type: 'info' });
+                const retryResponse = await apiArchiveDocumentToDrive({
+                  type: 'cotizacion',
+                  number: quoteToEmail.numeroCotizacion,
+                  date: quoteToEmail.fechaCotizacion || new Date().toISOString(),
+                  recipientName: clienteCotizacion?.razonSocial || 'Cliente',
+                  fileBase64: base64Content,
+                  replace: true
+                });
+
+                if (retryResponse.success) {
+                  addNotification({ message: 'Archivo actualizado correctamente.', type: 'success' });
+                } else {
+                  addNotification({ message: 'Error actualizando archivo.', type: 'error' });
+                }
+              } else {
+                addNotification({ message: 'Se canceló el archivado.', type: 'info' });
+              }
+            } else {
+              console.warn('Error archivando en Drive:', archiveResponse);
+            }
+          } catch (driveError) {
+            console.error('Error llamando a apiArchiveDocumentToDrive:', driveError);
+          }
+
+        } else {
+          addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
+        }
+      };
+      reader.onerror = () => {
+        addNotification({ message: 'Error procesando el archivo PDF para envío.', type: 'error' });
+      };
+
+    } catch (error) {
+      console.error('Error en proceso de envío de email:', error);
+      addNotification({ message: 'Error al generar o enviar el correo.', type: 'error' });
+    }
+  };
+
+
   // Limpiar selección cuando cambia el filtro o página
   useEffect(() => {
     if (!ENABLE_BATCH_APPROVAL) return;
@@ -506,7 +630,9 @@ const CotizacionesPage: React.FC = () => {
         header: 'Número',
         accessor: 'numeroCotizacion',
         cell: (item) => (
-          <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroCotizacion}</span>
+          <span className="font-bold font-mono text-slate-700 dark:text-slate-200">
+            {item.numeroCotizacion.replace('C-', '')}
+          </span>
         )
       },
       {
@@ -593,6 +719,20 @@ const CotizacionesPage: React.FC = () => {
             >
               <i className="fas fa-eye"></i>
             </button>
+            <button
+              onClick={() => setQuoteToPreview(item)}
+              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all duration-200"
+              title="Vista Previa PDF"
+            >
+              <i className="fas fa-file-pdf"></i>
+            </button>
+            <button
+              onClick={() => handleSendEmail(item)}
+              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+              title="Enviar Email"
+            >
+              <i className="fas fa-paper-plane"></i>
+            </button>
             <ProtectedComponent permission="cotizaciones:approve">
               {(item.estado === 'ENVIADA' || item.estado === 'BORRADOR') && (
                 <button
@@ -647,7 +787,7 @@ const CotizacionesPage: React.FC = () => {
           id="statusFilter"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {filterOptions.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -658,20 +798,14 @@ const CotizacionesPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-            Gestión de Cotizaciones
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Administra y da seguimiento a las ofertas comerciales.
-          </p>
-        </div>
-      </div>
+    <PageContainer>
+      <SectionHeader
+        title="Gestión de Cotizaciones"
+        subtitle="Administra y da seguimiento a las ofertas comerciales."
+      />
 
-      <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+      <Card className="shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
@@ -713,7 +847,7 @@ const CotizacionesPage: React.FC = () => {
         )}
 
         <CardContent className="p-0">
-          <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} highlightRowId={params.highlightId ?? params.focusId} />
+          <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} highlightRowId={params.highlightId ?? params.focusId} isLoading={isLoading} />
         </CardContent>
 
         <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/30">
@@ -833,12 +967,18 @@ const CotizacionesPage: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Teléfono</p>
-                      <p className="font-medium text-slate-700 dark:text-slate-300">{clientes.find(c => c.id === selectedCotizacion.clienteId)?.telter || 'N/A'}</p>
+                      <p className="font-medium text-slate-700 dark:text-slate-300">
+                        {(selectedCotizacion as any).clienteTelefono ||
+                          (selectedCotizacion as any).clienteCelular ||
+                          clientes.find(c => c.id === selectedCotizacion.clienteId)?.telter ||
+                          clientes.find(c => c.id === selectedCotizacion.clienteId)?.celter ||
+                          'N/A'}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Email</p>
-                      <p className="font-medium text-slate-700 dark:text-slate-300 truncate" title={clientes.find(c => c.id === selectedCotizacion.clienteId)?.email || ''}>
-                        {clientes.find(c => c.id === selectedCotizacion.clienteId)?.email || 'N/A'}
+                      <p className="font-medium text-slate-700 dark:text-slate-300 truncate" title={(selectedCotizacion as any).clienteEmail || clientes.find(c => c.id === selectedCotizacion.clienteId)?.email || ''}>
+                        {(selectedCotizacion as any).clienteEmail || clientes.find(c => c.id === selectedCotizacion.clienteId)?.email || 'N/A'}
                       </p>
                     </div>
                   </div>
@@ -934,7 +1074,7 @@ const CotizacionesPage: React.FC = () => {
                       const itemTotal = itemSubtotal + itemIva;
 
                       return (
-                        <tr key={index} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                        <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                           {['ENVIADA', 'BORRADOR'].includes(selectedCotizacion.estado) && (
                             <td className="px-4 py-3">
                               <input
@@ -1097,7 +1237,7 @@ const CotizacionesPage: React.FC = () => {
             <DocumentPreviewModal
               isOpen={!!quoteToPreview}
               onClose={() => setQuoteToPreview(null)}
-              title={`Previsualizar Cotización: ${quoteToPreview.numeroCotizacion}`}
+              title={`Previsualizar Cotización: ${quoteToPreview.numeroCotizacion?.replace('C-', '')}`}
               onConfirm={() => executeApproval(quoteToPreview, quoteToPreview.items.map(i => i.productoId))}
               isConfirming={isApproving}
               onEdit={() => {
@@ -1109,7 +1249,9 @@ const CotizacionesPage: React.FC = () => {
               documentType="cotizacion"
               clientEmail={cliente.email}
               clientName={cliente.nombreCompleto}
+              documentId={quoteToPreview.id}
             >
+
               <CotizacionPDFDocument
                 cotizacion={quoteToPreview}
                 cliente={cliente}
@@ -1293,7 +1435,21 @@ const CotizacionesPage: React.FC = () => {
         )
       }
 
-    </div >
+      {quoteToEmail && (() => {
+        const clienteCotizacion = clientes.find(c => String(c.id) === String(quoteToEmail.clienteId));
+        return (
+          <SendEmailModal
+            isOpen={!!quoteToEmail}
+            onClose={() => setQuoteToEmail(null)}
+            onSend={handleConfirmSendEmail}
+            to={clienteCotizacion?.email || ''}
+            subject={`Cotización ${quoteToEmail.numeroCotizacion} - ${datosEmpresa.nombre}`}
+            body={`Estimado cliente ${clienteCotizacion?.nombreCompleto || 'Cliente'},\n\nAdjuntamos la cotización de los productos de su interés.\n\nCordialmente,\n${datosEmpresa.nombre}`}
+          />
+        );
+      })()}
+
+    </PageContainer>
   );
 };
 

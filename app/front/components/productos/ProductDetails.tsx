@@ -7,7 +7,7 @@ interface ProductDetailsProps {
 }
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 const ProductDetails: React.FC<ProductDetailsProps> = ({ producto }) => {
@@ -93,17 +93,17 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ producto }) => {
                 ) : stockDetails.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {stockDetails.map((bodega) => (
-                            <div key={bodega.codalm} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-600">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                            <div key={bodega.codalm} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-600 gap-3">
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex-shrink-0 flex items-center justify-center text-blue-600 dark:text-blue-400">
                                         <i className="fas fa-building text-xs"></i>
                                     </div>
-                                    <div>
-                                        <div className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase">{bodega.codalm}</div>
-                                        <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{bodega.nombreBodega}</div>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase truncate">{bodega.codalm}</div>
+                                        <div className="text-sm font-medium text-slate-800 dark:text-slate-200 break-words line-clamp-2" title={bodega.nombreBodega}>{bodega.nombreBodega}</div>
                                     </div>
                                 </div>
-                                <div className={`text-lg font-bold ${bodega.cantidad > 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-400 dark:text-slate-500'}`}>
+                                <div className={`text-lg font-bold whitespace-nowrap flex-shrink-0 ${bodega.cantidad > 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-400 dark:text-slate-500'}`}>
                                     {bodega.cantidad}
                                 </div>
                             </div>

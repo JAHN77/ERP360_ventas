@@ -1,3 +1,8 @@
+import { Buffer } from 'buffer';
+if (typeof window !== 'undefined') {
+  (window as any).Buffer = Buffer;
+}
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Table, { Column } from '../components/ui/Table';
 import Card, { CardHeader, CardTitle, CardContent } from '../components/ui/Card';
@@ -14,12 +19,16 @@ import { ProgressFlow, ProgressStep } from '../components/ui/ProgressFlow';
 import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal';
 import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
-import { apiClient, fetchPedidosDetalle } from '../services/apiClient';
+import { useAuth } from '../hooks/useAuth';
+import apiClient, { fetchPedidosDetalle } from '../services/apiClient';
 import { formatDateOnly } from '../utils/formatters';
+import SendEmailModal from '../components/comercial/SendEmailModal';
+import { pdf } from '@react-pdf/renderer';
+import RemisionPDFDocument from '../components/remisiones/RemisionPDFDocument';
 // Supabase eliminado: descarga de adjuntos se implementará vía backend
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 interface RemisionItemForm {
@@ -50,12 +59,16 @@ const groupFilterOptions = [
 
 const RemisionesPage: React.FC = () => {
   const { params, setPage } = useNavigation();
+  const { user } = useAuth();
   const { addNotification } = useNotifications();
 
   const {
     pedidos,
     clientes,
+    datosEmpresa,
+    productos,
     productos: allProducts,
+    vendedores,
     aprobarRemision,
     crearRemision,
     archivosAdjuntos,
@@ -226,6 +239,7 @@ const RemisionesPage: React.FC = () => {
   };
 
   const [isDetailModalOpen, setDetailModalOpen] = useState(false);
+  const [remisionToEmail, setRemisionToEmail] = useState<Remision | null>(null);
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
 
   const [selectedGroup, setSelectedGroup] = useState<RemisionGroup | null>(null);
@@ -243,6 +257,8 @@ const RemisionesPage: React.FC = () => {
 
   const [remisionSuccessData, setRemisionSuccessData] = useState<Remision | null>(null);
   const [deliveryResult, setDeliveryResult] = useState<Remision | null>(null);
+
+
 
   const [isCreating, setIsCreating] = useState(false);
   const [isDelivering, setIsDelivering] = useState<string | null>(null);
@@ -515,7 +531,86 @@ const RemisionesPage: React.FC = () => {
   }, [params?.focusId, remisionGroups, remisionesByIdMap, remisionGroupsByPedidoIdMap]);
 
 
-  // OPTIMIZACIÓN: Crear mapa de productos para búsqueda rápida
+  const handleSendEmail = (remision: Remision) => {
+    setRemisionToEmail(remision);
+  };
+
+  const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
+    if (!remisionToEmail) return;
+    addNotification({ message: 'Preparando envío de correo...', type: 'info' });
+
+    try {
+      const relatedData = (() => {
+        const remisionClienteId = remisionToEmail.clienteId;
+        const cliente = clientes.find(c =>
+          String(c.id) === String(remisionClienteId) ||
+          c.numeroDocumento === remisionClienteId ||
+          c.codter === remisionClienteId
+        );
+
+        const remisionPedidoId = remisionToEmail.pedidoId;
+        const pedido = pedidos.find(p => String(p.id) === String(remisionPedidoId));
+        return { cliente, pedido };
+      })();
+
+      if (!relatedData.cliente) {
+        addNotification({ message: 'No se encontró la información del cliente.', type: 'warning' });
+        return;
+      }
+
+      let vendedor = null;
+      if (remisionToEmail.vendedorId) {
+        vendedor = vendedores.find(v => String(v.id) === String(remisionToEmail.vendedorId) || v.codigoVendedor === remisionToEmail.vendedorId);
+      } else if (relatedData.pedido?.vendedorId) {
+        vendedor = vendedores.find(v => String(v.id) === String(relatedData.pedido?.vendedorId) || v.codigoVendedor === relatedData.pedido?.vendedorId);
+      }
+
+      // Priorizar firma del usuario
+      const firmaFinal = user?.firma || vendedor?.firma;
+
+      const blob = await pdf(
+        <RemisionPDFDocument
+          remision={remisionToEmail}
+          pedido={relatedData.pedido!}
+          cliente={relatedData.cliente!}
+          empresa={datosEmpresa}
+          preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
+          productos={productos}
+          firmaVendedor={firmaFinal}
+        />
+      ).toBlob();
+
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+        const response = await apiClient.sendRemisionEmail(remisionToEmail.id, {
+          destinatario: emailData.to,
+          asunto: emailData.subject,
+          mensaje: emailData.body,
+          pdfBase64: base64data
+        });
+
+
+
+        if (response.success) {
+          addNotification({ message: response.message || '✅ Correo enviado y copia guardada en Drive.', type: 'success' });
+          setRemisionToEmail(null);
+        } else {
+          addNotification({ message: `❌ Error enviando correo: ${response.message || 'Error desconocido'}`, type: 'error' });
+        }
+      };
+
+      reader.onerror = () => {
+        addNotification({ message: 'Error procesando el PDF.', type: 'error' });
+      };
+
+    } catch (error) {
+      console.error('Error email remision:', error);
+      addNotification({ message: 'Error al generar o enviar el correo.', type: 'error' });
+    }
+  };
+
   const productosMap = useMemo(() => {
     const map = new Map<number | string, Producto>();
     allProducts.forEach(p => {
@@ -526,18 +621,19 @@ const RemisionesPage: React.FC = () => {
   }, [allProducts]);
 
   useEffect(() => {
-    if (pedidoToRemisionar) {
-      console.log('🔄 Procesando items para remisión. Pedido ID:', pedidoToRemisionar.id);
-      console.log('📦 Items del pedido:', pedidoToRemisionar.items?.length || 0);
-      console.log('📦 Items del pedido (array):', pedidoToRemisionar.items);
+    const calculateRemisionItems = async () => {
+      if (!pedidoToRemisionar) return;
 
-      // Verificar si el pedido tiene items
-      if (!pedidoToRemisionar.items || pedidoToRemisionar.items.length === 0) {
+      console.log('🔄 Procesando items para remisión. Pedido ID:', pedidoToRemisionar.id);
+
+      // 1. Asegurar que tenemos los items del pedido
+      let itemsPedido = pedidoToRemisionar.items;
+      if (!itemsPedido || itemsPedido.length === 0) {
         console.warn('⚠️ El pedido no tiene items cargados. Intentando cargar...');
-        // Intentar cargar items del pedido
-        fetchPedidosDetalle(String(pedidoToRemisionar.id)).then(pedidosDetalleRes => {
+        try {
+          const pedidosDetalleRes = await fetchPedidosDetalle(String(pedidoToRemisionar.id));
           if (pedidosDetalleRes.success && Array.isArray(pedidosDetalleRes.data)) {
-            const items = pedidosDetalleRes.data.filter((d: any) => {
+            itemsPedido = pedidosDetalleRes.data.filter((d: any) => {
               const detallePedidoId = String(d.pedidoId || d.pedido_id || '');
               const pedidoIdStr = String(pedidoToRemisionar.id || '');
               return detallePedidoId === pedidoIdStr ||
@@ -545,38 +641,75 @@ const RemisionesPage: React.FC = () => {
                 Number(d.pedidoId) === Number(pedidoToRemisionar.id);
             });
 
-            console.log('✅ Items cargados dinámicamente:', items.length);
-            if (items.length > 0) {
-              const pedidoConItems = {
-                ...pedidoToRemisionar,
-                items: items
-              };
-              setPedidoToRemisionar(pedidoConItems);
+            if (itemsPedido && itemsPedido.length > 0) {
+              // Actualizar estado local del pedido si es necesario, aunque aquí solo usamos la variable calc
+              setPedidoToRemisionar(prev => prev ? ({ ...prev, items: itemsPedido }) : null);
             }
           }
-        }).catch(error => {
+        } catch (error) {
           console.error('❌ Error cargando items del pedido:', error);
-        });
-        return; // Salir temprano si no hay items
+          return;
+        }
       }
 
+      if (!itemsPedido || itemsPedido.length === 0) return;
+
       const pedidoIdStr = String(pedidoToRemisionar.id);
-      // OPTIMIZACIÓN: Filtrar una sola vez usando comparación directa
-      const remisionesPrevias = remisiones.filter(r => {
+
+      // 2. Obtener remisiones previas y sus items
+      // Filtramos las remisiones que pertenecen a este pedido
+      const remisionesDelPedido = remisiones.filter(r => {
         if (!r.pedidoId) return false;
         return String(r.pedidoId) === pedidoIdStr;
       });
 
-      const itemsPendientes = pedidoToRemisionar.items.reduce<RemisionItemForm[]>((acc, itemPedido) => {
-        // OPTIMIZACIÓN: Usar mapa para búsqueda O(1) - pero NO es obligatorio encontrar el producto
-        // Usar datos del pedido directamente, el catálogo solo como fuente adicional de información
-        const producto = productosMap.get(itemPedido.productoId) || productosMap.get(String(itemPedido.productoId));
+      // Identificamos cuáles NO tienen items cargados
+      const remisionesSinItems = remisionesDelPedido.filter(r => !r.items || r.items.length === 0);
 
-        // OPTIMIZACIÓN: Calcular cantidad enviada más eficientemente
+      // Si hay remisiones sin items, los cargamos (en paralelo)
+      let remisionesCompletas = [...remisionesDelPedido];
+
+      if (remisionesSinItems.length > 0) {
+        console.log(`📦 Cargando detalles para ${remisionesSinItems.length} remisiones previas...`);
+        try {
+          const detallesPromises = remisionesSinItems.map(r => apiClient.getRemisionDetalleById(r.id));
+          const resultadosDetalles = await Promise.all(detallesPromises);
+
+          // Actualizar array temporal con los items obtenidos
+          remisionesCompletas = remisionesDelPedido.map(r => {
+            const index = remisionesSinItems.findIndex(rsi => rsi.id === r.id);
+            if (index !== -1) {
+              const res = resultadosDetalles[index];
+              if (res.success && Array.isArray(res.data)) {
+                return { ...r, items: res.data };
+              }
+            }
+            return r;
+          });
+
+          // Opcional: Actualizar el estado global de remisiones para no recargar la próxima vez
+          // Esto es un efecto secundario benigno para optimizar futuras aperturas
+          /* 
+          setRemisiones(prev => prev.map(r => {
+             const updated = remisionesCompletas.find(rc => rc.id === r.id);
+             return updated || r;
+          }));
+          */
+        } catch (err) {
+          console.error('Error cargando detalles de remisiones previas:', err);
+        }
+      }
+
+      // 3. Calcular pendientes usando remisionesCompletas (que ya tienen items)
+      const itemsPendientes = itemsPedido.reduce<RemisionItemForm[]>((acc, itemPedido) => {
+        const producto = productosMap.get(itemPedido.productoId) || productosMap.get(String(itemPedido.productoId));
         const productoIdStr = String(itemPedido.productoId);
-        const cantYaEnviada = remisionesPrevias.reduce((sum, r) => {
+
+        // Sumar lo enviado en todas las remisiones de este pedido
+        const cantYaEnviada = remisionesCompletas.reduce((sum, r) => {
           return sum + (r.items?.reduce((itemSum, i) => {
             if (String(i.productoId) === productoIdStr) {
+              // Usar 'cantidad_enviada' (DB) o 'cantidad' (Frontend model)
               return itemSum + (i.cantidad || (i as any).cantidadEnviada || 0);
             }
             return itemSum;
@@ -585,12 +718,14 @@ const RemisionesPage: React.FC = () => {
 
         const cantPendiente = itemPedido.cantidad - cantYaEnviada;
 
+        // Solo agregar si queda algo pendiente (o si queremos mostrarlo como completo, pero la lógica original filtraba > 0)
+        // El usuario pide que si está completo NO aparezca, o aparezca distinto.
+        // La lógica actual solo agrega si cantPendiente > 0.
+        // Si cantPendiente <= 0, SE FILTRA (no se agrega al array).
         if (cantPendiente > 0) {
-          // Usar stock del catálogo si está disponible, sino usar el del item del pedido
           const cantStock = producto ? (producto.stock ?? 0) : ((itemPedido as any).stock ?? 0);
           const cantAEnviar = Math.max(0, Math.min(cantPendiente, cantStock));
 
-          // Obtener datos del producto: primero del item del pedido (fuente principal), luego del catálogo
           const productoNombre = itemPedido.descripcion ||
             (itemPedido as any).nombre ||
             producto?.nombre ||
@@ -622,7 +757,9 @@ const RemisionesPage: React.FC = () => {
       }, []);
 
       setRemisionItems(itemsPendientes);
-    }
+    };
+
+    calculateRemisionItems();
   }, [pedidoToRemisionar, remisiones, productosMap]);
 
 
@@ -856,11 +993,28 @@ const RemisionesPage: React.FC = () => {
   }, [params, pedidos, setPage]);
 
   const handleAprobarEntrega = useCallback(async (remisionId: string) => {
-    if (isDelivering) return;
+    console.log('👉 [RemisionesPage] handleAprobarEntrega clicked', remisionId);
+    if (isDelivering) {
+      console.warn('⚠️ [RemisionesPage] Already delivering:', isDelivering);
+      return;
+    }
+
     setIsDelivering(remisionId);
 
     try {
-      const updatedRemision = await aprobarRemision(remisionId);
+      console.log('🚀 [RemisionesPage] Calling aprobarRemision...');
+      // Add a timeout promise to prevent hanging indefinitely
+      const timeoutPromise = new Promise<undefined>((_, reject) =>
+        setTimeout(() => reject(new Error('Tiempo de espera agotado al aprobar remisión')), 15000)
+      );
+
+      const updatedRemision = await Promise.race([
+        aprobarRemision(remisionId),
+        timeoutPromise
+      ]) as Remision | undefined;
+
+      console.log('✅ [RemisionesPage] aprobarRemision result:', updatedRemision ? 'Success' : 'Failed/Undefined');
+
       if (updatedRemision) {
         setDeliveryResult(updatedRemision);
 
@@ -880,14 +1034,18 @@ const RemisionesPage: React.FC = () => {
           });
         }
 
-        // Recargar remisiones para asegurar que todo esté sincronizado
-        await loadRemisiones();
-
         addNotification({
-          message: `✅ Remisión ${updatedRemision.numeroRemision} marcada como Entregada. Ahora puede ser facturada.`,
+          message: `✅ Remisión ${updatedRemision.numeroRemision.replace('REM-', '')} marcada como Entregada. Ahora puede ser facturada.`,
           type: 'success',
           link: { page: 'facturacion_electronica' }
         });
+
+        // Recargar remisiones en background (sin bloquear el estado UI crítico)
+        // Esto asegura que si loadRemisiones falla o tarda, el usuario no se queda bloqueado
+        loadRemisiones().catch(err => {
+          console.error('⚠️ [RemisionesPage] Error reloading remisiones after approval:', err);
+        });
+
       } else {
         addNotification({
           message: 'No se pudo marcar la remisión como entregada. Verifique que el estado sea válido.',
@@ -895,15 +1053,16 @@ const RemisionesPage: React.FC = () => {
         });
       }
     } catch (error) {
-      console.error(error);
+      console.error('❌ [RemisionesPage] Error in handleAprobarEntrega:', error);
       addNotification({
         message: (error as Error).message || 'Error al marcar la remisión como entregada',
         type: 'warning'
       });
     } finally {
+      console.log('🏁 [RemisionesPage] Clearing isDelivering state');
       setIsDelivering(null);
     }
-  }, [aprobarRemision, addNotification, selectedGroup]);
+  }, [aprobarRemision, addNotification, selectedGroup, isDelivering, loadRemisiones]);
 
   const handleItemQuantityChange = (productoId: number, cantidad: number) => {
     setRemisionItems(prevItems => prevItems.map(item => {
@@ -998,7 +1157,7 @@ const RemisionesPage: React.FC = () => {
       header: 'Pedido Origen',
       accessor: 'pedido',
       cell: ({ pedido }) => (
-        <span className="font-bold text-slate-700 dark:text-slate-200">{pedido.numeroPedido}</span>
+        <span className="font-bold text-slate-700 dark:text-slate-200">{pedido.numeroPedido.replace('PED-', '')}</span>
       )
     },
     {
@@ -1051,7 +1210,7 @@ const RemisionesPage: React.FC = () => {
                           onClick={() => handleAprobarEntrega(remision.id)}
                           disabled={isDelivering === remision.id}
                           className="p-2 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-lg transition-all duration-200 disabled:opacity-50"
-                          title={`Marcar entrega ${remision.numeroRemision}`}
+                          title={`Marcar entrega ${remision.numeroRemision.replace('REM-', '')}`}
                         >
                           {isDelivering === remision.id ? (
                             <i className="fas fa-spinner fa-spin"></i>
@@ -1083,7 +1242,7 @@ const RemisionesPage: React.FC = () => {
       header: 'Número Pedido',
       accessor: 'numeroPedido',
       cell: (item) => (
-        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroPedido}</span>
+        <span className="font-bold font-mono text-slate-700 dark:text-slate-200">{item.numeroPedido.replace('PED-', '')}</span>
       )
     },
     {
@@ -1119,6 +1278,74 @@ const RemisionesPage: React.FC = () => {
     },
   ], [getClienteNombre, handleOpenCreateModal]);
 
+  // New remisionesColumns for individual remisiones (e.g., for a sub-table or specific list)
+  const remisionesColumns: Column<Remision>[] = useMemo(() => [
+    {
+      header: 'Número Remisión',
+      accessor: 'numeroRemision',
+      cell: (item) => (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handlePrintRemision(item)}
+            className="font-bold font-mono text-blue-600 dark:text-blue-400 hover:underline"
+            title="Vista Previa"
+          >
+            {item.numeroRemision.replace('REM-', '')}
+          </button>
+        </div>
+      )
+    },
+    {
+      header: 'Cliente',
+      accessor: 'clienteId',
+      cell: (item) => {
+        const clienteItem = clientes.find(c =>
+          String(c.id) === String(item.clienteId) ||
+          c.numeroDocumento === item.clienteId ||
+          c.codter === item.clienteId
+        );
+        const nombre = clienteItem?.nombreCompleto || item.clienteId || 'N/A';
+        return (
+          <div className="flex flex-col max-w-[200px]">
+            <span className="font-medium text-slate-700 dark:text-slate-200 truncate" title={nombre}>{nombre}</span>
+          </div>
+        );
+      }
+    },
+    {
+      header: 'Fecha',
+      accessor: 'fechaRemision',
+      cell: (item) => <span className="text-sm text-slate-600 dark:text-slate-400">{formatDateOnly(item.fechaRemision)}</span>
+    },
+    {
+      header: 'Estado',
+      accessor: 'estado',
+      cell: (item) => <StatusBadge status={item.estado as any} />
+    },
+    {
+      header: 'Acciones',
+      accessor: 'id',
+      cell: (item) => (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handlePrintRemision(item)}
+            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all duration-200"
+            title="Ver PDF"
+          >
+            <i className="fas fa-file-pdf"></i>
+          </button>
+          <button
+            onClick={() => handleSendEmail(item)}
+            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+            title="Enviar Email"
+          >
+            <i className="fas fa-paper-plane"></i>
+          </button>
+        </div>
+      )
+    }
+  ], [clientes, handlePrintRemision, handleSendEmail]);
+
   // OPTIMIZACIÓN: Usar mapa para búsqueda rápida
   const currentCliente = useMemo(() => {
     if (!pedidoToRemisionar) return null;
@@ -1133,7 +1360,7 @@ const RemisionesPage: React.FC = () => {
           id="statusFilter"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {groupFilterOptions.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -1173,7 +1400,7 @@ const RemisionesPage: React.FC = () => {
             </div>
           </CardHeader>
 
-          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+          <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
             <TableToolbar searchTerm={pedidosTable.searchTerm} onSearchChange={pedidosTable.handleSearch} placeholder="Buscar pedido..." />
           </div>
 
@@ -1209,7 +1436,7 @@ const RemisionesPage: React.FC = () => {
             </div>
           </CardHeader>
 
-          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+          <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
             <TableToolbar
               searchTerm={searchTerm}
               onSearchChange={handleSearch}
@@ -1252,11 +1479,22 @@ const RemisionesPage: React.FC = () => {
         </Card>
       </section>
 
+      {remisionToEmail && (
+        <SendEmailModal
+          isOpen={true}
+          onClose={() => setRemisionToEmail(null)}
+          onSend={handleConfirmSendEmail}
+          to={remisionToEmail.clienteId ? (clientes.find(c => String(c.id) === String(remisionToEmail.clienteId) || c.codter === remisionToEmail.clienteId)?.email || '') : ''}
+          subject={`Remisión de Pedido - ${remisionToEmail.numeroRemision} - ${datosEmpresa?.nombre || ''}`}
+          body={`Cordial saludo,\n\nAdjuntamos la remisión número ${remisionToEmail.numeroRemision} correspondiente a su pedido.\n\nAtentamente,\n${datosEmpresa?.nombre || ''}`}
+        />
+      )}
+
       {selectedGroup && (
         <Modal
           isOpen={isDetailModalOpen}
           onClose={handleCloseModals}
-          title={`Detalle de Entregas: ${selectedGroup.pedido.numeroPedido}`}
+          title={`Detalle de Entregas: ${selectedGroup.pedido.numeroPedido.replace('PED-', '')}`}
           size="4xl"
         >
           <div className="space-y-8 p-1">
@@ -1280,7 +1518,7 @@ const RemisionesPage: React.FC = () => {
                 <div className="space-y-4 relative z-10">
                   <div className="flex justify-between items-end border-b border-dashed border-slate-200 dark:border-slate-700 pb-3">
                     <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">Número de Pedido</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-100 text-xl font-mono tracking-tight">{selectedGroup.pedido.numeroPedido}</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-xl font-mono tracking-tight">{selectedGroup.pedido.numeroPedido.replace('PED-', '')}</span>
                   </div>
                   <div className="flex justify-between items-center py-1">
                     <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">ID Interno</span>
@@ -1378,7 +1616,7 @@ const RemisionesPage: React.FC = () => {
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2">
                               <h5 className="font-bold text-lg text-slate-800 dark:text-slate-100 font-mono tracking-tight">
-                                {remision.numeroRemision}
+                                {remision.numeroRemision.replace('REM-', '')}
                               </h5>
                               <StatusBadge status={remision.estado as any} />
                             </div>
@@ -1510,7 +1748,7 @@ const RemisionesPage: React.FC = () => {
           isOpen={isCreateModalOpen}
           onClose={handleCloseModals}
           title={`Crear Remisión para Pedido: ${pedidoToRemisionar.numeroPedido}`}
-          size="3xl"
+          size="5xl"
         >
           <div className="space-y-6">
             {/* Progress Flow */}
@@ -1597,7 +1835,7 @@ const RemisionesPage: React.FC = () => {
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50/50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-xs uppercase font-semibold text-slate-500 dark:text-slate-400">
                     <tr>
-                      <th className="px-5 py-3 w-32">Referencia</th>
+                      <th className="px-5 py-3 w-40">Referencia</th>
                       <th className="px-5 py-3">Producto</th>
                       <th className="px-5 py-3 w-24 text-center">Und</th>
                       <th className="px-5 py-3 w-28 text-right bg-slate-100/50 dark:bg-slate-900/20">Solicitado</th>

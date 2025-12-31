@@ -28,7 +28,7 @@ export type Permission =
   | 'devoluciones:view' | 'devoluciones:create' | 'devoluciones:manage' | 'devoluciones:delete'
   | 'notas_credito:view' | 'notas_credito:create'
   | 'reportes:view'
-  | 'admin:view-activity-log' | 'admin:review-critical-actions'
+  | 'admin:view-activity-log' | 'admin:review-critical-actions' | 'admin:manage-users'
   | '*'; // Wildcard for admin
 
 type RoleConfig = {
@@ -88,13 +88,24 @@ export const rolesConfig: Record<Role, RoleConfig> = {
       'facturacion_electronica', 'nueva_factura',
       'devoluciones', 'notas_credito_debito',
       'reportes',
-      'demas_informes', 'factura_profesional', 'activity_log'
+      'demas_informes', 'factura_profesional', 'activity_log',
+      'usuarios'
     ],
   },
 };
 
 export function hasPagePermission(role: Role, page: Page): boolean {
+  if (page === 'perfil') return true;
+
+  if (!role || typeof role !== 'string') {
+    // console.warn('hasPagePermission: Invalid role', role);
+    return false;
+  }
   const roleConf = rolesConfig[role];
+  if (!roleConf) {
+    // console.warn('hasPagePermission: Role config not found for', role);
+    return false;
+  }
   if (roleConf.can.includes('*')) {
     return true;
   }

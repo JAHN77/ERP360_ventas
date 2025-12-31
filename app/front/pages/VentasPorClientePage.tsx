@@ -9,7 +9,7 @@ import { TableToolbar } from '../components/ui/TableToolbar';
 import { useData } from '../hooks/useData';
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 interface ClientSalesData {
@@ -22,7 +22,7 @@ interface ClientSalesData {
 
 const VentasPorClientePage: React.FC = () => {
     const { getSalesDataByClient } = useData();
-    
+
     // ✅ Validación defensiva: Verificar que la función existe
     const salesData = useMemo(() => {
         if (typeof getSalesDataByClient !== 'function') {
@@ -74,7 +74,7 @@ const VentasPorClientePage: React.FC = () => {
     return (
         <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 mb-6">Estadísticas de Ventas por Cliente</h1>
-            
+
             <Card className="mb-8">
                 <CardHeader>
                     <CardTitle>Top 10 Clientes por Ventas</CardTitle>

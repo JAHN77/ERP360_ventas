@@ -28,7 +28,7 @@ const SendEmailModal: React.FC<SendEmailModalProps> = ({
   const [body, setBody] = useState(initialBody);
   const [errors, setErrors] = useState<Errors>({});
   const [isSending, setIsSending] = useState(false);
-  
+
   const validate = useCallback(() => {
     const newErrors: Errors = {};
     if (!isNotEmpty(to)) {
@@ -46,30 +46,23 @@ const SendEmailModal: React.FC<SendEmailModalProps> = ({
     validate();
   }, [to, subject, body, validate]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!validate()) return;
-    
+
     setIsSending(true);
-
-    const instruction = "IMPORTANTE: Por favor, adjunte el documento PDF que se acaba de descargar en su carpeta de descargas.\n\n---\n\n";
-    const finalBody = instruction + body;
-
-    // Construir y abrir el enlace mailto:
-    const subjectEncoded = encodeURIComponent(subject);
-    const bodyEncoded = encodeURIComponent(finalBody);
-    const mailtoLink = `mailto:${to}?subject=${subjectEncoded}&body=${bodyEncoded}`;
-    window.location.href = mailtoLink;
-    
-    // Simular un pequeño retraso para la UX antes de cerrar el modal
-    setTimeout(() => {
-        onSend({ to, subject, body: finalBody });
-        setIsSending(false);
-    }, 700);
+    try {
+      await onSend({ to, subject, body });
+      onClose();
+    } catch (error) {
+      console.error('Error al enviar correo:', error);
+      setErrors({ submit: 'Error al enviar el correo. Por favor intente de nuevo.' });
+    } finally {
+      setIsSending(false);
+    }
   };
 
-  const getInputClasses = (fieldName: keyof Errors) => `w-full px-3 py-2 text-sm text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 ${
-    errors[fieldName] ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
-  }`;
+  const getInputClasses = (fieldName: keyof Errors) => `w-full px-3 py-2 text-sm text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 ${errors[fieldName] ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
+    }`;
   const labelClasses = "block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1";
   const ErrorMessage: React.FC<{ fieldName: keyof Errors }> = ({ fieldName }) => (
     errors[fieldName] ? <p className="mt-1 text-xs text-red-500">{errors[fieldName]}</p> : null
@@ -78,6 +71,19 @@ const SendEmailModal: React.FC<SendEmailModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Enviar Documento por Correo" size="2xl">
       <div className="space-y-4">
+        {/* Info Banner */}
+        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-start gap-3">
+          <div className="text-blue-500 dark:text-blue-400 mt-0.5">
+            <i className="fas fa-info-circle text-lg"></i>
+          </div>
+          <div>
+            <h4 className="font-semibold text-blue-900 dark:text-blue-100 text-sm">Plantilla Corporativa</h4>
+            <p className="text-blue-800 dark:text-blue-200 text-xs mt-0.5">
+              Este mensaje se incluirá automáticamente dentro de la <strong>plantilla oficial de la empresa</strong>, junto con el logo, los detalles del documento y sus datos de contacto.
+            </p>
+          </div>
+        </div>
+
         <div>
           <label htmlFor="to" className={labelClasses}>Para:</label>
           <input
@@ -111,6 +117,7 @@ const SendEmailModal: React.FC<SendEmailModalProps> = ({
           />
           <ErrorMessage fieldName="body" />
         </div>
+        {errors.submit && <p className="text-sm text-red-500 mt-2">{errors.submit}</p>}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
           <button
             onClick={onClose}
@@ -120,13 +127,13 @@ const SendEmailModal: React.FC<SendEmailModalProps> = ({
           </button>
           <button
             onClick={handleSend}
-            disabled={isSending || Object.keys(errors).length > 0}
+            disabled={isSending || Object.keys(errors).filter(k => k !== 'submit').length > 0}
             className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed"
           >
             {isSending ? (
-                <><i className="fas fa-spinner fa-spin mr-2"></i>Abriendo...</>
+              <><i className="fas fa-spinner fa-spin mr-2"></i>Enviando...</>
             ) : (
-                <><i className="fas fa-paper-plane mr-2"></i>Enviar</>
+              <><i className="fas fa-paper-plane mr-2"></i>Enviar</>
             )}
           </button>
         </div>

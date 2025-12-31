@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigation } from '../hooks/useNavigation';
+import { useNotifications } from '../hooks/useNotifications';
 import { Cliente } from '../types';
 import Card, { CardContent } from '../components/ui/Card';
 import ClienteForm from '../components/clientes/ClienteForm';
@@ -8,6 +9,7 @@ import { useData } from '../hooks/useData';
 
 const FormClientePage: React.FC = () => {
   const { page, params, setPage } = useNavigation();
+  const { addNotification } = useNotifications();
   const { clientes, crearCliente, actualizarCliente, isMainDataLoaded } = useData();
 
   const [cliente, setCliente] = useState<Cliente | null>(null);
@@ -22,7 +24,7 @@ const FormClientePage: React.FC = () => {
       if (fetchedCliente) {
         setCliente(fetchedCliente);
       } else {
-        alert('Cliente no encontrado');
+        addNotification({ type: 'error', message: 'Cliente no encontrado' });
         setPage('clientes');
       }
     }
@@ -31,10 +33,10 @@ const FormClientePage: React.FC = () => {
   const handleSubmit = (data: Omit<Cliente, 'id' | 'condicionPago' | 'activo' | 'createdAt' | 'nombreCompleto'>) => {
     if (isEditing && cliente) {
       actualizarCliente(cliente.id, data);
-      alert('Cliente actualizado con éxito');
+      addNotification({ type: 'success', message: 'Cliente actualizado con éxito' });
     } else {
       crearCliente(data);
-      alert('Cliente creado con éxito');
+      addNotification({ type: 'success', message: 'Cliente creado con éxito' });
     }
     setPage('clientes');
   };

@@ -11,9 +11,11 @@ import Modal from '../components/ui/Modal';
 import ToggleSwitch from '../components/ui/ToggleSwitch';
 import { timeSince } from '../utils/dateUtils';
 import { useNotifications } from '../hooks/useNotifications';
+import PageContainer from '../components/ui/PageContainer';
+import SectionHeader from '../components/ui/SectionHeader';
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 const LOW_STOCK_THRESHOLD = 10;
@@ -286,17 +288,24 @@ const DashboardPage: React.FC = () => {
         <CardContent>
           {topProductos.length > 0 ? (
             <ol className="space-y-3">
-              {topProductos.map((item, index) => (
-                <li key={item.producto.id} className="flex justify-between items-center text-sm gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="font-bold text-slate-400 w-5">{index + 1}.</span>
-                    <span className="truncate font-semibold">{item.producto.nombre}</span>
-                  </div>
-                  <span className="flex-shrink-0 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full text-blue-500">
-                    {item.cantidad}
-                  </span>
-                </li>
-              ))}
+              {topProductos.map((item, index) => {
+                if (!item || !item.producto) return null;
+                const nombreProducto = typeof item.producto.nombre === 'string'
+                  ? item.producto.nombre
+                  : (typeof item.producto.nombre === 'object' ? JSON.stringify(item.producto.nombre) : 'Producto sin nombre');
+
+                return (
+                  <li key={item.producto.id || index} className="flex justify-between items-center text-sm gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="font-bold text-slate-400 w-5">{index + 1}.</span>
+                      <span className="truncate font-semibold">{nombreProducto}</span>
+                    </div>
+                    <span className="flex-shrink-0 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full text-blue-500">
+                      {item.cantidad}
+                    </span>
+                  </li>
+                );
+              })}
             </ol>
           ) : (
             <p className="text-sm text-slate-500 text-center py-4">No hay productos vendidos este mes</p>
@@ -360,7 +369,7 @@ const DashboardPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <PageContainer>
       {/* Top Section */}
       <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
         <div>
@@ -431,7 +440,7 @@ const DashboardPage: React.FC = () => {
           ))}
         </div>
       </Modal>
-    </div>
+    </PageContainer>
   );
 };
 

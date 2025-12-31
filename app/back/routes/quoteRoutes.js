@@ -1,4 +1,4 @@
-const express = require('express');
+ const express = require('express');
 const router = express.Router();
 const quoteController = require('../controllers/quoteController');
 
@@ -27,5 +27,8 @@ router.get('/cotizaciones', quoteController.getAllQuotes);
 router.get('/cotizaciones-detalle', quoteController.getQuoteDetails);
 router.post('/cotizaciones', quoteController.createQuote);
 router.put('/cotizaciones/:id', quoteController.updateQuote);
+router.post('/cotizaciones/:id/send-email', quoteController.sendQuoteEmail);
+router.get('/cotizaciones/next-number', quoteController.getNextQuoteNumber);
 
 module.exports = router;
+

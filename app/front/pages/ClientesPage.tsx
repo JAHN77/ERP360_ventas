@@ -11,24 +11,92 @@ import ProtectedComponent from '../components/auth/ProtectedComponent';
 import { useData } from '../hooks/useData';
 import { useColumnManager } from '../hooks/useColumnManager';
 import ColumnManagerModal from '../components/ui/ColumnManagerModal';
+import { apiClient } from '../services/apiClient';
+import { useNotifications } from '../hooks/useNotifications';
 
 import ClienteCreateModal from '../components/clientes/ClienteCreateModal';
+import PageHeader from '../components/ui/PageHeader';
 import ClientDetails from '../components/clientes/ClientDetails';
+import PageContainer from '../components/ui/PageContainer';
+import SectionHeader from '../components/ui/SectionHeader';
 
 const ClientesPage: React.FC = () => {
   const { params, setPage } = useNavigation();
-  const { clientes, tiposDocumento, ciudades, tiposPersona } = useData();
+  const { tiposDocumento, ciudades, tiposPersona } = useData();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
 
+  // Server-Side State
+  const [serverClients, setServerClients] = useState<Cliente[]>([]);
+  const [totalClients, setTotalClients] = useState(0);
+  const [isLoadingClients, setIsLoadingClients] = useState(false);
+  const [serverPage, setServerPage] = useState(1);
+  const [serverPageSize, setServerPageSize] = useState(20);
+  const [serverSearch, setServerSearch] = useState('');
+  const [serverSort, setServerSort] = useState({ key: 'razonSocial', direction: 'asc' });
+
   const [typeFilter, setTypeFilter] = useState('Todos');
   const [paymentFilter, setPaymentFilter] = useState('Todos');
+  const [activeTab, setActiveTab] = useState<'clientes' | 'proveedores'>('clientes');
+
+  // Sync tab with navigation params
+  useEffect(() => {
+    if (params?.tab === 'proveedores') {
+      setActiveTab('proveedores');
+    } else if (params?.tab === 'clientes') {
+      setActiveTab('clientes');
+    }
+  }, [params?.tab]);
+
+  const { addNotification } = useNotifications(); // Assuming this hook exists or imports need checking
 
   const getClientDisplayName = (cliente: Cliente): string => {
     return cliente.razonSocial || `${cliente.primerNombre || ''} ${cliente.primerApellido || ''}`.trim();
   }
+
+  const loadClients = async () => {
+    setIsLoadingClients(true);
+    try {
+      const isProveedor = activeTab === 'proveedores';
+      const response = await apiClient.getClientes(
+        serverPage,
+        serverPageSize,
+        undefined, // hasEmail (removed strict requirement/handled in backend if needed or passed as option)
+        serverSearch,
+        serverSort.key,
+        serverSort.direction as 'asc' | 'desc',
+        isProveedor,
+        typeFilter === 'Todos' ? undefined : typeFilter,
+        paymentFilter === 'Todos' ? undefined : paymentFilter
+      );
+
+      if (response.success && response.data) {
+        setServerClients(response.data as Cliente[]);
+        const pagination = (response as any).pagination || {};
+        const total = pagination.total || (response.data as any[]).length;
+        setTotalClients(total);
+      } else {
+        setServerClients([]);
+        setTotalClients(0);
+      }
+    } catch (error) {
+      console.error('Error loading clients:', error);
+    } finally {
+      setIsLoadingClients(false);
+    }
+  };
+
+  useEffect(() => {
+    loadClients();
+  }, [serverPage, serverPageSize, serverSearch, serverSort, typeFilter, paymentFilter, activeTab]);
+
+  // Tab change resets page
+  useEffect(() => {
+    setServerPage(1);
+  }, [activeTab, typeFilter, paymentFilter]);
+
 
   const handleOpenModal = (cliente: Cliente) => {
     setSelectedCliente(cliente);
@@ -37,11 +105,10 @@ const ClientesPage: React.FC = () => {
 
   useEffect(() => {
     const focusId = params?.focusId;
-    if (!focusId) {
-      return;
-    }
+    if (!focusId) return;
 
-    const targetClient = clientes.find((cliente) => {
+    // Check if in current list
+    const targetClient = serverClients.find((cliente) => {
       const candidateIds = [cliente.id, cliente.numeroDocumento, (cliente as any).codter]
         .filter((value) => value !== undefined && value !== null)
         .map((value) => String(value));
@@ -50,8 +117,15 @@ const ClientesPage: React.FC = () => {
 
     if (targetClient) {
       handleOpenModal(targetClient);
+    } else if (focusId) {
+      // Fetch explicit client if not in list
+      apiClient.getClienteById(focusId).then(res => {
+        if (res.success && res.data) {
+          handleOpenModal(res.data as Cliente);
+        }
+      });
     }
-  }, [params?.focusId, clientes]);
+  }, [params?.focusId, serverClients]);
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
@@ -69,7 +143,6 @@ const ClientesPage: React.FC = () => {
       cell: (item) => (
         <div className="flex flex-col">
           <span className="font-medium text-slate-800 dark:text-slate-200">{item.nombreCompleto}</span>
-          <span className="text-xs text-slate-500 dark:text-slate-400">{item.numeroDocumento}</span>
         </div>
       )
     },
@@ -83,21 +156,15 @@ const ClientesPage: React.FC = () => {
         const val = item.ciudadId || '';
         const postal = (item as any).codigoPostal || (item as any).coddane || '';
         const isCode = /^\d{4,6}$/.test(String(val));
-
         let cityName = val;
-
-        // Try to resolve name from City ID Code
         if (isCode) {
           const found = ciudades.find(c => String(c.codigo).trim() === String(val).trim());
           if (found) cityName = found.nombre;
         }
-
-        // If city name is still a code (or wasn't found) and we have a postal code, try resolving from postal code
         if ((!cityName || /^\d+$/.test(String(cityName))) && postal) {
           const foundByPostal = ciudades.find(c => String(c.codigo).trim() === String(postal).trim());
           if (foundByPostal) cityName = foundByPostal.nombre;
         }
-
         return <span className="text-sm text-slate-600 dark:text-slate-400">{cityName || val}</span>;
       }
     },
@@ -141,15 +208,7 @@ const ClientesPage: React.FC = () => {
     resetManagedColumns
   } = useColumnManager('clientes', defaultColumns);
 
-  const filteredClients = useMemo(() => {
-    return clientes.filter(cliente => {
-      const typeMatch = typeFilter === 'Todos' || cliente.tipoPersonaId === typeFilter;
-      const paymentMatch = paymentFilter === 'Todos' || String(cliente.diasCredito) === paymentFilter;
-      const hasEmail = cliente.email && cliente.email.trim().length > 0;
-      return typeMatch && paymentMatch && hasEmail;
-    });
-  }, [clientes, typeFilter, paymentFilter]);
-
+  // useTable in Manual Mode
   const {
     paginatedData,
     requestSort,
@@ -165,26 +224,32 @@ const ClientesPage: React.FC = () => {
     rowsPerPage,
     setRowsPerPage,
   } = useTable<Cliente>({
-    data: filteredClients,
-    searchKeys: [
-      (item) => item.nombreCompleto,
-      'numeroDocumento',
-      'email',
-      (item) => item.ciudadId || '',
-      'direccion',
-      (item) => String(item.telter || ''),
-      'celular'
-    ],
+    data: serverClients,
+    manual: true,
+    totalItems: totalClients,
+    initialRowsPerPage: 20,
+    onPageChange: (page) => setServerPage(page),
+    onRowsPerPageChange: (rows) => { setServerPageSize(rows); setServerPage(1); },
   });
 
-  // Orden por defecto: Nombre / Razón Social asc
+  // Sync Search
   useEffect(() => {
-    if (!sortConfig.key) {
-      requestSort('nombreCompleto' as keyof Cliente);
+    const timer = setTimeout(() => {
+      setServerSearch(searchTerm);
+      setServerPage(1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Sync Sort
+  useEffect(() => {
+    if (sortConfig.key) {
+      setServerSort({ key: String(sortConfig.key), direction: sortConfig.direction });
     }
-    // solo una vez al montar si no hay sort
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sortConfig]);
+
+  // No filteredClients useMemo needed anymore since we just use current page data from server
+
 
   const additionalFilters = (
     <div className="flex flex-col sm:flex-row gap-4">
@@ -194,7 +259,7 @@ const ClientesPage: React.FC = () => {
           id="typeFilter"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="Todos">Todos los Tipos</option>
           {tiposPersona.map(tp => <option key={tp.id} value={tp.id}>{tp.nombre}</option>)}
@@ -206,7 +271,7 @@ const ClientesPage: React.FC = () => {
           id="paymentFilter"
           value={paymentFilter}
           onChange={(e) => setPaymentFilter(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="Todos">Todas las Condic.</option>
           <option value="0">Contado</option>
@@ -219,24 +284,27 @@ const ClientesPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-            Gestión de Clientes
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Administra la base de datos de clientes y sus condiciones comerciales.
-          </p>
-        </div>
-      </div>
+    <PageContainer>
+      <SectionHeader
+        title={activeTab === 'clientes' ? 'Gestión de Clientes' : 'Gestión de Proveedores'}
+        subtitle={activeTab === 'clientes'
+          ? 'Administra la base de datos de tus clientes.'
+          : 'Administra la base de datos de tus proveedores.'}
+      />
 
-      <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
+      {/* Tabs Clientes vs Proveedores (Ocultos por requerimiento) */}
+      {/* 
+      <div className="flex border-b border-slate-200 dark:border-slate-700">
+        ...
+      </div> 
+      */}
+
+      <Card className="shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
-            createActionLabel="Nuevo Cliente"
+            createActionLabel={activeTab === 'clientes' ? "Nuevo Cliente" : "Nuevo Proveedor"}
             onCreateAction={() => setIsCreateModalOpen(true)}
             additionalFilters={additionalFilters}
             onCustomizeColumns={() => setIsColumnModalOpen(true)}
@@ -251,6 +319,7 @@ const ClientesPage: React.FC = () => {
             onSort={requestSort}
             sortConfig={sortConfig}
             highlightRowId={params?.highlightId ?? params?.focusId}
+            isLoading={isLoadingClients}
           />
         </CardContent>
 
@@ -296,13 +365,13 @@ const ClientesPage: React.FC = () => {
         <Modal
           isOpen={isModalOpen}
           onClose={handleCloseModal}
-          title={`Detalle del Cliente: ${selectedCliente.nombreCompleto}`}
-          size="xl"
+          title={`Detalle del ${activeTab === 'proveedores' ? 'Proveedor' : 'Cliente'}: ${selectedCliente.nombreCompleto}`}
+          size="4xl"
         >
           <ClientDetails cliente={selectedCliente} />
         </Modal>
       )}
-    </div>
+    </PageContainer>
   );
 };
 

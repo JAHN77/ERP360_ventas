@@ -12,7 +12,7 @@ import {
     fetchCotizaciones, fetchCotizacionesDetalle, fetchPedidos, fetchPedidosDetalle,
     fetchRemisiones, fetchRemisionesDetalle, fetchNotasCredito, fetchMedidas, fetchCategorias,
     testApiConnection, fetchVendedores, apiCreateCliente, fetchBodegas, apiCreateNotaCredito,
-    apiRegisterInventoryEntry, fetchCiudades
+    apiRegisterInventoryEntry, fetchCiudades, fetchEmpresa, BACKEND_URL
 } from '../services/apiClient';
 import { generarRemisionPDFenBlob, generarFacturaPDFenBlob } from '../utils/pdfGenerator';
 import { defaultPreferences } from '../hooks/useDocumentPreferences';
@@ -102,6 +102,8 @@ interface DataContextType {
     ingresarStockProducto: (productoId: number, cantidad: number, motivo: string, usuario: Usuario, costoUnitario?: number, documentoReferencia?: string) => Promise<InvProducto>;
     crearCliente: (data: Partial<Cliente>) => Promise<Cliente | null>;
     actualizarCliente: (id: string, data: Partial<Cliente>) => Promise<Cliente | null>;
+    crearProducto: (data: Partial<InvProducto>) => Promise<InvProducto | null>;
+    actualizarProducto: (id: string | number, data: Partial<InvProducto>) => Promise<InvProducto | null>;
     getCotizacionById: (id: string) => Cotizacion | undefined;
     crearCotizacion: (data: Cotizacion) => Promise<Cotizacion>;
     actualizarCotizacion: (id: string | number, data: Partial<Cotizacion>, baseCotizacion?: Cotizacion) => Promise<Cotizacion | undefined>;
@@ -118,6 +120,9 @@ interface DataContextType {
     timbrarFactura: (facturaId: string) => Promise<Factura | undefined>;
     refreshFacturasYRemisiones: () => Promise<void>;
     motivosDevolucion: string[];
+    // Firma temporal
+    firmaVendedor: string | null;
+    setFirmaVendedor: (firma: string | null) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -168,6 +173,31 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     // Activity log
     const [activityLog, setActivityLog] = useState<ActivityLog[]>(initialActivityLog);
+
+    // Firma temporal (no persistente en DB por ahora), inicializada con la firma del usuario
+    const [firmaVendedor, setFirmaVendedor] = useState<string | null>(null);
+
+    // Sincronizar firma desde el perfil del usuario
+    useEffect(() => {
+        if (user?.firma && !firmaVendedor) {
+            setFirmaVendedor(user.firma);
+        }
+    }, [user, firmaVendedor]);
+
+    // Company data state
+    const [datosEmpresa, setDatosEmpresa] = useState<any>({
+        id: 1,
+        nombre: 'MULTIACABADOS',
+        nit: '900.123.456-7',
+        direccion: 'Avenida Siempre Viva 123',
+        ciudad: 'Bogotá D.C.',
+        telefono: '601-555-1234',
+        email: 'ventas@multiacabados.com',
+        resolucionDian: 'Res. DIAN No. 18760000001 de 2023-01-01',
+        rangoNumeracion: 'FC-1 al FC-1000',
+        regimen: 'Responsable de IVA',
+        logoExt: `${BACKEND_URL}/assets/images.png`
+    });
 
     // Phase 1: Load essential catalogs first
     // PRIORIDAD: Esperar a que las bodegas se carguen primero en AuthContext antes de cargar otros datos
@@ -334,6 +364,36 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     setVendedores(processedVendedores as any);
                 } else {
                     setVendedores([]);
+                }
+
+                // PRIORIDAD 3: Cargar datos de la empresa
+                try {
+                    const empresaResp = await fetchEmpresa();
+                    if (empresaResp.success && empresaResp.data) {
+                        const e = empresaResp.data as any;
+                        setDatosEmpresa({
+                            id: 1,
+                            nombre: e.razonSocial || 'MULTIACABADOS',
+                            nit: e.nit || '900.123.456-7',
+                            direccion: e.direccion || 'Avenida Siempre Viva 123',
+                            ciudad: e.ciudad || 'Bogotá D.C.',
+                            telefono: e.telefono || '601-555-1234',
+                            email: e.email || 'ventas@multiacabados.com',
+                            slogan: e.slogan,
+                            departamento: e.departamento,
+                            regimen: e.regimen || 'Responsable de IVA',
+                            resolucionDian: 'Res. DIAN No. 18760000001 de 2023-01-01',
+                            rangoNumeracion: 'FC-1 al FC-1000',
+                            logoExt: e.logoExt ? (
+                                e.logoExt.startsWith('http') || e.logoExt.startsWith('data:')
+                                    ? e.logoExt
+                                    : `${BACKEND_URL}/${e.logoExt.startsWith('/') ? e.logoExt.substring(1) : e.logoExt}`
+                            ) : `${BACKEND_URL}/assets/images.png`
+                        });
+                        logger.log({ prefix: 'DataContext' }, '✅ Datos de la empresa cargados desde BD');
+                    }
+                } catch (empresaError) {
+                    logger.warn({ prefix: 'DataContext' }, 'Error cargando datos de la empresa:', empresaError);
                 }
 
                 setTransportadoras([]);
@@ -1215,7 +1275,17 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     productoId: Number(productoId)
                 };
             })
-            .filter((item): item is { producto: InvProducto; cantidad: number; productoId: number } => Boolean(item.producto))
+            .filter((item): item is { producto: InvProducto; cantidad: number; productoId: number } => {
+                if (!item.producto) return false;
+                // Validar que el producto tenga propiedades básicas válidas
+                if (!item.producto.id) return false;
+                // Asegurar que nombre sea una cadena o convertirlo
+                if (typeof item.producto.nombre !== 'string') {
+                    // Si nombre no es string, intentar convertirlo o usar un valor por defecto
+                    item.producto.nombre = item.producto.nombre ? String(item.producto.nombre) : 'Producto sin nombre';
+                }
+                return true;
+            })
             .sort((a, b) => b.cantidad - a.cantidad)
             .slice(0, limit);
 
@@ -1745,17 +1815,37 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         }
     }, [refreshData]);
 
-    const datosEmpresa = useMemo(() => ({
-        id: 1,
-        nombre: 'MULTIACABADOS',
-        nit: '900.123.456-7',
-        direccion: 'Avenida Siempre Viva 123',
-        ciudad: 'Bogotá D.C.',
-        telefono: '601-555-1234',
-        resolucionDian: 'Res. DIAN No. 18760000001 de 2023-01-01',
-        rangoNumeracion: 'FC-1 al FC-1000',
-        regimen: 'Responsable de IVA'
-    }), []);
+    const crearProducto = useCallback(async (data: Partial<InvProducto>) => {
+        try {
+            const { apiCreateProducto } = await import('../services/apiClient');
+            const resp = await apiCreateProducto(data);
+
+            if (resp.success && resp.data) {
+                await refreshData();
+                return resp.data as InvProducto;
+            }
+            throw new Error(resp.message || 'Error al crear producto');
+        } catch (e) {
+            logger.error({ prefix: 'crearProducto' }, 'Error al crear producto:', e);
+            throw e; // Let the component handle the alert/notification based on success/fail
+        }
+    }, [refreshData]);
+
+    const actualizarProducto = useCallback(async (id: string | number, data: Partial<InvProducto>) => {
+        try {
+            const { apiUpdateProducto } = await import('../services/apiClient');
+            const resp = await apiUpdateProducto(id, data);
+
+            if (resp.success && resp.data) {
+                await refreshData();
+                return resp.data as InvProducto;
+            }
+            throw new Error(resp.message || 'Error al actualizar producto');
+        } catch (e) {
+            logger.error({ prefix: 'actualizarProducto' }, 'Error al actualizar producto:', e);
+            throw e;
+        }
+    }, [refreshData]);
 
     const getCotizacionById = useCallback((id: string) => cotizaciones.find(c => c.id === id), [cotizaciones]);
 
@@ -3677,6 +3767,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         ingresarStockProducto,
         crearCliente,
         actualizarCliente,
+        crearProducto,
+        actualizarProducto,
         getCotizacionById,
         crearCotizacion,
         actualizarCotizacion,
@@ -3693,7 +3785,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         timbrarFactura,
         refreshFacturasYRemisiones,
         motivosDevolucion,
-        getProductoById
+        getProductoById,
+        firmaVendedor,
+        setFirmaVendedor
     }), [
         isLoading,
         isMainDataLoaded,
@@ -3727,6 +3821,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         ingresarStockProducto,
         crearCliente,
         actualizarCliente,
+        crearProducto,
+        actualizarProducto,
         getCotizacionById,
         crearCotizacion,
         actualizarCotizacion,
@@ -3741,7 +3837,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         crearNotaCredito,
         crearFacturaDesdeRemisiones,
         timbrarFactura,
-        refreshFacturasYRemisiones
+        refreshFacturasYRemisiones,
+        firmaVendedor,
+        setFirmaVendedor
     ]);
 
     return (

@@ -1,7 +1,8 @@
 // Cliente API para conectar con el backend SQL Server
-const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) ||
-  (isLocal ? 'http://localhost:3001/api' : '/api');
+const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:3001/api';
+export const BACKEND_URL = API_BASE_URL.replace('/api', '');
+
+import { ProductoConteo } from '../types';
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -10,6 +11,12 @@ export interface ApiResponse<T> {
   error?: string;
   details?: any;
   status?: number;
+  code?: string;
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+  };
 }
 
 class ApiClient {
@@ -19,7 +26,71 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
+  public async login(username: string, password: string): Promise<ApiResponse<any>> {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+  }
+
+  public async sendCreditNoteEmail(id: number | string, to: string, body: string, pdfBase64?: string, customerName?: string) {
+    return this.request('/email/credit-note', {
+      method: 'POST',
+      body: JSON.stringify({ id, to, body, pdfBase64, customerName })
+    });
+  }
+
+  async archiveDocumentToDrive(data: {
+    type: 'cotizacion' | 'pedido' | 'remision' | 'factura' | 'nota_credito';
+    number: string;
+    date?: string | Date;
+    recipientName: string;
+    fileBase64: string;
+    replace?: boolean;
+  }) {
+    return this.request('/drive/archive', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public async updateSignature(firmaBase64: string): Promise<ApiResponse<any>> {
+    return this.request('/auth/firma', {
+      method: 'POST',
+      body: JSON.stringify({ firmaBase64 })
+    });
+  }
+
+  public async getMe(): Promise<ApiResponse<any>> {
+    return this.request('/auth/me');
+  }
+
+  // --- Users Management ---
+  public async getUsers(): Promise<ApiResponse<any[]>> {
+    return this.request('/users');
+  }
+
+  public async createUser(userData: any): Promise<ApiResponse<any>> {
+    return this.request('/users', {
+      method: 'POST',
+      body: JSON.stringify(userData)
+    });
+  }
+
+  public async updateUser(id: number, userData: any): Promise<ApiResponse<any>> {
+    return this.request(`/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(userData)
+    });
+  }
+
+  public async deleteUser(id: number): Promise<ApiResponse<any>> {
+    return this.request(`/users/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  public async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     try {
       const url = `${this.baseUrl}${endpoint}`;
       if (typeof window !== 'undefined') {
@@ -47,14 +118,17 @@ class ApiClient {
       }
 
       try {
-        const response = await fetch(url, {
+        const fetchOptions: RequestInit = {
+          ...options,
           headers: {
             'Content-Type': 'application/json',
+            ...(typeof window !== 'undefined' && localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {}),
             ...options.headers,
           },
-          ...options,
-          signal: controller?.signal || existingSignal, // Usar el signal del controller o el existente
-        });
+          signal: controller?.signal || existingSignal,
+        };
+
+        const response = await fetch(url, fetchOptions);
 
         // Limpiar timeout solo si lo creamos nosotros
         if (timeoutId) {
@@ -171,11 +245,17 @@ class ApiClient {
   }
 
   // Métodos para obtener datos
-  async getClientes(page?: number, pageSize?: number, hasEmail?: boolean) {
+  async getClientes(page?: number, pageSize?: number, hasEmail?: boolean, search?: string, sortBy?: string, sortOrder?: 'asc' | 'desc', isProveedor?: boolean | string, tipoPersonaId?: string, diasCredito?: string) {
     const queryParams = new URLSearchParams();
     if (page) queryParams.append('page', String(page));
     if (pageSize) queryParams.append('pageSize', String(pageSize));
     if (hasEmail) queryParams.append('hasEmail', 'true');
+    if (search) queryParams.append('search', search);
+    if (sortBy) queryParams.append('sortBy', sortBy);
+    if (sortOrder) queryParams.append('sortOrder', sortOrder);
+    if (isProveedor !== undefined) queryParams.append('isProveedor', String(isProveedor));
+    if (tipoPersonaId) queryParams.append('tipoPersonaId', tipoPersonaId);
+    if (diasCredito) queryParams.append('diasCredito', diasCredito);
     const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.request(`/clientes${params}`);
   }
@@ -198,8 +278,34 @@ class ApiClient {
     return this.request(`/productos${params}`);
   }
 
-  async getFacturas() {
-    return this.request('/facturas');
+  async createProducto(payload: any) {
+    return this.request('/productos', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateProducto(id: string | number, payload: any) {
+    return this.request(`/productos/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getFacturas(page?: number, pageSize?: number, search?: string, estado?: string, fechaInicio?: string, fechaFin?: string, clienteId?: string, sortBy?: string, sortOrder?: 'asc' | 'desc') {
+    const queryParams = new URLSearchParams();
+    if (page) queryParams.append('page', String(page));
+    if (pageSize) queryParams.append('pageSize', String(pageSize));
+    if (search) queryParams.append('search', search);
+    if (estado) queryParams.append('estado', estado);
+    if (fechaInicio) queryParams.append('fechaInicio', fechaInicio);
+    if (fechaFin) queryParams.append('fechaFin', fechaFin);
+    if (clienteId) queryParams.append('clienteId', clienteId);
+    if (sortBy) queryParams.append('sortBy', sortBy);
+    if (sortOrder) queryParams.append('sortOrder', sortOrder);
+
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/facturas${params}`);
   }
 
   async getFacturasDetalle(facturaId?: string | number) {
@@ -250,6 +356,31 @@ class ApiClient {
     return this.request(`/remisiones${params}`);
   }
 
+  // --- Inventory Concepts ---
+  async getInventoryConcepts() {
+    return this.request('/conceptos-inventario');
+  }
+
+  async createInventoryConcept(data: any) {
+    return this.request('/conceptos-inventario', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateInventoryConcept(codcon: string, data: any) {
+    return this.request(`/conceptos-inventario/${codcon}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteInventoryConcept(codcon: string) {
+    return this.request(`/conceptos-inventario/${codcon}`, {
+      method: 'DELETE'
+    });
+  }
+
   async getRemisionesDetalle() {
     return this.request('/remisiones-detalle');
   }
@@ -269,6 +400,51 @@ class ApiClient {
   async getCategorias() {
     return this.request('/categorias');
   }
+
+  // --- Lines and Sublines ---
+  async getLinesWithSublines() {
+    return this.request('/categorias/lineas-sublineas');
+  }
+
+  async createLine(data: any) {
+    return this.request('/categorias/lineas', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateLine(codline: string, data: any) {
+    return this.request(`/categorias/lineas/${codline}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteLine(codline: string) {
+    return this.request(`/categorias/lineas/${codline}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async createSubline(data: any) {
+    return this.request('/categorias/sublineas', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateSubline(codline: string, codsub: string, data: any) {
+    return this.request(`/categorias/sublineas/${codline}/${codsub}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteSubline(codline: string, codsub: string) {
+    return this.request(`/categorias/sublineas/${codline}/${codsub}`, {
+      method: 'DELETE'
+    });
+  }
   async getVendedores() {
     return this.request('/vendedores');
   }
@@ -281,10 +457,25 @@ class ApiClient {
     return this.request('/ciudades');
   }
 
-  async registerInventoryEntry(payload: any) {
+  async getEmpresa() {
+    return this.request('/empresa');
+  }
+
+  async registerInventoryEntry(data: {
+    productoId: number;
+    cantidad: number;
+    costoUnitario: number;
+    documentoRef: string;
+    motivo: string;
+    codalm: string;
+    codcon: string;
+    numComprobante?: number;
+    numRemision?: number;
+    clienteId?: string;
+  }) {
     return this.request('/inventario/entradas', {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(data)
     });
   }
 
@@ -331,12 +522,13 @@ class ApiClient {
     return this.request(`/buscar/vendedores?${params.toString()}`);
   }
 
-  async searchProductos(search: string, limit = 20) {
+  async searchProductos(search: string, limit = 20, codalm?: string) {
     const trimmedSearch = String(search || '').trim();
     if (trimmedSearch.length < 2) {
       return { success: false, message: 'Ingrese al menos 2 caracteres', data: [] };
     }
     const params = new URLSearchParams({ search: trimmedSearch, limit: String(limit) });
+    if (codalm) params.append('codalm', codalm);
     return this.request(`/buscar/productos?${params.toString()}`);
   }
 
@@ -349,7 +541,7 @@ class ApiClient {
     return this.request<{ stock: number; codalm: string; productoId: string }>(`/inventario/stock/${productoId}?${queryParams.toString()}`);
   }
 
-  async getInventoryMovements(page: number = 1, pageSize: number = 20, search: string = '', sortBy: string = 'fecha', sortOrder: 'asc' | 'desc' = 'desc') {
+  async getInventoryMovements(page: number = 1, pageSize: number = 20, search: string = '', sortBy: string = 'fecha', sortOrder: 'asc' | 'desc' = 'desc', codalm?: string, tipo?: string) {
     const queryParams = new URLSearchParams({
       page: page.toString(),
       pageSize: pageSize.toString(),
@@ -357,6 +549,8 @@ class ApiClient {
       sortBy,
       sortOrder
     });
+    if (codalm) queryParams.append('codalm', codalm);
+    if (tipo) queryParams.append('tipo', tipo);
     return this.request<any>(`/inventario/movimientos?${queryParams.toString()}`);
   }
 
@@ -374,6 +568,43 @@ class ApiClient {
       body: JSON.stringify(payload),
     });
   }
+
+  async sendCotizacionEmail(id: string | number, payload: { firmaVendedor?: string | null, destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
+    return this.request(`/cotizaciones/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async sendPedidoEmail(id: string | number, payload: { destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
+    return this.request(`/pedidos/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async sendRemisionEmail(id: string | number, payload: { destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
+    return this.request(`/remisiones/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async sendFacturaEmail(id: string | number, payload: { destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
+    return this.request(`/facturas/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async sendNotaCreditoEmail(id: string | number, payload: { destinatario?: string, asunto?: string, mensaje?: string, pdfBase64?: string }) {
+    return this.request(`/notas-credito/${id}/email`, { // Note: controller path is /:id/email or /:id/send-email? I should check routes.
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+
 
   async createPedido(payload: any) {
     return this.request('/pedidos', {
@@ -456,15 +687,92 @@ class ApiClient {
       body: JSON.stringify({ listaPrecioId }),
     });
   }
+  // --- ORDENES DE COMPRA ---
+  async getOrdenesCompra(page: number = 1, pageSize: number = 50, search: string = '', codalm?: string) {
+    const queryParams = new URLSearchParams({
+      page: page.toString(),
+      pageSize: pageSize.toString(),
+      search
+    });
+    if (codalm) queryParams.append('codalm', codalm);
+    return this.request<any[]>(`/ordenes-compra?${queryParams.toString()}`);
+  }
+
+  async getOrdenCompraById(id: string) {
+    return this.request<any>(`/ordenes-compra/${id}`);
+  }
+
+  async getOrdenCompraByNumber(number: string, codalm?: string) {
+    const queryParams = new URLSearchParams();
+    if (codalm) queryParams.append('codalm', codalm);
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<any>(`/ordenes-compra/numero/${number}${params}`);
+  }
+
+  async createOrdenCompra(data: any) {
+    return this.request<any>('/ordenes-compra', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async searchProveedoresOrden(search: string, limit: number = 20) {
+    const queryParams = new URLSearchParams({
+      search,
+      limit: limit.toString()
+    });
+    return this.request<any[]>(`/ordenes-compra/buscar-proveedores?${queryParams.toString()}`);
+  }
+
+  // Métodos públicos para uso externo
+  async get<T = any>(endpoint: string) {
+    return this.request<T>(endpoint);
+  }
+
+  async post<T = any>(endpoint: string, data: any) {
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async put<T = any>(endpoint: string, data: any) {
+    return this.request<T>(endpoint, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+  async sendEmail(payload: { to: string, subject: string, body: string, attachment?: { filename: string, content: string, contentType: string } }) {
+    return this.request('/email/send', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  public async getNextQuoteNumber(): Promise<ApiResponse<{ nextNumber: string }>> {
+    return this.request<{ nextNumber: string }>('/cotizaciones/next-number');
+  }
+
+  public async getNextOrderNumber(): Promise<ApiResponse<{ nextNumber: string }>> {
+    return this.request<{ nextNumber: string }>('/pedidos/next-number');
+  }
+
+  public async getNextInvoiceNumber(): Promise<ApiResponse<{ nextNumber: string }>> {
+    return this.request<{ nextNumber: string }>('/facturas/next-number');
+  }
+
+  public async getNextCreditNoteNumber(): Promise<ApiResponse<{ nextNumber: string }>> {
+    return this.request<{ nextNumber: string }>('/notas-credito/next-number');
+  }
 }
 
 // Instancia singleton del cliente API
 export const apiClient = new ApiClient();
 
 // Funciones de conveniencia para usar en el DataContext
-export const fetchClientes = (page?: number, pageSize?: number, hasEmail?: boolean) => apiClient.getClientes(page, pageSize, hasEmail);
-export const fetchProductos = (codalm?: string, page?: number, pageSize?: number, search?: string) => apiClient.getProductos(codalm, page, pageSize, search);
-export const fetchFacturas = () => apiClient.getFacturas();
+export const fetchClientes = (page?: number, pageSize?: number, hasEmail?: boolean, search?: string, sortBy?: string, sortOrder?: 'asc' | 'desc', isProveedor?: boolean | string, tipoPersonaId?: string, diasCredito?: string) => apiClient.getClientes(page, pageSize, hasEmail, search, sortBy, sortOrder, isProveedor, tipoPersonaId, diasCredito);
+export const fetchProductos = (codalm?: string, page?: number, pageSize?: number, search?: string, sortColumn?: string, sortDirection?: 'asc' | 'desc') => apiClient.getProductos(codalm, page, pageSize, search, sortColumn, sortDirection);
+export const fetchFacturas = (page?: number, pageSize?: number, search?: string, estado?: string, fechaInicio?: string, fechaFin?: string, clienteId?: string, sortBy?: string, sortOrder?: 'asc' | 'desc') => apiClient.getFacturas(page, pageSize, search, estado, fechaInicio, fechaFin, clienteId, sortBy, sortOrder);
 export const fetchFacturasDetalle = (facturaId?: string | number) => apiClient.getFacturasDetalle(facturaId);
 export const fetchCotizaciones = () => apiClient.getCotizaciones();
 export const fetchCotizacionesDetalle = (cotizacionId?: string | number) => apiClient.getCotizacionesDetalle(cotizacionId);
@@ -480,16 +788,31 @@ export const fetchCategorias = () => apiClient.getCategorias();
 export const fetchVendedores = () => apiClient.getVendedores();
 export const fetchBodegas = () => apiClient.getBodegas();
 export const fetchCiudades = () => apiClient.getCiudades();
+export const fetchEmpresa = () => apiClient.getEmpresa();
 export const testApiConnection = () => apiClient.testConnection();
 export const executeCustomQuery = (query: string) => apiClient.executeQuery(query);
 export const apiRegisterInventoryEntry = (payload: any) => apiClient.registerInventoryEntry(payload);
 
+
+// --- ORDENES DE COMPRA WRAPPERS ---
+export const apiFetchOrdenesCompra = (page?: number, pageSize?: number, search?: string, codalm?: string) => apiClient.getOrdenesCompra(page, pageSize, search, codalm);
+export const apiFetchOrdenCompraById = (id: string) => apiClient.getOrdenCompraById(id);
+export const apiFetchOrdenCompraByNumber = (number: string, codalm?: string) => apiClient.getOrdenCompraByNumber(number, codalm);
+export const apiCreateOrdenCompra = (data: any) => apiClient.createOrdenCompra(data);
+export const apiSearchProveedores = (search: string, limit?: number) => apiClient.searchProveedoresOrden(search, limit);
+
 // búsquedas/crear
 export const apiSearchClientes = (q: string, limit?: number) => apiClient.searchClientes(q, limit);
 export const apiSearchVendedores = (q: string, limit?: number) => apiClient.searchVendedores(q, limit);
-export const apiSearchProductos = (q: string, limit?: number) => apiClient.searchProductos(q, limit);
+export const apiSearchProductos = (q: string, limit?: number, codalm?: string) => apiClient.searchProductos(q, limit, codalm);
 export const apiCreateCotizacion = (payload: any) => apiClient.createCotizacion(payload);
 export const apiUpdateCotizacion = (id: string | number, payload: any) => apiClient.updateCotizacion(id, payload);
+export const apiSendCotizacionEmail = (id: string | number, payload: { firmaVendedor?: string | null; destinatario?: string; asunto?: string; mensaje?: string; pdfBase64?: string }) => apiClient.sendCotizacionEmail(id, payload);
+export const apiSendPedidoEmail = (id: string | number, payload: { destinatario?: string; asunto?: string; mensaje?: string; pdfBase64?: string }) => apiClient.sendPedidoEmail(id, payload);
+export const apiSendRemisionEmail = (id: string | number, payload: { destinatario?: string; asunto?: string; mensaje?: string; pdfBase64?: string }) => apiClient.sendRemisionEmail(id, payload);
+export const apiSendFacturaEmail = (id: string | number, payload: { destinatario?: string; asunto?: string; mensaje?: string; pdfBase64?: string }) => apiClient.sendFacturaEmail(id, payload);
+
+
 export const apiCreatePedido = (payload: any) => apiClient.createPedido(payload);
 export const apiUpdatePedido = (id: string | number, payload: any) => apiClient.updatePedido(id, payload);
 export const apiCreateRemision = (payload: any) => apiClient.createRemision(payload);
@@ -499,6 +822,9 @@ export const apiUpdateFactura = (id: string | number, payload: any) => apiClient
 export const apiCreateCliente = (payload: any) => apiClient.createCliente(payload);
 export const apiUpdateCliente = (id: string | number, payload: any) => apiClient.updateCliente(id, payload);
 
+export const apiCreateProducto = (payload: any) => apiClient.createProducto(payload);
+export const apiUpdateProducto = (id: string | number, payload: any) => apiClient.updateProducto(id, payload);
+
 export const apiSetClienteListaPrecios = (id: number | string, listaPrecioId: number | string) => apiClient.setClienteListaPrecios(id, listaPrecioId);
 export const apiGetClienteById = (id: number | string) => apiClient.getClienteById(id);
 export const apiCreateNotaCredito = (payload: any) => apiClient.createNotaCredito(payload);
@@ -506,5 +832,70 @@ export const apiUpdateNotaCredito = (id: number | string, payload: any) => apiCl
 export const apiGetClientesConFacturasAceptadas = () => apiClient.getClientesConFacturasAceptadas();
 export const fetchStock = (productoId: number | string, codalm: string) => apiClient.getStock(productoId, codalm);
 export const fetchInventoryMovements = (page?: number, pageSize?: number, search?: string, sortBy?: string, sortOrder?: 'asc' | 'desc') => apiClient.getInventoryMovements(page, pageSize, search, sortBy, sortOrder);
+
+
+
+// Lines and Sublines exports
+export const fetchLinesWithSublines = () => apiClient.getLinesWithSublines();
+export const apiCreateLine = (data: any) => apiClient.createLine(data);
+export const apiUpdateLine = (id: string, data: any) => apiClient.updateLine(id, data);
+export const apiDeleteLine = (id: string) => apiClient.deleteLine(id);
+export const apiCreateSubline = (data: any) => apiClient.createSubline(data);
+export const apiUpdateSubline = (lineId: string, subId: string, data: any) => apiClient.updateSubline(lineId, subId, data);
+export const apiDeleteSubline = (lineId: string, subId: string) => apiClient.deleteSubline(lineId, subId);
+
+// --- CONTEO FÍSICO DE INVENTARIO ---
+// --- CONTEO FÍSICO DE INVENTARIO ---
+export const apiGetProductosParaConteo = async (codalm: string, linea?: string, filtro?: string, idconteo?: number) => {
+  const params = new URLSearchParams({ codalm });
+  if (linea) params.append('linea', linea);
+  if (filtro) params.append('filtro', filtro);
+  if (idconteo) params.append('idconteo', idconteo.toString());
+
+  return apiClient.request<ProductoConteo[]>(`/inventario-fisico/productos?${params.toString()}`);
+};
+
+export const apiGetConteos = async (codalm?: string) => {
+  const params = codalm ? `?codalm=${codalm}` : '';
+  return apiClient.request<any[]>(`/inventario-fisico/conteos${params}`);
+};
+
+export const apiGetSiguienteNumeroConteo = async () => {
+  return apiClient.request<number>('/inventario-fisico/siguiente-numero');
+};
+
+export const apiCreateConteo = async (data: any) => {
+  return apiClient.request<any>('/inventario-fisico/conteo', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+};
+
+export const apiUpdateConteoFisico = async (id: number, canfis: number) => {
+  return apiClient.request<any>(`/inventario-fisico/conteo/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ canfis })
+  });
+};
+
+export const apiAplicarConteo = async (idconteo: number) => {
+  return apiClient.request<any>(`/inventario-fisico/aplicar/${idconteo}`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+};
+
+export const apiSendGenericEmail = (payload: { to: string, subject: string, body: string, attachment?: { filename: string, content: string, contentType: string } }) => apiClient.sendEmail(payload);
+
+export const apiGetNextQuoteNumber = () => apiClient.getNextQuoteNumber();
+export const apiGetNextOrderNumber = () => apiClient.getNextOrderNumber();
+export const apiGetNextInvoiceNumber = () => apiClient.getNextInvoiceNumber();
+export const apiGetNextCreditNoteNumber = () => apiClient.getNextCreditNoteNumber();
+
+
+
+// Export standalone functions for easier usage
+export const apiSendCreditNoteEmail = (id: string | number, to: string, body: string, pdfBase64?: string, customerName?: string) => apiClient.sendCreditNoteEmail(id, to, body, pdfBase64, customerName);
+export const apiArchiveDocumentToDrive = (data: any) => apiClient.archiveDocumentToDrive(data);
 
 export default apiClient;

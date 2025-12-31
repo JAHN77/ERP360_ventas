@@ -1,0 +1,23 @@
+const express = require('express');
+const router = express.Router();
+const inventarioFisicoController = require('../controllers/inventarioFisicoController');
+
+// Obtener productos para conteo físico
+router.get('/productos', inventarioFisicoController.getProductosParaConteo);
+
+// Obtener lista de conteos registrados
+router.get('/conteos', inventarioFisicoController.getConteos);
+
+// Obtener siguiente número de conteo
+router.get('/siguiente-numero', inventarioFisicoController.getSiguienteNumeroConteo);
+
+// Crear nuevo conteo físico
+router.post('/conteo', inventarioFisicoController.createConteo);
+
+// Actualizar cantidad física de un producto en el conteo
+router.put('/conteo/:id', inventarioFisicoController.updateConteoFisico);
+
+// Aplicar ajustes del conteo al inventario
+router.post('/aplicar/:idconteo', inventarioFisicoController.aplicarConteo);
+
+module.exports = router;

@@ -3,7 +3,7 @@ import { Usuario, Empresa, Sede } from '../types';
 // FIX: Imported all necessary mock data for user session creation.
 import { usuarios, empresas as allEmpresas } from '../data/mockData';
 import { Role, rolesConfig, Permission } from '../config/rolesConfig';
-import { fetchBodegas } from '../services/apiClient';
+import apiClient, { fetchBodegas } from '../services/apiClient';
 import { logger } from '../utils/logger';
 
 interface AuthContextType {
@@ -13,7 +13,7 @@ interface AuthContextType {
   selectedCompany: Empresa | null;
   selectedSede: Sede | null;
   permissions: Permission[];
-  login: (email: string, role: Role) => boolean;
+  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   switchCompany: (companyId: number) => void;
   switchSede: (sedeId: number | string, sedeData?: { codigo?: string; nombre?: string }) => void;
@@ -315,87 +315,145 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     };
   }, []);
 
-  const login = (email: string, role: Role) => {
-    const foundUser = usuarios.find(u => u.email === email);
-    if (foundUser) {
-      // CRÍTICO: Solo usar bodegas reales de la BD - NUNCA usar datos mock
-      const sedesToUse = bodegas.length > 0 ? bodegas : [];
-      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas estado:', bodegas);
-      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas.length:', bodegas.length);
-      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - sedesToUse:', sedesToUse);
-      // Asignar todas las bodegas a todas las empresas (ya que las bodegas son compartidas)
-      const empresasWithSedes = allEmpresas.map(e => ({
-        ...e,
-        sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id })) // Asignar todas las bodegas a cada empresa
-      }));
-      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - empresasWithSedes:', empresasWithSedes);
-      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - empresasWithSedes[0].sedes:', empresasWithSedes[0]?.sedes);
-      const nombreCompleto = `${foundUser.primerNombre} ${foundUser.primerApellido}`.trim();
-      const userWithRole: Usuario = {
-        ...foundUser,
-        rol: role,
-        empresas: empresasWithSedes,
-        nombre: nombreCompleto
-      };
-      setUser(userWithRole);
+  // Check Auth on Mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
 
-      logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - bodegas asignadas a empresas:', empresasWithSedes.map(e => ({
-        empresa: e.razonSocial,
-        sedes: e.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
-      })));
+      try {
+        const response = await apiClient.getMe();
+        if (response.success && response.data) {
+          const userData = response.data.user; // { id, codusu, nomusu, role, firma }
 
-      const userPermissions = rolesConfig[role]?.can || [];
-      const isAdmin = userPermissions.includes('*');
+          // Construct Usuario object
+          const sedesToUse = bodegas.length > 0 ? bodegas : [];
+          const empresasWithSedes = allEmpresas.map(e => ({
+            ...e,
+            sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id }))
+          }));
 
-      if (isAdmin) {
-        const allPermissions = Object.values(rolesConfig).flatMap(r => r.can) as Permission[];
-        setPermissions([...new Set(allPermissions.filter(p => p !== '*'))]);
-      } else {
-        setPermissions(userPermissions as Permission[]);
-      }
+          const userObj: Usuario = {
+            id: userData.id,
+            email: '', // No email in DB
+            username: userData.codusu,
+            primerNombre: userData.nomusu.split(' ')[0] || '',
+            primerApellido: userData.nomusu.split(' ').slice(1).join(' ') || '',
+            nombre: userData.nomusu,
+            rol: userData.role as Role || 'vendedor',
+            empresas: empresasWithSedes,
+            firma: userData.firma
+          };
 
-      if (userWithRole.empresas.length > 0) {
-        const firstCompany = userWithRole.empresas[0];
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login - primera empresa seleccionada:', {
-          empresa: firstCompany.razonSocial,
-          sedes: firstCompany.sedes?.map(s => ({ id: s.id, codigo: s.codigo, nombre: s.nombre }))
-        });
-        setSelectedCompany(firstCompany);
+          setUser(userObj);
 
-        // Si solo hay una bodega, seleccionarla automáticamente
-        if (firstCompany.sedes && firstCompany.sedes.length === 1) {
-          const unicaBodega = firstCompany.sedes[0];
-          setSelectedSede(unicaBodega);
-          try {
-            localStorage.setItem('selectedSedeId', String(unicaBodega.id));
-            localStorage.setItem('selectedSedeData', JSON.stringify({
-              id: unicaBodega.id,
-              nombre: unicaBodega.nombre,
-              codigo: unicaBodega.codigo,
-              empresaId: unicaBodega.empresaId
-            }));
-          } catch (error) {
-            logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage en login:', error);
+          // Set Permissions
+          const userPermissions = rolesConfig[userObj.rol]?.can || [];
+          const isAdmin = userPermissions.includes('*');
+          if (isAdmin) {
+            const allPermissions = Object.values(rolesConfig).flatMap(r => r.can) as Permission[];
+            setPermissions([...new Set(allPermissions.filter(p => p !== '*'))]);
+          } else {
+            setPermissions(userPermissions as Permission[]);
           }
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login exitoso. Bodega única seleccionada automáticamente:', unicaBodega.nombre);
+
+          // Select Company/Sede Logic (Restore or Default)
+          // ... (reuse existing logic or simplify) ...
+          if (userObj.empresas.length > 0) {
+            const firstCompany = userObj.empresas[0];
+            setSelectedCompany(firstCompany);
+
+            // Try restore sede
+            try {
+              const savedSedeId = localStorage.getItem('selectedSedeId');
+              if (savedSedeId && firstCompany.sedes) {
+                const found = firstCompany.sedes.find(s => String(s.id) === savedSedeId);
+                if (found) setSelectedSede(found);
+              }
+            } catch (e) { }
+          }
+
         } else {
-          // Si hay múltiples bodegas, no preseleccionar ninguna - el usuario debe elegir manualmente
-          setSelectedSede(null);
-          try {
-            localStorage.removeItem('selectedSedeId');
-            localStorage.removeItem('selectedSedeData');
-          } catch (error) {
-            logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en login:', error);
-          }
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Login exitoso. Usuario debe seleccionar una bodega manualmente.');
+          localStorage.removeItem('token');
         }
+      } catch (error) {
+        console.error('Auth check failed', error);
+        localStorage.removeItem('token');
       }
-      return true;
+    };
+
+    if (bodegas.length > 0 || !isLoadingBodegas) {
+      checkAuth();
     }
-    return false;
+  }, [bodegas, isLoadingBodegas]);
+
+  const login = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const response = await apiClient.login(username, password);
+
+      if (response.success && response.data) {
+        const { token, user: userData } = response.data;
+        if (token) localStorage.setItem('token', token);
+
+        // Construct User
+        const sedesToUse = bodegas.length > 0 ? bodegas : [];
+        const empresasWithSedes = allEmpresas.map(e => ({
+          ...e,
+          sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id }))
+        }));
+
+        const fullName = userData.nomusu || username;
+
+        const userObj: Usuario = {
+          id: userData.id,
+          email: '',
+          username: userData.codusu,
+          primerNombre: fullName.split(' ')[0] || '',
+          primerApellido: fullName.split(' ').slice(1).join(' ') || '',
+          nombre: fullName,
+          rol: userData.role as Role || 'vendedor',
+          empresas: empresasWithSedes,
+          firma: userData.firma
+        };
+
+        setUser(userObj);
+
+        // Permissions
+        const userPermissions = rolesConfig[userObj.rol]?.can || [];
+        const isAdmin = userPermissions.includes('*');
+        if (isAdmin) {
+          const allPermissions = Object.values(rolesConfig).flatMap(r => r.can) as Permission[];
+          setPermissions([...new Set(allPermissions.filter(p => p !== '*'))]);
+        } else {
+          setPermissions(userPermissions as Permission[]);
+        }
+
+        // Select First Company/Sede
+        if (userObj.empresas.length > 0) {
+          const firstCompany = userObj.empresas[0];
+          setSelectedCompany(firstCompany);
+
+          if (firstCompany.sedes && firstCompany.sedes.length === 1) {
+            const unicaBodega = firstCompany.sedes[0];
+            setSelectedSede(unicaBodega);
+            localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+          } else {
+            setSelectedSede(null);
+            localStorage.removeItem('selectedSedeId');
+          }
+        }
+
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Login error:', error);
+      return false;
+    }
   };
 
   const logout = () => {
+    localStorage.removeItem('token');
     setUser(null);
     setSelectedCompany(null);
     setSelectedSede(null);

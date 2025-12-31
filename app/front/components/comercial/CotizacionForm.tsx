@@ -4,11 +4,12 @@ import Card from '../ui/Card';
 import { isWithinRange, isPositiveInteger, isNonNegativeNumber } from '../../utils/validation';
 import { useData } from '../../hooks/useData';
 import { useAuth } from '../../hooks/useAuth';
+import { useNotifications } from '../../hooks/useNotifications';
 import { apiSearchClientes, apiSearchVendedores, apiCreateCotizacion, apiSearchProductos, apiGetClienteById } from '../../services/apiClient';
 // apiSetClienteListaPrecios comentado temporalmente - lista de precios no implementada en frontend
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
 
 interface CotizacionFormData {
@@ -39,6 +40,7 @@ interface CotizacionFormProps {
 const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onDirtyChange, initialData, isEditing }) => {
     const { clientes, vendedores, productos } = useData();
     const { selectedSede } = useAuth();
+    const { addNotification } = useNotifications();
     const [clienteId, setClienteId] = useState('');
     const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
     const [vendedorId, setVendedorId] = useState('');
@@ -411,20 +413,16 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         }
 
         if (!product) {
-            console.error('❌ Producto no encontrado:', {
-                currentProductId,
-                hasSelectedProduct: !!selectedProduct,
-                productosCount: productos.length,
-                productResultsCount: productResults.length,
-                selectedProductId: selectedProduct?.id
-            });
-            alert('Por favor, selecciona un producto válido antes de agregarlo.');
+            if (selectedProduct?.id) {
+                console.error('❌ Producto seleccionado pero no encontrado:', { selectedId: selectedProduct.id });
+            }
+            addNotification({ type: 'warning', message: 'Por favor, selecciona un producto válido antes de agregarlo.' });
             return;
         }
 
         // Validar cantidad
         if (!isPositiveInteger(currentQuantity)) {
-            alert('La cantidad debe ser un número entero positivo mayor que cero.');
+            addNotification({ type: 'warning', message: 'La cantidad debe ser un número entero positivo mayor que cero.' });
             return;
         }
 
@@ -435,7 +433,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
 
         if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
             if (quantityNum > stockDisponible) {
-                alert(`La cantidad solicitada (${quantityNum}) supera el stock disponible (${stockDisponible}). Por favor, ajuste la cantidad.`);
+                addNotification({ type: 'warning', message: `La cantidad solicitada (${quantityNum}) supera el stock disponible (${stockDisponible}). Por favor, ajuste la cantidad.` });
                 return;
             }
         }
@@ -443,13 +441,13 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         // Validar descuento
         const discountValue = Number(currentDiscount);
         if (!isWithinRange(discountValue, 0, 100)) {
-            alert('El descuento debe estar entre 0 y 100.');
+            addNotification({ type: 'warning', message: 'El descuento debe estar entre 0 y 100.' });
             return;
         }
 
         // Validar que el producto no esté ya en la lista
         if (items.some(item => item.productoId === product.id)) {
-            alert("El producto ya está en la lista.");
+            addNotification({ type: 'info', message: "El producto ya está en la lista." });
             return;
         }
 
@@ -463,7 +461,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 precio: product.precio,
                 precioPublico: (product as any).precioPublico
             });
-            alert(`El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.`);
+            addNotification({ type: 'error', message: `El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.` });
             return;
         }
 
@@ -613,11 +611,11 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedCliente) {
-            alert('Selecciona un cliente válido antes de continuar.');
+            addNotification({ type: 'warning', message: 'Selecciona un cliente válido antes de continuar.' });
             return;
         }
         if (!selectedVendedor) {
-            alert('Selecciona un vendedor válido antes de continuar.');
+            addNotification({ type: 'warning', message: 'Selecciona un vendedor válido antes de continuar.' });
             return;
         }
         onSubmit({
@@ -657,7 +655,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         <form onSubmit={handleSubmit}>
             {/* Información de bodega seleccionada */}
             {selectedSede ? (
-                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <div className="mb-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                     <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-200">
                         <i className="fas fa-warehouse"></i>
                         <span className="font-medium">Bodega:</span>
@@ -668,7 +666,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                     </div>
                 </div>
             ) : (
-                <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <div className="mb-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                     <div className="flex items-center gap-2 text-sm text-yellow-800 dark:text-yellow-200">
                         <i className="fas fa-exclamation-triangle"></i>
                         <span className="font-medium">Advertencia:</span>
@@ -677,7 +675,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 </div>
             )}
 
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
+            <div className="grid md:grid-cols-3 gap-4 mb-4">
                 <div ref={clienteRef} className="relative">
                     <label htmlFor="cliente" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Cliente</label>
                     <input
@@ -871,88 +869,8 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         </div>
                     )}
                 </div>
-                {(selectedCliente || selectedVendedor) && (
-                    <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {selectedCliente && (
-                            <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                                <div className="space-y-1">
-                                    <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
-                                        {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
-                                    </p>
-                                    {(selectedCliente.dirter || selectedCliente.direccion) && (
-                                        <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
-                                            <i className="fas fa-map-marker-alt mr-1"></i>
-                                            {selectedCliente.dirter || selectedCliente.direccion}
-                                            {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
-                                        </p>
-                                    )}
-                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                        {selectedCliente.numeroDocumento && (
-                                            <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
-                                        )}
-                                        {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
-                                            <span>
-                                                <i className="fas fa-phone mr-1"></i>
-                                                {[
-                                                    selectedCliente.telefono || (selectedCliente as any).telefono,
-                                                    (selectedCliente as any).celular || selectedCliente.celter
-                                                ].filter(Boolean).join(' | ')}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                                {/* Lista de precios comentado temporalmente - no implementado en frontend */}
-                                {/* <div className="mt-2 flex items-center gap-2 flex-wrap">
-                                    <span className="text-slate-500 dark:text-slate-400">Lista de Precios:</span>
-                                    <input
-                                        type="text"
-                                        value={listaPrecioTemp}
-                                        onChange={(e)=>setListaPrecioTemp(e.target.value.replace(/[^0-9]/g,''))}
-                                        placeholder="ID"
-                                        className="w-28 px-2 py-1 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={handleGuardarListaPrecio}
-                                        disabled={isSavingLista || !listaPrecioTemp}
-                                        className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md disabled:bg-slate-400"
-                                        title="Guardar lista de precios para el cliente"
-                                    >
-                                        {isSavingLista ? 'Guardando...' : 'Guardar'}
-                                    </button>
-                                    <span className="text-xs text-slate-500">Actual: {(selectedCliente as any).listaPrecioId ?? 'N/A'}</span>
-                                </div> */}
-                            </Card>
-                        )}
-                        {selectedVendedor && (
-                            <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                                <div className="space-y-1">
-                                    <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
-                                        {selectedVendedor.primerNombre && selectedVendedor.primerApellido
-                                            ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
-                                            : selectedVendedor.nombreCompleto || (selectedVendedor as any).nombre || 'Sin nombre'}
-                                    </p>
-                                    <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                        {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
-                                            <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
-                                        )}
-                                        {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
-                                            <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
-                                        )}
-                                    </div>
-                                </div>
-                            </Card>
-                        )}
-                    </div>
-                )}
-            </div>
-
-            {/* Campos adicionales de cotización */}
-            <div className="mb-6">
-                <div className="w-full md:w-64">
-                    <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-                        Forma de Pago
-                    </label>
+                <div className="relative">
+                    <label htmlFor="formaPago" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Forma de Pago</label>
                     <select
                         id="formaPago"
                         value={formaPago}
@@ -963,41 +881,85 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                         <option value="2">Crédito</option>
                     </select>
                 </div>
-                {/* Sección de anticipos comentada - no visible para el usuario */}
-                {/* <div>
-                    <label htmlFor="valorAnticipo" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-                        Valor Anticipo (Opcional)
-                    </label>
-                    <input
-                        type="text"
-                        id="valorAnticipo"
-                        value={valorAnticipo}
-                        onChange={(e) => {
-                            const val = e.target.value.replace(/[^0-9]/g, '');
-                            setValorAnticipo(val === '' ? '' : val);
-                        }}
-                        placeholder="0"
-                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-right"
-                    />
-                </div> */}
-                {/* Sección de número de orden de compra comentada - no visible para el usuario */}
-                {/* <div>
-                    <label htmlFor="numOrdenCompra" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-                        N° Orden de Compra (Opcional)
-                    </label>
-                    <input
-                        type="text"
-                        id="numOrdenCompra"
-                        value={numOrdenCompra}
-                        onChange={(e) => setNumOrdenCompra(e.target.value)}
-                        placeholder="Número de orden del cliente"
-                        className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                </div> */}
+                {(selectedCliente || selectedVendedor) && (
+                    <div className="hidden md:contents">
+                        {/* Wrapper for info cards to appear in grid flow if needed, but given the request, 
+                            it seems they just want the INPUTS aligned. 
+                            However, the cards below might break the 3-col layout visually if inserted directly.
+                            Let's keep the inputs in the top row.
+                            
+                            Wait, the user said "cliente vendedor y forma de pago deberian ir en la misam liena".
+                            He likely means the INPUTS/SELECTS.
+                            
+                            The Cards appear *below* the inputs in the code (lines 873+ are conditional).
+                            If I move the Payment Select into the grid above, the Cards will be pushed down.
+                            
+                            Let's place the "Forma de Pago" div inside the main grid.
+                        */}
+                    </div>
+                )}
             </div>
 
+            {/* Row for Selected Client/Vendor Info Cards - Full Width or 2-col */}
+            {(selectedCliente || selectedVendedor) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    {selectedCliente && (
+                        <Card className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <div className="space-y-1">
+                                <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                    {selectedCliente.nombreCompleto || selectedCliente.razonSocial || selectedCliente.nomter || 'Sin nombre'}
+                                </p>
+                                {(selectedCliente.dirter || selectedCliente.direccion) && (
+                                    <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                                        <i className="fas fa-map-marker-alt mr-1"></i>
+                                        {selectedCliente.dirter || selectedCliente.direccion}
+                                        {selectedCliente.ciudad && `, ${selectedCliente.ciudad}`}
+                                    </p>
+                                )}
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                    {selectedCliente.numeroDocumento && (
+                                        <span><i className="fas fa-id-card mr-1"></i>Doc: {selectedCliente.numeroDocumento}</span>
+                                    )}
+                                    {(selectedCliente.email || selectedCliente.telefono || (selectedCliente as any).celular || selectedCliente.celter) && (
+                                        <span>
+                                            <i className="fas fa-phone mr-1"></i>
+                                            {[
+                                                selectedCliente.telefono || (selectedCliente as any).telefono,
+                                                (selectedCliente as any).celular || selectedCliente.celter
+                                            ].filter(Boolean).join(' | ')}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </Card>
+                    )}
+                    {selectedVendedor && (
+                        <Card className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                            <div className="space-y-1">
+                                <p className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                    {selectedVendedor.primerNombre && selectedVendedor.primerApellido
+                                        ? `${selectedVendedor.primerNombre} ${selectedVendedor.primerApellido}`.trim()
+                                        : selectedVendedor.nombreCompleto || (selectedVendedor as any).nombre || 'Sin nombre'}
+                                </p>
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                    {(selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo) && (
+                                        <span><i className="fas fa-id-badge mr-1"></i>Código: {selectedVendedor.codigoVendedor || (selectedVendedor as any).codigo}</span>
+                                    )}
+                                    {((selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja) && (
+                                        <span><i className="fas fa-cash-register mr-1"></i>Caja: {(selectedVendedor as any).codigoCaja || (selectedVendedor as any).codigo_caja}</span>
+                                    )}
+                                </div>
+                            </div>
+                        </Card>
+                    )}
+                </div>
+            )}
+
+            {/* Separator if needed, or just let them stack */}
+
+
             {/* Campos de observaciones y nota de pago - antes de añadir productos */}
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
+            <div className="grid md:grid-cols-2 gap-4 mb-4">
                 <div>
                     <label htmlFor="observacionesInternas" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Observaciones Internas (para Supervisor)</label>
                     <textarea
@@ -1024,7 +986,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
 
             <div className="border-t border-b border-slate-200 dark:border-slate-700 py-4 mb-4">
                 <h4 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-100">Añadir Productos</h4>
-                <div className="grid grid-cols-1 lg:grid-cols-8 gap-2 lg:gap-3">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 lg:gap-3 items-end">
                     <div ref={searchRef} className="relative lg:col-span-3">
                         <label htmlFor="producto-search" className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Producto</label>
                         <input
@@ -1034,7 +996,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                             onChange={handleProductSearchChange}
                             onFocus={() => setIsProductDropdownOpen(true)}
                             placeholder="Buscar por nombre..."
-                            className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full pl-3 pr-8 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                             autoComplete="off"
                             onBlur={() => {
                                 const trimmed = productSearchTerm.trim();
@@ -1069,53 +1031,51 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                     </div>
                     <div className="lg:col-span-1">
                         <label className={labelStyle}>Unidad</label>
-                        <input type="text" value={selectedProduct?.unidadMedida || ''} disabled className={`${disabledInputStyle} text-center`} />
+                        <input type="text" value={selectedProduct?.unidadMedida || ''} disabled className={`${disabledInputStyle} text-center !py-1.5`} title={selectedProduct?.unidadMedida || ''} />
                     </div>
                     <div className="lg:col-span-1">
                         <label className={labelStyle}>Cantidad</label>
                         <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentQuantity} onChange={e => {
                             const val = e.target.value.replace(/[^0-9]/g, '');
                             setCurrentQuantity(val);
-                        }} className={getNumericInputClasses(currentQuantity, isQuantityValid)} />
-                        <div className="h-5 text-center text-xs mt-0.5">
-                            {!isQuantityValid && <span className="text-red-500"> &gt; 0</span>}
-                            {isQuantityValid && selectedProduct && (
-                                <>
-                                    <span className="text-slate-500 dark:text-slate-400">Stock: </span>
-                                    <span className={`font-semibold ${((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) < Number(currentQuantity) ? 'text-orange-500' : 'text-slate-500 dark:text-slate-400'}`}>
-                                        {selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}
-                                    </span>
-                                </>
-                            )}
-                        </div>
+                        }} className={`${getNumericInputClasses(currentQuantity, isQuantityValid)} !py-1.5`} />
                     </div>
                     <div className="lg:col-span-1">
                         <label className={labelStyle}>Vr. Unit.</label>
-                        <input type="text" value={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} disabled className={disabledInputStyle} />
+                        <input type="text" value={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} disabled className={`${disabledInputStyle} !py-1.5`} title={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} />
                     </div>
                     <div className="lg:col-span-1">
                         <label className={labelStyle}>% Iva</label>
-                        <input type="text" value={selectedProduct ? (selectedProduct.aplicaIva ? '19' : '0') : ''} disabled className={`${disabledInputStyle} text-center`} />
+                        <input type="text" value={selectedProduct ? (selectedProduct.aplicaIva ? '19' : '0') : ''} disabled className={`${disabledInputStyle} text-center !py-1.5`} />
                     </div>
                     <div className="lg:col-span-1">
-                        <label className={labelStyle}>Totales</label>
-                        <input type="text" value={formatCurrency(currentItemSubtotalForDisplay)} disabled className={`${disabledInputStyle} font-bold`} />
-                    </div>
-                </div>
-                <div className="flex gap-2 mt-3">
-                    <div className="w-auto">
                         <label className={labelStyle}>% Descto</label>
                         <input type="text" pattern="[0-9]*" inputMode="numeric" value={currentDiscount} onChange={e => {
                             const val = e.target.value.replace(/[^0-9]/g, '');
                             setCurrentDiscount(val === '' ? '' : Math.min(100, parseInt(val, 10) || 0));
-                        }} className={getNumericInputClasses(currentDiscount, isDiscountValid)} />
+                        }} className={`${getNumericInputClasses(currentDiscount, isDiscountValid)} !py-1.5`} />
                     </div>
-                    <div className="flex items-end">
-                        <button type="button" onClick={handleAddItem} disabled={!currentProductId || !isQuantityValid || !isDiscountValid} className="px-6 py-2 bg-sky-600 text-white font-semibold rounded-md hover:bg-sky-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed whitespace-nowrap">
-                            <i className="fas fa-plus mr-2"></i>Añadir Producto
+                    <div className="lg:col-span-2">
+                        <label className={labelStyle}>Totales</label>
+                        <input type="text" value={formatCurrency(currentItemSubtotalForDisplay)} disabled className={`${disabledInputStyle} font-bold !py-1.5`} title={formatCurrency(currentItemSubtotalForDisplay)} />
+                    </div>
+                    <div className="lg:col-span-2">
+                        <button type="button" onClick={handleAddItem} disabled={!currentProductId || !isQuantityValid || !isDiscountValid} className="w-full py-1.5 bg-sky-600 text-white font-semibold rounded-md hover:bg-sky-700 transition-colors disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed whitespace-nowrap text-sm">
+                            <i className="fas fa-plus mr-1"></i>Añadir
                         </button>
                     </div>
                 </div>
+
+                {/* Stock info shown only if valid quantity and product selected */}
+                {isQuantityValid && selectedProduct && (
+                    <div className="mt-1 text-xs px-2 flex gap-4">
+                        <div className="text-slate-500 dark:text-slate-400">
+                            Stock disponible: <span className={`font-semibold ${((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) < Number(currentQuantity) ? 'text-orange-500' : 'text-slate-600 dark:text-slate-300'}`}>
+                                {selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0}
+                            </span>
+                        </div>
+                    </div>
+                )}
                 {selectedProduct && Number(currentQuantity) > ((selectedProduct.stock ?? selectedProduct.controlaExistencia ?? 0)) && (
                     <div className="w-full flex items-center gap-2 text-orange-500 dark:text-orange-400 text-xs mt-2 p-2 bg-orange-50 dark:bg-orange-900/30 rounded-md border border-orange-200 dark:border-orange-800">
                         <i className="fas fa-exclamation-triangle"></i>
@@ -1124,136 +1084,153 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 )}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2">
+            <div className="space-y-6">
+                <div className="w-full">
                     <h4 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-100">Items de la Cotización</h4>
                     {/* Table of items */}
-                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
                         <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
                             <thead className="bg-slate-50 dark:bg-slate-700">
                                 <tr>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Producto</th>
-                                    <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
-                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Cant.</th>
-                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Precio</th>
-                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Desc. %</th>
-                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">IVA %</th>
-                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Total</th>
-                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Acción</th>
+                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
+                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Producto</th>
+                                    <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Cant.</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Precio</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Desc. %</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">IVA %</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Total</th>
+                                    <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Acción</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
                                 {items.length > 0 ? items.map((item, index) => {
-                                    // Buscar producto por ID (puede ser numérico o string)
                                     const product = productos.find(p =>
                                         String(p.id) === String(item.productoId) ||
                                         p.id === item.productoId
                                     );
 
-                                    // Obtener nombre del producto: primero del producto encontrado, luego del item
                                     const productoNombre = product?.nombre ||
                                         item.descripcion ||
                                         (item as any).nombre ||
                                         `Producto ${index + 1}`;
 
-                                    // Solo mostrar warning si el producto NO tiene un ID válido
-                                    // Si el producto tiene un ID válido (numérico > 0), asumimos que existe en la BD y no mostramos warning
                                     const hasValidProductId = item.productoId && (typeof item.productoId === 'number' || typeof item.productoId === 'string') && Number(item.productoId) > 0;
                                     const shouldShowWarning = !hasValidProductId;
 
                                     return (
                                         <tr key={item.productoId || `item-${index}`}>
-                                            <td className="px-4 py-2 text-sm text-slate-600">
+                                            <td className="px-4 py-2 text-sm text-slate-600 font-mono">
                                                 {(item as any).referencia || product?.referencia || 'N/A'}
                                             </td>
                                             <td className="px-4 py-2 text-sm">
-                                                {productoNombre}
+                                                <div className="font-medium text-slate-800 dark:text-slate-100">{productoNombre}</div>
                                                 {shouldShowWarning && (
-                                                    <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400" title="Producto no encontrado en el catálogo">
-                                                        <i className="fas fa-exclamation-triangle"></i>
+                                                    <span className="text-[10px] text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 px-1.5 py-0.5 rounded border border-yellow-200 dark:border-yellow-800 flex items-center gap-1 w-fit mt-1">
+                                                        <i className="fas fa-exclamation-triangle"></i> No en catálogo
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="px-4 py-2 text-sm text-center">{(item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'N/A'}</td>
+                                            <td className="px-4 py-2 text-sm text-center">
+                                                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-xs text-slate-600 dark:text-slate-300 uppercase">
+                                                    {(item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'N/A'}
+                                                </span>
+                                            </td>
                                             <td className="px-4 py-2 text-sm text-right">
                                                 <input
                                                     type="number"
                                                     min="1"
-                                                    max={(() => {
-                                                        const product = productos.find(p =>
-                                                            String(p.id) === String(item.productoId) ||
-                                                            p.id === item.productoId
-                                                        );
-                                                        const stockDisponible = product?.stock ?? null;
-                                                        const controlaExistencia = product?.karins ?? false;
-                                                        return (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) ? stockDisponible : undefined;
-                                                    })()}
                                                     value={item.cantidad}
                                                     readOnly
-                                                    className="w-20 px-2 py-1 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md cursor-not-allowed opacity-75"
+                                                    className="w-20 px-2 py-1 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md cursor-not-allowed opacity-75 font-medium"
                                                 />
                                             </td>
-                                            <td className="px-4 py-2 text-sm text-right">{formatCurrency(item.precioUnitario)}</td>
+                                            <td className="px-4 py-2 text-sm text-right font-medium text-slate-700 dark:text-slate-300">{formatCurrency(item.precioUnitario)}</td>
                                             <td className="px-4 py-2 text-sm text-right">
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="100"
-                                                    value={item.descuentoPorcentaje}
-                                                    onChange={(e) => {
-                                                        const newValue = e.target.value;
-                                                        if (newValue === '' || (parseInt(newValue, 10) >= 0 && parseInt(newValue, 10) <= 100)) {
-                                                            handleItemChange(item.productoId, 'descuentoPorcentaje', newValue);
-                                                        }
-                                                    }}
-                                                    onBlur={(e) => {
-                                                        const val = parseInt(e.target.value, 10);
-                                                        if (isNaN(val) || val < 0) {
-                                                            handleItemChange(item.productoId, 'descuentoPorcentaje', 0);
-                                                        } else if (val > 100) {
-                                                            handleItemChange(item.productoId, 'descuentoPorcentaje', 100);
-                                                        }
-                                                    }}
-                                                    className="w-16 px-2 py-1 text-right bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                />
+                                                <div className="relative inline-block">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="100"
+                                                        value={item.descuentoPorcentaje}
+                                                        onChange={(e) => {
+                                                            const newValue = e.target.value;
+                                                            if (newValue === '' || (parseInt(newValue, 10) >= 0 && parseInt(newValue, 10) <= 100)) {
+                                                                handleItemChange(item.productoId, 'descuentoPorcentaje', newValue);
+                                                            }
+                                                        }}
+                                                        className="w-16 px-2 py-1 pr-6 text-right bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                                    />
+                                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
+                                                </div>
                                             </td>
-                                            <td className="px-4 py-2 text-sm text-right">{item.ivaPorcentaje}</td>
-                                            <td className="px-4 py-2 text-sm text-right font-medium">{formatCurrency(item.total)}</td>
+                                            <td className="px-4 py-2 text-sm text-right text-slate-500">{item.ivaPorcentaje}%</td>
+                                            <td className="px-4 py-2 text-sm text-right font-bold text-slate-800 dark:text-slate-100">{formatCurrency(item.total)}</td>
                                             <td className="px-4 py-2 text-center">
-                                                <button type="button" onClick={() => handleRemoveItem(item.productoId)} className="text-red-500 hover:text-red-700"><i className="fas fa-trash-alt"></i></button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveItem(item.productoId)}
+                                                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                                                    title="Eliminar producto"
+                                                >
+                                                    <i className="fas fa-trash-alt"></i>
+                                                </button>
                                             </td>
                                         </tr>
                                     )
                                 }) : (
-                                    <tr><td colSpan={9} className="text-center py-8 text-slate-500">Añada productos a la cotización.</td></tr>
+                                    <tr>
+                                        <td colSpan={9} className="text-center py-12 text-slate-500 bg-slate-50/50 dark:bg-slate-800/50">
+                                            <div className="flex flex-col items-center gap-2">
+                                                <i className="fas fa-box-open text-3xl opacity-20"></i>
+                                                <p>Añada productos a la cotización utilizando el formulario superior.</p>
+                                            </div>
+                                        </td>
+                                    </tr>
                                 )}
                             </tbody>
                         </table>
                     </div>
                 </div>
 
-                <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg space-y-1 h-fit">
-                    <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-3">Resumen</h4>
-                    <div className="flex justify-between text-sm">
-                        <span className="text-slate-500 dark:text-slate-400">Subtotal Bruto:</span>
-                        <span className="font-medium">{formatCurrency(totals.subtotalBruto)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm text-red-500 dark:text-red-400">
-                        <span className="">Descuento:</span>
-                        <span className="font-medium">-{formatCurrency(totals.descuentoTotal)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-bold border-t border-slate-200 dark:border-slate-600 pt-1 mt-1">
-                        <span className="text-slate-800 dark:text-slate-100">Subtotal Neto:</span>
-                        <span className="">{formatCurrency(totals.subtotalNeto)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                        <span className="text-slate-500 dark:text-slate-400">IVA (19%):</span>
-                        <span className="font-medium">{formatCurrency(totals.ivaValor)}</span>
-                    </div>
-                    <div className="flex justify-between text-lg font-bold border-t border-slate-200 dark:border-slate-600 pt-2 mt-2">
-                        <span className="text-slate-800 dark:text-slate-100">Total:</span>
-                        <span className="text-blue-600 dark:text-blue-400">{formatCurrency(totals.total)}</span>
+                <div className="flex justify-end pt-2">
+                    <div className="w-full sm:w-80 bg-white dark:bg-slate-800 p-5 rounded-xl shadow-md border border-slate-200 dark:border-slate-700">
+                        <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">Resumen de Totales</h4>
+
+                        <div className="space-y-3">
+                            <div className="flex justify-between text-sm items-center">
+                                <span className="text-slate-500 dark:text-slate-400">Subtotal Bruto:</span>
+                                <span className="font-semibold text-slate-700 dark:text-slate-200">{formatCurrency(totals.subtotalBruto)}</span>
+                            </div>
+
+                            {totals.descuentoTotal > 0 && (
+                                <div className="flex justify-between text-sm items-center">
+                                    <span className="text-red-500 flex items-center gap-1.5">
+                                        <i className="fas fa-tag text-[10px]"></i> Descuento:
+                                    </span>
+                                    <span className="font-semibold text-red-500">-{formatCurrency(totals.descuentoTotal)}</span>
+                                </div>
+                            )}
+
+                            <div className="flex justify-between text-sm items-center pt-1">
+                                <span className="text-slate-500 dark:text-slate-400 font-medium">Subtotal Neto:</span>
+                                <span className="font-bold text-slate-800 dark:text-slate-100">{formatCurrency(totals.subtotalNeto)}</span>
+                            </div>
+
+                            <div className="flex justify-between text-sm items-center">
+                                <span className="text-slate-500 dark:text-slate-400">IVA (19%):</span>
+                                <span className="font-semibold text-slate-700 dark:text-slate-200">{formatCurrency(totals.ivaValor)}</span>
+                            </div>
+
+                            <div className="pt-3 border-t-2 border-slate-100 dark:border-slate-700 mt-2">
+                                <div className="flex justify-between items-end">
+                                    <span className="text-base font-bold text-slate-800 dark:text-slate-100">Total:</span>
+                                    <span className="text-2xl font-black text-blue-600 dark:text-blue-400 leading-none">
+                                        {formatCurrency(totals.total)}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1268,7 +1245,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                     )}
                 </button>
             </div>
-        </form>
+        </form >
     );
 };
 

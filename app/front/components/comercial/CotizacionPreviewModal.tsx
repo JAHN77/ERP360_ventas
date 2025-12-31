@@ -9,6 +9,8 @@ import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
 import { pdf, PDFViewer } from '@react-pdf/renderer';
 import CotizacionPDFDocument from './CotizacionPDFDocument';
+import { apiSendCotizacionEmail } from '../../services/apiClient';
+import { generateEmailHtml } from '../../utils/emailTemplates';
 
 interface CotizacionPreviewModalProps {
     cotizacion: Cotizacion | null;
@@ -17,7 +19,7 @@ interface CotizacionPreviewModalProps {
 
 const CotizacionPreviewModal: React.FC<CotizacionPreviewModalProps> = ({ cotizacion, onClose }) => {
     const { addNotification } = useNotifications();
-    const { clientes, vendedores, datosEmpresa, productos } = useData();
+    const { clientes, vendedores, datosEmpresa, productos, firmaVendedor } = useData();
     const { preferences, updatePreferences, resetPreferences } = useDocumentPreferences('cotizacion');
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -40,14 +42,10 @@ const CotizacionPreviewModal: React.FC<CotizacionPreviewModalProps> = ({ cotizac
                 cotizacion={cotizacion}
                 cliente={relatedData.cliente}
                 vendedor={relatedData.vendedor}
-                empresa={{
-                    nombre: datosEmpresa.nombre,
-                    nit: datosEmpresa.nit,
-                    direccion: datosEmpresa.direccion,
-                    telefono: datosEmpresa.telefono
-                }}
+                empresa={datosEmpresa}
                 preferences={preferences}
                 productos={productos}
+                firmaVendedor={firmaVendedor}
             />
         );
     };
@@ -82,20 +80,69 @@ const CotizacionPreviewModal: React.FC<CotizacionPreviewModalProps> = ({ cotizac
         }
     };
 
-    const handleSendEmail = async () => {
-        await handleDownload();
-        setTimeout(() => {
-            setIsEmailModalOpen(true);
-        }, 100);
+    const handleSendEmail = () => {
+        setIsEmailModalOpen(true);
     };
 
-    const handleConfirmSendEmail = (emailData: { to: string }) => {
-        if (!cotizacion) return;
-        addNotification({
-            message: `PDF descargado. Se ha abierto tu cliente de correo para enviar la cotización ${cotizacion.numeroCotizacion}.`,
-            type: 'success',
-        });
-        setIsEmailModalOpen(false);
+    const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
+        if (!cotizacion || !relatedData?.cliente) return;
+
+        setIsGenerating(true);
+        addNotification({ message: 'Preparando y enviando correo...', type: 'info' });
+
+        try {
+            // 1. Generar PDF
+            const doc = getDocumentComponent();
+            if (!doc) throw new Error('No se pudo generar el documento PDF');
+
+            const blob = await pdf(doc).toBlob();
+
+            // 2. Convertir a Base64
+            const base64Content = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const result = reader.result as string;
+                    // Remover prefijo data:application/pdf;base64,
+                    const base64 = result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+
+            // 3. Enviar al backend
+            const safeClientName = relatedData.cliente.nombreCompleto.replace(/[^a-zA-Z0-9]/g, '_');
+            const filename = `Cotizacion-${cotizacion.numeroCotizacion}-${safeClientName}.pdf`;
+
+            // 3. Enviar al backend usando el endpoint específico de cotizaciones
+            // Esto asegura que se use la plantilla profesional y se guarde registro si aplica
+            const response = await apiSendCotizacionEmail(cotizacion.id!, {
+                destinatario: emailData.to,
+                asunto: emailData.subject,
+                mensaje: emailData.body, // Mensaje personalizado del usuario
+                pdfBase64: base64Content,
+                firmaVendedor: firmaVendedor // Pasar firma si está disponible en contexto
+            });
+
+            if (response.success) {
+                addNotification({
+                    message: `Correo enviado exitosamente a ${emailData.to}`,
+                    type: 'success',
+                });
+                setIsEmailModalOpen(false);
+            } else {
+                throw new Error(response.message || 'Error al enviar el correo');
+            }
+
+        } catch (error) {
+            console.error('Error sending email:', error);
+            addNotification({
+                message: error instanceof Error ? error.message : 'Error al enviar el correo.',
+                type: 'error'
+            });
+        } finally {
+            setIsGenerating(false);
+        }
     };
 
 
@@ -168,10 +215,13 @@ const CotizacionPreviewModal: React.FC<CotizacionPreviewModalProps> = ({ cotizac
                     subject={`Cotización ${cotizacion.numeroCotizacion} de ${datosEmpresa.nombre}`}
                     body={`Estimado/a ${relatedData.cliente.nombreCompleto},
 
-Adjuntamos la cotización N° ${cotizacion.numeroCotizacion} solicitada.
+Esperamos que este mensaje le encuentre bien.
 
-Quedamos a su disposición.
-Atentamente,
+Adjunto a este correo encontrará la cotización N° ${cotizacion.numeroCotizacion} solicitada.
+
+Quedamos atentos a sus comentarios.
+
+Cordialmente,
 El equipo de ${datosEmpresa.nombre}`}
                 />
             )}

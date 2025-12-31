@@ -20,15 +20,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900 w-full" style={{ maxWidth: '100%', overflowX: 'hidden', width: '100%' }}>
       <Sidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
-      <div className="flex-1 flex flex-col min-w-0 w-full max-w-full" style={{ maxWidth: '100%', overflowX: 'hidden', width: '100%' }}>
+      <div className="flex-1 flex flex-col min-w-0 w-full max-w-full md:pl-16 transition-all duration-300" style={{ maxWidth: '100%', overflowX: 'hidden', width: '100%' }}>
         <Header setIsSidebarOpen={setIsSidebarOpen} />
         <main className="flex-1 overflow-x-hidden bg-slate-50 dark:bg-slate-900 w-full" style={{ maxWidth: '100%', overflowX: 'hidden', width: '100%' }}>
-          <div className="container mx-auto px-2 sm:px-4 md:px-6 py-4 sm:py-6 md:py-8 w-full max-w-full" style={{ maxWidth: '100%', overflowX: 'hidden', width: '100%' }}>
+          <div className="container mx-auto px-2 sm:px-4 md:px-6 py-1 sm:py-2 md:py-3 w-full max-w-full" style={{ maxWidth: '100%', overflowX: 'hidden', width: '100%' }}>
             {children}
           </div>
         </main>
       </div>
-    </div>
+    </div >
   );
 };
 
