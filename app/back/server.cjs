@@ -188,18 +188,29 @@ app.use('/api/users', userRoutes);
 // Ruta de prueba de conexión
 app.get('/api/test-connection', async (req, res) => {
   try {
+    console.log('Testing connection...');
     const isConnected = await testConnection();
     res.json({
       success: isConnected,
       message: isConnected ? 'Conexión exitosa' : 'Error de conexión',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      env: {
+        server: process.env.DB_SERVER ? 'Configurado' : 'Faltante',
+        user: process.env.DB_USER ? 'Configurado' : 'Faltante',
+        database: process.env.DB_DATABASE ? 'Configurado' : 'Faltante'
+      }
     });
   } catch (error) {
     console.error('Error testing connection:', error);
     res.status(500).json({
       success: false,
-      message: 'Error interno del servidor',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: 'Error interno del servidor probando conexión',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      details: error.originalError || null,
+      env: {
+        server: process.env.DB_SERVER ? 'Configurado' : 'Faltante',
+        user: process.env.DB_USER ? 'Configurado' : 'Faltante'
+      }
     });
   }
 });

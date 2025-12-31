@@ -49,15 +49,19 @@ const getConnection = async () => {
     }
     
     if (!pool) {
-      console.log('🔄 Conectando a SQL Server...');
+      console.log(`🔄 Conectando a SQL Server (${config.server})...`);
       pool = new sql.ConnectionPool(config);
       await pool.connect();
       console.log('✅ Conectado exitosamente a SQL Server');
     }
     return pool;
   } catch (error) {
-    console.error('❌ Error conectando a SQL Server:', error.message || error);
-    // No hacer throw si es un error de configuración, solo loguear
+    console.error('❌ Error CRÍTICO conectando a SQL Server:', error.message || error);
+    if (error.originalError) {
+      console.error('   Detalles:', error.originalError);
+    }
+    // No hacer throw inmediato si queremos que el servidor arranque, 
+    // pero para operaciones que requieren DB, sí debemos lanzar error.
     throw error;
   }
 };
