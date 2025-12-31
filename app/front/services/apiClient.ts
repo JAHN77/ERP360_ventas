@@ -1,5 +1,7 @@
 // Cliente API para conectar con el backend SQL Server
-const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:3001/api';
+const isProduction = import.meta.env.PROD || window.location.hostname !== 'localhost';
+const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) ||
+  (isProduction ? '/api' : 'http://localhost:3001/api');
 export const BACKEND_URL = API_BASE_URL.replace('/api', '');
 
 import { ProductoConteo } from '../types';
