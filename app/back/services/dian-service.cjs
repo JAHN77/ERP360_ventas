@@ -196,9 +196,12 @@ class DIANService {
 
       // Extraer solo la parte antes del guión del nitemp (ej: "802024306-1" → "802024306")
       let nitempLimpio = String(empresa.nitemp || '').trim();
+      let dvEmpresa = null;
       if (nitempLimpio.includes('-')) {
-        nitempLimpio = nitempLimpio.split('-')[0].trim();
-        console.log(`   - nitemp procesado (antes del guión): ${nitempLimpio}`);
+        const parts = nitempLimpio.split('-');
+        nitempLimpio = parts[0].trim();
+        dvEmpresa = parseInt(parts[1], 10);
+        console.log(`   - nitemp procesado: ${nitempLimpio}, DV explícito: ${dvEmpresa}`);
       }
 
       // Usar Coddane si existe, sino default
@@ -214,6 +217,7 @@ class DIANService {
 
       const companyData = {
         identification_number: Number(nitempLimpio) || this.COMPANY_NIT,
+        dv: dvEmpresa !== null ? dvEmpresa : this.calculateDV(Number(nitempLimpio) || this.COMPANY_NIT),
         name: (empresa.razemp || '').trim().toUpperCase() || 'MULTIACABADOS S.A.S.',
         type_organization_id: 1, // 1 = Persona Jurídica
         type_document_id: "31", // NIT
@@ -638,21 +642,21 @@ class DIANService {
     console.log('   - Transferencia:', venFactura.Transferencia || venFactura.transferencia || 0);
     console.log('   - plazo:', venFactura.plazo || 0);
 
-    let paymentFormId = 1; // 1 = Contado (hardcodeado temporalmente - se obtendrá desde MySQL electronica)
-    let paymentMethodId = 10; // 10 = Efectivo (hardcodeado temporalmente - se obtendrá desde MySQL electronica)
+    let paymentFormId = 1; // 1 = Contado (Defecto)
+    let paymentMethodId = 10; // 10 = Efectivo (Defecto)
 
     if ((venFactura.tarjetacr || 0) > 0) {
-      paymentFormId = 2; // Tarjeta
-      paymentMethodId = 48; // Tarjeta débito/crédito
-      console.log('   ✅ Forma de pago: Tarjeta (Form ID: 2, Method ID: 48)');
+      paymentFormId = 1; // Contado (Usualmente tarjeta es pago inmediato)
+      paymentMethodId = 48; // Tarjeta crédito
+      console.log('   ✅ Forma de pago: Tarjeta (Form ID: 1, Method ID: 48)');
     } else if ((venFactura.Transferencia || venFactura.transferencia || 0) > 0) {
-      paymentFormId = 3; // Transferencia
-      paymentMethodId = 42; // Transferencia bancaria
-      console.log('   ✅ Forma de pago: Transferencia (Form ID: 3, Method ID: 42)');
+      paymentFormId = 1; // Contado (Transferencia es pago inmediato)
+      paymentMethodId = 47; // 47 = Transferencia Débito Bancaria
+      console.log('   ✅ Forma de pago: Transferencia (Form ID: 1, Method ID: 47)');
     } else if ((venFactura.credito || 0) > 0) {
-      paymentFormId = 4; // Crédito
-      paymentMethodId = 1; // Crédito
-      console.log(`   ✅ Forma de pago: Crédito (Form ID: 4, Method ID: 1, Plazo: ${venFactura.plazo || 0} días)`);
+      paymentFormId = 2; // Crédito (DIAN ID 2)
+      paymentMethodId = 30; // 30 = Instrumento no definido (Estándar para crédito cuando no se sabe cómo pagarán)
+      console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 30, Plazo: ${venFactura.plazo || 0} días)`);
     } else {
       console.log('   ✅ Forma de pago: Efectivo (Form ID: 1, Method ID: 10)');
     }
@@ -844,15 +848,29 @@ class DIANService {
     // Datos del cliente desde con_terceros (Base de datos: Prueba_ERP360)
     console.log('\n👤 Procesando datos del cliente desde con_terceros...');
 
-    // Extraer solo la parte numérica del codter (antes del guión si existe)
+    // Extraer solo la parte numérica del codter (antes del guión si existe) y el DV
     const codterRaw = invoiceData?.customer_document || cliente?.codter || venFactura.codter || '222222222222';
     let codterLimpio = String(codterRaw || '').trim();
+    let customerDv = null;
+
     if (codterLimpio.includes('-')) {
-      codterLimpio = codterLimpio.split('-')[0].trim();
+      const parts = codterLimpio.split('-');
+      codterLimpio = parts[0].trim();
+      // Intentar obtener DV explícito si es numérico
+      if (parts[1] && !isNaN(parseInt(parts[1]))) {
+        customerDv = parseInt(parts[1], 10);
+        console.log(`   ✅ DV del cliente extraído explícitamente: ${customerDv}`);
+      }
     }
     // Remover cualquier carácter no numérico que pueda quedar
     codterLimpio = codterLimpio.replace(/[^\d]/g, '');
     const customerIdentification = Number(codterLimpio) || 222222222222;
+
+    // Si no se extrajo DV explícito, calcularlo
+    if (customerDv === null) {
+      customerDv = this.calculateDV(customerIdentification);
+      console.log(`   ✅ DV del cliente calculado: ${customerDv}`);
+    }
 
     const customerName = (
       (invoiceData?.customer_name ||
@@ -928,6 +946,7 @@ class DIANService {
       },
       customer: {
         identification_number: Number(customerIdentification), // Número explícito
+        dv: Number(customerDv), // DV explícito (obligatorio para NIT)
         name: String(customerName).trim(), // String explícito
         type_organization_id: Number(customerTypeOrganization), // Desde con_terceros.tipter (número)
         type_document_id: String(customerTypeDocument).trim(), // Desde con_terceros.Tipo_documento (string)

@@ -168,8 +168,10 @@ const RemisionesPage: React.FC = () => {
 
         // Usar información de paginación del servidor
         if ((remisionesRes as any).pagination) {
-          setTotalItems((remisionesRes as any).pagination.total);
-          setTotalPages((remisionesRes as any).pagination.totalPages);
+          // Backend envía 'totalRecords', frontend interface definía 'total'
+          const paginationData = (remisionesRes as any).pagination;
+          setTotalItems(paginationData.totalRecords || paginationData.total || 0);
+          setTotalPages(paginationData.totalPages || 1);
         }
       }
     } catch (error) {

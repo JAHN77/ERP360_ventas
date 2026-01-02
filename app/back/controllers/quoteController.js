@@ -609,21 +609,36 @@ const updateQuote = async (req, res) => {
                  const fullHeaderRes = await reqFullHeader.query(`SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE id = @id`);
                  const fullHeader = fullHeaderRes.recordset[0];
 
+                 // Función helper local para asegurar 2 decimales
+                 const rnd = (val) => Math.round((val || 0) * 100) / 100;
+
                  const orderPayload = {
                      clienteId: fullHeader.codter, // createOrderInternal maneja codter como string
                      fechaPedido: new Date(),
                      fechaEntregaEstimada: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 días
                      vendedorId: fullHeader.cod_vendedor,
                      observaciones: fullHeader.observa ? `Desde Cotización ${fullHeader.numcot}: ${fullHeader.observa}` : `Basado en Cotización ${fullHeader.numcot}`,
-                     items: itemsCotizacion.map(i => ({
-                         productoId: i.productoId,
-                         codProducto: i.codProducto,
-                         cantidad: i.cantidad,
-                         precioUnitario: i.precioUnitario,
-                         descuentoPorcentaje: i.descuentoPorcentaje,
-                         ivaPorcentaje: i.ivaPorcentaje,
-                         total: i.total
-                     })),
+                     items: itemsCotizacion.map(i => {
+                         const precio = rnd(i.precioUnitario);
+                         const cant = rnd(i.cantidad);
+                         const ivaPorc = rnd(i.ivaPorcentaje);
+                         
+                         // Calcular valor IVA individual: (Precio * Cantidad) * (%IVA / 100)
+                         const base = precio * cant;
+                         const valorIvaCalc = rnd(base * (ivaPorc / 100));
+                         const totalCalc = rnd(base + valorIvaCalc); // Total simple por línea
+
+                         return {
+                             productoId: i.productoId,
+                             codProducto: i.codProducto,
+                             cantidad: cant,
+                             precioUnitario: precio,
+                             descuentoPorcentaje: i.descuentoPorcentaje,
+                             ivaPorcentaje: ivaPorc,
+                             valorIva: valorIvaCalc, // CORRECCIÓN: Pasar el valor del IVA calculado
+                             total: totalCalc // Asegurar total consistente
+                         };
+                     }),
                      subtotal: fullHeader.subtotal,
                      descuentoValor: fullHeader.val_descuento,
                      ivaValor: fullHeader.val_iva,
@@ -631,7 +646,8 @@ const updateQuote = async (req, res) => {
                      formaPago: fullHeader.formapago,
                      cotizacionId: idNum,
                      empresaId: fullHeader.codalm,
-                     numeroPedido: 'AUTO'
+                     numeroPedido: 'AUTO',
+                     estado: 'B' // Asegurar explícitamente estado Borrador
                  };
 
                  const { createOrderInternal } = require('./orderController');
@@ -639,7 +655,6 @@ const updateQuote = async (req, res) => {
                  
                  // Actualizar cotización con ID de pedido si existiera campo (no existe explícitamente en cotización, pero pedido tiene cotizacion_id)
             }
-
         } catch (errPedido) {
             console.error('Error creando pedido automático:', errPedido);
             // No fallamos la aprobación si falla el pedido, pero retornamos warning (o podríamos fallar todo, decisión de diseño: mejor fallar para consistencia)

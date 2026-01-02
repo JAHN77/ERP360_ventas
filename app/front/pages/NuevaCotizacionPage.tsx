@@ -80,17 +80,22 @@ const NuevaCotizacionPage: React.FC = () => {
     useEffect(() => {
         if (isEditing && params.id) {
             const fetchedQuote = getCotizacionById(params.id);
-            if (fetchedQuote && fetchedQuote.estado === 'ENVIADA') {
-                setInitialData(fetchedQuote);
+            if (fetchedQuote) {
+                if (fetchedQuote.estado === 'ENVIADA') {
+                    setInitialData(fetchedQuote);
+                } else {
+                    addNotification({
+                        message: `La cotización ${fetchedQuote.numeroCotizacion || ''} no se puede editar.`,
+                        type: 'warning'
+                    });
+                    setPage('cotizaciones');
+                }
             } else {
-                addNotification({
-                    message: `La cotización ${fetchedQuote?.numeroCotizacion || ''} no se puede editar.`,
-                    type: 'warning'
-                });
-                setPage('cotizaciones');
+                // Si no se encuentra, esperar a que la carga inicial termine o reintentar
+                console.log('⏳ Cotización no encontrada en local, esperando carga completa...');
             }
         }
-    }, [isEditing, params.id, setPage, addNotification, getCotizacionById]);
+    }, [isEditing, params.id, getCotizacionById, addNotification, setPage, clientes, productos]); // Añadimos dependencias para reintentar cuando carguen los datos
 
     const handleFormSubmit = async (formData: CotizacionFormData) => {
         if (isEditing && initialData) {
@@ -207,47 +212,19 @@ const NuevaCotizacionPage: React.FC = () => {
                 estado: 'ENVIADA'
             });
 
-            // 2. Obtener la cotización completa desde el estado local después de que refreshData termine
-            // Intentar obtener la cotización completa varias veces con pequeños delays
-            let cotizacionCompleta: Cotizacion | null = null;
-            console.log('🔍 Buscando cotización completa después de crearla...', {
-                cotizacionCreadaId: cotizacionCreada.id,
-                itemsEnCreada: cotizacionCreada.items?.length || 0,
-                itemsEnPreview: quoteToPreview.items?.length || 0
+            // 2. Usar directamente la cotización creada, asegurando que tenga items
+            let cotizacionCompleta: Cotizacion = { ...cotizacionCreada };
+
+            // Si por alguna razón la respuesta no trae items, usar los del preview como fallback seguro
+            if (!cotizacionCompleta.items || cotizacionCompleta.items.length === 0) {
+                console.warn('⚠️ Cotización creada sin items en respuesta, usando fallback del preview');
+                cotizacionCompleta.items = quoteToPreview.items || [];
+            }
+
+            console.log('✅ Cotización lista para aprobación inmediata:', {
+                id: cotizacionCompleta.id,
+                itemsCount: cotizacionCompleta.items.length
             });
-
-            for (let intento = 0; intento < 10; intento++) {
-                await new Promise(resolve => setTimeout(resolve, 200));
-                cotizacionCompleta = getCotizacionById(cotizacionCreada.id) || null;
-                console.log(`🔍 Intento ${intento + 1}/10:`, {
-                    encontrada: !!cotizacionCompleta,
-                    itemsCount: cotizacionCompleta?.items?.length || 0
-                });
-                if (cotizacionCompleta && cotizacionCompleta.items && cotizacionCompleta.items.length > 0) {
-                    console.log('✅ Cotización completa encontrada con items');
-                    break;
-                }
-            }
-
-            // Si no se encuentra en el estado local o no tiene items, usar la cotización creada con los items originales
-            if (!cotizacionCompleta || !cotizacionCompleta.items || cotizacionCompleta.items.length === 0) {
-                console.warn('⚠️ Cotización no encontrada en estado local o sin items, usando items del preview');
-                // Usar la cotización creada con los items del preview original
-                cotizacionCompleta = {
-                    ...cotizacionCreada,
-                    items: quoteToPreview.items || cotizacionCreada.items || []
-                };
-                console.log('📋 Cotización preparada con items del preview:', {
-                    itemsCount: cotizacionCompleta.items.length,
-                    productoIds: cotizacionCompleta.items.map(i => i.productoId)
-                });
-            } else {
-                console.log('✅ Cotización completa obtenida:', {
-                    id: cotizacionCompleta.id,
-                    itemsCount: cotizacionCompleta.items.length,
-                    productoIds: cotizacionCompleta.items.map(i => i.productoId)
-                });
-            }
 
             // 3. Aprobar la cotización en backend usando la cotización completa
             const itemsIds = (cotizacionCompleta.items || [])
@@ -258,20 +235,7 @@ const NuevaCotizacionPage: React.FC = () => {
                 throw new Error('La cotización no tiene ítems válidos para generar el pedido.');
             }
 
-            console.log('🔍 Llamando a aprobarCotizacion con:', {
-                cotizacionId: cotizacionCompleta.id,
-                numeroCotizacion: cotizacionCompleta.numeroCotizacion,
-                itemsCount: cotizacionCompleta.items?.length || 0,
-                itemsIds: itemsIds
-            });
-
             const resultadoAprobacion = await aprobarCotizacion(cotizacionCompleta, itemsIds);
-
-            console.log('🔍 Resultado de aprobarCotizacion:', {
-                resultado: resultadoAprobacion,
-                tienePedido: !!(resultadoAprobacion as any)?.pedido,
-                tipo: typeof resultadoAprobacion
-            });
 
             if (!resultadoAprobacion) {
                 throw new Error('No se pudo aprobar la cotización: resultadoAprobacion es null o undefined');
@@ -284,11 +248,6 @@ const NuevaCotizacionPage: React.FC = () => {
 
             const { cotizacion, pedido } = resultadoAprobacion as { cotizacion: Cotizacion; pedido: Pedido };
 
-            console.log('✅ Aprobación exitosa:', {
-                cotizacionId: cotizacion.id,
-                pedidoId: pedido.id,
-                numeroPedido: pedido.numeroPedido
-            });
             setApprovalResult({ cotizacion, pedido });
             // Mostrar mensaje de aprobación
             addNotification({

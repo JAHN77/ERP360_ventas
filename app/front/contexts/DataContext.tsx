@@ -1536,21 +1536,21 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     // Función específica para recargar facturas y remisiones después de timbrar una factura
     const refreshFacturasYRemisiones = useCallback(async () => {
         try {
+            // OPTIMIZACIÓN: No cargar detalles de remisiones globalmente (evita error 400 y mejora performance)
+            // Los detalles se cargarán bajo demanda en la UI cuando sea necesario.
             const [
                 facturasResponse,
                 facturasDetalleResponse,
-                remisionesResponse,
-                remisionesDetalleResponse
+                remisionesResponse
             ] = await Promise.all([
-                fetchFacturas(),
-                fetchFacturasDetalle(),
-                fetchRemisiones(),
-                fetchRemisionesDetalle()
+                fetchFacturas().catch(e => ({ success: false, data: [], error: e })),
+                fetchFacturasDetalle().catch(e => ({ success: false, data: [], error: e })),
+                fetchRemisiones().catch(e => ({ success: false, data: [], error: e }))
             ]);
 
             // Helper para extraer datos de estructura anidada
             const extractData = (response: any): any[] => {
-                if (!response.success) return [];
+                if (!response || !response.success) return [];
                 const raw = response.data;
                 if (Array.isArray(raw)) return raw;
                 if (raw && typeof raw === 'object' && 'data' in raw && Array.isArray((raw as any).data)) {
@@ -1562,7 +1562,6 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             const facturasData = extractData(facturasResponse);
             const facturasDetalleData = extractData(facturasDetalleResponse);
             const remisionesData = extractData(remisionesResponse);
-            const remisionesDetalleData = extractData(remisionesDetalleResponse);
 
             // Process facturas with detalles
             const facturasConDetalles = (facturasData as any[]).map(f => {
@@ -1617,60 +1616,28 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
             setFacturas(facturasConDetalles);
 
-            // Process remisiones with detalles
-            const remisionesConDetalles = (remisionesData as any[]).map(r => {
-                const items = (remisionesDetalleData as any[]).filter(d => {
-                    const remisionId = String(r.id || r.numrec || '');
-                    const detalleRemisionId = String(d.remisionId || d.numrec || '');
-                    const remisionNumrec = r.numrec;
-                    const detalleNumrec = d.numrec;
-                    // Match por ID o por numrec
-                    return remisionId === detalleRemisionId ||
-                        (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
-                }).map(d => {
-                    // Mapear campos del detalle de remisión a la estructura esperada
-                    return {
-                        productoId: d.productoId || d.producto_id || d.codins || d.codProducto || 0,
-                        codProducto: d.codProducto || d.cod_producto || d.codins || '',
-                        cantidad: Number(d.cantidad || d.cantidadEnviada || d.cantidad_enviada || 0),
-                        cantidadEnviada: Number(d.cantidadEnviada || d.cantidad_enviada || d.cantidad || 0),
-                        cantidadFacturada: Number(d.cantidadFacturada || d.cantidad_facturada || 0),
-                        cantidadDevuelta: Number(d.cantidadDevuelta || d.cantidad_devuelta || 0),
-                        precioUnitario: Number(d.precioUnitario || d.precio_unitario || d.valorUnitario || d.valor_unitario || 0),
-                        descuentoPorcentaje: Number(d.descuentoPorcentaje || d.descuento_porcentaje || d.descuentoPorc || 0),
-                        ivaPorcentaje: Number(d.ivaPorcentaje || d.iva_porcentaje || d.ivaPorc || 0),
-                        subtotal: Number(d.subtotal || d.sub_total || 0),
-                        valorIva: Number(d.valorIva || d.valor_iva || d.ivaValor || d.iva_valor || 0),
-                        total: Number(d.total || 0),
-                        descripcion: d.descripcion || d.descrip || d.nombre || `Producto ${d.productoId || d.producto_id || ''}`,
-                        remisionId: d.remisionId || d.remision_id || d.numrec || r.id || r.numrec,
-                        detaPedidoId: d.detaPedidoId || d.deta_pedido_id || null
-                    };
-                });
-
+            // Process remisiones (sin cargar detalles globalmente)
+            const remisionesMapeadas = (remisionesData as any[]).map(r => {
                 // Mapear estado: si viene como 'D' de la BD, convertirlo a 'ENTREGADO'
                 const estadoMapeado = (() => {
                     const estadoRaw = r.estado || 'BORRADOR';
                     const estadoStr = String(estadoRaw).trim().toUpperCase();
-                    // Si viene como 'D' (código de BD), mapear a 'ENTREGADO'
                     if (estadoStr === 'D') return 'ENTREGADO';
-                    // Si ya viene como 'ENTREGADO', mantenerlo
                     if (estadoStr === 'ENTREGADO') return 'ENTREGADO';
-                    // Para otros estados, usar el mapeo estándar o el valor original
                     return estadoRaw;
                 })();
 
                 return {
                     ...r,
                     estado: estadoMapeado,
-                    items: items
+                    items: r.items || [] // Mantener items si ya vienen, o array vacío
                 };
             });
-            setRemisiones(remisionesConDetalles);
+            setRemisiones(remisionesMapeadas);
 
             logger.log({ prefix: 'refreshFacturasYRemisiones' }, 'Facturas y remisiones recargadas:', {
                 facturas: facturasConDetalles.length,
-                remisiones: remisionesConDetalles.length
+                remisiones: remisionesMapeadas.length
             });
         } catch (error) {
             logger.error({ prefix: 'refreshFacturasYRemisiones' }, 'Error recargando facturas y remisiones:', error);
@@ -1680,21 +1647,20 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     // Función específica para recargar pedidos y remisiones después de crear una remisión
     const refreshPedidosYRemisiones = useCallback(async () => {
         try {
+            // OPTIMIZACIÓN: No cargar detalles de remisiones globalmente
             const [
                 pedidosResponse,
                 pedidosDetalleResponse,
-                remisionesResponse,
-                remisionesDetalleResponse
+                remisionesResponse
             ] = await Promise.all([
-                fetchPedidos(),
-                fetchPedidosDetalle(),
-                fetchRemisiones(),
-                fetchRemisionesDetalle()
+                fetchPedidos().catch(e => ({ success: false, data: [], error: e })),
+                fetchPedidosDetalle().catch(e => ({ success: false, data: [], error: e })),
+                fetchRemisiones().catch(e => ({ success: false, data: [], error: e }))
             ]);
 
             // Helper para extraer datos de estructura anidada
             const extractData = (response: any): any[] => {
-                if (!response.success) return [];
+                if (!response || !response.success) return [];
                 const raw = response.data;
                 if (Array.isArray(raw)) return raw;
                 if (raw && typeof raw === 'object' && 'data' in raw && Array.isArray((raw as any).data)) {
@@ -1706,7 +1672,6 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             const pedidosData = extractData(pedidosResponse);
             const pedidosDetalleData = extractData(pedidosDetalleResponse);
             const remisionesData = extractData(remisionesResponse);
-            const remisionesDetalleData = extractData(remisionesDetalleResponse);
 
             // Process pedidos with detalles
             const pedidosConDetalles = (pedidosData as any[]).map(p => {
@@ -1722,46 +1687,18 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             });
             setPedidos(pedidosConDetalles);
 
-            // Process remisiones with detalles
-            const remisionesConDetalles = (remisionesData as any[]).map(r => {
-                const items = (remisionesDetalleData as any[]).filter(d => {
-                    const remisionId = String(r.id || r.numrec || '');
-                    const detalleRemisionId = String(d.remisionId || d.numrec || '');
-                    const remisionNumrec = r.numrec;
-                    const detalleNumrec = d.numrec;
-                    // Match por ID o por numrec
-                    return remisionId === detalleRemisionId ||
-                        (remisionNumrec && detalleNumrec && String(remisionNumrec) === String(detalleNumrec));
-                }).map(d => {
-                    // Mapear campos del detalle de remisión a la estructura esperada
-                    return {
-                        productoId: d.productoId || d.producto_id || d.codins || d.codProducto || 0,
-                        codProducto: d.codProducto || d.cod_producto || d.codins || '',
-                        cantidad: Number(d.cantidad || d.cantidadEnviada || d.cantidad_enviada || 0),
-                        cantidadEnviada: Number(d.cantidadEnviada || d.cantidad_enviada || d.cantidad || 0),
-                        cantidadFacturada: Number(d.cantidadFacturada || d.cantidad_facturada || 0),
-                        cantidadDevuelta: Number(d.cantidadDevuelta || d.cantidad_devuelta || 0),
-                        precioUnitario: Number(d.precioUnitario || d.precio_unitario || d.valorUnitario || d.valor_unitario || 0),
-                        descuentoPorcentaje: Number(d.descuentoPorcentaje || d.descuento_porcentaje || d.descuentoPorc || 0),
-                        ivaPorcentaje: Number(d.ivaPorcentaje || d.iva_porcentaje || d.ivaPorc || 0),
-                        subtotal: Number(d.subtotal || d.sub_total || 0),
-                        valorIva: Number(d.valorIva || d.valor_iva || d.ivaValor || d.iva_valor || 0),
-                        total: Number(d.total || 0),
-                        descripcion: d.descripcion || d.descrip || d.nombre || `Producto ${d.productoId || d.producto_id || ''}`,
-                        remisionId: d.remisionId || d.remision_id || d.numrec || r.id || r.numrec,
-                        detaPedidoId: d.detaPedidoId || d.deta_pedido_id || null
-                    };
-                });
+            // Process remisiones (sin detalles globales)
+            const remisionesMapeadas = (remisionesData as any[]).map(r => {
                 return {
                     ...r,
-                    items: items
+                    items: r.items || [] // Mantener items si ya vienen
                 };
             });
-            setRemisiones(remisionesConDetalles);
+            setRemisiones(remisionesMapeadas);
 
             logger.log({ prefix: 'refreshPedidosYRemisiones' }, 'Pedidos y remisiones recargados:', {
                 pedidos: pedidosConDetalles.length,
-                remisiones: remisionesConDetalles.length
+                remisiones: remisionesMapeadas.length
             });
         } catch (error) {
             logger.error({ prefix: 'refreshPedidosYRemisiones' }, 'Error recargando pedidos y remisiones:', error);
