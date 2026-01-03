@@ -41,7 +41,7 @@ const filterOptions = [
 const FacturasPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const { user } = useAuth();
-  const { remisiones, clientes, pedidos, cotizaciones, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones } = useData();
+  const { remisiones, clientes, pedidos, cotizaciones, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones, isLoadingRemisiones } = useData();
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [selectedRemisiones, setSelectedRemisiones] = useState<Set<string>>(new Set());
   const { addNotification } = useNotifications();
@@ -53,7 +53,7 @@ const FacturasPage: React.FC = () => {
   const [serverPage, setServerPage] = useState(1);
   const [serverPageSize, setServerPageSize] = useState(20);
   const [serverSearch, setServerSearch] = useState('');
-  const [serverSort, setServerSort] = useState({ key: 'fechaFactura', direction: 'desc' });
+  const [serverSort, setServerSort] = useState({ key: 'id', direction: 'desc' });
 
   // Filters state (Start with empty to show all)
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
@@ -68,6 +68,10 @@ const FacturasPage: React.FC = () => {
 
   const [remisionToPreview, setRemisionToPreview] = useState<Remision | null>(null);
   const [isLoadingRemision, setIsLoadingRemision] = useState(false);
+
+  // Estado para previsualización JSON DIAN
+  const [jsonPreviewPayload, setJsonPreviewPayload] = useState<any>(null);
+  const [isJsonPreviewOpen, setIsJsonPreviewOpen] = useState(false);
 
   // Fetch Invoices (Server Side)
   const loadInvoices = async () => {
@@ -523,6 +527,10 @@ const FacturasPage: React.FC = () => {
         setSelectedRemisiones(new Set());
         await refreshFacturasYRemisiones();
 
+        // Recargar facturas locales para ver el borrador
+        setServerPage(1);
+        loadInvoices();
+
         addNotification({
           message: `✅ Factura BORRADOR ${nuevaFactura.numeroFactura.replace('FAC-', '')} generada exitosamente. Las remisiones fueron eliminadas de "Remisiones Entregadas por Facturar" y la factura aparece en el historial. Revise y timbre para finalizar.`,
           type: 'success'
@@ -545,20 +553,35 @@ const FacturasPage: React.FC = () => {
     }
   };
 
-  const executeTimbrado = async (facturaId: string) => {
-    console.log('🚀 [FRONTEND] ========== INICIO DE TIMBRADO ==========');
+  const executeTimbrado = async (facturaId: string, mode: 'test' | 'production' = 'production') => {
+    console.log(`🚀 [FRONTEND] ========== INICIO DE TIMBRADO (${mode}) ==========`);
     try {
       addNotification({
-        message: `🔄 Procesando timbrado de factura...`,
+        message: mode === 'test' ? '🔄 Generando JSON de prueba...' : '🔄 Procesando timbrado de factura...',
         type: 'info'
       });
 
-      const facturaTimbrada = await timbrarFactura(facturaId);
+      const facturaTimbrada = await timbrarFactura(facturaId, mode);
 
       if (facturaTimbrada) {
-        setSelectedFactura(facturaTimbrada);
+        // En modo test, no actualizamos la factura seleccionada principal para no alterar la vista
+        // pero sí necesitamos el payload para el modal.
+        // Si es producción, actualizamos todo.
+        if (mode === 'production') {
+          setSelectedFactura(facturaTimbrada);
+        }
 
-        if (facturaTimbrada.estado === 'ENVIADA' && facturaTimbrada.cufe) {
+        if ((facturaTimbrada as any)._isValidation) {
+          // MODO VALIDACIÓN: Mostrar JSON
+          setJsonPreviewPayload((facturaTimbrada as any)._jsonPayload);
+          setIsJsonPreviewOpen(true);
+          addNotification({
+            message: "⚠️ MODO PRUEBA: JSON generado correctamente.",
+            type: 'success',
+            duration: 3000
+          });
+          // No hacemos refresh ni cerramos modales
+        } else if ((facturaTimbrada.estado === 'ENVIADA' || facturaTimbrada.estado === 'APROBADA' || facturaTimbrada.estado === 'ACEPTADA') && facturaTimbrada.cufe) {
           await refreshFacturasYRemisiones();
           addNotification({
             message: `✅ Factura ${facturaTimbrada.numeroFactura.replace('FAC-', '')} timbrada exitosamente.`,
@@ -571,6 +594,8 @@ const FacturasPage: React.FC = () => {
             message: `❌ Factura ${facturaTimbrada.numeroFactura.replace('FAC-', '')} fue rechazada.`,
             type: 'warning'
           });
+          // Actualizar la factura seleccionada para ver el error
+          setSelectedFactura(facturaTimbrada);
         } else {
           addNotification({
             message: `✅ Factura ${facturaTimbrada.numeroFactura.replace('FAC-', '')} timbrada con éxito.`,
@@ -912,6 +937,7 @@ const FacturasPage: React.FC = () => {
           preferences={{ showPrices: true, signatureType: 'physical', detailLevel: 'full' }}
           firmaVendedor={firmaFinal}
           vendedor={vendedorFactura}
+          productos={productos}
         />
       ).toBlob();
 
@@ -1095,12 +1121,39 @@ const FacturasPage: React.FC = () => {
       header: 'Cond. Pago',
       accessor: 'clienteId',
       cell: (item) => {
+        // Lógica de visualización que coincide con crearFacturaDesdeRemisiones
+
+        let formaPago = null;
+        const pedidoRelacionado = item.pedidoId ? pedidos.find(p => p.id === item.pedidoId) : null;
+
+        // 1. Cotización
+        if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
+          const cotizacion = cotizaciones.find(c => c.id === pedidoRelacionado.cotizacionId);
+          if (cotizacion && cotizacion.formaPago) {
+            formaPago = cotizacion.formaPago;
+          }
+        }
+
+        // 2. Pedido
+        if (!formaPago && pedidoRelacionado && pedidoRelacionado.formaPago) {
+          formaPago = pedidoRelacionado.formaPago;
+        }
+
+        // 3. Cliente (Fallback)
         const cliente = clientes.find(c =>
           String(c.id) === String(item.clienteId) ||
           c.numeroDocumento === item.clienteId ||
           c.codter === item.clienteId
         );
-        const isContado = cliente?.condicionPago === 'Contado';
+
+        if (!formaPago && cliente && cliente.condicionPago) {
+          formaPago = cliente.condicionPago === 'Contado' ? '1' : '2';
+        }
+
+        // Normalizar a 1 (Contado) o 2 (Crédito)
+        const formaPagoVal = formaPago === '01' ? '1' : formaPago === '02' ? '2' : formaPago;
+        const isContado = formaPagoVal === '1';
+
         return (
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isContado
             ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
@@ -1206,17 +1259,31 @@ const FacturasPage: React.FC = () => {
       cell: (item) => {
         let formaPagoFactura = item.formaPago;
         if (!formaPagoFactura) {
-          // 1. Intentar buscar en cadena: Remisión -> Pedido -> Cotización
-          const remisionRelacionada = remisiones.find(r =>
-            (item.remisionesIds && item.remisionesIds.includes(r.id)) ||
-            r.facturaId === item.id
-          );
-          if (remisionRelacionada && remisionRelacionada.pedidoId) {
-            const pedidoRelacionado = pedidos.find(p => p.id === remisionRelacionada.pedidoId);
-            if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
-              const cotizacion = cotizaciones.find(c => c.id === pedidoRelacionado.cotizacionId);
-              if (cotizacion && cotizacion.formaPago) {
-                formaPagoFactura = cotizacion.formaPago;
+          // 0. NUEVO: Inferir de los valores financieros de la propia factura (Más preciso que heredar)
+          // Si hay valor en 'credito', es una venta a Crédito (2).
+          // Si hay valor en 'efectivo', 'tarjeta', etc., y 'credito' es 0, es Contado (1).
+          const valCredito = item.credito || 0;
+          const valContado = (item.efectivo || 0) + (item.tarjetaCredito || 0) + (item.tarjetaDebito || 0) + (item.transferencia || 0) + (item.cheques || 0);
+
+          if (valCredito > 0) {
+            formaPagoFactura = '2'; // Crédito explícito en la factura
+          } else if (valContado > 0) {
+            formaPagoFactura = '1'; // Contado explícito en la factura
+          }
+
+          // 1. Intentar buscar en cadena: Remisión -> Pedido -> Cotización (Solo si la factura tiene valores en 0, ej. 100% descuento o error)
+          if (!formaPagoFactura) {
+            const remisionRelacionada = remisiones.find(r =>
+              (item.remisionesIds && item.remisionesIds.includes(r.id)) ||
+              r.facturaId === item.id
+            );
+            if (remisionRelacionada && remisionRelacionada.pedidoId) {
+              const pedidoRelacionado = pedidos.find(p => p.id === remisionRelacionada.pedidoId);
+              if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
+                const cotizacion = cotizaciones.find(c => c.id === pedidoRelacionado.cotizacionId);
+                if (cotizacion && cotizacion.formaPago) {
+                  formaPagoFactura = cotizacion.formaPago;
+                }
               }
             }
           }
@@ -1311,69 +1378,73 @@ const FacturasPage: React.FC = () => {
         subtitle="Administra y da seguimiento a las facturas electrónicas."
       />
 
-      {/* Sección: Remisiones Pendientes */}
-      <section>
-        <Card className="border-l-4 border-l-blue-500 shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden">
-          <CardHeader className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700/50 pb-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-lg text-slate-800 dark:text-slate-100">
-                  <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 p-2 rounded-lg">
-                    <i className="fas fa-file-invoice"></i>
-                  </span>
-                  Remisiones Entregadas por Facturar
-                </CardTitle>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 ml-11">
-                  Seleccione remisiones del mismo cliente para consolidar.
-                </p>
-              </div>
+      {/* Sección: Remisiones Pendientes - Ocultar si hay búsqueda de facturas activa para mejorar UX */}
+      {!searchTermInvoices && (
+        <section>
+          <Card className="border-l-4 border-l-blue-500 shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden">
+            <CardHeader className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700/50 pb-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-lg text-slate-800 dark:text-slate-100">
+                    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 p-2 rounded-lg">
+                      <i className="fas fa-file-invoice"></i>
+                    </span>
+                    Remisiones Entregadas por Facturar
+                  </CardTitle>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 ml-11">
+                    Seleccione remisiones del mismo cliente para consolidar.
+                  </p>
+                </div>
 
-              <ProtectedComponent permission="facturacion:create">
-                <button
-                  onClick={handleFacturar}
-                  disabled={selectedRemisiones.size === 0 || isFacturando}
-                  className={`
-                    relative overflow-hidden group px-6 py-2 rounded-xl font-medium text-sm transition-all duration-300
-                    ${selectedRemisiones.size > 0 && !isFacturando
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 hover:bg-blue-700 hover:shadow-blue-600/40 hover:-translate-y-0.5'
-                      : 'bg-slate-100 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-600'}
-                  `}
-                >
-                  <div className="flex items-center gap-2 relative z-10">
-                    {isFacturando ? (
-                      <>
-                        <i className="fas fa-circle-notch fa-spin"></i>
-                        <span>Procesando...</span>
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-magic"></i>
-                        <span>Generar Factura ({selectedRemisiones.size})</span>
-                        {totalAFacturar > 0 && (
-                          <span className="bg-blue-500/20 px-2 py-0.5 rounded text-xs border border-blue-400/20">
-                            {formatCurrency(totalAFacturar)}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </button>
-              </ProtectedComponent>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-hidden">
-              <Table
-                columns={remisionesColumns}
-                data={remisionesPorFacturar}
-                onSort={() => { }}
-                sortConfig={{ key: null, direction: 'asc' }}
-                highlightRowId={undefined}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+                <ProtectedComponent permission="facturacion:create">
+                  <button
+                    onClick={handleFacturar}
+                    disabled={selectedRemisiones.size === 0 || isFacturando}
+                    className={`
+                      relative overflow-hidden group px-6 py-2 rounded-xl font-medium text-sm transition-all duration-300
+                      ${selectedRemisiones.size > 0 && !isFacturando
+                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 hover:bg-blue-700 hover:shadow-blue-600/40 hover:-translate-y-0.5'
+                        : 'bg-slate-100 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-600'}
+                    `}
+                  >
+                    <div className="flex items-center gap-2 relative z-10">
+                      {isFacturando ? (
+                        <>
+                          <i className="fas fa-circle-notch fa-spin"></i>
+                          <span>Procesando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-magic"></i>
+                          <span>Generar Factura ({selectedRemisiones.size})</span>
+                          {totalAFacturar > 0 && (
+                            <span className="bg-blue-500/20 px-2 py-0.5 rounded text-xs border border-blue-400/20">
+                              {formatCurrency(totalAFacturar)}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </button>
+                </ProtectedComponent>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-hidden">
+                <Table
+                  columns={remisionesColumns}
+                  data={remisionesPorFacturar}
+                  onSort={() => { }}
+                  sortConfig={{ key: null, direction: 'asc' }}
+                  highlightRowId={undefined}
+                  isLoading={isLoadingRemisiones}
+                  emptyMessage="No hay remisiones pendientes por facturar."
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       {/* Sección: Historial de Facturas */}
       <section>
@@ -1694,6 +1765,42 @@ El equipo de ${datosEmpresa.nombre}`
           onClose={() => setRemisionToPreview(null)}
         />
       )}
+
+      {/* Modal para JSON Preview */}
+      <Modal
+        isOpen={isJsonPreviewOpen}
+        onClose={() => setIsJsonPreviewOpen(false)}
+        title="Validación JSON DIAN"
+        size="large"
+      >
+        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
+          <h3 className="text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Payload Generado para DIAN (Sin Enviar)</h3>
+          <div className="relative">
+            <textarea
+              readOnly
+              value={JSON.stringify(jsonPreviewPayload, null, 2)}
+              className="w-full h-96 p-2 font-mono text-xs bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded overflow-auto"
+            />
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(JSON.stringify(jsonPreviewPayload, null, 2));
+                addNotification({ message: 'JSON copiado al portapapeles', type: 'success' });
+              }}
+              className="absolute top-2 right-2 px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded shadow"
+            >
+              Copiar
+            </button>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={() => setIsJsonPreviewOpen(false)}
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </Modal>
     </PageContainer>
   );
 };

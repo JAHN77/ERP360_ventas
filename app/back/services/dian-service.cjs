@@ -30,7 +30,9 @@ class DIANService {
     if (amount === null || amount === undefined || isNaN(amount)) {
       return 0;
     }
-    return Math.round(parseFloat(amount) * 100) / 100;
+    // Redondear estrictamente a 2 decimales para cumplir requerimientos de DIAN
+    // Evita errores like 143.04000000000002 y asegura que 22.8076 se convierta en 22.81
+    return Number(parseFloat(amount).toFixed(2));
   }
 
   /**
@@ -586,8 +588,8 @@ class DIANService {
     // Calcular totales usando valvta (sin IVA) y valiva (IVA) desde ven_facturas (Base de datos: Prueba_ERP360)
     console.log('\n💰 Calculando totales desde ven_facturas:');
     const lineExtensionAmount = this.roundCOP(venFactura.valvta || 0); // Total sin impuestos (valvta)
-    const taxAmount = this.roundCOP(venFactura.valiva || 0); // Valor total del IVA (valiva)
-    const totalAmount = this.roundCOP(lineExtensionAmount + taxAmount); // Total con IVA (valvta + valiva)
+    let taxAmount = this.roundCOP(venFactura.valiva || 0); // Valor total del IVA (valiva)
+    let totalAmount = this.roundCOP(lineExtensionAmount + taxAmount); // Total con IVA (valvta + valiva)
     const descuento = this.roundCOP(venFactura.valdcto || venFactura.descuento_valor || 0); // Descuento (valdcto)
 
     console.log('   - valvta (Total sin impuestos):', lineExtensionAmount);
@@ -636,27 +638,41 @@ class DIANService {
 
     // Determinar forma de pago desde ven_facturas (Base de datos: Prueba_ERP360)
     console.log('\n💳 Determinando forma de pago desde ven_facturas...');
-    console.log('   - efectivo:', venFactura.efectivo || 0);
-    console.log('   - credito:', venFactura.credito || 0);
-    console.log('   - tarjetacr:', venFactura.tarjetacr || 0);
-    console.log('   - Transferencia:', venFactura.Transferencia || venFactura.transferencia || 0);
-    console.log('   - plazo:', venFactura.plazo || 0);
+    const valEfectivo = parseFloat(venFactura.efectivo || 0);
+    const valCredito = parseFloat(venFactura.credito || 0);
+    const valTarjeta = parseFloat(venFactura.tarjetacr || 0);
+    const valTransferencia = parseFloat(venFactura.Transferencia || venFactura.transferencia || 0);
+    const valPlazo = parseInt(venFactura.plazo || 0, 10);
+
+    console.log('   - efectivo:', valEfectivo);
+    console.log('   - credito:', valCredito);
+    console.log('   - tarjetacr:', valTarjeta);
+    console.log('   - Transferencia:', valTransferencia);
+    console.log('   - plazo:', valPlazo);
 
     let paymentFormId = 1; // 1 = Contado (Defecto)
     let paymentMethodId = 10; // 10 = Efectivo (Defecto)
 
-    if ((venFactura.tarjetacr || 0) > 0) {
-      paymentFormId = 1; // Contado (Usualmente tarjeta es pago inmediato)
+    // Lógica para determinar el método principal
+    // Si hay tarjeta > 0
+    if (valTarjeta > 0) {
+      paymentFormId = 1; 
       paymentMethodId = 48; // Tarjeta crédito
       console.log('   ✅ Forma de pago: Tarjeta (Form ID: 1, Method ID: 48)');
-    } else if ((venFactura.Transferencia || venFactura.transferencia || 0) > 0) {
-      paymentFormId = 1; // Contado (Transferencia es pago inmediato)
-      paymentMethodId = 47; // 47 = Transferencia Débito Bancaria
+    } 
+    // Si hay transferencia > 0
+    else if (valTransferencia > 0) {
+      paymentFormId = 1; 
+      paymentMethodId = 47; // Transferencia Débito Bancaria
       console.log('   ✅ Forma de pago: Transferencia (Form ID: 1, Method ID: 47)');
-    } else if ((venFactura.credito || 0) > 0) {
+    } 
+    // Si hay crédito > 0
+    // IMPORTANTE: Solo marcar como crédito si valCredito > 0.
+    // Si venFactura.credito venía como string "0" o similar, el parseFloat lo manejará.
+    else if (valCredito > 0.01) { 
       paymentFormId = 2; // Crédito (DIAN ID 2)
-      paymentMethodId = 30; // 30 = Instrumento no definido (Estándar para crédito cuando no se sabe cómo pagarán)
-      console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 30, Plazo: ${venFactura.plazo || 0} días)`);
+      paymentMethodId = 30; // Instrumento no definido
+      console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 30, Plazo: ${valPlazo} días)`);
     } else {
       console.log('   ✅ Forma de pago: Efectivo (Form ID: 1, Method ID: 10)');
     }
@@ -681,7 +697,7 @@ class DIANService {
         // Calcular valores desde ven_detafact
         const detalleQuantity = parseFloat(detalle.qtyins || detalle.cantidad || 1);
         const detallePrice = this.roundCOP(detalle.valins || detalle.precioUnitario || 0);
-        const detalleTaxAmount = this.roundCOP(detalle.ivains || detalle.valorIva || 0);
+        let detalleTaxAmount = this.roundCOP(detalle.ivains || detalle.valorIva || 0);
         const detalleLineExtension = this.roundCOP((detallePrice * detalleQuantity) - (detalle.valdescuento || 0)); // Precio * cantidad - descuento
 
         // Calcular porcentaje de IVA del detalle
@@ -698,6 +714,17 @@ class DIANService {
             detalleIvaPercent = 0;
           } else {
             detalleIvaPercent = Math.round(calcPercent * 100) / 100;
+          }
+        }
+
+        // RECALCULO FORZADO DE IVA LÍNEA PARA PRECISIÓN (Evitar 23 vs 22.81)
+        // Si tenemos un porcentaje válido, recalculamos el monto exacto
+        if (detalleLineExtension > 0 && detalleIvaPercent > 0) {
+          const recalculatedTax = this.roundCOP(detalleLineExtension * (detalleIvaPercent / 100));
+          // Si la diferencia sugiere error de redondeo (ej. 23 vs 22.81), usamos el calculado
+          if (Math.abs(recalculatedTax - detalleTaxAmount) < 1) { 
+              console.log(`     ⚠️ Ajustando IVA línea por precisión: ${detalleTaxAmount} -> ${recalculatedTax}`);
+              detalleTaxAmount = recalculatedTax;
           }
         }
 
@@ -739,42 +766,37 @@ class DIANService {
         return this.roundCOP(suma + (linea.line_extension_amount || 0));
       }, 0);
 
-      console.log(`   - IVA Total (ven_facturas.valiva): ${taxAmount}`);
-      console.log(`   - Suma IVAs Líneas: ${sumaIvasLineas}`);
-      console.log(`   - Diferencia IVA: ${this.roundCOP(Math.abs(taxAmount - sumaIvasLineas))}`);
+      // MODIFICACIÓN: En lugar de ajustar la línea para coincidir con la BD (que puede estar redondeada mal),
+      // Ajustamos el TOTAL GLOBAL para coincidir con la suma precisa de las líneas.
+      console.log(`   - IVA Total Original (BD): ${taxAmount}`);
+      console.log(`   - Suma IVAs Líneas (Recalculado): ${sumaIvasLineas}`);
+      
+      if (Math.abs(taxAmount - sumaIvasLineas) > 0.001) {
+          console.log(`   ⚠️ Diferencia en totales IVA detectada. Actualizando taxAmount global para coincidir con líneas precisas.`);
+          taxAmount = sumaIvasLineas;
+          // También actualizar el total con impuestos
+          totalAmount = this.roundCOP(lineExtensionAmount + taxAmount);
+          console.log(`   ✅ Nuevo taxAmount: ${taxAmount}`);
+          console.log(`   ✅ Nuevo totalAmount: ${totalAmount}`);
+      }
+
+      console.log(`   - Diferencia IVA Final: ${this.roundCOP(Math.abs(taxAmount - sumaIvasLineas))}`);
       console.log(`   - Subtotal Total (ven_facturas.valvta): ${lineExtensionAmount}`);
       console.log(`   - Suma Subtotales Líneas: ${sumaSubtotalesLineas}`);
       console.log(`   - Diferencia Subtotal: ${this.roundCOP(Math.abs(lineExtensionAmount - sumaSubtotalesLineas))}`);
 
       // Ajustar IVAs si hay diferencia (CRÍTICO: La DIAN rechaza si no coinciden exactamente)
       const diferenciaIva = this.roundCOP(taxAmount - sumaIvasLineas);
-      if (Math.abs(diferenciaIva) > 0.001) { // Tolerancia mínima por redondeo
+      // Solo ajustamos si AÚN hay diferencia (no debería haber si hicimos la corrección arriba)
+      if (Math.abs(diferenciaIva) > 0.001) { 
         console.log(`   ⚠️ ADVERTENCIA: Diferencia detectada en IVAs (${diferenciaIva}). Ajustando última línea...`);
-
-        if (invoiceLines.length > 0) {
+        // ... Logica de ajuste de línea si fuera necesario (backup) ...
+         if (invoiceLines.length > 0) {
           const ultimaLinea = invoiceLines[invoiceLines.length - 1];
           const ivaAnterior = ultimaLinea.tax_totals[0].tax_amount || 0;
           const ivaAjustado = this.roundCOP(ivaAnterior + diferenciaIva);
-
-          console.log(`   - IVA anterior última línea: ${ivaAnterior}`);
-          console.log(`   - IVA ajustado última línea: ${ivaAjustado}`);
-          console.log(`   - Diferencia aplicada: ${diferenciaIva}`);
-
-          // Ajustar IVA de la última línea
           ultimaLinea.tax_totals[0].tax_amount = Number(ivaAjustado);
-
-          // Recalcular porcentaje si es necesario
-          const taxableAmount = ultimaLinea.tax_totals[0].taxable_amount || ultimaLinea.line_extension_amount || 0;
-          if (taxableAmount > 0 && ivaAjustado > 0) {
-            const nuevoPercent = this.roundCOP((ivaAjustado / taxableAmount) * 100);
-            ultimaLinea.tax_totals[0].percent = Number(nuevoPercent >= 18.5 && nuevoPercent <= 19.5 ? 19 :
-              nuevoPercent >= 7.5 && nuevoPercent <= 8.5 ? 8 :
-                nuevoPercent >= 4.5 && nuevoPercent <= 5.5 ? 5 :
-                  nuevoPercent < 0.5 ? 0 : this.roundCOP(nuevoPercent));
-          }
-
-          console.log(`   ✅ IVA de última línea ajustado para que totales cuadren exactamente`);
-        }
+         }
       }
 
       // Ajustar subtotales si hay diferencia

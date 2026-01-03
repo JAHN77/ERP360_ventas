@@ -26,9 +26,10 @@ const getAllRemissions = async (req, res) => {
     }
 
     if (estado && estado.trim()) {
-      // Si el estado es "BORRADOR" o similar, asegurar compatibilidad
+      // Mapear el estado recibido (ej. 'ENTREGADO') al código de DB (ej. 'D')
+      const dbEstado = mapEstadoToDb(estado);
       whereClauses.push('r.estado = @estado');
-      params.estado = estado.trim();
+      params.estado = dbEstado;
     }
 
     if (fechaInicio) {

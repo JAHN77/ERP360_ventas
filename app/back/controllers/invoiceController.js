@@ -18,7 +18,7 @@ const invoiceController = {
         fechaInicio, 
         fechaFin,
         clienteId,
-        sortBy = 'fechaFactura',
+        sortBy = 'id',
         sortOrder = 'desc'
       } = req.query;
 
@@ -62,16 +62,33 @@ const invoiceController = {
       }
 
       // Aplicar Búsqueda
+      // Aplicar Búsqueda Optimizada
       if (searchTerm) {
-        // Búsqueda en múltiples campos para ser "Global"
-        // Busca en: Número de factura, Código Cliente, Observaciones, CUFE, Vendedor
-        whereClauses.push(`(
+         // 1. Pre-fetch: Buscar IDs de clientes que coinciden con el nombre
+         const matchingClientsQuery = `
+           SELECT TOP 50 codter 
+           FROM ${TABLE_NAMES.clientes} 
+           WHERE nomter LIKE @search
+         `;
+         const matchingClients = await executeQueryWithParams(matchingClientsQuery, { search: `%${searchTerm}%` });
+         const matchingClientIds = matchingClients.map(c => `'${c.codter}'`).join(',');
+
+         // 2. Construir cláusula WHERE principal sin JOIN costoso para el filtro
+         // Si encontramos clientes, agregamos sus IDs a la búsqueda
+         let clientSearchClause = '';
+         if (matchingClientIds.length > 0) {
+           clientSearchClause = `OR f.codter IN (${matchingClientIds})`;
+         }
+
+         whereClauses.push(`(
           f.numfact LIKE @search OR 
           f.codter LIKE @search OR 
           f.Observa LIKE @search OR
           f.CUFE LIKE @search OR
           f.codven LIKE @search
+          ${clientSearchClause}
         )`);
+        
         params.search = `%${searchTerm}%`;
       }
 
@@ -89,7 +106,7 @@ const invoiceController = {
       };
 
       // Construcción dinámica de ORDER BY
-      let orderByColumn = sortMapping[sortBy] || 'f.fecfac';
+      let orderByColumn = sortMapping[sortBy] || 'f.ID'; // Default por ID para mostrar últimas creadas
       const orderDirection = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
       
       // Aseguramos un ordenamiento determinista agregando ID al final
@@ -141,8 +158,10 @@ const invoiceController = {
           f.sey_key as seyKey,
           f.CUFE as cufe,
           f.IdCaja as cajaId,
-          f.Valnotas as valorNotas
+          f.Valnotas as valorNotas,
+          t.nomter as nombreCliente
         FROM ${TABLE_NAMES.facturas} f
+        LEFT JOIN ${TABLE_NAMES.clientes} t ON f.codter = t.codter
         ${whereClause}
         ${orderByClause}
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -151,6 +170,7 @@ const invoiceController = {
       const countQuery = `
         SELECT COUNT(*) as total
         FROM ${TABLE_NAMES.facturas} f
+        LEFT JOIN ${TABLE_NAMES.clientes} t ON f.codter = t.codter
         ${whereClause}
       `;
 
@@ -249,8 +269,13 @@ const invoiceController = {
           COALESCE(
             (SELECT LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
             LTRIM(RTRIM(COALESCE(fd.observa, ''))),
+            LTRIM(RTRIM(COALESCE(fd.observa, ''))),
             LTRIM(RTRIM(COALESCE(fd.codins, '')))
           ) as descripcion,
+          COALESCE(
+            (SELECT TOP 1 LTRIM(RTRIM(COALESCE(referencia, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+            ''
+          ) as referencia,
           (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) as subtotal,
           fd.ivains as valorIva,
           (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) + COALESCE(fd.ivains, 0) as total,
@@ -387,6 +412,10 @@ const invoiceController = {
                   LTRIM(RTRIM(COALESCE(rd.codins, '')))
                 )) as descripcion,
                 MAX(COALESCE(
+                  (SELECT TOP 1 LTRIM(RTRIM(COALESCE(referencia, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
+                  ''
+                )) as referencia,
+                MAX(COALESCE(
                   (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(rd.codins))),
                   0
                 )) as ivaPorcentaje,
@@ -419,8 +448,10 @@ const invoiceController = {
                   ivaPorcentaje: ivaPorcentajeItem,
                   valorIva: ivaItem,
                   subtotal: subtotalItem,
+                  subtotal: subtotalItem,
                   total: totalItem,
-                  descripcion: item.descripcion || item.codProducto
+                  descripcion: item.descripcion || item.codProducto,
+                  referencia: item.referencia || ''
                 };
               });
             }
@@ -528,53 +559,63 @@ const invoiceController = {
           //    The user requirement is "use it again until it has cufe".
           //    This implies we must remove the "failed" record to allow the new transaction to take its number.
           
-             const reqMin = new sql.Request(tx);
-             // We need ID and CUFE to decide
-             const minResult = await reqMin.query(`
-                SELECT TOP 1 numfact, ID, CUFE
-                FROM ${TABLE_NAMES.facturas}
-                WHERE numfact IS NOT NULL AND numfact NOT LIKE '%AUTO%'
-                ORDER BY ID DESC
-             `);
+             // Lógica de Numeración Descendente Robusta (Start: 88996)
+             let currentNum = 88996; // Punto de partida solicitado
+             let assignedNum = null;
+             let reuseId = null;
 
-             let nextNumFact = 89000; 
+             while (assignedNum === null) {
+                // Verificar estado de 'currentNum'
+                const checkReq = new sql.Request(tx);
+                checkReq.input('cNum', sql.VarChar(50), String(currentNum));
+                // Buscamos si existe y su estado (CUFE)
+                const checkRes = await checkReq.query(`
+                   SELECT TOP 1 ID, CUFE, numfact 
+                   FROM ${TABLE_NAMES.facturas} 
+                   WHERE numfact = @cNum
+                `);
 
-             if (minResult.recordset.length > 0) {
-               const lastRecord = minResult.recordset[0];
-               const lastNumfact = String(lastRecord.numfact || '').trim();
-               const lastNum = parseInt(lastNumfact, 10);
-               const lastId = lastRecord.ID;
-               const lastCufe = lastRecord.CUFE ? String(lastRecord.CUFE).trim() : '';
+                if (checkRes.recordset.length === 0) {
+                   // CASO 1: El número está libre. Usarlo.
+                   assignedNum = currentNum;
+                } else {
+                   const record = checkRes.recordset[0];
+                   const cufe = record.CUFE ? String(record.CUFE).trim() : '';
+                   const isStamped = cufe.length > 20 && cufe !== 'null';
 
-               const tieneCufeValido = lastCufe && lastCufe.length > 20 && lastCufe !== 'null';
-             
-               if (tieneCufeValido) {
-                  // The last invoice is valid/stamped. Proceed to next number.
-                  nextNumFact = lastNum - 1;
-               } else {
-                  // The last invoice has NO CUFE. We must reuse this number.
-                  // To reuse it safely (avoiding duplicate errors), we must DELETE the old draft/failed record.
-                  nextNumFact = lastNum;
-                  console.log(`♻️ Reutilizando número ${nextNumFact} (Factura anterior ID ${lastId} sin CUFE)`);
+                   if (!isStamped) {
+                      // CASO 2: Existe pero es Borrador/Fallido (Sin CUFE). REUTILIZAR.
+                      console.log(`♻️ Encontrado Borrador/Fallido en ${currentNum} (ID: ${record.ID}). Reutilizando...`);
+                      reuseId = record.ID;
+                      assignedNum = currentNum;
+                   } else {
+                      // CASO 3: Existe y es Válido (Timbrado).
+                      // El número está ocupado legítimamente. Bajamos al siguiente.
+                      console.log(`⚠️ Número ${currentNum} ocupado y válido. Probando siguiente...`);
+                      currentNum--;
+                   }
+                }
+             }
 
-                  // Clear dependencies before deleting header
-                  // 1. Delete Details
-                  const reqDelDet = new sql.Request(tx);
-                  reqDelDet.input('oldId', sql.Int, lastId);
-                  await reqDelDet.query(`DELETE FROM ${TABLE_NAMES.facturas_detalle} WHERE id_factura = @oldId`);
+             let nextNumFact = assignedNum;
 
-                  // 2. Clear Remissions link (if any remissions were linked to this failed invoice)
-                  const reqClearRem = new sql.Request(tx);
-                  reqClearRem.input('oldId', sql.Int, lastId);
-                  await reqClearRem.query(`UPDATE ${TABLE_NAMES.remisiones} SET factura_id = NULL WHERE factura_id = @oldId`);
+             // Ejecutar limpieza si es reutilización
+             if (reuseId) {
+                // 1. Delete Details
+                const reqDelDet = new sql.Request(tx);
+                reqDelDet.input('oldId', sql.Int, reuseId);
+                await reqDelDet.query(`DELETE FROM ${TABLE_NAMES.facturas_detalle} WHERE id_factura = @oldId`);
 
-                  // 3. Delete Header
-                  const reqDelHead = new sql.Request(tx);
-                  reqDelHead.input('oldId', sql.Int, lastId);
-                  await reqDelHead.query(`DELETE FROM ${TABLE_NAMES.facturas} WHERE ID = @oldId`);
-               }
-           }
-            
+                // 2. Clear Remissions link
+                const reqClearRem = new sql.Request(tx);
+                reqClearRem.input('oldId', sql.Int, reuseId);
+                await reqClearRem.query(`UPDATE ${TABLE_NAMES.remisiones} SET factura_id = NULL WHERE factura_id = @oldId`);
+
+                // 3. Delete Header
+                const reqDelHead = new sql.Request(tx);
+                reqDelHead.input('oldId', sql.Int, reuseId);
+                await reqDelHead.query(`DELETE FROM ${TABLE_NAMES.facturas} WHERE ID = @oldId`);
+             }
            // Double check avoiding collision (in case we decremented, OR if we reused but deletion failed silently?)
            // If we reused and deleted, this loop should pass immediately.
            let attempts = 0;
@@ -722,36 +763,46 @@ const invoiceController = {
         let efectivoFinal = body.efectivo || 0;
         let creditoFinal = body.credito || 0;
 
-        if ((!body.efectivo && !body.credito && !body.tarjetaCredito && !body.transferencia) && formaPagoNormalizada) {
-          if (formaPagoNormalizada === '01') {
-            efectivoFinal = totalFinal;
-            creditoFinal = 0;
-          } else if (formaPagoNormalizada === '02') {
-            efectivoFinal = 0;
+        // Lógica de asignación de importes según forma de pago
+        // Si no se especifican montos explícitos, se asigna el total según la forma de pago
+        // SIEMPRE priorizar la consistencia con formaPagoNormalizada si está definida
+        
+        if (formaPagoNormalizada === '01') {
+          // Contado: Si no se enviaron montos explícitos de efectivo/tarjeta/transferencia
+          // O si viene "sucio" el campo credito, lo limpiamos
+          creditoFinal = 0; 
+          
+          if (!body.efectivo && !body.tarjetaCredito && !body.transferencia && !body.cheques) {
+             efectivoFinal = totalFinal;
+          }
+        } else if (formaPagoNormalizada === '02') {
+          // Crédito
+          efectivoFinal = 0;
+          if (!body.credito) {
             creditoFinal = totalFinal;
           }
         }
 
-        req1.input('efectivo', sql.Decimal(18, 2), efectivoFinal);
-        req1.input('cheques', sql.Decimal(18, 2), body.cheques || 0);
-        req1.input('credito', sql.Decimal(18, 2), creditoFinal);
-        req1.input('tarjetacr', sql.Decimal(18, 2), body.tarjetaCredito || 0);
-        req1.input('TarjetaDB', sql.Decimal(18, 2), body.tarjetaDebito || 0);
-        req1.input('Transferencia', sql.Decimal(18, 2), body.transferencia || 0);
-        req1.input('valpagado', sql.Decimal(18, 2), body.valorPagado || 0);
+        req1.input('efectivo', sql.Decimal(18, 6), efectivoFinal);
+        req1.input('cheques', sql.Decimal(18, 6), body.cheques || 0);
+        req1.input('credito', sql.Decimal(18, 6), creditoFinal);
+        req1.input('tarjetacr', sql.Decimal(18, 6), body.tarjetaCredito || 0);
+        req1.input('TarjetaDB', sql.Decimal(18, 6), body.tarjetaDebito || 0);
+        req1.input('Transferencia', sql.Decimal(18, 6), body.transferencia || 0);
+        req1.input('valpagado', sql.Decimal(18, 6), body.valorPagado || 0);
         req1.input('resolucion_dian', sql.Char(2), resolucionDianFinal);
         req1.input('Observa', sql.VarChar(150), observaFinal);
-        req1.input('TARIFA_CREE', sql.Decimal(18, 2), body.tarifaCREE || 0);
-        req1.input('RETECREE', sql.Decimal(18, 2), body.retencionCREE || 0);
+        req1.input('TARIFA_CREE', sql.Decimal(18, 6), body.tarifaCREE || 0);
+        req1.input('RETECREE', sql.Decimal(18, 6), body.retencionCREE || 0);
         req1.input('codusu', sql.VarChar(10), codusuFinal);
         req1.input('fecsys', sql.DateTime, new Date());
         req1.input('estfac', sql.VarChar(1), estfacFinal);
-        req1.input('VALDOMICILIO', sql.Decimal(18, 2), body.valorDomicilio || 0);
+        req1.input('VALDOMICILIO', sql.Decimal(18, 6), body.valorDomicilio || 0);
         req1.input('estado_envio', sql.Bit, estadoEnvioFinal);
         req1.input('sey_key', sql.VarChar(120), seyKeyFinal);
         req1.input('CUFE', sql.VarChar(600), cufeFinal);
         req1.input('IdCaja', sql.Int, body.cajaId || null);
-        req1.input('Valnotas', sql.Decimal(18, 2), body.valorNotas || 0);
+        req1.input('Valnotas', sql.Decimal(18, 6), body.valorNotas || 0);
 
         const insertHeader = await req1.query(`
           INSERT INTO ${TABLE_NAMES.facturas} (
@@ -952,12 +1003,6 @@ const invoiceController = {
             const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
 
             // Ajustar valores (cálculo inverso IVA)
-            // ... (implementación simplificada de la lógica de ajuste que vimos en server.cjs)
-            // Asumimos que DIANService maneja bien si le pasamos la factura.
-            // Pero el código original hacía ajustes manuales antes de llamar a transform.
-            // Por brevedad y robustez, asumiremos que transformVenFacturaForDIAN puede manejar esto o usamos la lógica copia/pega si es posible.
-            // Copiaremos la lógica básica de ajuste.
-            
             const roundCOP = (val) => Math.round(parseFloat(val || 0) * 100) / 100;
 
             const facturaCompletaAjustada = {
@@ -971,11 +1016,29 @@ const invoiceController = {
                 }) : []
             };
             
-            // Adjust totals logic...
-            // (Skipping full detail for brevity, expecting DIANService handling mostly)
+            const invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompletaAjustada, resolution, dianParams, body.invoiceData || {});
+            
+            // MODIFICACIÓN TEMPORAL: No enviar a la DIAN, solo retornar el JSON paara validación
+            // const dianResponse = await DIANService.sendInvoiceToDIAN(invoiceJson, dianParams.testSetID, dianParams.url_base);
+            
+            console.log('⚠️ [PREVIEW MODE] Saltando envío a DIAN (updateInvoice), retornando JSON para validación');
+            
+            // Rollback temprano y retorno directo
+            await tx.rollback();
 
-            invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompletaAjustada, resolution, dianParams, body.invoiceData || {});
-            const dianResponse = await DIANService.sendInvoiceToDIAN(invoiceJson, dianParams.testSetID, dianParams.url_base);
+            return res.json({
+                success: true,
+                validationMode: true,
+                jsonPayload: invoiceJson,
+                data: {
+                    ...facturaExistente,
+                    estado: 'BORRADOR', // Mantener en borrador
+                    cufe: null,
+                }
+            });
+
+            /* 
+            // CÓDIGO ORIGINAL COMENTADO
             console.log('📝 DIAN Response (updateInvoice):', JSON.stringify(dianResponse, null, 2));
 
             if (dianResponse.success && dianResponse.cufe) {
@@ -989,6 +1052,7 @@ const invoiceController = {
               reqUpdate.input('estado_envio', sql.Bit, 0);
               updates.push('estado_envio = @estado_envio');
             }
+            */
           } catch (dianError) {
              console.error('DIAN Error:', dianError);
              estadoFinal = 'R';
@@ -1073,6 +1137,7 @@ const invoiceController = {
         const pool = await getConnection();
         const tx = new sql.Transaction(pool);
         await tx.begin();
+        let transactionClosed = false;
 
         try {
             const reqCheck = new sql.Request(tx);
@@ -1081,6 +1146,7 @@ const invoiceController = {
 
             if (checkResult.recordset.length === 0) {
                 await tx.rollback();
+                transactionClosed = true;
                 return res.status(404).json({ success: false, message: 'Factura no encontrada' });
             }
 
@@ -1089,16 +1155,52 @@ const invoiceController = {
             const dianParams = await DIANService.getDIANParameters();
             const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
 
-            // ... Reuse transformation and sending logic ...
-            // Simplified for this write:
+            // Generate invoice JSON payload
+            // This was missing and caused ReferenceError
+            const invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompleta, resolution, {
+                isPrueba: body.mode === 'test' || dianParams.isPrueba,
+                sync: dianParams.sync,
+                urlBase: dianParams.url_base,
+                testSetID: dianParams.testSetID
+            });
+
+            // Transformation logic is handled inside transformVenFacturaForDIAN
+            // We can remove the placeholder roundCOP if not used elsewhere, or keep it if needed.
+            // Keeping placeholders to ensure no var is referenced later that depends on them.
             const roundCOP = (val) => Math.round(parseFloat(val || 0) * 100) / 100;
-            const facturaCompletaAjustada = { /* ... same logic as above ... */ ...facturaCompleta }; // Placeholder for actual deep clone/adjust
+            // facturaCompletaAjustada is redundant if we use invoiceJson directly, but keeping just in case
+            const facturaCompletaAjustada = { ...facturaCompleta };
+            
+            // Determine Mode: 'test' (preview JSON) or 'production' (send to DIAN)
+            const mode = body.mode === 'test' ? 'test' : 'production';
+            console.log(`🚀 [stampInvoice] Mode: ${mode}`);
 
-            const invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompletaAjustada, resolution, dianParams, body.invoiceData || {});
+            if (mode === 'test') {
+                console.log('⚠️ [TEST MODE] Skipping DIAN submission, returning JSON for validation');
+                
+                // Return JSON payload directly without changing DB state
+                await tx.rollback();
+                transactionClosed = true;
+                
+                return res.json({
+                    success: true,
+                    validationMode: true,
+                    jsonPayload: invoiceJson,
+                    data: {
+                        cufe: null,
+                        estado: 'BORRADOR',
+                        motivoRechazo: null
+                    }
+                });
+            }
+
+            // PRODUCTION MODE: Send to DIAN
+            console.log('🌍 [PRODUCTION MODE] Sending to DIAN...');
             const dianResponse = await DIANService.sendInvoiceToDIAN(invoiceJson, dianParams.testSetID, dianParams.url_base);
-            console.log('📝 DIAN Response (stampInvoice):', JSON.stringify(dianResponse, null, 2));
+            
+            console.log('📝 DIAN Response:', JSON.stringify(dianResponse, null, 2));
 
-            let estadoFinal = 'E';
+            let estadoFinal = 'E'; // Default to ERROR or PROCESSING if unclear
             let cufeGenerado = null;
             let motivoRechazo = null;
 
@@ -1108,13 +1210,19 @@ const invoiceController = {
             reqUpdate.input('fecsys', sql.DateTime, new Date());
 
             if (dianResponse.success && dianResponse.cufe) {
-                estadoFinal = 'A';
+                estadoFinal = 'A'; // ACEPTADA
                 cufeGenerado = dianResponse.cufe;
                 reqUpdate.input('CUFE', sql.VarChar(100), cufeGenerado);
                 updates.push('CUFE = @CUFE');
+                
+                // También actualizar fecha de envío a la actual si es exitoso
+                reqUpdate.input('estado_envio', sql.Bit, 1);
+                updates.push('estado_envio = @estado_envio');
             } else {
-                estadoFinal = 'R';
-                motivoRechazo = dianResponse.message;
+                estadoFinal = 'R'; // RECHAZADA
+                motivoRechazo = dianResponse.message || 'Error desconocido de la DIAN';
+                reqUpdate.input('estado_envio', sql.Bit, 0);
+                updates.push('estado_envio = @estado_envio');
             }
 
             reqUpdate.input('estfac', sql.VarChar(10), estadoFinal);
@@ -1122,9 +1230,10 @@ const invoiceController = {
 
             await reqUpdate.query(`UPDATE ${TABLE_NAMES.facturas} SET ${updates.join(', ')} WHERE ID = @id`);
             await tx.commit();
+            transactionClosed = true;
 
             res.json({
-                success: estadoFinal === 'A' || estadoFinal === 'E',
+                success: estadoFinal === 'A',
                 data: {
                     cufe: cufeGenerado,
                     estado: mapEstadoFromDb(estadoFinal),
@@ -1133,9 +1242,12 @@ const invoiceController = {
             });
 
         } catch (inner) {
-            await tx.rollback();
-            throw inner;
+             if (!transactionClosed) {
+                try { await tx.rollback(); } catch(e) {}
+             }
+             throw inner;
         }
+
     } catch (error) {
         console.error('Error stamping invoice:', error);
         res.status(500).json({ success: false, message: 'Error timbrando factura', error: error.message });

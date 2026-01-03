@@ -1,6 +1,7 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import vitePluginSingleSpa from 'vite-plugin-single-spa';
 
 
 export default defineConfig(({ mode }) => {
@@ -23,7 +24,7 @@ export default defineConfig(({ mode }) => {
       !isStandalone && vitePluginSingleSpa({
         type: 'mife',
         serverPort: 4203,
-        spaEntryPoint: './index.tsx',
+        spaEntryPoints: './index.tsx', // Corregido de spaEntryPoint a spaEntryPoints
       }),
     ].filter(Boolean),
     define: {
@@ -45,7 +46,7 @@ export default defineConfig(({ mode }) => {
         rollupOptions: {
           // No externalizar nada
           output: {
-            format: 'es', // Estándar ES Modules
+            format: 'es' as const, // Estándar ES Modules
             entryFileNames: 'assets/[name]-[hash].js',
             chunkFileNames: 'assets/[name]-[hash].js',
             assetFileNames: 'assets/[name]-[hash].[ext]'
@@ -56,7 +57,7 @@ export default defineConfig(({ mode }) => {
         rollupOptions: {
           external: ['react', 'react-dom'],
           output: {
-            format: 'systemjs',
+            format: 'system' as const, // SystemJS (usar 'system' que es el valor estándar de Rollup, o 'systemjs' si Vite lo requiere específico, pero 'system' es el ModuleFormat válido)
             entryFileNames: 'main.js',
             globals: {
               'react': 'React',

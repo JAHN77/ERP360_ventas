@@ -14,7 +14,7 @@ import { apiSendFacturaEmail } from '../../services/apiClient';
 interface FacturaPreviewModalProps {
     factura: Factura | null;
     onClose: () => void;
-    onTimbrar?: (id: string) => Promise<void>;
+    onTimbrar?: (id: string, mode: 'test' | 'production') => Promise<void>;
 }
 
 const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onClose, onTimbrar }) => {
@@ -25,17 +25,17 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
     const [isGenerating, setIsGenerating] = useState(false);
     const [isStamping, setIsStamping] = useState(false);
 
-    const handleTimbrarClick = async () => {
+    const handleTimbrarClick = async (mode: 'test' | 'production') => {
         if (!factura || !onTimbrar) return;
 
-        // Confirmar acción
-        if (!window.confirm(`¿Está seguro de que desea timbrar la factura ${factura.numeroFactura}? Esto enviará el documento a la DIAN.`)) {
+        // Confirmar acción solo para producción
+        if (mode === 'production' && !window.confirm(`¿Está seguro de que desea timbrar la factura ${factura.numeroFactura}? Esto enviará el documento a la DIAN.`)) {
             return;
         }
 
         setIsStamping(true);
         try {
-            await onTimbrar(factura.id);
+            await onTimbrar(factura.id, mode);
             // El modal se cerrará o actualizará externamente tras el éxito
         } catch (error) {
             console.error('Error al timbrar desde modal:', error);
@@ -198,8 +198,20 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
                         <div className="flex items-center space-x-1 bg-slate-200/50 dark:bg-slate-800/50 p-1 rounded-lg">
                             {onTimbrar && factura.estado === 'BORRADOR' && (
                                 <>
+                                    {/* Botón Prueba JSON */}
                                     <button
-                                        onClick={handleTimbrarClick}
+                                        onClick={() => handleTimbrarClick('test')}
+                                        disabled={isGenerating || isStamping}
+                                        title="Generar JSON para Pruebas"
+                                        className="h-8 px-3 flex items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed mr-1"
+                                    >
+                                        <i className="fas fa-file-code mr-2"></i>
+                                        <span className="font-medium text-sm">Prueba JSON</span>
+                                    </button>
+
+                                    {/* Botón Timbrar (Producción) */}
+                                    <button
+                                        onClick={() => handleTimbrarClick('production')}
                                         disabled={isGenerating || isStamping}
                                         title="Timbrar y Enviar a DIAN"
                                         className="h-8 px-3 flex items-center justify-center rounded bg-green-600 text-white hover:bg-green-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed mr-1"

@@ -210,7 +210,8 @@ const inventoryController = {
       if (tipo) {
         if (tipo === 'ENTRADA') {
              // User requested only standard entries (EN) for the Inventory Entry section
-             whereClause += ` AND k.tipkar = 'EN'`; 
+             // Expanded to include 'E' (Legacy) and 'I' (Initial Inventory) to ensure all inputs are visible
+             whereClause += ` AND k.tipkar IN ('EN', 'E', 'I')`; 
         } else if (tipo === 'SALIDA') {
              whereClause += ` AND k.tipkar IN ('S', 'SA', 'SD')`;
         } else {

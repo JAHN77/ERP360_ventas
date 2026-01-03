@@ -1,64 +1,31 @@
 import React from 'react';
-import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Font, Image } from '@react-pdf/renderer';
+import { pdfStyles, formatCurrency } from '../pdf/pdfTheme';
 
-// Register a standard font if you have one, otherwise fallback to Helvetica
-// Font.register({ family: 'Open Sans', src: '...' });
-
+// custom styles for specific PO elements not in theme
 const styles = StyleSheet.create({
+    // Keep only non-conflicting styles or specifics
     page: {
-        padding: 30,
+        padding: 30, // Theme has 40, lets keep consistent with theme or specific? Theme is 40. Custom checks.
         fontFamily: 'Helvetica',
-        fontSize: 10, // Restored to 10 for better readability on A4
-        color: '#334155', // Slate-700
+        fontSize: 10,
+        color: '#334155',
     },
-    // ID Header
-    idHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#e2e8f0',
-        paddingBottom: 5,
-    },
-    companyTitle: {
-        fontSize: 16,
-        fontWeight: 'extrabold',
-        textTransform: 'uppercase',
-        color: '#1e293b',
-        letterSpacing: 0.5,
-    },
-    logo: {
-        width: 85,
-        height: 50,
-        marginRight: 15,
-        objectFit: 'contain',
-    },
-    headerLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    docTitle: {
-        fontSize: 14, // Smaller doc title
-        fontWeight: 'bold',
-        color: '#2563eb',
-        textTransform: 'uppercase',
-    },
-    // Two Column Layout
+    // ... preserved specific styles ...
     topSection: {
         flexDirection: 'row',
         gap: 20,
-        marginBottom: 8, // Much tighter margin
+        marginBottom: 8,
     },
     column: {
         flex: 1,
         borderWidth: 1,
         borderColor: '#e2e8f0',
         borderRadius: 4,
-        padding: 6, // Reduced padding
+        padding: 6,
         paddingTop: 10,
         position: 'relative',
     },
-    // Pill Headers
     pillHeader: {
         position: 'absolute',
         top: -8,
@@ -70,17 +37,16 @@ const styles = StyleSheet.create({
     },
     pillText: {
         color: '#ffffff',
-        fontSize: 7, // Smaller pill text
+        fontSize: 7,
         fontWeight: 'bold',
         textTransform: 'uppercase',
     },
-    // Info Rows
     infoRow: {
         flexDirection: 'row',
         marginBottom: 2,
     },
     label: {
-        width: 60, // Adjusted width
+        width: 60,
         fontWeight: 'bold',
         color: '#64748b',
     },
@@ -88,8 +54,6 @@ const styles = StyleSheet.create({
         flex: 1,
         color: '#334155',
     },
-
-    // Address Block styling
     addressBlock: {
         marginTop: 2,
     },
@@ -104,29 +68,28 @@ const styles = StyleSheet.create({
         color: '#475569',
         marginBottom: 1,
     },
-
-    // Table
+    // Table specific
     table: {
-        marginTop: 5, // Tighter table margin
+        marginTop: 5,
     },
     tableHeader: {
         flexDirection: 'row',
         backgroundColor: '#f1f5f9',
         borderBottomWidth: 1,
         borderBottomColor: '#cbd5e1',
-        paddingVertical: 4, // Slimmer header
+        paddingVertical: 4,
         paddingHorizontal: 4,
     },
     tableRow: {
         flexDirection: 'row',
         borderBottomWidth: 1,
         borderBottomColor: '#f1f5f9',
-        paddingVertical: 4, // Slimmer rows
+        paddingVertical: 4,
         paddingHorizontal: 4,
         alignItems: 'center',
     },
     th: {
-        fontSize: 7, // Smaller headers
+        fontSize: 7,
         fontWeight: 'bold',
         color: '#475569',
         textTransform: 'uppercase',
@@ -135,7 +98,6 @@ const styles = StyleSheet.create({
         fontSize: 8,
         color: '#334155',
     },
-    // Columns width (unchanged)
     colRef: { width: '15%' },
     colDesc: { width: '35%' },
     colUnit: { width: '10%', textAlign: 'center' },
@@ -143,10 +105,9 @@ const styles = StyleSheet.create({
     colPrice: { width: '15%', textAlign: 'right' },
     colDisc: { width: '10%', textAlign: 'center' },
     colTotal: { width: '15%', textAlign: 'right' },
-
     // Totals
     totalsSection: {
-        marginTop: 5, // Tighter
+        marginTop: 5,
         flexDirection: 'row',
         justifyContent: 'flex-end',
     },
@@ -156,7 +117,7 @@ const styles = StyleSheet.create({
     totalRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        paddingVertical: 1, // Tighter total rows
+        paddingVertical: 1,
     },
     totalLabel: {
         fontSize: 8,
@@ -179,10 +140,8 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#0ea5e9',
     },
-
-    // Footer
     footer: {
-        marginTop: 10, // Much tighter footer margin (was 30)
+        marginTop: 10,
         borderTopWidth: 1,
         borderTopColor: '#e2e8f0',
         paddingTop: 5,
@@ -206,43 +165,56 @@ interface OrdenCompraPDFProps {
 }
 
 const OrdenCompraPDFDocument: React.FC<OrdenCompraPDFProps> = ({ data, empresa }) => {
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
-    };
 
+    // Calculate due date (vencimiento) - fallback to 30 days if not present
     const formatDate = (dateString: string) => {
         if (!dateString) return new Date().toLocaleDateString();
         return new Date(dateString).toLocaleDateString();
     };
 
-    // Calculate due date (vencimiento) - fallback to 30 days if not present
     const fechaVencimiento = new Date(data.feccom || new Date());
     fechaVencimiento.setDate(fechaVencimiento.getDate() + 30);
 
     return (
         <Document>
-            <Page size="A4" style={styles.page}>
+            <Page size="A4" style={pdfStyles.page}> {/* Use theme page style or local? Theme is 40p padding. Local was 30. Using theme for consistency if user wants "updated format". using pdfStyles.page */}
 
-                {/* Header ID */}
-                <View style={styles.idHeader}>
-                    <View style={styles.headerLeft}>
-                        {empresa?.logoExt && <Image src={empresa.logoExt} style={styles.logo} />}
-                        <View>
-                            <Text style={styles.companyTitle}>{empresa?.nombre || 'MULTIACABADOS'}</Text>
-                            <Text style={styles.subText}>
-                                NIT: {empresa?.nit || '800.000.000'} • {empresa?.regimen || 'Responsable de IVA'}
+                {/* Header - REPLACED WITH STANDARDIZED THEME HEADER */}
+                <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
+                    <View style={pdfStyles.logoSection}>
+                        <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
+                            {empresa?.logoExt ? (
+                                <Image src={empresa.logoExt} style={pdfStyles.logo} />
+                            ) : (
+                                <View style={pdfStyles.logoPlaceholder} />
+                            )}
+                        </View>
+                        <View style={pdfStyles.companyInfo}>
+                            <Text style={pdfStyles.companyName}>{empresa?.nombre || 'MULTIACABADOS'}</Text>
+                            <Text style={pdfStyles.companyDetails}>
+                                <Text style={pdfStyles.companyDetailLabel}>NIT: </Text>{empresa?.nit || '800.000.000'} • {empresa?.regimen || 'Responsable de IVA'}
                             </Text>
-                            <Text style={styles.subText}>
-                                {empresa?.direccion || ''} • {empresa?.ciudad || ''}
-                            </Text>
-                            <Text style={styles.subText}>
-                                Tel: {empresa?.telefono || ''} • Email: {empresa?.email || ''}
-                            </Text>
+                            <View style={{ marginTop: 3, marginBottom: 2 }}>
+                                <Text style={pdfStyles.companyAddress}>
+                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{empresa?.direccion || ''}
+                                </Text>
+                                <Text style={pdfStyles.companyDetails}>{empresa?.ciudad || ''}</Text>
+                            </View>
+                            <View style={{ gap: 1 }}>
+                                <Text style={pdfStyles.companyDetails}>
+                                    <Text style={pdfStyles.companyDetailLabel}>Tel: </Text>{empresa?.telefono || ''}
+                                </Text>
+                                <Text style={pdfStyles.companyDetails}>
+                                    <Text style={pdfStyles.companyDetailLabel}>Email: </Text>{empresa?.email || ''}
+                                </Text>
+                            </View>
                         </View>
                     </View>
-                    <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-                        <Text style={styles.docTitle}>ORDEN DE COMPRA</Text>
-                        <Text style={{ fontSize: 10, color: '#64748b', fontWeight: 'bold' }}>#{data.numcom || data.numeroOrden || 'BORRADOR'}</Text>
+                    <View style={pdfStyles.documentTitleSection}>
+                        <View style={pdfStyles.documentBadge}>
+                            <Text style={pdfStyles.documentTitle}>ORDEN DE COMPRA</Text>
+                        </View>
+                        <Text style={pdfStyles.documentNumber}>N° {data.numcom || data.numeroOrden || 'BORRADOR'}</Text>
                     </View>
                 </View>
 
@@ -345,7 +317,7 @@ const OrdenCompraPDFDocument: React.FC<OrdenCompraPDFProps> = ({ data, empresa }
                         <View style={styles.totalRow}>
                             <Text style={styles.totalLabel}>Descuentos</Text>
                             <Text style={styles.totalValue}>
-                                {formatCurrency(0)} {/* Adjust if discounts are global */}
+                                {formatCurrency(0)}
                             </Text>
                         </View>
                         <View style={styles.totalRow}>

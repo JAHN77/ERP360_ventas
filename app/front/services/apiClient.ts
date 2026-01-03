@@ -346,14 +346,14 @@ class ApiClient {
     return this.request(`/pedidos-detalle${params}`);
   }
 
-  async getRemisiones(page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) {
+  async getRemisiones(page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estado?: string) {
     const queryParams = new URLSearchParams();
     if (page) queryParams.append('page', String(page));
     if (pageSize) queryParams.append('pageSize', String(pageSize));
     if (search) queryParams.append('search', search);
     if (codter) queryParams.append('codter', codter);
     if (codalm) queryParams.append('codalm', codalm);
-    if (estrec) queryParams.append('estrec', estrec);
+    if (estado) queryParams.append('estado', estado);
     const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.request(`/remisiones${params}`);
   }
@@ -650,6 +650,13 @@ class ApiClient {
     });
   }
 
+  async stampInvoice(id: string | number, mode: 'test' | 'production' = 'production') {
+    return this.request(`/facturas/${id}/timbrar`, {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    });
+  }
+
   async createNotaCredito(payload: any) {
     return this.request('/notas-credito', {
       method: 'POST',
@@ -781,8 +788,8 @@ export const fetchCotizacionesDetalle = (cotizacionId?: string | number) => apiC
 export const fetchPedidos = (page?: number, pageSize?: number, search?: string, estado?: string, codter?: string) =>
   apiClient.getPedidos(page, pageSize, search, estado, codter);
 export const fetchPedidosDetalle = (pedidoId?: string) => apiClient.getPedidosDetalle(pedidoId);
-export const fetchRemisiones = (page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estrec?: string) =>
-  apiClient.getRemisiones(page, pageSize, search, codter, codalm, estrec);
+export const fetchRemisiones = (page?: number, pageSize?: number, search?: string, codter?: string, codalm?: string, estado?: string) =>
+  apiClient.getRemisiones(page, pageSize, search, codter, codalm, estado);
 export const fetchRemisionesDetalle = () => apiClient.getRemisionesDetalle();
 export const fetchNotasCredito = () => apiClient.getNotasCredito();
 export const fetchMedidas = () => apiClient.getMedidas();
@@ -821,6 +828,7 @@ export const apiCreateRemision = (payload: any) => apiClient.createRemision(payl
 export const apiUpdateRemision = (id: string | number, payload: any) => apiClient.updateRemision(id, payload);
 export const apiCreateFactura = (payload: any) => apiClient.createFactura(payload);
 export const apiUpdateFactura = (id: string | number, payload: any) => apiClient.updateFactura(id, payload);
+export const apiStampInvoice = (id: string | number, mode: 'test' | 'production') => apiClient.stampInvoice(id, mode);
 export const apiCreateCliente = (payload: any) => apiClient.createCliente(payload);
 export const apiUpdateCliente = (id: string | number, payload: any) => apiClient.updateCliente(id, payload);
 

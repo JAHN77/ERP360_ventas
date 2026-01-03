@@ -10,6 +10,7 @@ interface FacturaPDFDocumentProps {
     empresa: Empresa;
     preferences: DocumentPreferences;
     firmaVendedor?: string | null;
+    productos: any[];
 }
 
 const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
@@ -19,6 +20,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
     empresa,
     preferences,
     firmaVendedor,
+    productos,
 }) => {
     const totalDescuentos = factura.items.reduce((sum, item) => sum + (item.subtotal * (item.descuentoPorcentaje / 100)), 0);
 
@@ -124,25 +126,30 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                         <Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '17%', textAlign: 'right' }]}>Neto</Text>
                     </View>
-                    {factura.items.map((item, index) => (
-                        <View key={index} style={[pdfStyles.tableRow, { backgroundColor: index % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
-                            <Text style={[pdfStyles.tableCellText, { width: '10%', fontSize: 8 }]}>{item.codProducto || 'N/A'}</Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '37%', fontSize: 8 }]}>{item.descripcion}</Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>
-                                {preferences.showPrices ? formatCurrency(item.precioUnitario) : '***'}
-                            </Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>
-                                {item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje.toFixed(0)}%` : '-'}
-                            </Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>
-                                {(item.ivaPorcentaje || 0).toFixed(0)}%
-                            </Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '17%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>
-                                {preferences.showPrices ? formatCurrency(item.total) : '***'}
-                            </Text>
-                        </View>
-                    ))}
+                    {factura.items.map((item, index) => {
+                        const product = productos.find(p => p.id === item.productoId);
+                        const referencia = item.referencia || product?.referencia || item.codProducto || 'N/A';
+
+                        return (
+                            <View key={index} style={[pdfStyles.tableRow, { backgroundColor: index % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
+                                <Text style={[pdfStyles.tableCellText, { width: '10%', fontSize: 8 }]}>{referencia}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '37%', fontSize: 8 }]}>{item.descripcion}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>
+                                    {preferences.showPrices ? formatCurrency(item.precioUnitario) : '***'}
+                                </Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>
+                                    {item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje.toFixed(0)}%` : '-'}
+                                </Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>
+                                    {(item.ivaPorcentaje || 0).toFixed(0)}%
+                                </Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '17%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>
+                                    {preferences.showPrices ? formatCurrency(item.total) : '***'}
+                                </Text>
+                            </View>
+                        );
+                    })}
                 </View>
 
                 {/* Totals Section */}

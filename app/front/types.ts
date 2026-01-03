@@ -209,6 +209,7 @@ export interface DocumentoDetalle {
   estado?: string; // Estado del item
   qtycot?: number; // Cantidad cotizada
   fletes?: number; // Valor de fletes prorrateado o asignado
+  referencia?: string; // Referencia del producto (externa/fabricante)
 }
 export type DocumentItem = DocumentoDetalle;
 

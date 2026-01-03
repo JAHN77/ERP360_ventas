@@ -57,6 +57,7 @@ interface DataContextType {
     // Loading states
     isLoading: boolean;
     isMainDataLoaded: boolean;
+    isLoadingRemisiones: boolean; // New loading state
 
     // Core data
     clientes: Cliente[];
@@ -117,7 +118,7 @@ interface DataContextType {
     crearFactura: (data: Factura) => Promise<Factura>;
     crearNotaCredito: (factura: Factura, items: DocumentItem[], motivo: string, tipoNota?: 'DEVOLUCION' | 'ANULACION') => Promise<NotaCredito>;
     crearFacturaDesdeRemisiones: (remisionIds: string[]) => Promise<{ nuevaFactura: Factura } | null>;
-    timbrarFactura: (facturaId: string) => Promise<Factura | undefined>;
+    timbrarFactura: (facturaId: string, mode?: 'test' | 'production') => Promise<Factura | undefined>;
     refreshFacturasYRemisiones: () => Promise<void>;
     motivosDevolucion: string[];
     // Firma temporal
@@ -156,6 +157,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
     const [pedidos, setPedidos] = useState<Pedido[]>([]);
     const [remisiones, setRemisiones] = useState<Remision[]>([]);
+    const [isLoadingRemisiones, setIsLoadingRemisiones] = useState(false); // New state
     const [notasCredito, setNotasCredito] = useState<NotaCredito[]>([]);
     const [archivosAdjuntos, setArchivosAdjuntos] = useState<ArchivoAdjunto[]>([]);
 
@@ -1535,6 +1537,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     // Función específica para recargar facturas y remisiones después de timbrar una factura
     const refreshFacturasYRemisiones = useCallback(async () => {
+        setIsLoadingRemisiones(true); // Start loading
         try {
             // OPTIMIZACIÓN: No cargar detalles de remisiones globalmente (evita error 400 y mejora performance)
             // Los detalles se cargarán bajo demanda en la UI cuando sea necesario.
@@ -1545,7 +1548,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             ] = await Promise.all([
                 fetchFacturas().catch(e => ({ success: false, data: [], error: e })),
                 fetchFacturasDetalle().catch(e => ({ success: false, data: [], error: e })),
-                fetchRemisiones().catch(e => ({ success: false, data: [], error: e }))
+                // Solicitar remisiones ENTREAGADAS masivamente (pageSize=1000) para evitar que la paginación oculte documentos.
+                fetchRemisiones(1, 1000, '', undefined, undefined, 'ENTREGADO').catch(e => ({ success: false, data: [], error: e }))
             ]);
 
             // Helper para extraer datos de estructura anidada
@@ -1702,6 +1706,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             });
         } catch (error) {
             logger.error({ prefix: 'refreshPedidosYRemisiones' }, 'Error recargando pedidos y remisiones:', error);
+        } finally {
+            setIsLoadingRemisiones(false); // End loading
         }
     }, []);
 
@@ -3066,29 +3072,49 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
             }
 
-            // Obtener forma de pago desde la cotización o pedido relacionado
-            let formaPago = '1'; // Por defecto: Contado (1)
+            // Obtener forma de pago: Prioridad: Cotización -> Pedido -> Cliente -> Default
+            let formaPago: string | null = null;
+
             const pedidoRelacionado = primeraRemision.pedidoId ? pedidos.find(p => String(p.id) === String(primeraRemision.pedidoId)) : null;
+
+            // 1. Intentar desde Cotización relacionada
             if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
                 const cotizacionRelacionada = cotizaciones.find(c => String(c.id) === String(pedidoRelacionado.cotizacionId));
                 if (cotizacionRelacionada && cotizacionRelacionada.formaPago) {
-                    // Normalizar valores antiguos '01'/'02' a nuevos '1'/'2'
-                    formaPago = cotizacionRelacionada.formaPago === '01' ? '1' : cotizacionRelacionada.formaPago === '02' ? '2' : cotizacionRelacionada.formaPago;
+                    formaPago = cotizacionRelacionada.formaPago;
                     logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago obtenida desde cotización:', {
-                        formaPago: formaPago,
-                        cotizacionId: cotizacionRelacionada.id,
-                        numeroCotizacion: cotizacionRelacionada.numeroCotizacion
+                        formaPago,
+                        cotizacionId: cotizacionRelacionada.id
                     });
                 }
             }
-            // Si no se encontró en la cotización, intentar desde el pedido
-            if (formaPago === '1' && pedidoRelacionado && pedidoRelacionado.formaPago) {
-                formaPago = pedidoRelacionado.formaPago === '01' ? '1' : pedidoRelacionado.formaPago === '02' ? '2' : pedidoRelacionado.formaPago;
+
+            // 2. Intentar desde Pedido (si no se encontró en cotización)
+            if (!formaPago && pedidoRelacionado && pedidoRelacionado.formaPago) {
+                formaPago = pedidoRelacionado.formaPago;
+                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago obtenida desde pedido:', {
+                    formaPago,
+                    pedidoId: pedidoRelacionado.id
+                });
             }
-            // Si aún no se encontró, usar la condición de pago del cliente como fallback
-            if (formaPago === '1' && cliente && cliente.condicionPago) {
+
+            // 3. Fallback: Condición de pago del Cliente
+            if (!formaPago && cliente && cliente.condicionPago) {
                 formaPago = cliente.condicionPago === 'Contado' ? '1' : '2';
+                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago obtenida desde cliente:', {
+                    formaPago,
+                    condicionPago: cliente.condicionPago
+                });
             }
+
+            // 4. Default final
+            if (!formaPago) {
+                formaPago = '1';
+                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago no encontrada, usando default Contado (1)');
+            }
+
+            // Normalizar valores antiguos '01'/'02' a nuevos '1'/'2'
+            formaPago = formaPago === '01' ? '1' : formaPago === '02' ? '2' : formaPago;
 
             // Obtener código de bodega
             const bodegaCodigo = selectedSede?.codigo
@@ -3510,7 +3536,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         return notaCreada;
     }, [addActivityLog, refreshFacturasYRemisiones]);
 
-    const timbrarFactura = useCallback(async (facturaId: string): Promise<Factura | undefined> => {
+    const timbrarFactura = useCallback(async (facturaId: string, mode: 'test' | 'production' = 'production'): Promise<Factura | undefined> => {
         try {
             // Buscar factura de forma flexible: puede ser string o number
             const factura = facturas.find(f => {
@@ -3540,15 +3566,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     idType: typeof factura.id,
                     numeroFactura: factura.numeroFactura,
                     estado: factura.estado
-                }
+                },
+                mode // 'test' | 'production'
             });
 
-            // Por ahora, solo actualizamos el estado a ENVIADA (simulando timbrado)
-            // En el futuro, esto llamará a un servicio de timbrado real
-            const { apiUpdateFactura } = await import('../services/apiClient');
+            // Llamamos al método dedicado usando el nuevo endpoint /:id/timbrar
+            const { apiStampInvoice } = await import('../services/apiClient');
 
             // El ID puede ser string (UUID) o number, pero el backend espera el ID numérico de la BD
-            // Si el ID es un string que parece UUID, necesitamos buscar el ID numérico real
             let idParaBackend: string | number;
 
             if (typeof factura.id === 'number') {
@@ -3557,44 +3582,37 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // Intentar parsear como número primero
                 const idNum = parseInt(String(factura.id), 10);
                 if (!isNaN(idNum) && String(idNum) === String(factura.id).trim()) {
-                    // Es un número en formato string
                     idParaBackend = idNum;
                 } else {
-                    // Es un UUID o string, usar el ID tal cual y dejar que el backend lo maneje
                     idParaBackend = factura.id;
                 }
             }
 
-            logger.log({ prefix: 'timbrarFactura', level: 'debug' }, 'Timbrando factura:', {
-                facturaId: facturaId,
-                facturaIdType: typeof factura.id,
-                idParaBackend: idParaBackend,
-                idParaBackendType: typeof idParaBackend,
-                numeroFactura: factura.numeroFactura
-            });
-
-            console.log('\n📤 [DataContext] ========== ENVIANDO PETICIÓN AL BACKEND ==========');
-            console.log('📋 [DataContext] Llamando a apiUpdateFactura con:');
+            console.log('\n📤 [DataContext] ========== TIMBRANDO FACTURA ==========');
+            console.log('📋 [DataContext] Llamando a apiStampInvoice con:');
             console.log('   - ID:', idParaBackend);
-            console.log('   - Body:', JSON.stringify({ estado: 'ENVIADA' }, null, 2));
-            console.log('   - Endpoint: PUT /api/facturas/' + idParaBackend);
-            console.log('⏰ [DataContext] Timestamp:', new Date().toISOString());
+            console.log('   - Mode:', mode);
+            console.log('   - Endpoint: POST /api/facturas/' + idParaBackend + '/timbrar');
 
-            const resp = await apiUpdateFactura(idParaBackend, { estado: 'ENVIADA' });
+            const resp = await apiStampInvoice(idParaBackend, mode);
 
             console.log('📥 [DataContext] Respuesta recibida del backend:');
             console.log('   - success:', resp.success);
-            console.log('   - message:', resp.message || 'N/A');
-            console.log('   - data:', resp.data ? {
-                id: (resp.data as any).id,
-                numeroFactura: (resp.data as any).numeroFactura,
-                estado: (resp.data as any).estado,
-                cufe: (resp.data as any).cufe ? `${(resp.data as any).cufe.substring(0, 20)}...` : 'No generado'
-            } : 'No data');
-            console.log('='.repeat(80) + '\n');
+            console.log('   - validationMode:', (resp as any).validationMode);
+            console.log('   - data:', resp.data ? 'Data recibida' : 'No data');
 
             if (resp.success && resp.data) {
-                // Procesar remisionesIds de la respuesta
+                // MODIFICACIÓN TEMPORAL: Detectar modo de validación
+                if ((resp as any).validationMode) {
+                    console.log('⚠️ [Frontend] Recibido JSON para validación (Test Mode)');
+                    return {
+                        ...factura,
+                        _jsonPayload: (resp as any).jsonPayload,
+                        _isValidation: true
+                    } as any;
+                }
+
+                // Si es producción y exitoso, procesar la respuesta normal
                 let remisionesIds: string[] = factura.remisionesIds || [];
                 const responseData = resp.data as any;
                 if (responseData.remisionesIds) {
@@ -3604,7 +3622,6 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         remisionesIds = responseData.remisionesIds.split(',').map((id: string) => id.trim()).filter((id: string) => id.length > 0);
                     }
                 }
-                // Si no hay remisionesIds pero hay remisionId (singular), usarlo
                 if (remisionesIds.length === 0 && responseData.remisionId) {
                     remisionesIds = [String(responseData.remisionId)];
                 }
@@ -3617,31 +3634,25 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     estado: estadoFinal,
                     ...responseData,
                     remisionesIds: remisionesIds,
-                    // Asegurar que items esté presente
                     items: (Array.isArray(responseData.items) ? responseData.items : factura.items || []) as DocumentItem[],
-                    // Asegurar que CUFE y fechaTimbrado estén presentes si vienen en la respuesta
                     cufe: responseData.cufe || factura.cufe,
                     fechaTimbrado: responseData.fechaTimbrado || factura.fechaTimbrado
                 };
-                // Actualizar factura en el estado usando comparación flexible de IDs
+
+                // Actualizar factura en el estado local
                 setFacturas(prev => prev.map(f => {
-                    // Comparación flexible de IDs
                     const fIdStr = String(f.id);
                     const facturaIdStr = String(facturaId);
-                    if (fIdStr === facturaIdStr) {
-                        return facturaTimbrada;
-                    }
-                    // También comparar numéricamente si ambos son números
+                    if (fIdStr === facturaIdStr) return facturaTimbrada;
+
                     const fIdNum = typeof f.id === 'number' ? f.id : parseInt(fIdStr, 10);
                     const facturaIdNum = parseInt(facturaIdStr, 10);
-                    if (!isNaN(fIdNum) && !isNaN(facturaIdNum) && fIdNum === facturaIdNum) {
-                        return facturaTimbrada;
-                    }
+                    if (!isNaN(fIdNum) && !isNaN(facturaIdNum) && fIdNum === facturaIdNum) return facturaTimbrada;
+
                     return f;
                 }));
 
-                // Recargar facturas y remisiones para que las remisiones desaparezcan de "Remisiones Entregadas por Facturar"
-                // y la factura se actualice en el historial
+                // Recargar facturas y remisiones
                 await refreshFacturasYRemisiones();
 
                 return facturaTimbrada;
@@ -3753,6 +3764,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         getSalesByVendedor,
         getTopProductos,
         getGlobalSearchResults,
+        isLoadingRemisiones,
         addActivityLog,
         refreshData,
         ingresarStockProducto,

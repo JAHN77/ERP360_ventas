@@ -154,38 +154,52 @@ const EntradaInventarioPage: React.FC = () => {
         setIsProcessing(true);
         try {
             const docRef = mov.numcom || mov.dockar;
-            const { apiClient } = await import('../services/apiClient');
-            // Fetch all movements for this document
-            const res = await apiClient.getInventoryMovements(1, 100, docRef, 'fecha', 'desc');
+            const { apiClient, apiFetchOrdenCompraByNumber } = await import('../services/apiClient');
 
-            if (res.success && res.data && res.data.length > 0) {
-                // Filter by exact date/time to show only THIS entry's items
-                // (Since searching by Doc Ref returns all entries for that OC)
+            // 1. Fetch moves for the document (items)
+            const resMoves = await apiClient.getInventoryMovements(1, 100, docRef, 'fecha', 'desc');
+
+            // 2. Fetch original OC for totals (Fletes, Ajuste Peso)
+            let ocData = null;
+            if (mov.numcom) {
+                const resOC = await apiFetchOrdenCompraByNumber(mov.numcom, warehouseCode); // warehouseCode context
+                if (resOC.success && resOC.data) {
+                    ocData = resOC.data;
+                }
+            }
+
+            if (resMoves.success && resMoves.data && resMoves.data.length > 0) {
+                // Filter by exact date/time
                 const targetTime = new Date(mov.fecha).getTime();
-                const filteredData = res.data.filter((m: any) => {
+                const filteredData = resMoves.data.filter((m: any) => {
                     const itemTime = new Date(m.fecha).getTime();
-                    return Math.abs(itemTime - targetTime) < 1000; // 1s tolerance or exact match
+                    return Math.abs(itemTime - targetTime) < 1000;
                 });
 
-                // Map to DocumentoDetalle format
+                // Calculate base total from items
                 const mappedItems = filteredData.map((m: any) => ({
                     codProducto: m.codigoProducto,
                     descripcion: m.nombreProducto,
                     cantidad: Number(m.cantidad),
-                    precioUnitario: Number(m.costo), // In kardex, cost is stored
+                    precioUnitario: Number(m.costo),
                     total: Number(m.cantidad) * Number(m.costo),
+                    // If we have OC data, we could distribute fletes, but usually total fletes is enough for the footer
                     fletes: 0
                 }));
 
-                const totalVal = mappedItems.reduce((acc: number, item: any) => acc + item.total, 0);
+                const totalValItems = mappedItems.reduce((acc: number, item: any) => acc + item.total, 0);
+
+                // Use OC data if available, otherwise 0
+                const totalFletes = ocData ? (Number(ocData.valfletes) || 0) : 0;
+                const ajustePeso = ocData ? (Number(ocData.AJUSTE_PESO || ocData.ajuste_peso) || 0) : 0;
 
                 setViewPdfData({
                     ocNumber: mov.numcom || mov.dockar,
                     fecha: mov.fecha,
                     items: mappedItems,
-                    totals: { val: totalVal },
-                    ajustePeso: 0, // Not stored in kardex explicitly usually unless in observa?
-                    fletes: 0
+                    totals: { val: totalValItems },
+                    ajustePeso: ajustePeso,
+                    fletes: totalFletes
                 });
                 setShowPdfModal(true);
             }
@@ -762,7 +776,8 @@ const EntradaInventarioPage: React.FC = () => {
                                                 {new Date(mov.fecha).toLocaleDateString()} <span className="text-xs text-slate-400">{new Date(mov.fecha).toLocaleTimeString((undefined), { hour: '2-digit', minute: '2-digit' })}</span>
                                             </td>
                                             <td className="px-4 py-3 font-mono text-slate-600 dark:text-slate-400">
-                                                {mov.numcom ? `OC-${mov.numcom}` : (mov.dockar || 'N/A')}
+                                                <div className="font-bold">{mov.numcom ? `OC-${mov.numcom}` : (mov.dockar || 'N/A')}</div>
+                                                {mov.numrem ? <div className="text-xs text-slate-500">REM-{mov.numrem}</div> : null}
                                             </td>
                                             <td className="px-4 py-3">
                                                 <div className="font-medium text-slate-800 dark:text-slate-200">{mov.nombreProducto}</div>
