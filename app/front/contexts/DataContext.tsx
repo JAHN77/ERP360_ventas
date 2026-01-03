@@ -1543,11 +1543,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             // Los detalles se cargarán bajo demanda en la UI cuando sea necesario.
             const [
                 facturasResponse,
-                facturasDetalleResponse,
                 remisionesResponse
             ] = await Promise.all([
                 fetchFacturas().catch(e => ({ success: false, data: [], error: e })),
-                fetchFacturasDetalle().catch(e => ({ success: false, data: [], error: e })),
                 // Solicitar remisiones ENTREAGADAS masivamente (pageSize=1000) para evitar que la paginación oculte documentos.
                 fetchRemisiones(1, 1000, '', undefined, undefined, 'ENTREGADO').catch(e => ({ success: false, data: [], error: e }))
             ]);
@@ -1563,81 +1561,66 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 return [];
             };
 
-            const facturasData = extractData(facturasResponse);
-            const facturasDetalleData = extractData(facturasDetalleResponse);
-            const remisionesData = extractData(remisionesResponse);
-
             // Process facturas with detalles
-            const facturasConDetalles = (facturasData as any[]).map(f => {
-                // Procesar remisionesIds: puede venir como string separado por comas o como array
-                let remisionesIds: string[] = [];
-                if (f.remisionesIds) {
-                    if (Array.isArray(f.remisionesIds)) {
-                        remisionesIds = f.remisionesIds.map((id: any) => String(id));
-                    } else if (typeof f.remisionesIds === 'string' && f.remisionesIds.trim()) {
-                        remisionesIds = f.remisionesIds.split(',').map((id: string) => id.trim()).filter((id: string) => id.length > 0);
+            let facturasConDetalles: Factura[] = [];
+            if (facturasResponse && 'data' in facturasResponse) {
+                const facturasData = extractData(facturasResponse);
+
+                facturasConDetalles = (facturasData as any[]).map(f => {
+                    // Procesar remisionesIds: puede venir como string separado por comas o como array
+                    let remisionesIds: string[] = [];
+                    if (f.remisionesIds) {
+                        if (Array.isArray(f.remisionesIds)) {
+                            remisionesIds = f.remisionesIds.map((id: any) => String(id));
+                        } else if (typeof f.remisionesIds === 'string' && f.remisionesIds.trim()) {
+                            remisionesIds = f.remisionesIds.split(',').map((id: string) => id.trim()).filter((id: string) => id.length > 0);
+                        }
                     }
-                }
-                // Si no hay remisionesIds pero hay remisionId (singular), usarlo
-                if (remisionesIds.length === 0 && f.remisionId) {
-                    remisionesIds = [String(f.remisionId)];
-                }
+                    // Si no hay remisionesIds pero hay remisionId (singular), usarlo
+                    if (remisionesIds.length === 0 && f.remisionId) {
+                        remisionesIds = [String(f.remisionId)];
+                    }
 
-                // Buscar items que pertenezcan a esta factura (matching flexible por ID)
-                const facturaIdStr = String(f.id || f.ID || '');
-                const items = (facturasDetalleData as any[]).filter(d => {
-                    const detalleFacturaId = String(d.facturaId || d.factura_id || d.id_factura || '');
-                    // Comparar tanto por ID numérico como por string
-                    return facturaIdStr === detalleFacturaId ||
-                        (facturaIdStr && detalleFacturaId && parseInt(facturaIdStr, 10) === parseInt(detalleFacturaId, 10));
-                }).map(d => ({
-                    // Mapear campos del detalle a la estructura esperada
-                    productoId: d.productoId || null,
-                    cantidad: Number(d.cantidad || d.qtyins || 0),
-                    precioUnitario: Number(d.precioUnitario || d.valins || 0),
-                    descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
-                    ivaPorcentaje: Number(d.ivaPorcentaje || 0),
-                    descripcion: d.descripcion || d.observa || '',
-                    subtotal: Number(d.subtotal || 0),
-                    valorIva: Number(d.valorIva || d.ivains || 0),
-                    total: Number(d.total || 0),
-                    codProducto: d.codProducto || d.codins || ''
-                }));
+                    // OPTIMIZACIÓN: No mapear items aquí. Se cargarán bajo demanda.
+                    const items: DocumentItem[] = [];
 
-                return {
-                    ...f,
-                    items: items,
-                    remisionesIds: remisionesIds,
-                    estadoDevolucion: f.estadoDevolucion || f.estado_devolucion || undefined
-                };
-            });
+                    return {
+                        ...f,
+                        items: items,
+                        remisionesIds: remisionesIds,
+                        estadoDevolucion: f.estadoDevolucion || f.estado_devolucion || undefined
+                    };
+                });
 
-            logger.log({ prefix: 'refreshFacturasYRemisiones', level: 'debug' }, 'Facturas procesadas con detalles:', {
-                facturasCount: facturasConDetalles.length,
-                facturasConItems: facturasConDetalles.filter(f => f.items && f.items.length > 0).length,
-                totalItems: facturasConDetalles.reduce((sum, f) => sum + (f.items?.length || 0), 0)
-            });
+                setFacturas(facturasConDetalles);
 
-            setFacturas(facturasConDetalles);
+                logger.log({ prefix: 'refreshFacturasYRemisiones', level: 'debug' }, 'Facturas procesadas (sin detalles):', facturasConDetalles.length);
+            }
 
             // Process remisiones (sin cargar detalles globalmente)
-            const remisionesMapeadas = (remisionesData as any[]).map(r => {
-                // Mapear estado: si viene como 'D' de la BD, convertirlo a 'ENTREGADO'
-                const estadoMapeado = (() => {
-                    const estadoRaw = r.estado || 'BORRADOR';
-                    const estadoStr = String(estadoRaw).trim().toUpperCase();
-                    if (estadoStr === 'D') return 'ENTREGADO';
-                    if (estadoStr === 'ENTREGADO') return 'ENTREGADO';
-                    return estadoRaw;
-                })();
+            let remisionesMapeadas: Remision[] = [];
+            if (remisionesResponse && 'data' in remisionesResponse && (remisionesResponse as any).success) {
+                const remisionesData = extractData(remisionesResponse);
+                remisionesMapeadas = (remisionesData as any[]).map(r => {
+                    const estadoMapeado = (() => {
+                        const estadoRaw = r.estado || 'BORRADOR';
+                        const estadoStr = String(estadoRaw).trim().toUpperCase();
+                        if (estadoStr === 'D') return 'ENTREGADO';
+                        if (estadoStr === 'ENTREGADO') return 'ENTREGADO';
+                        return estadoRaw;
+                    })();
 
-                return {
-                    ...r,
-                    estado: estadoMapeado,
-                    items: r.items || [] // Mantener items si ya vienen, o array vacío
-                };
-            });
-            setRemisiones(remisionesMapeadas);
+                    return {
+                        ...r,
+                        estado: estadoMapeado,
+                        items: r.items || []
+                    };
+                });
+                setRemisiones(remisionesMapeadas);
+            } else {
+                logger.warn({ prefix: 'refreshFacturasYRemisiones' }, 'No se actualizaron remisiones debido a respuesta fallida o vacía', remisionesResponse);
+                remisionesMapeadas = remisiones;
+            }
 
             logger.log({ prefix: 'refreshFacturasYRemisiones' }, 'Facturas y remisiones recargadas:', {
                 facturas: facturasConDetalles.length,
@@ -1645,6 +1628,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             });
         } catch (error) {
             logger.error({ prefix: 'refreshFacturasYRemisiones' }, 'Error recargando facturas y remisiones:', error);
+        } finally {
+            setIsLoadingRemisiones(false);
         }
     }, []);
 
@@ -3018,14 +3003,36 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
             const total = subtotal + ivaValor;
 
-            // Obtener vendedor de la primera remisión
+            // 0. Obtener referencias tempranas (Pedido y Cotización) para heredar datos
             const primeraRemision = remisionesSeleccionadas[0];
+            const pedidoRelacionado = primeraRemision.pedidoId ? pedidos.find(p => String(p.id) === String(primeraRemision.pedidoId)) : null;
+            let cotizacionRelacionada = null;
+
+            if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
+                cotizacionRelacionada = cotizaciones.find(c => String(c.id) === String(pedidoRelacionado.cotizacionId));
+            }
+
+            // --- LÓGICA DE VENDEDOR ---
+            // Prioridad: Cotización -> Pedido -> Remisión
+            let rawVendedorId = null;
+
+            if (cotizacionRelacionada && cotizacionRelacionada.vendedorId) {
+                rawVendedorId = cotizacionRelacionada.vendedorId;
+                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Vendedor heredado de Cotización:', rawVendedorId);
+            } else if (pedidoRelacionado && pedidoRelacionado.vendedorId) {
+                rawVendedorId = pedidoRelacionado.vendedorId;
+                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Vendedor heredado de Pedido:', rawVendedorId);
+            } else if (primeraRemision.vendedorId) {
+                rawVendedorId = primeraRemision.vendedorId;
+                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Vendedor tomado de Remisión:', rawVendedorId);
+            }
+
             let vendedorCodiEmple = null;
-            if (primeraRemision.vendedorId) {
+            if (rawVendedorId) {
                 const vendedor = vendedores.find(v =>
-                    String(v.id) === String(primeraRemision.vendedorId) ||
-                    v.codiEmple === primeraRemision.vendedorId ||
-                    v.codigoVendedor === primeraRemision.vendedorId
+                    String(v.id) === String(rawVendedorId) ||
+                    v.codiEmple === rawVendedorId ||
+                    v.codigoVendedor === rawVendedorId
                 );
 
                 if (vendedor) {
@@ -3035,7 +3042,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     const vendedorActivoValue = vendedor.activo === true || vendedor.activo === 1 || Number(vendedor.activo) === 1 ? 1 : 0;
 
                     logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Vendedor encontrado:', {
-                        vendedorId: primeraRemision.vendedorId,
+                        vendedorId: rawVendedorId,
                         vendedorNombre: vendedor.nombreCompleto || vendedor.primerNombre,
                         activo: vendedor.activo,
                         activoType: typeof vendedor.activo,
@@ -3048,37 +3055,52 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     // asumimos que está activo incluso si activoValue es 0 (puede ser problema de normalización)
                     if (vendedorActivoValue === 1) {
                         // Vendedor activo, usar su codiEmple
-                        vendedorCodiEmple = vendedor.codiEmple || vendedor.id || primeraRemision.vendedorId;
+                        vendedorCodiEmple = vendedor.codiEmple || vendedor.id || rawVendedorId;
                     } else {
                         // Aunque activoValue sea 0, si está en la lista de vendedores del frontend,
                         // significa que viene del backend que solo devuelve activos
                         // Así que asumimos que está activo y lo enviamos
                         logger.warn({ prefix: 'crearFacturaDesdeRemisiones' }, 'Vendedor en lista pero activoValue !== 1, asumiendo activo:', {
-                            vendedorId: primeraRemision.vendedorId,
+                            vendedorId: rawVendedorId,
                             vendedorNombre: vendedor.nombreCompleto || vendedor.primerNombre,
                             activo: vendedor.activo,
                             activoValue: vendedorActivoValue
                         });
-                        vendedorCodiEmple = vendedor.codiEmple || vendedor.id || primeraRemision.vendedorId;
+                        vendedorCodiEmple = vendedor.codiEmple || vendedor.id || rawVendedorId;
                     }
                 } else {
                     // Vendedor no encontrado en la lista (probablemente inactivo)
                     // No enviarlo, el backend lo validará
                     logger.warn({ prefix: 'crearFacturaDesdeRemisiones' }, 'Vendedor no encontrado en lista de activos:', {
-                        vendedorId: primeraRemision.vendedorId,
+                        vendedorId: rawVendedorId,
                         vendedoresDisponibles: vendedores.length
                     });
-                    vendedorCodiEmple = null; // No enviar vendedor que no está en la lista
+                    // Fallback: Si tenemos un ID, intentemos enviarlo aunque no esté en la lista local, 
+                    // tal vez el backend sí lo tenga (aunque inactivo, para fines históricos, aunque la facturación suele requerir activos)
+                    // PERO, si es un número, podría ser el ID interno y necesitamos codiEmple. 
+                    // Mejor enviar null para evitar errores de integridad si no estamos seguros.
+                    vendedorCodiEmple = null;
                 }
             }
 
-            // Obtener forma de pago: Prioridad: Cotización -> Pedido -> Cliente -> Default
+            // Obtener forma de pago: Prioridad: Pedido -> Cotización -> Cliente -> Default
             let formaPago: string | null = null;
+            // pedidoRelacionado ya fue declarado arriba
 
-            const pedidoRelacionado = primeraRemision.pedidoId ? pedidos.find(p => String(p.id) === String(primeraRemision.pedidoId)) : null;
+            // Si hay ID de pedido pero no está en memoria, intentar buscarlo en la lista completa (si existe una función para ello) o asumir que necesitamos cargarlo
+            // Por ahora, confiamos en la lógica actual, pero invertimos la prioridad
 
-            // 1. Intentar desde Cotización relacionada
-            if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
+            // 1. Intentar desde Pedido (PRIORIDAD ALTA)
+            if (pedidoRelacionado && pedidoRelacionado.formaPago) {
+                formaPago = pedidoRelacionado.formaPago;
+                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago obtenida desde pedido:', {
+                    formaPago,
+                    pedidoId: pedidoRelacionado.id
+                });
+            }
+
+            // 2. Intentar desde Cotización relacionada (Solo si no hay forma de pago en Pedido)
+            if (!formaPago && pedidoRelacionado && pedidoRelacionado.cotizacionId) {
                 const cotizacionRelacionada = cotizaciones.find(c => String(c.id) === String(pedidoRelacionado.cotizacionId));
                 if (cotizacionRelacionada && cotizacionRelacionada.formaPago) {
                     formaPago = cotizacionRelacionada.formaPago;
@@ -3089,21 +3111,22 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
             }
 
-            // 2. Intentar desde Pedido (si no se encontró en cotización)
-            if (!formaPago && pedidoRelacionado && pedidoRelacionado.formaPago) {
-                formaPago = pedidoRelacionado.formaPago;
-                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago obtenida desde pedido:', {
-                    formaPago,
-                    pedidoId: pedidoRelacionado.id
-                });
-            }
-
             // 3. Fallback: Condición de pago del Cliente
             if (!formaPago && cliente && cliente.condicionPago) {
-                formaPago = cliente.condicionPago === 'Contado' ? '1' : '2';
-                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago obtenida desde cliente:', {
+                // Si el cliente tiene días de crédito > 0, es Crédito (2). Si no, es Contado (1).
+                // La propiedad condicionPago ya viene formateada como "Crédito X días" o "Contado" desde la carga de datos
+                if (cliente.diasCredito && cliente.diasCredito > 0) {
+                    formaPago = '2';
+                } else if (cliente.condicionPago.toLowerCase().includes('crédito')) {
+                    formaPago = '2';
+                } else {
+                    formaPago = '1';
+                }
+
+                logger.log({ prefix: 'crearFacturaDesdeRemisiones', level: 'debug' }, 'Forma de pago obtenida desde cliente (Fallback):', {
                     formaPago,
-                    condicionPago: cliente.condicionPago
+                    condicionPago: cliente.condicionPago,
+                    diasCredito: cliente.diasCredito
                 });
             }
 
@@ -3613,7 +3636,14 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
 
                 // Si es producción y exitoso, procesar la respuesta normal
-                let remisionesIds: string[] = factura.remisionesIds || [];
+                let remisionesIds: string[] = [];
+                if (factura.remisionesIds) {
+                    if (Array.isArray(factura.remisionesIds)) {
+                        remisionesIds = factura.remisionesIds;
+                    } else if (typeof factura.remisionesIds === 'string') {
+                        remisionesIds = (factura.remisionesIds as string).split(',');
+                    }
+                }
                 const responseData = resp.data as any;
                 if (responseData.remisionesIds) {
                     if (Array.isArray(responseData.remisionesIds)) {
@@ -3670,6 +3700,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const contextValue: DataContextType = useMemo(() => ({
         // Loading states
         isLoading,
+        isLoadingRemisiones,
         isMainDataLoaded,
 
         // Core data

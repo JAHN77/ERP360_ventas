@@ -159,7 +159,9 @@ const invoiceController = {
           f.CUFE as cufe,
           f.IdCaja as cajaId,
           f.Valnotas as valorNotas,
-          t.nomter as nombreCliente
+          t.nomter as nombreCliente,
+          (SELECT STRING_AGG(r.numero_remision, ', ') FROM ${TABLE_NAMES.remisiones} r WHERE r.factura_id = f.ID) as remisionesNumeros,
+          (SELECT STRING_AGG(CAST(r.id AS VARCHAR), ',') FROM ${TABLE_NAMES.remisiones} r WHERE r.factura_id = f.ID) as remisionesIds
         FROM ${TABLE_NAMES.facturas} f
         LEFT JOIN ${TABLE_NAMES.clientes} t ON f.codter = t.codter
         ${whereClause}

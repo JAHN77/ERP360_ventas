@@ -73,6 +73,10 @@ const FacturasPage: React.FC = () => {
   const [jsonPreviewPayload, setJsonPreviewPayload] = useState<any>(null);
   const [isJsonPreviewOpen, setIsJsonPreviewOpen] = useState(false);
 
+  // Estado local para los items de la factura seleccionada (para lazy loading)
+  const [selectedFacturaItems, setSelectedFacturaItems] = useState<DocumentItem[]>([]);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+
   // Fetch Invoices (Server Side)
   const loadInvoices = async () => {
     setLoadingInvoices(true);
@@ -261,10 +265,15 @@ const FacturasPage: React.FC = () => {
     let remisionesRelacionadas = [];
 
     // Primero intentar con remisionesIds
-    const remisionesIds = selectedFactura.remisionesIds || [];
+    // Primero intentar con remisionesIds
+    let remisionesIds = selectedFactura.remisionesIds || [];
+    if (typeof remisionesIds === 'string') {
+      remisionesIds = (remisionesIds as string).split(',');
+    }
+
     if (remisionesIds.length > 0) {
       remisionesRelacionadas = remisiones.filter(r =>
-        remisionesIds.some(id => String(r.id) === String(id))
+        remisionesIds.some((id: string) => String(r.id) === String(id))
       );
     }
 
@@ -577,12 +586,12 @@ const FacturasPage: React.FC = () => {
           setIsJsonPreviewOpen(true);
           addNotification({
             message: "⚠️ MODO PRUEBA: JSON generado correctamente.",
-            type: 'success',
-            duration: 3000
+            type: 'success'
           });
           // No hacemos refresh ni cerramos modales
-        } else if ((facturaTimbrada.estado === 'ENVIADA' || facturaTimbrada.estado === 'APROBADA' || facturaTimbrada.estado === 'ACEPTADA') && facturaTimbrada.cufe) {
+        } else if ((facturaTimbrada.estado === 'ENVIADA' || facturaTimbrada.estado === 'ACEPTADA') && facturaTimbrada.cufe) {
           await refreshFacturasYRemisiones();
+          loadInvoices(); // ACTUALIZAR TABLA AUTOMÁTICAMENTE
           addNotification({
             message: `✅ Factura ${facturaTimbrada.numeroFactura.replace('FAC-', '')} timbrada exitosamente.`,
             type: 'success'
@@ -596,11 +605,15 @@ const FacturasPage: React.FC = () => {
           });
           // Actualizar la factura seleccionada para ver el error
           setSelectedFactura(facturaTimbrada);
+          // También recargar lista por si acaso cambió estado a rechazada
+          loadInvoices();
         } else {
           addNotification({
             message: `✅ Factura ${facturaTimbrada.numeroFactura.replace('FAC-', '')} timbrada con éxito.`,
             type: 'success'
           });
+          await refreshFacturasYRemisiones();
+          loadInvoices(); // ACTUALIZAR TABLA AUTOMÁTICAMENTE
           setFacturaToPreview(null);
           handleCloseModals();
         }
@@ -619,35 +632,46 @@ const FacturasPage: React.FC = () => {
   };
 
   const handleOpenDetailModal = async (factura: Factura) => {
-    // Si la factura no tiene items o tiene items vacíos, cargar los detalles
-    let facturaConItems = factura;
-    if (!factura.items || factura.items.length === 0) {
-      try {
-        const facturasDetalleRes = await fetchFacturasDetalle(String(factura.id));
-        if (facturasDetalleRes.success && Array.isArray(facturasDetalleRes.data)) {
-          const items = facturasDetalleRes.data.filter((d: any) => {
-            const detalleFacturaId = String(d.facturaId || '');
-            const facturaIdStr = String(factura.id || '');
-            return detalleFacturaId === facturaIdStr ||
-              String(factura.id) === String(d.facturaId) ||
-              Number(factura.id) === Number(d.facturaId);
-          });
+    setSelectedFactura(factura);
+    setIsDetailModalOpen(true);
 
-          facturaConItems = {
-            ...factura,
-            items: items.length > 0 ? items : []
-          };
-        }
-      } catch (error) {
-        console.error('Error cargando detalles de factura:', error);
-      }
+    // Si ya tiene items, usarlos
+    if (factura.items && factura.items.length > 0) {
+      setSelectedFacturaItems(factura.items);
+      return;
     }
 
-    setSelectedFactura(facturaConItems);
-    setIsDetailModalOpen(true);
+    // Si no tiene items, cargarlos bajo demanda
+    setIsLoadingDetails(true);
+    try {
+      const response = await apiClient.getFacturasDetalle(factura.id);
+      if (response.success && Array.isArray(response.data)) {
+        const items = response.data.map((d: any) => ({
+          productoId: d.productoId || null,
+          cantidad: Number(d.cantidad || d.qtyins || 0),
+          precioUnitario: Number(d.precioUnitario || d.valins || 0),
+          descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
+          ivaPorcentaje: Number(d.ivaPorcentaje || 0),
+          descripcion: d.descripcion || d.observa || '',
+          subtotal: Number(d.subtotal || 0),
+          valorIva: Number(d.valorIva || d.ivains || 0),
+          total: Number(d.total || 0),
+          codProducto: d.codProducto || d.codins || ''
+        }));
+        setSelectedFacturaItems(items);
+      } else {
+        setSelectedFacturaItems([]);
+      }
+    } catch (error) {
+      console.error('Error cargando detalles:', error);
+      addNotification({ message: 'Error al cargar los detalles de la factura', type: 'error' });
+      setSelectedFacturaItems([]);
+    } finally {
+      setIsLoadingDetails(false);
+    }
   };
 
-  const handleCloseModals = () => {
+  function handleCloseModals() {
     setSelectedFactura(null);
     setIsDetailModalOpen(false);
     if (params?.focusId || params?.highlightId) {
@@ -672,175 +696,53 @@ const FacturasPage: React.FC = () => {
     let remisionesParaRefacturar: Remision[] = [];
 
     // 1. Intentar con remisionesIds (array de IDs)
-    const remisionesIds = selectedFactura.remisionesIds || [];
+    let remisionesIds = selectedFactura.remisionesIds || [];
+    if (typeof remisionesIds === 'string') {
+      remisionesIds = (remisionesIds as string).split(',');
+    }
+
     if (remisionesIds.length > 0) {
+      // Mapear IDs a objetos remisión
       remisionesParaRefacturar = remisiones.filter(r =>
-        remisionesIds.some(id => String(r.id) === String(id))
+        remisionesIds.some((id: string | number) => String(id) === String(r.id))
       );
-      console.log('[Refacturar] Remisiones encontradas por remisionesIds:', remisionesParaRefacturar.length);
     }
 
-    // 2. Si no se encontraron, intentar con remisionId (singular)
+    // 2. Si no hay IDs, intentar con números de remisión (remisionesNumeros)
+    if (remisionesParaRefacturar.length === 0 && selectedFactura.remisionesNumeros) {
+      const nums = selectedFactura.remisionesNumeros.split(',').map(n => n.trim().replace('REM-', ''));
+      remisionesParaRefacturar = remisiones.filter(r =>
+        nums.some((n: string) => r.numeroRemision.endsWith(n))
+      );
+    }
+
+    // 3. Si no hay nada, intentar con remisionId (singular legacy)
     if (remisionesParaRefacturar.length === 0 && selectedFactura.remisionId) {
-      const remisionEncontrada = remisiones.find(r =>
-        String(r.id) === String(selectedFactura.remisionId)
-      );
-      if (remisionEncontrada) {
-        remisionesParaRefacturar = [remisionEncontrada];
-        console.log('[Refacturar] Remisión encontrada por remisionId:', remisionEncontrada.id);
-      }
+      const r = remisiones.find(rem => String(rem.id) === String(selectedFactura.remisionId));
+      if (r) remisionesParaRefacturar = [r];
     }
 
-    // 3. Si aún no se encontraron, buscar por facturaId en las remisiones (búsqueda inversa)
-    if (remisionesParaRefacturar.length === 0 && selectedFactura.id) {
-      remisionesParaRefacturar = remisiones.filter(r => {
-        const remisionFacturaId = r.facturaId ? String(r.facturaId) : null;
-        const facturaId = String(selectedFactura.id);
-        return remisionFacturaId === facturaId;
-      });
-      console.log('[Refacturar] Remisiones encontradas por facturaId:', remisionesParaRefacturar.length);
-    }
+    if (remisionesParaRefacturar.length > 0) {
+      console.log('[Refacturar] Remisiones encontradas:', remisionesParaRefacturar);
+      // Establecer las remisiones seleccionadas
+      const newSelected = new Set<string>();
+      remisionesParaRefacturar.forEach(r => newSelected.add(String(r.id)));
+      setSelectedRemisiones(newSelected);
 
-    // 4. Si aún no se encontraron, intentar parsear las observaciones
-    if (remisionesParaRefacturar.length === 0 && selectedFactura.observaciones) {
-      try {
-        const obs = selectedFactura.observaciones;
-        // Formato esperado: "Factura consolidada de X remisión(es): REM-001, REM-002"
-        if (obs.includes('remisión(es):')) {
-          const parts = obs.split('remisión(es):');
-          if (parts.length > 1) {
-            const remisionesStr = parts[1].trim();
-            // Eliminar "..." si fue truncado
-            const cleanRemisionesStr = remisionesStr.replace('...', '');
-            const numerosRemision = cleanRemisionesStr.split(',').map(s => s.trim());
+      // Disparar la creación de factura (esto abrirá el modal o proceso de facturación)
+      // Necesitamos cerrar el modal de detalle primero
+      handleCloseModals();
 
-            if (numerosRemision.length > 0) {
-              remisionesParaRefacturar = remisiones.filter(r =>
-                numerosRemision.includes(r.numeroRemision)
-              );
-              console.log('[Refacturar] Remisiones encontradas por observaciones:', remisionesParaRefacturar.length, numerosRemision);
-            }
-          }
-        }
-      } catch (parseError) {
-        console.error('[Refacturar] Error parseando observaciones:', parseError);
-      }
-    }
-
-    // Verificar que se encontraron remisiones
-    if (remisionesParaRefacturar.length === 0) {
-      console.error('[Refacturar] No se encontraron remisiones relacionadas:', {
-        facturaId: selectedFactura.id,
-        remisionId: selectedFactura.remisionId,
-        remisionesIds: selectedFactura.remisionesIds,
-        totalRemisiones: remisiones.length
-      });
+      // Esperar un momento y luego facturar
+      setTimeout(() => {
+        handleFacturar();
+      }, 100);
+    } else {
+      console.warn('[Refacturar] No se encontraron remisiones para esta factura.');
       addNotification({
-        message: 'No se encontraron remisiones relacionadas con esta factura rechazada. Por favor, verifique que las remisiones existan.',
-        type: 'warning'
+        message: 'No se encontraron las remisiones originales para volver a facturar.',
+        type: 'error'
       });
-      return;
-    }
-
-    // Verificar que las remisiones estén en estado ENTREGADO y disponibles
-    const remisionesDisponibles = remisionesParaRefacturar.filter(r => {
-      const estadoStr = String(r.estado || '').trim().toUpperCase();
-      const estadoCorrecto = estadoStr === 'ENTREGADO' || estadoStr === 'D';
-      // Permitir remisiones que tengan facturaId igual a la factura rechazada (para poder re-facturarlas)
-      const facturaIdCorrecto = !r.facturaId || String(r.facturaId) === String(selectedFactura.id);
-      return estadoCorrecto && facturaIdCorrecto;
-    });
-
-    if (remisionesDisponibles.length === 0) {
-      console.error('[Refacturar] No hay remisiones disponibles para re-facturar:', {
-        remisionesEncontradas: remisionesParaRefacturar.length,
-        estados: remisionesParaRefacturar.map(r => r.estado),
-        facturaIds: remisionesParaRefacturar.map(r => r.facturaId)
-      });
-      addNotification({
-        message: 'Las remisiones de esta factura no están disponibles para re-facturar. Verifique que estén en estado ENTREGADO.',
-        type: 'warning'
-      });
-      return;
-    }
-
-    console.log('[Refacturar] Remisiones disponibles para re-facturar:', remisionesDisponibles.length);
-
-    setIsFacturando(true);
-
-    try {
-      addNotification({
-        message: `🔄 Creando nueva factura desde ${remisionesDisponibles.length} remisión(es) de la factura rechazada...`,
-        type: 'info'
-      });
-
-      // Cargar detalles de remisiones antes de facturar
-      const remisionesConItems = await Promise.all(remisionesDisponibles.map(async (remision) => {
-        if (remision.items && remision.items.length > 0) {
-          const tienePrecios = remision.items.some(item =>
-            item.precioUnitario && Number(item.precioUnitario) > 0
-          );
-          if (tienePrecios) {
-            console.log(`[Refacturar] Remisión ${remision.id} ya tiene items con precios`);
-            return remision;
-          }
-        }
-
-        try {
-          console.log(`[Refacturar] Cargando detalles de remisión ${remision.id}...`);
-          const detallesRes = await apiClient.getRemisionDetalleById(remision.id);
-          if (detallesRes.success && Array.isArray(detallesRes.data) && detallesRes.data.length > 0) {
-            console.log(`[Refacturar] Detalles cargados para remisión ${remision.id}: ${detallesRes.data.length} items`);
-            return {
-              ...remision,
-              items: detallesRes.data
-            };
-          } else {
-            console.warn(`[Refacturar] No se pudieron cargar detalles para remisión ${remision.id}`);
-          }
-        } catch (error) {
-          console.error(`[Refacturar] Error cargando detalles de remisión ${remision.id}:`, error);
-        }
-        return remision;
-      }));
-
-      console.log('[Refacturar] Creando factura desde remisiones:', remisionesDisponibles.map(r => r.id));
-      const result = await crearFacturaDesdeRemisiones(remisionesDisponibles.map(r => r.id));
-
-      if (result) {
-        const { nuevaFactura } = result;
-        console.log('[Refacturar] Nueva factura creada:', nuevaFactura.numeroFactura);
-
-        // Refrescar facturas y remisiones
-        await refreshFacturasYRemisiones();
-
-        // Cerrar el modal de la factura rechazada
-        handleCloseModals();
-
-        addNotification({
-          message: `✅ Nueva factura BORRADOR ${nuevaFactura.numeroFactura.replace('FAC-', '')} creada desde la factura rechazada. Revise y timbre para finalizar.`,
-          type: 'success'
-        });
-
-        // Abrir el modal de la nueva factura después de un breve delay
-        setTimeout(() => {
-          handleOpenDetailModal(nuevaFactura);
-        }, 500);
-      } else {
-        console.error('[Refacturar] Error: No se recibió respuesta al crear la factura');
-        addNotification({
-          message: "❌ Error al crear la nueva factura. Por favor, intente nuevamente.",
-          type: 'warning'
-        });
-      }
-    } catch (error) {
-      console.error('[Refacturar] Error al re-facturar:', error);
-      addNotification({
-        message: `❌ Error al crear la nueva factura: ${(error as Error).message || 'Error desconocido'}.`,
-        type: 'warning'
-      });
-    } finally {
-      setIsFacturando(false);
     }
   };
 
@@ -919,7 +821,7 @@ const FacturasPage: React.FC = () => {
       if (itemsFactura.length === 0) {
         try {
           const det = await fetchFacturasDetalle(facturaToEmail.id);
-          if (det.success && det.data) itemsFactura = det.data;
+          if (det.success && det.data) itemsFactura = det.data as DocumentItem[];
         } catch (e) { console.error('Error fetching details for email PDF', e); }
       }
 
@@ -1126,29 +1028,44 @@ const FacturasPage: React.FC = () => {
         let formaPago = null;
         const pedidoRelacionado = item.pedidoId ? pedidos.find(p => p.id === item.pedidoId) : null;
 
-        // 1. Cotización
-        if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
+        // 1. Pedido (PRIORIDAD ALTA)
+        if (pedidoRelacionado && pedidoRelacionado.formaPago) {
+          formaPago = pedidoRelacionado.formaPago;
+        }
+
+        // 2. Cotización (Solo si no hay forma de pago en Pedido)
+        if (!formaPago && pedidoRelacionado && pedidoRelacionado.cotizacionId) {
           const cotizacion = cotizaciones.find(c => c.id === pedidoRelacionado.cotizacionId);
           if (cotizacion && cotizacion.formaPago) {
             formaPago = cotizacion.formaPago;
           }
         }
 
-        // 2. Pedido
-        if (!formaPago && pedidoRelacionado && pedidoRelacionado.formaPago) {
-          formaPago = pedidoRelacionado.formaPago;
-        }
-
-        // 3. Cliente (Fallback)
+        // 3. Cliente (Fallback y corrección de prioridad)
         const cliente = clientes.find(c =>
           String(c.id) === String(item.clienteId) ||
           c.numeroDocumento === item.clienteId ||
           c.codter === item.clienteId
         );
 
-        if (!formaPago && cliente && cliente.condicionPago) {
-          formaPago = cliente.condicionPago === 'Contado' ? '1' : '2';
+        // Lógica corregida: Si el pedido dice "Contado" (1) pero el cliente es "Crédito" (diasCredito > 0 o condicionPago='Crédito' o condicionPago='2'),
+        // PRIORIZAR la condición del cliente.
+        // Esto es porque muchas veces el pedido se crea por defecto como Contado si no se especifica, pero la relación comercial es Crédito.
+
+        let formaPagoCliente = null;
+        if (cliente) {
+          if ((cliente.diasCredito && cliente.diasCredito > 0) ||
+            (cliente.condicionPago && (cliente.condicionPago.toLowerCase().includes('crédito') || cliente.condicionPago === '2'))) {
+            formaPagoCliente = '2';
+          } else if (cliente.condicionPago && (cliente.condicionPago.toLowerCase().includes('contado') || cliente.condicionPago === '1')) {
+            formaPagoCliente = '1';
+          }
         }
+
+        if (!formaPago && formaPagoCliente) {
+          formaPago = formaPagoCliente;
+        }
+
 
         // Normalizar a 1 (Contado) o 2 (Crédito)
         const formaPagoVal = formaPago === '01' ? '1' : formaPago === '02' ? '2' : formaPago;
@@ -1273,10 +1190,16 @@ const FacturasPage: React.FC = () => {
 
           // 1. Intentar buscar en cadena: Remisión -> Pedido -> Cotización (Solo si la factura tiene valores en 0, ej. 100% descuento o error)
           if (!formaPagoFactura) {
-            const remisionRelacionada = remisiones.find(r =>
-              (item.remisionesIds && item.remisionesIds.includes(r.id)) ||
-              r.facturaId === item.id
-            );
+            const remisionRelacionada = remisiones.find(r => {
+              let ids: string[] = [];
+              if (Array.isArray(item.remisionesIds)) {
+                ids = item.remisionesIds;
+              } else if (typeof item.remisionesIds === 'string') {
+                ids = (item.remisionesIds as string).split(',');
+              }
+
+              return (ids.some(id => String(id) === String(r.id))) || r.facturaId === item.id;
+            });
             if (remisionRelacionada && remisionRelacionada.pedidoId) {
               const pedidoRelacionado = pedidos.find(p => p.id === remisionRelacionada.pedidoId);
               if (pedidoRelacionado && pedidoRelacionado.cotizacionId) {
@@ -1385,12 +1308,22 @@ const FacturasPage: React.FC = () => {
             <CardHeader className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700/50 pb-4">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                 <div>
-                  <CardTitle className="flex items-center gap-2 text-lg text-slate-800 dark:text-slate-100">
-                    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 p-2 rounded-lg">
-                      <i className="fas fa-file-invoice"></i>
-                    </span>
-                    Remisiones Entregadas por Facturar
-                  </CardTitle>
+                  <div className="flex items-center gap-3">
+                    <CardTitle className="flex items-center gap-2 text-lg text-slate-800 dark:text-slate-100">
+                      <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 p-2 rounded-lg">
+                        <i className="fas fa-file-invoice"></i>
+                      </span>
+                      Remisiones Entregadas por Facturar
+                    </CardTitle>
+                    <button
+                      onClick={() => refreshFacturasYRemisiones()}
+                      disabled={isLoadingRemisiones}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
+                      title="Recargar remisiones"
+                    >
+                      <i className={`fas fa-sync-alt ${isLoadingRemisiones ? 'animate-spin' : ''}`}></i>
+                    </button>
+                  </div>
                   <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 ml-11">
                     Seleccione remisiones del mismo cliente para consolidar.
                   </p>
@@ -1584,7 +1517,14 @@ const FacturasPage: React.FC = () => {
                 <h5 className="font-semibold text-slate-800 dark:text-slate-300 mb-2">Documentos Relacionados</h5>
                 <div className="space-y-1">
                   <p><span className="font-semibold text-slate-600 dark:text-slate-400">Pedido:</span> <span>{(pedido?.numeroPedido || 'Venta Directa').replace('PED-', '')}</span></p>
-                  <p><span className="font-semibold text-slate-600 dark:text-slate-400">Remisiones:</span> <span>{remisionesRelacionadas.map(r => r.numeroRemision.replace('REM-', '')).join(', ') || 'N/A'}</span></p>
+                  <p>
+                    <span className="font-semibold text-slate-600 dark:text-slate-400">Remisiones:</span>
+                    <span>
+                      {selectedFactura.remisionesNumeros
+                        ? selectedFactura.remisionesNumeros.replace(/REM-/g, '')
+                        : (remisionesRelacionadas.map(r => r.numeroRemision.replace('REM-', '')).join(', ') || 'N/A')}
+                    </span>
+                  </p>
                 </div>
               </div>
             </div>
@@ -1608,7 +1548,19 @@ const FacturasPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
-                    {(selectedFactura.items || []).map((item: DocumentItem) => {
+                    {isLoadingDetails ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                          <i className="fas fa-spinner fa-spin mr-2"></i> Cargando detalles...
+                        </td>
+                      </tr>
+                    ) : (selectedFacturaItems || []).length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                          No hay items para mostrar
+                        </td>
+                      </tr>
+                    ) : (selectedFacturaItems).map((item: DocumentItem) => {
                       const producto = productos.find(p => p.id === item.productoId);
                       // IMPORTANTE: Usar valores del backend directamente, NO recalcular
                       // Prioridad 1: usar subtotal del backend (ya calculado desde BD)
@@ -1771,7 +1723,7 @@ El equipo de ${datosEmpresa.nombre}`
         isOpen={isJsonPreviewOpen}
         onClose={() => setIsJsonPreviewOpen(false)}
         title="Validación JSON DIAN"
-        size="large"
+        size="3xl"
       >
         <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
           <h3 className="text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">Payload Generado para DIAN (Sin Enviar)</h3>

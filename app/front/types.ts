@@ -349,13 +349,22 @@ export interface Factura {
   cufe?: string;
   empresaId: number;
   items: DocumentoDetalle[];
-  remisionesIds: string[];
+  remisionesIds?: string[] | string; // Puede venir como string de la BD
+  remisionesNumeros?: string;
   estadoDevolucion?: 'DEVOLUCION_PARCIAL' | 'DEVOLUCION_TOTAL';
   fechaTimbrado?: string;
   motivoRechazo?: string; // Motivo del rechazo cuando la factura es rechazada
   formaPago?: string; // Forma de pago: 1=Contado, 2=Crédito
   documentoContable?: string; // Documento contable (doccoc)
   codalm?: string; // Código de almacén
+
+  // Campos financieros / formas de pago (usados para inferencia en frontend)
+  credito?: number;
+  efectivo?: number;
+  tarjetaCredito?: number;
+  tarjetaDebito?: number;
+  transferencia?: number;
+  cheques?: number;
 }
 
 

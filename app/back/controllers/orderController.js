@@ -464,11 +464,38 @@ const createOrderInternal = async (tx, orderData) => {
       reqHead.input('estado', sql.VarChar(20), 'B'); // Borrador mapped
       
       let formaPagoFinal = '01';
+      
+      // Lógica de forma de pago mejorada:
+      // 1. Si viene explícita en body, usarla.
+      // 2. Si no viene, intentar usar la condición de pago del cliente.
+      // 3. Fallback a '01' (Contado).
+
       if (formaPago) {
         const fpStr = String(formaPago).trim();
         if (fpStr === '1' || fpStr.toLowerCase() === 'contado') formaPagoFinal = '01';
         else if (fpStr === '2' || fpStr.toLowerCase() === 'credito' || fpStr.toLowerCase() === 'crédito') formaPagoFinal = '02';
         else formaPagoFinal = fpStr.substring(0, 2);
+      } else {
+        // Intentar obtener del cliente si no se especificó
+        const reqCliFP = new sql.Request(tx);
+        // Asumimos que clienteData ya se cargó arriba, pero necesitamos informacion extra (condicion_pago, dias_credito)
+        // La consulta original arriba solo traía codter, nomter, codven. 
+        // Hacemos una nueva consulta rápida o mejoramos la de arriba? 
+        // Mejoramos la consulta independiente para no tocar demasiado código legacy arriba si no es necesario.
+        try {
+            const resCliFP = await reqCliFP.query(`SELECT condicion_pago, dias_credito FROM ${TABLE_NAMES.clientes} WHERE codter = '${codTerFinal}'`);
+            if (resCliFP.recordset.length > 0) {
+                const cliFP = resCliFP.recordset[0];
+                if ((cliFP.dias_credito && cliFP.dias_credito > 0) || 
+                    (cliFP.condicion_pago && (cliFP.condicion_pago.toLowerCase().includes('crédito') || cliFP.condicion_pago === '2'))) {
+                    formaPagoFinal = '02'; // Crédito
+                } else {
+                    formaPagoFinal = '01'; // Contado
+                }
+            }
+        } catch (errFP) {
+            console.warn('No se pudo obtener condición pago cliente, usando default Contado', errFP);
+        }
       }
       reqHead.input('formapago', sql.NChar(4), formaPagoFinal);
 
