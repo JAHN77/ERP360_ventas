@@ -22,12 +22,25 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
     firmaVendedor,
     productos,
 }) => {
-    const totalDescuentos = factura.items.reduce((sum, item) => sum + (item.subtotal * (item.descuentoPorcentaje / 100)), 0);
+    // Safety check for preferences
+    const safePreferences = preferences || { showPrices: true, signatureType: 'digital' as const, detailLevel: 'full' as const };
+
+    // Ensure numeric values
+    const subtotal = Number(factura.subtotal) || 0;
+    const total = Number(factura.total) || 0;
+    const ivaValor = Number(factura.ivaValor) || 0;
+
+    const totalDescuentos = (factura.items || []).reduce((sum, item) => {
+        const itemSubtotal = Number(item.subtotal) || 0;
+        const discountPct = Number(item.descuentoPorcentaje) || 0;
+        return sum + (itemSubtotal * (discountPct / 100));
+    }, 0);
+
+    const formatCurrencySafe = (val: any) => formatCurrency(Number(val) || 0);
 
     return (
         <Document>
             <Page size="A4" style={pdfStyles.page}>
-                {/* Header */}
                 <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
                     <View style={pdfStyles.logoSection}>
                         <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
@@ -66,7 +79,6 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                     </View>
                 </View>
 
-                {/* Info Grid */}
                 <View style={pdfStyles.infoGrid}>
                     <View style={pdfStyles.infoCard}>
                         <Text style={[pdfStyles.cardLabel, { backgroundColor: '#dc2626' }]}>CLIENTE</Text>
@@ -115,8 +127,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                     </View>
                 </View>
 
-                {/* Items Table */}
-                <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}> {/* Reduced marginBottom slightly */}
+                <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}>
                     <View style={pdfStyles.tableHeader}>
                         <Text style={[pdfStyles.tableHeaderText, { width: '10%' }]}>Ref.</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '37%' }]}>Descripción</Text>
@@ -126,9 +137,10 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                         <Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '17%', textAlign: 'right' }]}>Neto</Text>
                     </View>
-                    {factura.items.map((item, index) => {
+                    {(factura.items || []).map((item, index) => {
                         const product = productos.find(p => p.id === item.productoId);
                         const referencia = item.referencia || product?.referencia || item.codProducto || 'N/A';
+                        const itemTotal = Number(item.total) || 0; // Use local const for clarity
 
                         return (
                             <View key={index} style={[pdfStyles.tableRow, { backgroundColor: index % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
@@ -136,28 +148,26 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                                 <Text style={[pdfStyles.tableCellText, { width: '37%', fontSize: 8 }]}>{item.descripcion}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>
-                                    {preferences.showPrices ? formatCurrency(item.precioUnitario) : '***'}
+                                    {safePreferences.showPrices ? formatCurrencySafe(item.precioUnitario) : '***'}
                                 </Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>
-                                    {item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje.toFixed(0)}%` : '-'}
+                                    {(item.descuentoPorcentaje || 0) > 0 ? `${(item.descuentoPorcentaje || 0).toFixed(0)}%` : '-'}
                                 </Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>
                                     {(item.ivaPorcentaje || 0).toFixed(0)}%
                                 </Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '17%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>
-                                    {preferences.showPrices ? formatCurrency(item.total) : '***'}
+                                    {safePreferences.showPrices ? formatCurrencySafe(itemTotal) : '***'}
                                 </Text>
                             </View>
                         );
                     })}
                 </View>
 
-                {/* Totals Section */}
-                {preferences.showPrices && (
+                {safePreferences.showPrices ? (
                     <View style={[pdfStyles.totalsSection, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
-                        {/* QR Code Section (Left Side) */}
                         <View style={{ width: 150, paddingLeft: 10, justifyContent: 'center' }}>
-                            {factura.cufe && (
+                            {factura.cufe ? (
                                 <View style={{ alignItems: 'flex-start' }}>
                                     <Link src={`https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${factura.cufe}`}>
                                         <Image
@@ -169,36 +179,34 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                                         Haga clic en el QR para validar en DIAN
                                     </Text>
                                 </View>
-                            )}
+                            ) : null}
                         </View>
 
-                        {/* Totals Card */}
                         <View style={pdfStyles.totalsCard}>
                             <View style={pdfStyles.totalRow}>
                                 <Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(factura.subtotal + totalDescuentos)}</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrencySafe(subtotal + totalDescuentos)}</Text>
                             </View>
                             <View style={pdfStyles.totalRow}>
                                 <Text style={[pdfStyles.totalLabel, pdfStyles.textRed]}>Descuentos</Text>
-                                <Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrency(totalDescuentos)}</Text>
+                                <Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrencySafe(totalDescuentos)}</Text>
                             </View>
                             <View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}>
                                 <Text style={pdfStyles.totalLabel}>Subtotal Neto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(factura.subtotal)}</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrencySafe(subtotal)}</Text>
                             </View>
                             <View style={pdfStyles.totalRow}>
                                 <Text style={pdfStyles.totalLabel}>IVA</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(factura.ivaValor)}</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrencySafe(ivaValor)}</Text>
                             </View>
                             <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#0f172a' }]}>
                                 <Text style={pdfStyles.finalTotalLabel}>TOTAL</Text>
-                                <Text style={pdfStyles.finalTotalValue}>{formatCurrency(factura.total)}</Text>
+                                <Text style={pdfStyles.finalTotalValue}>{formatCurrencySafe(total)}</Text>
                             </View>
                         </View>
                     </View>
-                )}
+                ) : null}
 
-                {/* Observaciones */}
                 <View style={{ marginBottom: 20 }}>
                     <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', marginBottom: 4 }}>OBSERVACIONES</Text>
                     <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 4, borderWidth: 1, borderColor: '#e2e8f0' }}>
@@ -206,12 +214,13 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                     </View>
                 </View>
 
-                {/* Signatures at the Bottom */}
-                {(preferences.signatureType === 'physical' || preferences.signatureType === 'digital') && (
+                {(safePreferences?.signatureType === 'physical' || safePreferences?.signatureType === 'digital') ? (
                     <View style={[pdfStyles.footer, { marginTop: 'auto', paddingTop: 20 }]}>
                         <View style={pdfStyles.signatureBox}>
                             <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>
-                                {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
+                                {firmaVendedor && firmaVendedor.length > 5 ? (
+                                    <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />
+                                ) : null}
                             </View>
                             <View style={pdfStyles.signatureLine} />
                             <Text style={pdfStyles.footerText}>Vendedor Autorizado</Text>
@@ -224,11 +233,8 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                             <Text style={pdfStyles.footerSubText}>Nombre, C.C. y Fecha</Text>
                         </View>
                     </View>
-                )}
+                ) : null}
 
-
-
-                {/* Footer Note */}
                 <View style={{ marginTop: 2, paddingTop: 5, borderTopWidth: 0 }}>
                     <Text style={{ fontSize: 7, color: '#94a3b8', textAlign: 'center' }}>
                         Esta factura es un título valor según el Art. 774 del Código de Comercio.

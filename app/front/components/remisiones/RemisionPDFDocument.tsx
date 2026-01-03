@@ -15,8 +15,11 @@ interface Props {
 
 const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empresa, preferences, productos, firmaVendedor }) => {
 
+    const safePreferences = preferences || { showPrices: false, signatureType: 'physical' as const, detailLevel: 'summary' as const };
+    const formatCurrencySafe = (val: any) => formatCurrency(Number(val) || 0);
+
     // Calcular totales si es necesario (copiado de lógica anterior o simplificado)
-    const itemsWithCalculations = remision.items.map(item => {
+    const itemsWithCalculations = (remision.items || []).map(item => {
         const subtotalBruto = (item.precioUnitario || 0) * (item.cantidad || 0);
         const valorDescuento = subtotalBruto * ((item.descuentoPorcentaje || 0) / 100);
         const subtotal = item.subtotal ?? (subtotalBruto - valorDescuento);
@@ -43,7 +46,6 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
     return (
         <Document>
             <Page size="A4" style={pdfStyles.page}>
-                {/* Header */}
                 <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
                     <View style={pdfStyles.logoSection}>
                         <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
@@ -78,11 +80,10 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                         <View style={[pdfStyles.documentBadge, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
                             <Text style={[pdfStyles.documentTitle, { color: '#0369a1' }]}>REMISIÓN</Text>
                         </View>
-                        <Text style={pdfStyles.documentNumber}>N° {remision.numeroRemision.replace('REM-', '')}</Text>
+                        <Text style={pdfStyles.documentNumber}>N° {(remision.numeroRemision || '').replace('REM-', '')}</Text>
                     </View>
                 </View>
 
-                {/* Info Grid */}
                 <View style={pdfStyles.infoGrid}>
                     <View style={pdfStyles.infoCard}>
                         <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0ea5e9' }]}>DESTINATARIO</Text>
@@ -111,7 +112,7 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                             </View>
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>Pedido:</Text>
-                                <Text style={pdfStyles.infoValue}>{pedido.numeroPedido.replace('PED-', '')}</Text>
+                                <Text style={pdfStyles.infoValue}>{(pedido.numeroPedido || '').replace('PED-', '')}</Text>
                             </View>
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>Despacho:</Text>
@@ -136,13 +137,12 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                     </View>
                 </View>
 
-                {/* Table */}
                 <View style={pdfStyles.tableContainer}>
                     <View style={pdfStyles.tableHeader}>
                         <Text style={[pdfStyles.tableHeaderText, { width: '10%', paddingHorizontal: 2 }]}>Código</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '34%', paddingHorizontal: 2 }]}>Descripción</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '8%', paddingHorizontal: 2, textAlign: 'right' }]}>Cant.</Text>
-                        {preferences.showPrices ? (
+                        {safePreferences.showPrices ? (
                             <>
                                 <Text style={[pdfStyles.tableHeaderText, { width: '13%', paddingHorizontal: 2, textAlign: 'right' }]}>Precio</Text>
                                 <Text style={[pdfStyles.tableHeaderText, { width: '10%', paddingHorizontal: 2, textAlign: 'right' }]}>Desc.</Text>
@@ -166,16 +166,16 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                                 <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2 }]}>{referencia}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '34%', paddingHorizontal: 2 }]}>{productoNombre}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'right' }]}>{item.cantidad}</Text>
-                                {preferences.showPrices ? (
+                                {safePreferences.showPrices ? (
                                     <>
-                                        <Text style={[pdfStyles.tableCellText, { width: '13%', paddingHorizontal: 2, textAlign: 'right' }]}>{formatCurrency(item.precioUnitario)}</Text>
+                                        <Text style={[pdfStyles.tableCellText, { width: '13%', paddingHorizontal: 2, textAlign: 'right' }]}>{formatCurrencySafe(item.precioUnitario)}</Text>
                                         <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2, textAlign: 'right', color: item.descuentoPorcentaje > 0 ? '#ef4444' : '#334155' }]}>
                                             {item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje}%` : '-'}
                                         </Text>
                                         <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'right', color: '#64748b' }]}>
                                             {(item.ivaPorcentaje || 0) > 0 ? `${item.ivaPorcentaje}%` : '0%'}
                                         </Text>
-                                        <Text style={[pdfStyles.tableCellText, { width: '17%', paddingHorizontal: 2, textAlign: 'right', fontWeight: 'bold' }]}>{formatCurrency(item.subtotal)}</Text>
+                                        <Text style={[pdfStyles.tableCellText, { width: '17%', paddingHorizontal: 2, textAlign: 'right', fontWeight: 'bold' }]}>{formatCurrencySafe(item.subtotal)}</Text>
                                     </>
                                 ) : (
                                     <Text style={[pdfStyles.tableCellText, { flex: 1 }]}></Text>
@@ -185,50 +185,49 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                     })}
                 </View>
 
-                {/* Observaciones */}
-                {remision.observaciones && (
+                {remision.observaciones ? (
                     <View style={{ marginBottom: 20 }}>
                         <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', marginBottom: 4 }}>OBSERVACIONES</Text>
                         <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 4, borderWidth: 1, borderColor: '#e2e8f0' }}>
                             <Text style={{ fontSize: 9, color: '#334155' }}>{remision.observaciones}</Text>
                         </View>
                     </View>
-                )}
+                ) : null}
 
-                {/* Totals */}
-                {preferences.showPrices && (
+                {safePreferences.showPrices ? (
                     <View style={pdfStyles.totalsSection}>
                         <View style={pdfStyles.totalsCard}>
                             <View style={pdfStyles.totalRow}>
                                 <Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(totals.subtotalBruto)}</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrencySafe(totals.subtotalBruto)}</Text>
                             </View>
                             <View style={pdfStyles.totalRow}>
                                 <Text style={[pdfStyles.totalLabel, pdfStyles.textRed]}>Descuentos</Text>
-                                <Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrency(totals.descuentoTotal)}</Text>
+                                <Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrencySafe(totals.descuentoTotal)}</Text>
                             </View>
                             <View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}>
                                 <Text style={pdfStyles.totalLabel}>Subtotal Neto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(totals.subtotalNeto)}</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrencySafe(totals.subtotalNeto)}</Text>
                             </View>
                             <View style={pdfStyles.totalRow}>
                                 <Text style={pdfStyles.totalLabel}>IVA</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(totals.iva)}</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrencySafe(totals.iva)}</Text>
                             </View>
                             <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#0ea5e9' }]}>
                                 <Text style={pdfStyles.finalTotalLabel}>TOTAL</Text>
-                                <Text style={pdfStyles.finalTotalValue}>{formatCurrency(totals.total)}</Text>
+                                <Text style={pdfStyles.finalTotalValue}>{formatCurrencySafe(totals.total)}</Text>
                             </View>
                         </View>
                     </View>
-                )}
+                ) : null}
 
-                {/* Footer */}
-                {(preferences.signatureType === 'physical' || preferences.signatureType === 'digital') ? (
+                {(safePreferences?.signatureType === 'physical' || safePreferences?.signatureType === 'digital') ? (
                     <View style={pdfStyles.footer}>
                         <View style={pdfStyles.signatureBox}>
                             <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>
-                                {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
+                                {firmaVendedor && firmaVendedor.length > 5 ? (
+                                    <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />
+                                ) : null}
                             </View>
                             <View style={pdfStyles.signatureLine} />
                             <Text style={pdfStyles.footerText}>ENTREGADO POR</Text>

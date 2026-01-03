@@ -18,6 +18,7 @@ interface AuthContextType {
   switchCompany: (companyId: number) => void;
   switchSede: (sedeId: number | string, sedeData?: { codigo?: string; nombre?: string }) => void;
   hasPermission: (permission: Permission) => boolean;
+  refreshUser: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -315,51 +316,49 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     };
   }, []);
 
-  // Check Auth on Mount
-  useEffect(() => {
-    const checkAuth = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+  const refreshUser = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
 
-      try {
-        const response = await apiClient.getMe();
-        if (response.success && response.data) {
-          const userData = response.data.user; // { id, codusu, nomusu, role, firma }
+    try {
+      const response = await apiClient.getMe();
+      if (response.success && response.data) {
+        const userData = response.data.user; // { id, codusu, nomusu, role, firma }
 
-          // Construct Usuario object
-          const sedesToUse = bodegas.length > 0 ? bodegas : [];
-          const empresasWithSedes = allEmpresas.map(e => ({
-            ...e,
-            sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id }))
-          }));
+        // Construct Usuario object
+        const sedesToUse = bodegas.length > 0 ? bodegas : [];
+        const empresasWithSedes = allEmpresas.map(e => ({
+          ...e,
+          sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id }))
+        }));
 
-          const userObj: Usuario = {
-            id: userData.id,
-            email: '', // No email in DB
-            username: userData.codusu,
-            primerNombre: userData.nomusu.split(' ')[0] || '',
-            primerApellido: userData.nomusu.split(' ').slice(1).join(' ') || '',
-            nombre: userData.nomusu,
-            rol: userData.role as Role || 'vendedor',
-            empresas: empresasWithSedes,
-            firma: userData.firma
-          };
+        const userObj: Usuario = {
+          id: userData.id,
+          email: '', // No email in DB
+          username: userData.codusu,
+          primerNombre: userData.nomusu.split(' ')[0] || '',
+          primerApellido: userData.nomusu.split(' ').slice(1).join(' ') || '',
+          nombre: userData.nomusu,
+          rol: userData.role as Role || 'vendedor',
+          empresas: empresasWithSedes,
+          firma: userData.firma
+        };
 
-          setUser(userObj);
+        setUser(userObj);
 
-          // Set Permissions
-          const userPermissions = rolesConfig[userObj.rol]?.can || [];
-          const isAdmin = userPermissions.includes('*');
-          if (isAdmin) {
-            const allPermissions = Object.values(rolesConfig).flatMap(r => r.can) as Permission[];
-            setPermissions([...new Set(allPermissions.filter(p => p !== '*'))]);
-          } else {
-            setPermissions(userPermissions as Permission[]);
-          }
+        // Set Permissions
+        const userPermissions = rolesConfig[userObj.rol]?.can || [];
+        const isAdmin = userPermissions.includes('*');
+        if (isAdmin) {
+          const allPermissions = Object.values(rolesConfig).flatMap(r => r.can) as Permission[];
+          setPermissions([...new Set(allPermissions.filter(p => p !== '*'))]);
+        } else {
+          setPermissions(userPermissions as Permission[]);
+        }
 
-          // Select Company/Sede Logic (Restore or Default)
-          // ... (reuse existing logic or simplify) ...
-          if (userObj.empresas.length > 0) {
+        // Select Company/Sede Logic (Restore or Default)
+        if (userObj.empresas.length > 0) {
+          if (!selectedCompany) {
             const firstCompany = userObj.empresas[0];
             setSelectedCompany(firstCompany);
 
@@ -372,20 +371,22 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               }
             } catch (e) { }
           }
-
-        } else {
-          localStorage.removeItem('token');
         }
-      } catch (error) {
-        console.error('Auth check failed', error);
+      } else {
         localStorage.removeItem('token');
       }
-    };
-
-    if (bodegas.length > 0 || !isLoadingBodegas) {
-      checkAuth();
+    } catch (error) {
+      console.error('Auth check failed', error);
+      localStorage.removeItem('token');
     }
-  }, [bodegas, isLoadingBodegas]);
+  }, [bodegas, selectedCompany]);
+
+  // Check Auth on Mount
+  useEffect(() => {
+    if (bodegas.length > 0 || !isLoadingBodegas) {
+      refreshUser();
+    }
+  }, [bodegas, isLoadingBodegas, refreshUser]);
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
@@ -734,7 +735,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     switchCompany,
     switchSede,
     hasPermission,
-  }), [isAuthenticated, isLoadingBodegas, user, selectedCompany, selectedSede, permissions]);
+    refreshUser,
+  }), [isAuthenticated, isLoadingBodegas, user, selectedCompany, selectedSede, permissions, refreshUser]);
 
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

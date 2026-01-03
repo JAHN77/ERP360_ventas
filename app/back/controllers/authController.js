@@ -154,11 +154,17 @@ const authController = {
    */
   updateSignature: async (req, res) => {
       try {
-          const { firmaBase64 } = req.body;
+          let { firmaBase64 } = req.body;
           const userId = req.user.id; // From middleware
           
-          if (!firmaBase64) {
+          // Allow null or empty string to delete signature
+          if (firmaBase64 === undefined) {
               return res.status(400).json({ success: false, message: 'Firma requerida' });
+          }
+
+          // Convert empty string to null for DB
+          if (firmaBase64 === '') {
+              firmaBase64 = null;
           }
           
           await executeQueryWithParams(`

@@ -181,10 +181,11 @@ export const DataProvider = ({ children }: DataProviderProps) => {
 
     // Sincronizar firma desde el perfil del usuario
     useEffect(() => {
-        if (user?.firma && !firmaVendedor) {
-            setFirmaVendedor(user.firma);
+        // Sync signature whenever user changes (login, profile update, or deletion)
+        if (user) {
+            setFirmaVendedor(user.firma || null);
         }
-    }, [user, firmaVendedor]);
+    }, [user]);
 
     // Company data state
     const [datosEmpresa, setDatosEmpresa] = useState<any>({

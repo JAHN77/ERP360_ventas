@@ -30,7 +30,6 @@ const CotizacionPDFDocument: React.FC<Props> = ({
     return (
         <Document>
             <Page size="A4" style={pdfStyles.page}>
-                {/* Header */}
                 <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
                     <View style={pdfStyles.logoSection}>
                         <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
@@ -69,7 +68,6 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                     </View>
                 </View>
 
-                {/* Info Grid */}
                 <View style={pdfStyles.infoGrid}>
                     <View style={pdfStyles.infoCard}>
                         <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0ea5e9' }]}>CLIENTE</Text>
@@ -120,69 +118,19 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                     </View>
                 </View>
 
-                {/* Table */}
-                <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}> {/* Reduced marginBottom slightly */}
-                    <View style={pdfStyles.tableHeader}>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '10%' }]}>Referencia</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '31%' }]}>Descripción</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Unidad</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Cant.</Text>
-                        {preferences.showPrices ? (
-                            <>
-                                <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text>
-                                <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Desc.</Text>
-                                <Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text>
-                                <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Total</Text>
-                            </>
-                        ) : null}
-                    </View>
+                <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}>
+                    <View style={pdfStyles.tableHeader}><Text style={[pdfStyles.tableHeaderText, { width: '10%' }]}>Referencia</Text><Text style={[pdfStyles.tableHeaderText, { width: '31%' }]}>Descripción</Text><Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Unidad</Text><Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Cant.</Text>{preferences.showPrices ? (<><Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text><Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Desc.</Text><Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text><Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Total</Text></>) : null}</View>
                     {cotizacion.items.map((item, idx) => (
-                        <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
-                            <Text style={[pdfStyles.tableCellText, { width: '10%', fontSize: 8 }]}>{(item as any).referencia || (item as any).codProducto || 'N/A'}</Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '31%', fontSize: 8 }]}>{item.descripcion}</Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>{(item as any).unidadMedida || 'UND'}</Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>
-                            {preferences.showPrices ? (
-                                <>
-                                    <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrency(item.precioUnitario)}</Text>
-                                    <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2, textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>{(item.descuentoPorcentaje || 0).toFixed(2)}%</Text>
-                                    <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>{(item.ivaPorcentaje || 0).toFixed(0)}%</Text>
-                                    <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>{formatCurrency(item.total)}</Text>
-                                </>
-                            ) : null}
-                        </View>
+                        <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}><Text style={[pdfStyles.tableCellText, { width: '10%', fontSize: 8 }]}>{(item as any).referencia || (item as any).codProducto || 'N/A'}</Text><Text style={[pdfStyles.tableCellText, { width: '31%', fontSize: 8 }]}>{item.descripcion}</Text><Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>{(item as any).unidadMedida || 'UND'}</Text><Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>{preferences.showPrices ? (<><Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrency(item.precioUnitario)}</Text><Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2, textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>{(item.descuentoPorcentaje || 0).toFixed(2)}%</Text><Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>{(item.ivaPorcentaje || 0).toFixed(0)}%</Text><Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>{formatCurrency(item.layout ? item.total : item.total)}</Text></>) : null}</View>
                     ))}
                 </View>
 
-                {/* Totals Card */}
                 {preferences.showPrices && (
                     <View style={pdfStyles.totalsSection}>
-                        <View style={pdfStyles.totalsCard}>
-                            <View style={pdfStyles.totalRow}>
-                                <Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.subtotal + totalDescuentos)}</Text>
-                            </View>
-                            <View style={pdfStyles.totalRow}>
-                                <Text style={[pdfStyles.totalLabel, pdfStyles.textRed]}>Descuentos</Text>
-                                <Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrency(totalDescuentos)}</Text>
-                            </View>
-                            <View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}>
-                                <Text style={pdfStyles.totalLabel}>Subtotal Neto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.subtotal)}</Text>
-                            </View>
-                            <View style={pdfStyles.totalRow}>
-                                <Text style={pdfStyles.totalLabel}>IVA</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.ivaValor)}</Text>
-                            </View>
-                            <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#0ea5e9' }]}>
-                                <Text style={pdfStyles.finalTotalLabel}>TOTAL</Text>
-                                <Text style={pdfStyles.finalTotalValue}>{formatCurrency(cotizacion.total)}</Text>
-                            </View>
-                        </View>
+                        <View style={pdfStyles.totalsCard}><View style={pdfStyles.totalRow}><Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text><Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.subtotal + totalDescuentos)}</Text></View><View style={pdfStyles.totalRow}><Text style={[pdfStyles.totalLabel, pdfStyles.textRed]}>Descuentos</Text><Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrency(totalDescuentos)}</Text></View><View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}><Text style={pdfStyles.totalLabel}>Subtotal Neto</Text><Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.subtotal)}</Text></View><View style={pdfStyles.totalRow}><Text style={pdfStyles.totalLabel}>IVA</Text><Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.ivaValor)}</Text></View><View style={[pdfStyles.finalTotalRow, { backgroundColor: '#0ea5e9' }]}><Text style={pdfStyles.finalTotalLabel}>TOTAL</Text><Text style={pdfStyles.finalTotalValue}>{formatCurrency(cotizacion.total)}</Text></View></View>
                     </View>
                 )}
 
-                {/* Terms and Obs */}
                 <View style={{ marginBottom: 20 }}>
                     <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', marginBottom: 4 }}>OBSERVACIONES</Text>
                     <View style={{ padding: 8, backgroundColor: '#f8fafc', borderRadius: 4, borderWidth: 1, borderColor: '#e2e8f0' }}>
@@ -190,33 +138,19 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                     </View>
                 </View>
 
-                {/* Signatures at the Bottom */}
-                {(preferences.signatureType === 'physical' || preferences.signatureType === 'digital') && (
+                {(preferences?.signatureType === 'physical' || preferences?.signatureType === 'digital') ? (
                     <View style={[pdfStyles.footer, { marginTop: 'auto', paddingTop: 20 }]}>
-                        <View style={pdfStyles.signatureBox}>
-                            <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>
-                                {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
-                            </View>
-                            <View style={pdfStyles.signatureLine} />
-                            <Text style={pdfStyles.footerText}>{vendedor?.nombreCompleto || 'N/A'}</Text>
-                            <Text style={pdfStyles.footerSubText}>Asesor Comercial, {empresa.nombre}</Text>
-                        </View>
-                        <View style={pdfStyles.signatureBox}>
-                            <View style={{ height: 40 }} />
-                            <View style={pdfStyles.signatureLine} />
-                            <Text style={pdfStyles.footerText}>Aprobado por Cliente</Text>
-                            <Text style={pdfStyles.footerSubText}>(Firma, Nombre y Sello)</Text>
-                        </View>
+                        <View style={pdfStyles.signatureBox}><View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>{firmaVendedor && firmaVendedor.length > 5 ? (<Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />) : null}</View><View style={pdfStyles.signatureLine} /><Text style={pdfStyles.footerText}>{vendedor?.nombreCompleto || 'N/A'}</Text><Text style={pdfStyles.footerSubText}>Asesor Comercial, {empresa.nombre}</Text></View>
+                        <View style={pdfStyles.signatureBox}><View style={{ height: 40 }} /><View style={pdfStyles.signatureLine} /><Text style={pdfStyles.footerText}>Aprobado por Cliente</Text><Text style={pdfStyles.footerSubText}>(Firma, Nombre y Sello)</Text></View>
                     </View>
-                )}
+                ) : null}
 
-                {/* Terms and Info */}
                 <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
-                    {preferences.detailLevel === 'full' && (
+                    {preferences.detailLevel === 'full' ? (
                         <Text style={{ fontSize: 7, color: '#94a3b8', textAlign: 'left', marginBottom: 4 }}>
                             Términos: 1. Precios sujetos a cambio sin previo aviso. Validez hasta la fecha indicada. 2. Garantía de 12 meses por defectos de fábrica.
                         </Text>
-                    )}
+                    ) : null}
                     <Text style={{ fontSize: 7, color: '#94a3b8', textAlign: 'center' }}>
                         Cotización generada por ERP 360 - {empresa.nombre}
                     </Text>

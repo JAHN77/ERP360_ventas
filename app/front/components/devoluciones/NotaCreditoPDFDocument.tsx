@@ -23,7 +23,6 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
     return (
         <Document>
             <Page size="A4" style={pdfStyles.page}>
-                {/* Header */}
                 <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
                     <View style={pdfStyles.logoSection}>
                         <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
@@ -62,7 +61,6 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
                     </View>
                 </View>
 
-                {/* Info Grid */}
                 <View style={pdfStyles.infoGrid}>
                     <View style={pdfStyles.infoCard}>
                         <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0f172a' }]}>CLIENTE</Text>
@@ -101,17 +99,8 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
                     </View>
                 </View>
 
-                {/* Table */}
                 <View style={pdfStyles.tableContainer}>
-                    <View style={pdfStyles.tableHeader}>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '13%' }]}>Código</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '32%' }]}>Descripción</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'center' }]}>Cant.</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '15%', textAlign: 'right' }]}>Precio</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Desc.</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '15%', textAlign: 'right' }]}>Total</Text>
-                    </View>
+                    <View style={pdfStyles.tableHeader}><Text style={[pdfStyles.tableHeaderText, { width: '13%' }]}>Código</Text><Text style={[pdfStyles.tableHeaderText, { width: '32%' }]}>Descripción</Text><Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'center' }]}>Cant.</Text><Text style={[pdfStyles.tableHeaderText, { width: '15%', textAlign: 'right' }]}>Precio</Text><Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Desc.</Text><Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text><Text style={[pdfStyles.tableHeaderText, { width: '15%', textAlign: 'right' }]}>Total</Text></View>
                     {notaCredito.itemsDevueltos.map((item, idx) => {
                         const product = productos.find(p => p.id === item.productoId);
                         const subtotalItem = (item.precioUnitario || 0) * (item.cantidad || 0);
@@ -119,27 +108,14 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
                         const totalItem = subtotalItem - valorDescuento;
 
                         return (
-                            <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
-                                <Text style={[pdfStyles.tableCellText, { width: '13%' }]}>
-                                    {product?.codigo || product?.referencia || item.productoId || 'N/A'}
-                                </Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '32%' }]}>{item.descripcion || product?.nombre}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '10%', textAlign: 'center' }]}>{item.cantidad}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '15%', textAlign: 'right' }]}>{formatCurrency(item.precioUnitario)}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', color: '#ef4444' }]}>{item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje}%` : '-'}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right' }]}>{item.ivaPorcentaje > 0 ? `${item.ivaPorcentaje}%` : '0%'}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '15%', textAlign: 'right', fontWeight: 'bold' }]}>{formatCurrency(item.subtotal ?? totalItem)}</Text>
-                            </View>
+                            <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}><Text style={[pdfStyles.tableCellText, { width: '13%' }]}>{product?.codigo || product?.referencia || item.productoId || 'N/A'}</Text><Text style={[pdfStyles.tableCellText, { width: '32%' }]}>{item.descripcion || product?.nombre}</Text><Text style={[pdfStyles.tableCellText, { width: '10%', textAlign: 'center' }]}>{item.cantidad}</Text><Text style={[pdfStyles.tableCellText, { width: '15%', textAlign: 'right' }]}>{formatCurrency(item.precioUnitario)}</Text><Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', color: '#ef4444' }]}>{item.descuentoPorcentaje > 0 ? `${item.descuentoPorcentaje}%` : '-'}</Text><Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right' }]}>{item.ivaPorcentaje > 0 ? `${item.ivaPorcentaje}%` : '0%'}</Text><Text style={[pdfStyles.tableCellText, { width: '15%', textAlign: 'right', fontWeight: 'bold' }]}>{formatCurrency(item.subtotal ?? totalItem)}</Text></View>
                         );
                     })}
                 </View>
 
-                {/* Totals and CUFE Wrapper */}
                 <View style={{ flexDirection: 'row', marginTop: 10, marginBottom: 20, justifyContent: 'space-between' }}>
-
-                    {/* CUFE/QR Section (Left Side) - Only if CUFE exists */}
                     <View style={{ width: 150, paddingLeft: 10, justifyContent: 'center' }}>
-                        {notaCredito.cufe && (
+                        {notaCredito.cufe ? (
                             <View style={{ alignItems: 'flex-start' }}>
                                 <Link src={`https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${notaCredito.cufe}`}>
                                     <Image
@@ -151,53 +127,20 @@ const NotaCreditoPDFDocument: React.FC<Props> = ({ notaCredito, factura, cliente
                                     Escanee para validar en DIAN
                                 </Text>
                             </View>
-                        )}
+                        ) : null}
                     </View>
 
-                    {/* Totals Section (Right Side) */}
                     <View style={{ width: '50%' }}>
-                        <View style={[pdfStyles.totalsCard, { width: '100%' }]}>
-                            <View style={pdfStyles.totalRow}>
-                                <Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(notaCredito.subtotal + totalDescuentos)}</Text>
-                            </View>
-                            <View style={pdfStyles.totalRow}>
-                                <Text style={[pdfStyles.totalLabel, { color: '#ef4444' }]}>Descuentos</Text>
-                                <Text style={[pdfStyles.totalValue, { color: '#ef4444' }]}>-{formatCurrency(totalDescuentos)}</Text>
-                            </View>
-                            <View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}>
-                                <Text style={pdfStyles.totalLabel}>Subtotal Neto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(notaCredito.subtotal)}</Text>
-                            </View>
-                            <View style={pdfStyles.totalRow}>
-                                <Text style={pdfStyles.totalLabel}>IVA</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(notaCredito.iva)}</Text>
-                            </View>
-                            <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#b91c1c' }]}>
-                                <Text style={pdfStyles.finalTotalLabel}>TOTAL DEVUELTO</Text>
-                                <Text style={pdfStyles.finalTotalValue}>{formatCurrency(notaCredito.total)}</Text>
-                            </View>
-                        </View>
+                        <View style={[pdfStyles.totalsCard, { width: '100%' }]}><View style={pdfStyles.totalRow}><Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text><Text style={pdfStyles.totalValue}>{formatCurrency(notaCredito.subtotal + totalDescuentos)}</Text></View><View style={pdfStyles.totalRow}><Text style={[pdfStyles.totalLabel, { color: '#ef4444' }]}>Descuentos</Text><Text style={[pdfStyles.totalValue, { color: '#ef4444' }]}>-{formatCurrency(totalDescuentos)}</Text></View><View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}><Text style={pdfStyles.totalLabel}>Subtotal Neto</Text><Text style={pdfStyles.totalValue}>{formatCurrency(notaCredito.subtotal)}</Text></View><View style={pdfStyles.totalRow}><Text style={pdfStyles.totalLabel}>IVA</Text><Text style={pdfStyles.totalValue}>{formatCurrency(notaCredito.iva)}</Text></View><View style={[pdfStyles.finalTotalRow, { backgroundColor: '#b91c1c' }]}><Text style={pdfStyles.finalTotalLabel}>TOTAL DEVUELTO</Text><Text style={pdfStyles.finalTotalValue}>{formatCurrency(notaCredito.total)}</Text></View></View>
                     </View>
                 </View>
 
-                {/* Signatures (Bottom) */}
-                {(preferences.signatureType === 'physical' || preferences.signatureType === 'digital') && (
+                {(preferences?.signatureType === 'physical' || preferences?.signatureType === 'digital') ? (
                     <View style={[pdfStyles.footer, { marginTop: 'auto' }]}>
-                        <View style={pdfStyles.signatureBox}>
-                            <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>
-                                {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
-                            </View>
-                            <View style={pdfStyles.signatureLine} />
-                            <Text style={pdfStyles.footerText}>Firma Autorizada</Text>
-                        </View>
-                        <View style={pdfStyles.signatureBox}>
-                            <View style={{ height: 40 }} />
-                            <View style={pdfStyles.signatureLine} />
-                            <Text style={pdfStyles.footerText}>Recibido por (Firma y Sello)</Text>
-                        </View>
+                        <View style={pdfStyles.signatureBox}><View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5 }}>{firmaVendedor && firmaVendedor.length > 5 ? (<Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />) : null}</View><View style={pdfStyles.signatureLine} /><Text style={pdfStyles.footerText}>Firma Autorizada</Text></View>
+                        <View style={pdfStyles.signatureBox}><View style={{ height: 40 }} /><View style={pdfStyles.signatureLine} /><Text style={pdfStyles.footerText}>Recibido por (Firma y Sello)</Text></View>
                     </View>
-                )}
+                ) : null}
             </Page>
         </Document>
     );

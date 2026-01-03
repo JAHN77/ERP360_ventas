@@ -3,7 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import apiClient from '../services/apiClient';
 
 const ProfilePage: React.FC = () => {
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     const [loading, setLoading] = useState(false);
     const [signature, setSignature] = useState<string | null>(null);
     const [preview, setPreview] = useState<string | null>(null);
@@ -40,13 +40,39 @@ const ProfilePage: React.FC = () => {
             if (response.success) {
                 setMessage({ type: 'success', text: 'Firma actualizada correctamente' });
                 setSignature(preview);
-                // Optionally refresh user data if needed context update
-                // For now, next login or refresh will catch it, but we set local state
+                // Refresh global user context to sync signature across the app
+                await refreshUser();
             } else {
                 setMessage({ type: 'error', text: response.message || 'Error al guardar firma' });
             }
         } catch (error) {
             console.error('Error saving signature:', error);
+            setMessage({ type: 'error', text: 'Error al conectar con el servidor' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeleteSignature = async () => {
+        if (!confirm('¿Estás seguro de que quieres eliminar tu firma digital?')) return;
+
+        try {
+            setLoading(true);
+            setMessage(null);
+
+            const response = await apiClient.updateSignature(null);
+
+            if (response.success) {
+                setMessage({ type: 'success', text: 'Firma eliminada correctamente' });
+                setSignature(null);
+                setPreview(null);
+                // Refresh global user context to remove signature from app state
+                await refreshUser();
+            } else {
+                setMessage({ type: 'error', text: response.message || 'Error al eliminar firma' });
+            }
+        } catch (error) {
+            console.error('Error deleting signature:', error);
             setMessage({ type: 'error', text: 'Error al conectar con el servidor' });
         } finally {
             setLoading(false);
@@ -141,6 +167,17 @@ const ProfilePage: React.FC = () => {
                             {loading ? <i className="fas fa-spinner fa-spin mr-2"></i> : <i className="fas fa-save mr-2"></i>}
                             Guardar Firma
                         </button>
+
+                        {signature && (
+                            <button
+                                onClick={handleDeleteSignature}
+                                disabled={loading}
+                                className="w-full justify-center py-2 px-4 border border-red-300 dark:border-red-700 rounded-md shadow-sm text-sm font-medium text-red-700 dark:text-red-400 bg-white dark:bg-transparent hover:bg-red-50 dark:hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors flex items-center"
+                            >
+                                <i className="fas fa-trash-alt mr-2"></i>
+                                Eliminar Firma
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

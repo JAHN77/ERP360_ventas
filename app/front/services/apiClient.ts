@@ -56,7 +56,7 @@ class ApiClient {
     });
   }
 
-  public async updateSignature(firmaBase64: string): Promise<ApiResponse<any>> {
+  public async updateSignature(firmaBase64: string | null): Promise<ApiResponse<any>> {
     return this.request('/auth/firma', {
       method: 'POST',
       body: JSON.stringify({ firmaBase64 })

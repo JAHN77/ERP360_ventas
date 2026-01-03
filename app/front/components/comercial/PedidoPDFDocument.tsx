@@ -14,16 +14,22 @@ interface Props {
 }
 
 const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferences, productos, cotizacionOrigen, firmaVendedor }) => {
+    // Safety check
+    const safePreferences = preferences || { showPrices: true, signatureType: 'physical' as const, detailLevel: 'full' as const };
+    const formatCurrencySafe = (val: any) => formatCurrency(Number(val) || 0);
 
     const totalDescuentos = pedido.items.reduce((acc, item) => {
         const itemTotal = (item.precioUnitario || 0) * (item.cantidad || 0);
         return acc + (itemTotal * ((item.descuentoPorcentaje || 0) / 100));
     }, 0);
 
+    const subtotal = Number(pedido.subtotal) || 0;
+    const total = Number(pedido.total) || 0;
+    const ivaValor = Number(pedido.ivaValor) || 0;
+
     return (
         <Document>
             <Page size="A4" style={pdfStyles.page}>
-                {/* Header */}
                 <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
                     <View style={pdfStyles.logoSection}>
                         <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
@@ -62,7 +68,6 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                     </View>
                 </View>
 
-                {/* Info Grid */}
                 <View style={pdfStyles.infoGrid}>
                     <View style={pdfStyles.infoCard}>
                         <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0ea5e9' }]}>DIRECCIÓN DE ENTREGA</Text>
@@ -101,14 +106,13 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                     </View>
                 </View>
 
-                {/* Table */}
-                <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}> {/* Reduced marginBottom slightly */}
+                <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}>
                     <View style={pdfStyles.tableHeader}>
                         <Text style={[pdfStyles.tableHeaderText, { width: '10%' }]}>Referencia</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '31%' }]}>Descripción</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Unidad</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Cant.</Text>
-                        {preferences.showPrices ? (
+                        {safePreferences.showPrices ? (
                             <>
                                 <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text>
                                 <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Desc.</Text>
@@ -128,12 +132,12 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                                 <Text style={[pdfStyles.tableCellText, { width: '31%', fontSize: 8 }]}>{item.descripcion}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>{unidad}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>
-                                {preferences.showPrices ? (
+                                {safePreferences.showPrices ? (
                                     <>
-                                        <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrency(item.precioUnitario)}</Text>
+                                        <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrencySafe(item.precioUnitario)}</Text>
                                         <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2, textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>{(item.descuentoPorcentaje || 0).toFixed(2)}%</Text>
                                         <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>{(item.ivaPorcentaje || 0).toFixed(0)}%</Text>
-                                        <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>{formatCurrency(item.total || item.subtotal)}</Text>
+                                        <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>{formatCurrencySafe(item.total || item.subtotal)}</Text>
                                     </>
                                 ) : null}
                             </View>
@@ -141,7 +145,6 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                     })}
                 </View>
 
-                {/* Observaciones */}
                 <View style={{ marginBottom: 20 }}>
                     <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', marginBottom: 4 }}>OBSERVACIONES</Text>
                     <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 4, borderWidth: 1, borderColor: '#e2e8f0' }}>
@@ -149,47 +152,47 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                     </View>
                 </View>
 
-                {/* Totals */}
-                {preferences.showPrices && (
+                {safePreferences.showPrices ? (
                     <View style={pdfStyles.totalsSection}>
                         <View style={pdfStyles.totalsCard}>
                             <View style={pdfStyles.totalRow}>
                                 <Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(pedido.subtotal + totalDescuentos)}</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrencySafe(subtotal + totalDescuentos)}</Text>
                             </View>
                             <View style={pdfStyles.totalRow}>
                                 <Text style={[pdfStyles.totalLabel, pdfStyles.textRed]}>Descuentos</Text>
-                                <Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrency(totalDescuentos)}</Text>
+                                <Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrencySafe(totalDescuentos)}</Text>
                             </View>
                             <View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}>
                                 <Text style={pdfStyles.totalLabel}>Subtotal Neto</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(pedido.subtotal)}</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrencySafe(subtotal)}</Text>
                             </View>
                             <View style={pdfStyles.totalRow}>
                                 <Text style={pdfStyles.totalLabel}>IVA</Text>
-                                <Text style={pdfStyles.totalValue}>{formatCurrency(pedido.ivaValor)}</Text>
+                                <Text style={pdfStyles.totalValue}>{formatCurrencySafe(ivaValor)}</Text>
                             </View>
                             <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#0ea5e9' }]}>
                                 <Text style={pdfStyles.finalTotalLabel}>TOTAL</Text>
-                                <Text style={pdfStyles.finalTotalValue}>{formatCurrency(pedido.total)}</Text>
+                                <Text style={pdfStyles.finalTotalValue}>{formatCurrencySafe(total)}</Text>
                             </View>
                         </View>
                     </View>
-                )}
+                ) : null}
 
-                {/* Footer */}
-                {preferences.signatureType === 'physical' && (
+                {(safePreferences?.signatureType === 'physical' || safePreferences?.signatureType === 'digital') ? (
                     <View style={[pdfStyles.footer, { borderTopWidth: 0, marginTop: 40 }]}>
                         <View style={[pdfStyles.signatureBox, { width: '100%' }]}>
                             <View style={{ height: 40, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 5, width: '100%' }}>
-                                {firmaVendedor && <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />}
+                                {firmaVendedor && firmaVendedor.length > 5 ? (
+                                    <Image src={firmaVendedor} style={{ height: 35, objectFit: 'contain' }} />
+                                ) : null}
                             </View>
                             <View style={[pdfStyles.signatureLine, { width: '50%' }]} />
                             <Text style={pdfStyles.footerText}>APROBADO POR</Text>
                             <Text style={pdfStyles.footerSubText}>(Firma, Nombre y Sello)</Text>
                         </View>
                     </View>
-                )}
+                ) : null}
             </Page>
         </Document>
     );

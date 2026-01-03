@@ -9,6 +9,12 @@ import { RouterWrapper } from './components/routing/RouterWrapper';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { DataProvider } from './contexts/DataContext';
 import ErrorBoundary from './components/ErrorBoundary';
+import { Buffer } from 'buffer';
+
+// Polyfill Buffer for browser environment (required by react-pdf)
+if (typeof window !== 'undefined') {
+  (window as any).Buffer = (window as any).Buffer || Buffer;
+}
 
 // Componente raíz de la aplicación
 // RouterWrapper maneja automáticamente si estamos en Single-SPA o standalone
@@ -41,29 +47,29 @@ const lifecycles = singleSpaReact({
     // Manejo de errores personalizado
     console.error('Error en microfrontend erp360-ventas:', err, info, props);
     return (
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        minHeight: '100vh', 
-        flexDirection: 'column', 
-        gap: '1rem', 
-        padding: '2rem', 
-        textAlign: 'center' 
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        flexDirection: 'column',
+        gap: '1rem',
+        padding: '2rem',
+        textAlign: 'center'
       }}>
         <h2 style={{ color: '#ef4444', marginBottom: '1rem' }}>Error en el módulo de Ventas</h2>
         <p style={{ color: '#64748b', marginBottom: '1rem' }}>
           {err instanceof Error ? err.message : 'Error desconocido'}
         </p>
-        <button 
-          onClick={() => window.location.reload()} 
-          style={{ 
-            padding: '0.5rem 1rem', 
-            background: '#3b82f6', 
-            color: 'white', 
-            border: 'none', 
-            borderRadius: '0.375rem', 
-            cursor: 'pointer' 
+        <button
+          onClick={() => window.location.reload()}
+          style={{
+            padding: '0.5rem 1rem',
+            background: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '0.375rem',
+            cursor: 'pointer'
           }}
         >
           Recargar página
