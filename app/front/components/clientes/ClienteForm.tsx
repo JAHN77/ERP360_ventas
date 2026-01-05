@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Cliente } from '../../types';
 import { useNotifications } from '../../hooks/useNotifications';
 import { useData } from '../../hooks/useData';
+import { calcularDigitoVerificacion } from '../../utils/dianUtils';
 
 // --- Shared Components (Ideally move to a separate file, but keeping here for now as requested) ---
 const SectionHeader = ({ title, icon }: { title: string, icon?: string }) => (
@@ -128,7 +129,14 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
         ...prev,
         regimenTributario: initialData.regimenTributario || '0',
         tipoDocumentoId: derivedTipoDoc,
-        numeroDocumento: initialData.numeroDocumento || initialData.codter || '',
+        numeroDocumento: (() => {
+          const val = String(initialData.numeroDocumento || initialData.codter || '');
+          return val.includes('-') ? val.split('-')[0] : val;
+        })(),
+        dv: (() => {
+          const val = String(initialData.numeroDocumento || initialData.codter || '');
+          return val.includes('-') ? val.split('-')[1] : '';
+        })(),
         razonSocial: rs,
 
         primerApellido: initialData.primerApellido || initialData.apl1 || '',
@@ -266,6 +274,28 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
     return () => clearTimeout(timeoutId);
   }, [formData.vendedorSearchTerm]);
 
+  // --- AUTOMATIC DV CALCULATION ---
+  useEffect(() => {
+    // Only auto-calculate if type is NIT.
+    // In Edit mode, we initially populate DV from split.
+    // But if user changes number, we should re-calculate.
+    if (formData.tipoDocumentoId === '31') {
+      const calculatedDV = calcularDigitoVerificacion(formData.numeroDocumento);
+      // Only update if different and if calculatedDV is valid (not empty string due to partial input)
+      // Actually, empty string is fine if input is invalid numbers.
+      if (calculatedDV !== formData.dv) {
+        setFormData(prev => ({ ...prev, dv: calculatedDV }));
+      }
+    }
+    // We do NOT clear DV in Edit mode automatically to avoid overwriting existing data if type changes temporarily?
+    // Actually, consistency with Create mode is better.
+    else {
+      if (formData.dv !== '') {
+        setFormData(prev => ({ ...prev, dv: '' }));
+      }
+    }
+  }, [formData.numeroDocumento, formData.tipoDocumentoId]);
+
   const selectVendedor = (vend: any) => {
     setFormData(prev => ({
       ...prev,
@@ -368,22 +398,21 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
         </div>
 
         {/* Razón Social */}
-        <div className="col-span-12 mt-1 relative">
-          {!isNit && (
-            <div className="absolute inset-0 z-10 bg-slate-50/50 dark:bg-slate-900/50 cursor-not-allowed" title="Para personas naturales, use los campos de Nombres y Apellidos abajo."></div>
-          )}
-          <Label required={isNit}>Razón Social / Nombre Comercial</Label>
-          <Input
-            name="razonSocial"
-            value={formData.razonSocial}
-            onChange={handleChange}
-            className="font-semibold text-blue-900 dark:text-blue-100"
-            required={isNit}
-            placeholder={isNit ? "Nombre legal de la empresa..." : "Inhabilitado para Personas Naturales"}
-            icon="fa-building"
-            disabled={!isNit}
-          />
-        </div>
+        {/* Razón Social - Only for NIT */}
+        {isNit && (
+          <div className="col-span-12 mt-1">
+            <Label required>Razón Social / Nombre Comercial</Label>
+            <Input
+              name="razonSocial"
+              value={formData.razonSocial}
+              onChange={handleChange}
+              className="font-semibold text-blue-900 dark:text-blue-100"
+              required
+              placeholder="Nombre legal de la empresa..."
+              icon="fa-building"
+            />
+          </div>
+        )}
       </div>
 
       {/* --- ROW 2: Contacto --- */}

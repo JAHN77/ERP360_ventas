@@ -3,6 +3,7 @@ import Modal from '../ui/Modal';
 import { apiCreateCliente } from '../../services/apiClient';
 import { useNotifications } from '../../hooks/useNotifications';
 import { useData } from '../../hooks/useData';
+import { calcularDigitoVerificacion } from '../../utils/dianUtils';
 
 interface ClienteCreateModalProps {
     isOpen: boolean;
@@ -244,6 +245,21 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
         setShowVendedorResult(false);
     };
 
+    // --- AUTOMATIC DV CALCULATION ---
+    useEffect(() => {
+        if (formData.tipoDocumento === '31') {
+            const calculatedDV = calcularDigitoVerificacion(formData.numeroDocumento);
+            if (calculatedDV !== formData.dv) {
+                setFormData(prev => ({ ...prev, dv: calculatedDV }));
+            }
+        } else {
+            // Optional: Clear DV if not NIT, to avoid confusion.
+            if (formData.dv !== '') {
+                setFormData(prev => ({ ...prev, dv: '' }));
+            }
+        }
+    }, [formData.numeroDocumento, formData.tipoDocumento]);
+
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -311,53 +327,47 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
                         </div>
 
                         {/* Razón Social */}
-                        <div className="col-span-12 mt-1 relative">
-                            {/* Overlay for non-NIT to explain why it's disabled */}
-                            {!isNit && (
-                                <div className="absolute inset-0 z-10 bg-slate-50/50 dark:bg-slate-900/50 cursor-not-allowed" title="Para personas naturales, use los campos de Nombres y Apellidos abajo."></div>
-                            )}
-                            <Label required={isNit}>Razón Social / Nombre Comercial</Label>
-                            <Input
-                                name="razonSocial"
-                                value={formData.razonSocial}
-                                onChange={handleChange}
-                                className="font-semibold text-blue-900 dark:text-blue-100"
-                                required={isNit}
-                                placeholder={isNit ? "Nombre legal de la empresa..." : "Inhabilitado para Personas Naturales"}
-                                icon="fa-building"
-                                disabled={!isNit}
-                            />
-                        </div>
+                        {isNit && (
+                            <div className="col-span-12 mt-1">
+                                {/* Overlay for non-NIT removed, doing complete hide */}
+                                <Label required>Razón Social / Nombre Comercial</Label>
+                                <Input
+                                    name="razonSocial"
+                                    value={formData.razonSocial}
+                                    onChange={handleChange}
+                                    className="font-semibold text-blue-900 dark:text-blue-100"
+                                    required
+                                    placeholder="Nombre legal de la empresa..."
+                                    icon="fa-building"
+                                />
+                            </div>
+                        )}
                     </div>
 
                     {/* --- ROW 2: Contacto --- */}
-                    <SectionHeader title="Datos de Representante" icon="fa-user-tie" />
-                    <div className="grid grid-cols-12 gap-5 mb-3 relative p-4 border border-slate-200 dark:border-slate-700/50 rounded-xl bg-white dark:bg-slate-900 shadow-sm">
-                        {isNit && (
-                            <div className="absolute inset-0 bg-slate-50/80 dark:bg-slate-900/80 z-10 flex items-center justify-center backdrop-blur-[1px] rounded-xl border border-dashed border-slate-300 dark:border-slate-600 transition-all">
-                                <span className="bg-white dark:bg-slate-800 px-4 py-2 rounded-full shadow border border-slate-200 dark:border-slate-600 text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                                    <i className="fas fa-lock text-slate-400"></i>
-                                    Solo para personas naturales
-                                </span>
+                    {!isNit && (
+                        <>
+                            <SectionHeader title="Datos de Representante" icon="fa-user-tie" />
+                            <div className="grid grid-cols-12 gap-5 mb-3 relative p-4 border border-slate-200 dark:border-slate-700/50 rounded-xl bg-white dark:bg-slate-900 shadow-sm">
+                                <div className="col-span-6 md:col-span-3">
+                                    <Label>Primer Apellido</Label>
+                                    <Input name="primerApellido" value={formData.primerApellido} onChange={handleChange} />
+                                </div>
+                                <div className="col-span-6 md:col-span-3">
+                                    <Label>Segundo Apellido</Label>
+                                    <Input name="segundoApellido" value={formData.segundoApellido} onChange={handleChange} />
+                                </div>
+                                <div className="col-span-6 md:col-span-3">
+                                    <Label>Primer Nombre</Label>
+                                    <Input name="primerNombre" value={formData.primerNombre} onChange={handleChange} />
+                                </div>
+                                <div className="col-span-6 md:col-span-3">
+                                    <Label>Segundo Nombre</Label>
+                                    <Input name="segundoNombre" value={formData.segundoNombre} onChange={handleChange} />
+                                </div>
                             </div>
-                        )}
-                        <div className="col-span-6 md:col-span-3">
-                            <Label>Primer Apellido</Label>
-                            <Input name="primerApellido" value={formData.primerApellido} onChange={handleChange} disabled={isNit} />
-                        </div>
-                        <div className="col-span-6 md:col-span-3">
-                            <Label>Segundo Apellido</Label>
-                            <Input name="segundoApellido" value={formData.segundoApellido} onChange={handleChange} disabled={isNit} />
-                        </div>
-                        <div className="col-span-6 md:col-span-3">
-                            <Label>Primer Nombre</Label>
-                            <Input name="primerNombre" value={formData.primerNombre} onChange={handleChange} disabled={isNit} />
-                        </div>
-                        <div className="col-span-6 md:col-span-3">
-                            <Label>Segundo Nombre</Label>
-                            <Input name="segundoNombre" value={formData.segundoNombre} onChange={handleChange} disabled={isNit} />
-                        </div>
-                    </div>
+                        </>
+                    )}
 
                     {/* Ubicación y Vendedor */}
                     <SectionHeader title="Detalles Comerciales y Ubicación" icon="fa-map-marked-alt" />
