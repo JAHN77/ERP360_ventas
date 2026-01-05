@@ -3505,7 +3505,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             empresaId: bodegaCodigo,
             codalm: bodegaCodigo, // Enviar código de bodega explícito
             testMode,
-            numero: numero // Pass optional number for reuse
+            numero: numero, // Pass optional number for reuse
+            usuario: user?.username || 'SISTEMA' // Enviar usuario actual o fallback
         };
 
         const response = await apiCreateNotaCredito(createPayload);

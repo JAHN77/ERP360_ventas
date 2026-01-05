@@ -415,8 +415,11 @@ const creditNoteController = {
         estadoDian,
         tipoNota,
         codalm: codalmreq, // Extraer codalm del body
-        testMode // Flag para modo de prueba
+        testMode, // Flag para modo de prueba
+        usuario
       } = body;
+
+      const usuarioFinal = String(usuario || 'SISTEMA').substring(0, 10).toUpperCase();
 
       // Determinar codalm final: prioridad request > factura > '001'
       // NOTA: Se debe usar después de obtener 'factura'
@@ -796,7 +799,7 @@ const creditNoteController = {
                             numeroDocumentoInt: nextConsecutivo,
                             tipoMovimiento: 'SA', // Salida por corrección de devolución
                             observaciones: `Corrección Devolución ${fullExisting.comprobante} (Reverso)`,
-                            codUsuario: 'SISTEMA',
+                            codUsuario: usuarioFinal,
                             clienteId: clienteFinal,
                             numComprobante: nextConsecutivo
                          });
@@ -892,7 +895,7 @@ const creditNoteController = {
             insertNotaRequest.input('reteica_nota', sql.Decimal(18, 2), 0);
             insertNotaRequest.input('reteiva_nota', sql.Decimal(18, 2), 0);
             insertNotaRequest.input('total_nota', sql.Decimal(18, 2), Number(totalTotal.toFixed(2)));
-            insertNotaRequest.input('usuario', sql.VarChar(10), 'SISTEMA');
+            insertNotaRequest.input('usuario', sql.VarChar(10), usuarioFinal);
             insertNotaRequest.input('estado', sql.Char(2), '');
             insertNotaRequest.input('valor_descuento', sql.Decimal(18, 2), 0);
             insertNotaRequest.input('estado_envio', sql.Bit, 0);
@@ -956,7 +959,7 @@ const creditNoteController = {
           insertDetalleRequest.input('Fecdev', sql.DateTime, fechaNota);
           insertDetalleRequest.input('comprobante', sql.VarChar(12), comprobante);
           insertDetalleRequest.input('Estreg', sql.Char(1), '');
-          insertDetalleRequest.input('Codusu', sql.VarChar(10), 'SISTEMA');
+          insertDetalleRequest.input('Codusu', sql.VarChar(10), usuarioFinal);
           insertDetalleRequest.input('PC', sql.VarChar(30), 'SISTEMA');
           insertDetalleRequest.input('QTYDEV', sql.Decimal(10, 4), detalle.cantidad);
           insertDetalleRequest.input('TIPFAC', sql.Char(2), String(factura.tipoFactura || 'FV').substring(0, 2));
@@ -988,7 +991,7 @@ const creditNoteController = {
             costo: 0, // Si no se tiene costo exacto de devolución, el servicio usará el último costo
             precioVenta: detalle.precioUnitario,
             observaciones: `Devolución NC ${comprobante}`,
-            codUsuario: 'SISTEMA',
+            codUsuario: usuarioFinal,
             clienteId: clienteFinal,
             numComprobante: nextConsecutivo
           });
