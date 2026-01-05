@@ -1161,8 +1161,27 @@ class DIANService {
     const companyNit = Number(companyData.identification_number || this.COMPANY_NIT);
     const companyDv = this.calculateDV(companyNit);
 
-    const customerNit = Number(cliente.codter);
-    const customerDv = this.calculateDV(customerNit);
+    // Lógica robusta para el NIT del cliente (copiada de Facturas)
+    const codterRaw = cliente.codter || '222222222222';
+    let codterLimpio = String(codterRaw || '').trim();
+    let customerDv = null;
+
+    if (codterLimpio.includes('-')) {
+        const parts = codterLimpio.split('-');
+        codterLimpio = parts[0].trim();
+        // Intentar obtener DV explícito si es numérico
+        if (parts[1] && !isNaN(parseInt(parts[1]))) {
+            customerDv = parseInt(parts[1], 10);
+        }
+    }
+    // Remover cualquier carácter no numérico que pueda quedar
+    codterLimpio = codterLimpio.replace(/[^\d]/g, '');
+    const customerNit = Number(codterLimpio) || 222222222222;
+
+    // Si no se extrajo DV explícito, calcularlo
+    if (customerDv === null) {
+        customerDv = this.calculateDV(customerNit);
+    }
 
     // Construir JSON
     const creditNoteJson = {
@@ -1263,11 +1282,44 @@ class DIANService {
 
       credit_note_lines: creditNoteLines,
 
-      payment_forms: [{
-        payment_form_id: 1,
-        payment_method_id: 1, // Usando 1 según ejemplo del usuario (Instrumento no definido)
-        payment_due_date: issueDate
-      }]
+      payment_forms: (() => {
+        // Determinar forma de pago desde facturaOriginal (Replicando lógica de factura)
+        const valEfectivo = parseFloat(facturaOriginal.efectivo || 0);
+        const valCredito = parseFloat(facturaOriginal.credito || 0);
+        const valTarjeta = parseFloat(facturaOriginal.tarjetacr || 0);
+        const valTransferencia = parseFloat(facturaOriginal.Transferencia || facturaOriginal.transferencia || 0);
+        const valPlazo = parseInt(facturaOriginal.plazo || 0, 10);
+
+        let paymentFormId = 1; // 1 = Contado (Defecto)
+        let paymentMethodId = 10; // 10 = Efectivo (Defecto)
+
+        // Lógica para determinar el método principal
+        if (valTarjeta > 0) {
+          paymentFormId = 1; 
+          paymentMethodId = 48; // Tarjeta crédito
+        } else if (valTransferencia > 0) {
+          paymentFormId = 1; 
+          paymentMethodId = 47; // Transferencia Débito Bancaria
+        } else if (valCredito > 0.01) { 
+          paymentFormId = 2; // Crédito (DIAN ID 2)
+          paymentMethodId = 30; // Instrumento no definido
+        }
+
+        // Calcular fecha vencimiento si es crédito
+        let paymentDueDate = issueDate;
+        if (paymentFormId === 2 && valPlazo > 0) {
+            const dueDateObj = new Date(); // Fecha actual como base de emisión
+            dueDateObj.setDate(dueDateObj.getDate() + valPlazo);
+            paymentDueDate = dueDateObj.toISOString().split('T')[0];
+        }
+
+        return [{
+          payment_form_id: Number(paymentFormId),
+          payment_method_id: Number(paymentMethodId),
+          payment_due_date: String(paymentDueDate),
+          duration_measure: Number(paymentFormId === 2 ? valPlazo : 0)
+        }];
+      })()
     };
 
     // Configuración adicional

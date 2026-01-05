@@ -7,7 +7,7 @@ import { useData } from '../../hooks/useData';
 import { findClienteByIdentifier } from '../../utils/clientes';
 import { pdf, PDFViewer } from '@react-pdf/renderer';
 import NotaCreditoPDFDocument from './NotaCreditoPDFDocument';
-import { apiSendCreditNoteEmail, apiArchiveDocumentToDrive } from '../../services/apiClient';
+import { apiSendCreditNoteEmail, apiArchiveDocumentToDrive, BACKEND_URL } from '../../services/apiClient';
 import { useDocumentPreferences } from '../../hooks/useDocumentPreferences';
 import DocumentOptionsToolbar from '../comercial/DocumentOptionsToolbar';
 
@@ -40,12 +40,27 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
     const getDocumentComponent = () => {
         if (!notaCredito || !relatedData?.cliente || !relatedData.factura) return null;
 
+        // Ensure logo exists and map properties for robust display
+        const empresaWithLogo = {
+            ...datosEmpresa,
+            nombre: datosEmpresa?.nombre || datosEmpresa?.razonSocial || 'MULTIACABADOS S.A.S.',
+            nit: datosEmpresa?.nit || '',
+            direccion: datosEmpresa?.direccion || '',
+            telefono: datosEmpresa?.telefono || '',
+            email: datosEmpresa?.email || '',
+            ciudad: datosEmpresa?.ciudad || '',
+            logoExt: datosEmpresa?.logoExt || `${BACKEND_URL}/assets/images.png`
+        };
+
+        // Debug logo
+        console.log('🔍 [NotaCreditoPreviewModal] Empresa Logo:', empresaWithLogo.logoExt);
+
         return (
             <NotaCreditoPDFDocument
                 notaCredito={notaCredito}
                 factura={relatedData.factura}
                 cliente={relatedData.cliente}
-                empresa={datosEmpresa}
+                empresa={empresaWithLogo}
                 productos={productos}
                 firmaVendedor={firmaVendedor}
                 preferences={preferences}

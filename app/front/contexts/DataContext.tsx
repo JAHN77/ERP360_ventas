@@ -3431,7 +3431,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         }
     }, [remisiones, clientes, vendedores, selectedSede, refreshData]);
 
-    const crearNotaCredito = useCallback(async (factura: Factura, items: DocumentItem[], motivo: string, tipoNota: 'DEVOLUCION' | 'ANULACION' = 'DEVOLUCION'): Promise<NotaCredito> => {
+    const crearNotaCredito = useCallback(async (factura: Factura, items: DocumentItem[], motivo: string, tipoNota: 'DEVOLUCION' | 'ANULACION' = 'DEVOLUCION', testMode: boolean = false, numero?: string): Promise<any> => {
+
         if (!factura) {
             throw new Error('Factura no encontrada para generar la nota de crédito.');
         }
@@ -3490,16 +3491,28 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             ivaPorcentaje: item.ivaPorcentaje
         }));
 
+        const bodegaCodigo = selectedSede?.codigo
+            ? String(selectedSede.codigo).padStart(3, '0')
+            : '001';
+
         const createPayload = {
             facturaId: facturaIdPayload,
             clienteId: clienteIdPayload || String(factura.clienteId || ''),
             motivo: String(motivo || '').trim(),
             items: payloadItems,
             estadoDian: 'PENDIENTE',
-            tipoNota: tipoNota // Nuevo campo
+            tipoNota: tipoNota, // Nuevo campo
+            empresaId: bodegaCodigo,
+            codalm: bodegaCodigo, // Enviar código de bodega explícito
+            testMode,
+            numero: numero // Pass optional number for reuse
         };
 
         const response = await apiCreateNotaCredito(createPayload);
+
+        if (testMode && response.success && response.isTest) {
+            return response; // Retornar respuesta completa en modo test
+        }
 
         if (!response.success || !response.data) {
             const errorMessage = response.message || response.error || 'No se pudo crear la nota de crédito';

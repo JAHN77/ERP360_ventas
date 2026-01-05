@@ -12,7 +12,7 @@ import ProtectedComponent from '../components/auth/ProtectedComponent';
 import NotaCreditoPreviewModal from '../components/devoluciones/NotaCreditoPreviewModal';
 import DocumentPreviewModal from '../components/comercial/DocumentPreviewModal';
 import NotaCreditoPDFDocument from '../components/devoluciones/NotaCreditoPDFDocument'; import { defaultPreferences } from '../hooks/useDocumentPreferences';
-import { apiSendCreditNoteEmail, apiArchiveDocumentToDrive } from '../services/apiClient'; import { useData } from '../hooks/useData';
+import { apiSendCreditNoteEmail, apiArchiveDocumentToDrive, BACKEND_URL } from '../services/apiClient'; import { useData } from '../hooks/useData';
 import { fetchFacturasDetalle } from '../services/apiClient';
 import { useAuth } from '../hooks/useAuth';
 import { useClientesConFacturasAceptadas } from '../hooks/useClientesConFacturasAceptadas';
@@ -97,6 +97,10 @@ const DevolucionesPage: React.FC = () => {
     const [notaParaImprimir, setNotaParaImprimir] = useState<NotaCredito | null>(null);
     const [notaToEmail, setNotaToEmail] = useState<NotaCredito | null>(null);
     const [nextNoteNumber, setNextNoteNumber] = useState<string>('');
+    const [testJsonResult, setTestJsonResult] = useState<any>(null);
+    // Retry flow state
+    const [retryNotaNumero, setRetryNotaNumero] = useState<string | null>(null);
+    const [isTestModalOpen, setIsTestModalOpen] = useState(false);
 
     useEffect(() => {
         const fetchNextNumber = async () => {
@@ -119,9 +123,24 @@ const DevolucionesPage: React.FC = () => {
 
     // Memoized derived data
     // Los clientes listados son exclusivamente los que vienen del endpoint estricto
+    // Y se complementan con el cliente seleccionado si existe en el global pero no en el estricto
     const clientesDisponibles = useMemo(() => {
-        return clientesEstrictos;
-    }, [clientesEstrictos]);
+        let list = [...clientesEstrictos];
+        if (clienteId) {
+            const existsInStrict = list.some(c => String(c.id) === String(clienteId));
+            if (!existsInStrict) {
+                const globalClient = clientes.find(c =>
+                    String(c.id) === String(clienteId) ||
+                    c.numeroDocumento === clienteId ||
+                    c.codter === clienteId
+                );
+                if (globalClient) {
+                    list.push(globalClient as any);
+                }
+            }
+        }
+        return list;
+    }, [clientesEstrictos, clienteId, clientes]);
 
     useEffect(() => {
         if (!isLoadingClientes && clientesDisponibles.length === 0) {
@@ -133,15 +152,34 @@ const DevolucionesPage: React.FC = () => {
     }, [isLoadingClientes, clientesDisponibles, addNotification]);
 
 
-    // Filtrar facturas del cliente seleccionado usando los datos estrictos
+    // Filtrar facturas del cliente seleccionado usando los datos estrictos o fallback global
+    // Filtrar facturas del cliente seleccionado usando los datos estrictos o fallback global
     const facturasFiltradas = useMemo(() => {
         if (!clienteId) return [];
 
+        let facturasResult: any[] = [];
         const clienteEstricto = clientesDisponibles.find(c => String(c.id) === String(clienteId));
-        if (!clienteEstricto) return [];
 
-        return clienteEstricto.facturasAceptadas;
-    }, [clienteId, clientesDisponibles]);
+        if (clienteEstricto && 'facturasAceptadas' in clienteEstricto && Array.isArray((clienteEstricto as any).facturasAceptadas)) {
+            facturasResult = [...(clienteEstricto as any).facturasAceptadas];
+        } else {
+            // Fallback: Buscar en todas las facturas globales
+            facturasResult = facturas.filter(f => String(f.clienteId) === String(clienteId) && f.estado === 'ACEPTADA');
+        }
+
+        // Asegurar que si hay una factura seleccionada (por ejemplo en Retry), esté en la lista aunque no sea "ACEPTADA" o no venga en el estricto
+        if (facturaId) {
+            const exists = facturasResult.some(f => String(f.id) === String(facturaId));
+            if (!exists) {
+                const globalFactura = facturas.find(f => String(f.id) === String(facturaId));
+                if (globalFactura) {
+                    facturasResult.push(globalFactura);
+                }
+            }
+        }
+
+        return facturasResult;
+    }, [clienteId, clientesDisponibles, facturas, facturaId]);
 
     // Buscar factura de forma flexible: primero en facturasFiltradas, luego en todas las facturas
     // Si la factura tiene items cargados localmente, usarlos
@@ -620,6 +658,52 @@ const DevolucionesPage: React.FC = () => {
         }, 0);
     }, [devolucionItems, productos]);
 
+    const handleTestJson = async () => {
+        if (!selectedFactura || !selectedCliente || devolucionItems.length === 0) {
+            addNotification({ message: 'Complete el formulario antes de probar el JSON', type: 'warning' });
+            return;
+        }
+
+        try {
+            const itemsParaNota = devolucionItems.map(devItem => {
+                const factItem = itemsDisponiblesFactura.find(i => i.productoId === devItem.productoId);
+                if (!factItem) throw new Error(`Item de factura no encontrado para producto ${devItem.productoId}`);
+
+                const itemSubtotalBruto = factItem.precioUnitario * devItem.cantidadDevuelta;
+                const itemDescuento = itemSubtotalBruto * (factItem.descuentoPorcentaje / 100);
+                const subtotal = itemSubtotalBruto - itemDescuento;
+                const valorIva = subtotal * (factItem.ivaPorcentaje / 100);
+
+                return {
+                    ...factItem,
+                    cantidad: devItem.cantidadDevuelta,
+                    motivo: devItem.motivo,
+                    motivoSeleccion: devItem.motivoSeleccion,
+                    subtotal,
+                    valorIva,
+                    total: subtotal + valorIva
+                };
+            });
+
+            const motivoPrincipal = devolucionItems.length > 0
+                ? (devolucionItems[0].motivo && devolucionItems[0].motivo.trim().length > 0
+                    ? devolucionItems[0].motivo
+                    : devolucionItems[0].motivoSeleccion || 'Devolución general')
+                : 'Devolución general';
+
+            const result = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal, tipoNota, true, retryNotaNumero || undefined);
+
+            if (result && result.isTest) {
+                setTestJsonResult(result.data);
+                setIsTestModalOpen(true);
+                addNotification({ message: 'JSON generado exitosamente', type: 'success' });
+            }
+        } catch (error: any) {
+            console.error('Error generating test JSON:', error);
+            addNotification({ message: 'Error generando JSON: ' + error.message, type: 'error' });
+        }
+    };
+
     const executeSave = async () => {
         if (!draftNotaToPreview || !selectedFactura || !selectedCliente) return;
 
@@ -658,7 +742,7 @@ const DevolucionesPage: React.FC = () => {
                     : devolucionItems[0].motivoSeleccion || 'Devolución general')
                 : 'Devolución general';
 
-            const nuevaNota = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal, tipoNota);
+            const nuevaNota = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal, tipoNota, false, retryNotaNumero || undefined);
 
             if (!nuevaNota) {
                 throw new Error('No se recibió respuesta del servidor al crear la nota de crédito');
@@ -922,6 +1006,82 @@ const DevolucionesPage: React.FC = () => {
         setNotaParaImprimir(nota);
     };
 
+    const handleRetry = useCallback((nota: NotaCredito) => {
+        if (String(nota.estadoDian) === '1' || String(nota.estadoDian) === 'Transmitido') {
+            addNotification({ message: 'No se puede reintentar una nota ya aprobada', type: 'warning' });
+            return;
+        }
+
+        // 1. Set Client
+        // Ensure consistent string/number comparison
+        const clienteFound = clientes.find(c =>
+            String(c.id) === String(nota.clienteId) ||
+            c.codter === nota.clienteId ||
+            c.numeroDocumento === nota.clienteId
+        );
+
+        if (clienteFound) {
+            setClienteId(String(clienteFound.id));
+        } else {
+            // Fallback
+            setClienteId(String(nota.clienteId));
+        }
+
+        // 2. Set Invoice
+        setFacturaId(String(nota.facturaId));
+
+        // 3. Set Items
+        if (nota.itemsDevueltos && nota.itemsDevueltos.length > 0) {
+            const mappedItems: DevolucionItem[] = nota.itemsDevueltos.map(i => {
+                let pId = typeof i.productoId === 'string' ? parseInt(i.productoId) : i.productoId;
+
+                // Correction: Check if this ID exists in global products list
+                // If not, try to match by reference (legacy data fix)
+                if (productos && productos.length > 0) {
+                    const exactMatch = productos.find(p => p.id === pId);
+                    if (!exactMatch) {
+                        // Try to find by code/reference (handling padding and types)
+                        const foundByCode = productos.find(p => {
+                            const ref = String(p.referencia || '').trim();
+                            const targetIdStr = String(pId).trim();
+                            const itemCode = String(i.codProducto || '').trim();
+
+                            // Check loose equality (handles '0266' == '266') and partial matches if needed
+                            return ref === targetIdStr ||
+                                parseInt(ref) === parseInt(targetIdStr) ||
+                                (itemCode && ref === itemCode) ||
+                                (itemCode && parseInt(ref) === parseInt(itemCode));
+                        });
+
+                        if (foundByCode) {
+                            pId = foundByCode.id;
+                        }
+                    }
+                }
+
+                return {
+                    productoId: pId,
+                    cantidadDevuelta: i.cantidad,
+                    motivo: nota.motivo || '',
+                    motivoSeleccion: 'Otro'
+                };
+            });
+            setDevolucionItems(mappedItems);
+            setIsTotalDevolucion(false);
+        } else {
+            console.warn('[Devoluciones] Nota sin itemsDevueltos');
+            setDevolucionItems([]);
+        }
+
+        // 4. Switch Tab
+        setActiveTab('form');
+
+        // 5. Store Original Number for Reuse
+        setRetryNotaNumero(nota.numero);
+
+        addNotification({ message: 'Datos cargados para reintento. Por favor verifique y guarde.', type: 'info' });
+    }, [clientes, facturas, productos, addNotification]);
+
 
 
     // ✅ Protección: Asegurar que notasCredito sea siempre un array
@@ -955,6 +1115,10 @@ const DevolucionesPage: React.FC = () => {
                 <div className="flex items-center space-x-3 text-slate-500 dark:text-slate-400 text-lg">
                     <button onClick={() => handleOpenPrintModal(item)} className="hover:text-blue-500" title="Imprimir"><i className="fas fa-print"></i></button>
                     <button onClick={() => handleOpenDetailModal(item)} className="hover:text-blue-500" title="Ver"><i className="fas fa-eye"></i></button>
+                    {/* Retry Button for Rejected/Pending */}
+                    {!(String(item.estadoDian) === '1' || String(item.estadoDian) === 'Transmitido' || (item.cufe && String(item.cufe).length > 10)) && (
+                        <button onClick={() => handleRetry(item)} className="hover:text-orange-500" title="Reintentar / Corregir"><i className="fas fa-sync-alt"></i></button>
+                    )}
                     <button onClick={() => handleSendEmail(item)} className="hover:text-blue-500" title="Enviar Email"><i className="fas fa-paper-plane"></i></button>
                     <button onClick={() => handleOpenPrintModal(item)} className="hover:text-blue-500" title="Descargar"><i className="fas fa-download"></i></button>
                 </div>
@@ -1372,6 +1536,7 @@ const DevolucionesPage: React.FC = () => {
                                             <button onClick={handleGenerateEmail} disabled={!savedNota} className="px-4 py-2 border border-sky-500 rounded-lg text-sm font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 disabled:cursor-not-allowed">✨ Redactar Correo</button>
                                         </ProtectedComponent>
                                         <button disabled={!savedNota} onClick={() => handleOpenPrintModal(savedNota!)} className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"><i className="fas fa-print mr-2"></i>Imprimir</button>
+                                        <button onClick={handleTestJson} disabled={devolucionItems.length === 0 || isFormDisabled} className="px-4 py-2 border border-purple-500 rounded-lg text-sm font-semibold text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 disabled:cursor-not-allowed"><i className="fas fa-code mr-2"></i>Prueba JSON</button>
                                         <button onClick={resetForm} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500">Limpiar</button>
                                         <ProtectedComponent permission='devoluciones:create'>
                                             <button onClick={handleSave} disabled={devolucionItems.length === 0 || isFormDisabled} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed">
@@ -1410,6 +1575,17 @@ const DevolucionesPage: React.FC = () => {
                         </div>
                     </div>
                 )}
+            </Modal>
+
+            <Modal isOpen={isTestModalOpen} onClose={() => setIsTestModalOpen(false)} title="🔍 Vista Previa JSON DIAN (Modo Prueba)" size="4xl">
+                <div className="h-[600px] flex flex-col">
+                    <div className="flex-1 overflow-auto bg-slate-900 text-slate-50 p-4 rounded-lg font-mono text-sm">
+                        <pre>{JSON.stringify(testJsonResult, null, 2)}</pre>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                        <button onClick={() => setIsTestModalOpen(false)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300">Cerrar</button>
+                    </div>
+                </div>
             </Modal>
 
             {notaToEmail && (
@@ -1509,9 +1685,14 @@ const DevolucionesPage: React.FC = () => {
                                 factura={selectedFactura}
                                 cliente={selectedCliente as any}
                                 empresa={{
-                                    nombre: datosEmpresa.nombre || 'Mi Empresa',
+                                    ...datosEmpresa,
+                                    nombre: datosEmpresa.nombre || datosEmpresa.razonSocial || 'MULTIACABADOS S.A.S.',
                                     nit: datosEmpresa.nit || '',
-                                    direccion: datosEmpresa.direccion || ''
+                                    direccion: datosEmpresa.direccion || '',
+                                    telefono: datosEmpresa.telefono || '',
+                                    email: datosEmpresa.email || '',
+                                    ciudad: datosEmpresa.ciudad || '',
+                                    logoExt: datosEmpresa.logoExt || `${BACKEND_URL}/assets/images.png`
                                 }}
                                 productos={productos}
                             />
