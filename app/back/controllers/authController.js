@@ -12,16 +12,38 @@ const authController = {
    */
   login: async (req, res) => {
     try {
-      const { username, password } = req.body;
+      const { username, password, companyId } = req.body;
 
       if (!username || !password) {
         return res.status(400).json({ success: false, message: 'Usuario y contraseña son requeridos' });
       }
 
-      // 1. Find user by codusu
-      // We limit to active users
-      console.log('Login attempt for:', username);
-      
+      console.log('Login attempt for:', username, 'Company ID:', companyId);
+
+      let targetDbName = process.env.DB_DATABASE; // Default to master/env DB if no companyId
+
+      // 1. Si hay companyId, buscar la configuración de la empresa en la BD Maestra
+      if (companyId) {
+        try {
+          const tenantQuery = `SELECT db_name FROM config_empresas WHERE id = @id AND activo = 1`;
+          // Usar executeQueryWithParams sin tercer argumento usa la BD por defecto (Maestra)
+          const tenants = await executeQueryWithParams(tenantQuery, { id: companyId });
+
+          if (tenants.length > 0) {
+            targetDbName = tenants[0].db_name;
+            console.log(`🏢 Empresa encontrada. Conectando a BD: ${targetDbName}`);
+          } else {
+            console.warn(`⚠️ Empresa con ID ${companyId} no encontrada o inactiva.`);
+            return res.status(400).json({ success: false, message: 'Empresa no válida o inactiva' });
+          }
+        } catch (err) {
+          console.error('❌ Error consultando config_empresas:', err);
+          // Fallback o error crítico dependiendo de la política
+          return res.status(500).json({ success: false, message: 'Error verificando empresa' });
+        }
+      }
+
+      // 2. Autenticar usuario en la base de datos objetivo (Tenant DB)
       const query = `
         SELECT 
           id, 
@@ -34,8 +56,9 @@ const authController = {
         FROM ${TABLE_NAMES.usuarios}
         WHERE LTRIM(RTRIM(codusu)) = @username AND Activo = 1
       `;
-      
-      const users = await executeQueryWithParams(query, { username });
+
+      // Pasar targetDbName como tercer argumento para usar la conexión correcta
+      const users = await executeQueryWithParams(query, { username }, targetDbName);
       console.log('Login: Users found:', users.length);
 
       if (users.length === 0) {
@@ -46,41 +69,37 @@ const authController = {
       const user = users[0];
       console.log('Login: User found:', user.codusu, 'Has password_web:', !!user.password_web);
 
-      // 2. Verify Password
-      // Check password_web first (Primary for web access)
+      // 3. Verify Password
       let isValid = false;
-
       if (user.password_web) {
         isValid = await bcrypt.compare(password, user.password_web);
         console.log('Login: Password verification result:', isValid);
       } else {
         console.log('Login: No password_web set');
-        isValid = false; 
+        isValid = false;
       }
 
       if (!isValid) {
         return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
       }
 
-      console.log('Login: Password verification result:', isValid);
-
-      // 3. Update Ultimo_Acceso if valid
+      // 4. Update Ultimo_Acceso if valid (en la BD del tenant)
       if (isValid) {
-          try {
-              const updateAccessQuery = `UPDATE ${TABLE_NAMES.usuarios} SET Ultimo_Acceso = GETDATE() WHERE id = @id`;
-              await executeQueryWithParams(updateAccessQuery, { id: user.id });
-          } catch (accessErr) {
-              console.error('Error updating Last Access Date:', accessErr);
-              // Non-blocking error
-          }
+        try {
+          const updateAccessQuery = `UPDATE ${TABLE_NAMES.usuarios} SET Ultimo_Acceso = GETDATE() WHERE id = @id`;
+          await executeQueryWithParams(updateAccessQuery, { id: user.id }, targetDbName);
+        } catch (accessErr) {
+          console.error('Error updating Last Access Date:', accessErr);
+        }
       }
 
-      // Generate JWT
+      // 5. Generate JWT including db_name
       const token = jwt.sign(
-        { 
-          id: user.id, 
-          codusu: user.codusu, 
-          role: user.tipousu === 1 ? 'admin' : 'vendedor' 
+        {
+          id: user.id,
+          codusu: user.codusu,
+          role: user.tipousu === 1 ? 'admin' : 'vendedor',
+          db_name: targetDbName // IMPORTANT: Include DB name in token for subsequent requests
         },
         process.env.JWT_SECRET || 'erp360_secret_key_development_only',
         { expiresIn: '24h' }
@@ -89,14 +108,15 @@ const authController = {
       res.json({
         success: true,
         data: {
-            token,
-            user: {
-                id: user.id,
-                codusu: user.codusu,
-                nomusu: user.nomusu,
-                role: user.tipousu === 1 ? 'admin' : 'vendedor',
-                firma: user.firma
-            }
+          token,
+          user: {
+            id: user.id,
+            codusu: user.codusu,
+            nomusu: user.nomusu,
+            role: user.tipousu === 1 ? 'admin' : 'vendedor',
+            firma: user.firma,
+            empresaDb: targetDbName
+          }
         }
       });
 
@@ -111,74 +131,75 @@ const authController = {
    */
   me: async (req, res) => {
     try {
-        // Middleware should have already attached user to req
-        if (!req.user) {
-            return res.status(401).json({ success: false, message: 'No autenticado' });
-        }
-        
-        // Fetch fresh data incl signature
-        const query = `
+      // Middleware should have already attached user to req
+      if (!req.user) {
+        return res.status(401).json({ success: false, message: 'No autenticado' });
+      }
+
+      // Fetch fresh data incl signature
+      const query = `
             SELECT id, LTRIM(RTRIM(codusu)) as codusu, LTRIM(RTRIM(nomusu)) as nomusu, tipousu, firma
             FROM ${TABLE_NAMES.usuarios}
             WHERE id = @id
         `;
-        const users = await executeQueryWithParams(query, { id: req.user.id });
-        
-        if (users.length === 0) {
-             return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+      // Use the database from the token (req.db_name)
+      const users = await executeQueryWithParams(query, { id: req.user.id }, req.db_name);
+
+      if (users.length === 0) {
+        return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+      }
+
+      const user = users[0];
+
+      res.json({
+        success: true,
+        data: {
+          user: {
+            id: user.id,
+            codusu: user.codusu,
+            nomusu: user.nomusu,
+            role: user.tipousu === 1 ? 'admin' : 'vendedor',
+            firma: user.firma || null
+          }
         }
-        
-        const user = users[0];
-        
-        res.json({
-            success: true,
-            data: {
-                user: {
-                    id: user.id,
-                    codusu: user.codusu,
-                    nomusu: user.nomusu,
-                    role: user.tipousu === 1 ? 'admin' : 'vendedor',
-                    firma: user.firma || null
-                }
-            }
-        });
+      });
 
     } catch (error) {
-        console.error('Me error:', error);
-        res.status(500).json({ success: false, message: 'Error obteniendo datos del usuario' });
+      console.error('Me error:', error);
+      res.status(500).json({ success: false, message: 'Error obteniendo datos del usuario' });
     }
   },
-  
+
   /**
    * Update signature
    */
   updateSignature: async (req, res) => {
-      try {
-          let { firmaBase64 } = req.body;
-          const userId = req.user.id; // From middleware
-          
-          // Allow null or empty string to delete signature
-          if (firmaBase64 === undefined) {
-              return res.status(400).json({ success: false, message: 'Firma requerida' });
-          }
+    try {
+      let { firmaBase64 } = req.body;
+      const userId = req.user.id; // From middleware
 
-          // Convert empty string to null for DB
-          if (firmaBase64 === '') {
-              firmaBase64 = null;
-          }
-          
-          await executeQueryWithParams(`
+      // Allow null or empty string to delete signature
+      if (firmaBase64 === undefined) {
+        return res.status(400).json({ success: false, message: 'Firma requerida' });
+      }
+
+      // Convert empty string to null for DB
+      if (firmaBase64 === '') {
+        firmaBase64 = null;
+      }
+
+      await executeQueryWithParams(`
             UPDATE ${TABLE_NAMES.usuarios}
             SET firma = @firma
             WHERE id = @id
-          `, { firma: firmaBase64, id: userId });
-          
-          res.json({ success: true, message: 'Firma actualizada exitosamente' });
-          
-      } catch (error) {
-          console.error('Update signature error:', error);
-          res.status(500).json({ success: false, message: 'Error actualizando firma' });
-      }
+          `, { firma: firmaBase64, id: userId }, req.db_name);
+
+      res.json({ success: true, message: 'Firma actualizada exitosamente' });
+
+    } catch (error) {
+      console.error('Update signature error:', error);
+      res.status(500).json({ success: false, message: 'Error actualizando firma' });
+    }
   }
 };
 

@@ -79,7 +79,7 @@ const getAllRemissions = async (req, res) => {
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `;
 
-    const remisiones = await executeQueryWithParams(baseQuery, params);
+    const remisiones = await executeQueryWithParams(baseQuery, params, req.db_name);
 
     // Mapear estados y datos adicionales
     const remisionesMapeadas = remisiones.map(r => ({
@@ -89,7 +89,7 @@ const getAllRemissions = async (req, res) => {
 
     // Obtener total para paginación
     const countQuery = `SELECT COUNT(*) as total FROM ${TABLE_NAMES.remisiones} r ${whereClause}`;
-    const countResult = await executeQueryWithParams(countQuery, params);
+    const countResult = await executeQueryWithParams(countQuery, params, req.db_name);
     const totalRecords = countResult[0]?.total || 0;
 
     res.json({
@@ -127,14 +127,14 @@ const getRemissionDetails = async (req, res) => {
 
     // Usamos la query de dbConfig que ya tiene lógica compleja para precios
     // Pero necesitamos filtrar por ID
-    
+
     // Extraer la query base de dbConfig y añadir WHERE
     // Nota: QUERIES.GET_REMISIONES_DETALLE tiene "WHERE rd.remision_id IS NOT NULL" al final
     // Podemos anexar "AND rd.remision_id = @id"
-    
+
     const query = `${QUERIES.GET_REMISIONES_DETALLE} AND rd.remision_id = @id`;
-    
-    const detalles = await executeQueryWithParams(query, { id: parseInt(targetId, 10) });
+
+    const detalles = await executeQueryWithParams(query, { id: parseInt(targetId, 10) }, req.db_name);
 
     res.json({
       success: true,
@@ -169,7 +169,7 @@ const updateRemission = async (req, res) => {
   console.log(`📥 Recibida solicitud PUT /api/remisiones/${idNum} con body:`, JSON.stringify(body, null, 2));
 
   try {
-    const pool = await getConnection();
+    const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
     const tx = new sql.Transaction(pool);
     await tx.begin();
 
@@ -310,7 +310,7 @@ const createRemission = async (req, res) => {
 
   let transaction;
   try {
-    const pool = await getConnection();
+    const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
     transaction = new sql.Transaction(pool);
     await transaction.begin();
 
@@ -342,7 +342,7 @@ const createRemission = async (req, res) => {
     requestEnc.input('estado', sql.VarChar(20), 'BORRADOR'); // Siempre inicia en borrador
     requestEnc.input('observaciones', sql.VarChar(500), observaciones || '');
     requestEnc.input('codusu', sql.VarChar(20), codusu);
-    
+
     // Insertar y retornar ID
     const encResult = await requestEnc.query(`
       INSERT INTO ${TABLE_NAMES.remisiones} (
@@ -354,7 +354,7 @@ const createRemission = async (req, res) => {
       );
       SELECT SCOPE_IDENTITY() as id;
     `);
-    
+
     const remisionId = encResult.recordset[0].id;
     console.log(`✅ Remisión creada con ID: ${remisionId}, Número: ${numeroRemision}`);
 
@@ -367,7 +367,7 @@ const createRemission = async (req, res) => {
       // Asegurar que cantidad enviada es la que el usuario definió (cantAEnviar en frontend -> cantidadEnviada en envio)
       const qty = parseFloat(item.cantidadEnviada || item.cantidad || 0);
       requestDet.input('cantidadEnviada', sql.Decimal(18, 2), qty);
-      
+
       await requestDet.query(`
         INSERT INTO ${TABLE_NAMES.remisiones_detalle} (
           remision_id, deta_pedido_id, codins, cantidad_enviada, 
@@ -382,7 +382,7 @@ const createRemission = async (req, res) => {
       // Obtener datos del producto (ID real y costo) Y PRECIO DE LISTA 07
       const reqProdId = new sql.Request(transaction);
       reqProdId.input('cprod', sql.VarChar(20), item.codProducto || '');
-      
+
       // Query actualizada según requerimiento usuario:
       // Usar inv_detaprecios con codtar='07' para obtener el precio con IVA base
       const resProdId = await reqProdId.query(`
@@ -395,67 +395,67 @@ const createRemission = async (req, res) => {
         LEFT JOIN inv_detaprecios dp ON dp.codins = i.codins AND dp.codtar = '07'
         WHERE i.codins = @cprod
       `);
-      
+
       if (resProdId.recordset.length > 0) {
-         const pInfo = resProdId.recordset[0];
-         
-         // Precio de venta real para la transacción (documento)
-         let precioVentaTransaccion = 0; 
+        const pInfo = resProdId.recordset[0];
 
-         // 1. Intentar precio del pedido si existe
-         if (item.detaPedidoId) {
-            try {
-              const reqPedPrice = new sql.Request(transaction);
-              reqPedPrice.input('dpid', sql.Int, item.detaPedidoId);
-              const resPedPrice = await reqPedPrice.query(`SELECT valins FROM ${TABLE_NAMES.pedidos_detalle} WHERE id = @dpid`);
-              if (resPedPrice.recordset.length > 0) {
-                precioVentaTransaccion = resPedPrice.recordset[0].valins;
-              }
-            } catch (errPrice) {
-               console.warn('No se pudo obtener precio del pedido para Kardex', errPrice);
+        // Precio de venta real para la transacción (documento)
+        let precioVentaTransaccion = 0;
+
+        // 1. Intentar precio del pedido si existe
+        if (item.detaPedidoId) {
+          try {
+            const reqPedPrice = new sql.Request(transaction);
+            reqPedPrice.input('dpid', sql.Int, item.detaPedidoId);
+            const resPedPrice = await reqPedPrice.query(`SELECT valins FROM ${TABLE_NAMES.pedidos_detalle} WHERE id = @dpid`);
+            if (resPedPrice.recordset.length > 0) {
+              precioVentaTransaccion = resPedPrice.recordset[0].valins;
             }
-         }
-         
-         // 2. Si no hay pedido, usar precio lista 07 como referencia de venta o 0
-         if (!precioVentaTransaccion) {
-            precioVentaTransaccion = pInfo.precio_lista_07 || 0;
-         }
+          } catch (errPrice) {
+            console.warn('No se pudo obtener precio del pedido para Kardex', errPrice);
+          }
+        }
 
-         // Parsear numeroRemision 'REM-00025' a entero 25 para dockar/numrem
-         const remNumInt = parseInt(String(numeroRemision).replace(/\D/g, '')) || 0;
+        // 2. Si no hay pedido, usar precio lista 07 como referencia de venta o 0
+        if (!precioVentaTransaccion) {
+          precioVentaTransaccion = pInfo.precio_lista_07 || 0;
+        }
 
-         // CALCULAR VENKAR (Precio Base) SEGÚN FÓRMULA USUARIO
-         // Formula: precio_lista_07 / (1 + (tasa_iva * 0.01))
-         const tasaIva = pInfo.tasa_iva || 0;
-         const precioLista07 = parseFloat(pInfo.precio_lista_07) || 0;
-         
-         let precioBaseVal = 0; // Para venkar
-         
-         if (precioLista07 > 0) {
-             precioBaseVal = precioLista07 / (1 + (tasaIva / 100));
-         } else {
-             // Fallback para venkar: ultimo_costo
-             precioBaseVal = parseFloat(pInfo.ultimo_costo) || 0;
-         }
+        // Parsear numeroRemision 'REM-00025' a entero 25 para dockar/numrem
+        const remNumInt = parseInt(String(numeroRemision).replace(/\D/g, '')) || 0;
 
-         // DEFINIR COSKAR: Ultimo Costo (según solicitud usuario)
-         const costoParaKardex = parseFloat(pInfo.ultimo_costo) || 0;
+        // CALCULAR VENKAR (Precio Base) SEGÚN FÓRMULA USUARIO
+        // Formula: precio_lista_07 / (1 + (tasa_iva * 0.01))
+        const tasaIva = pInfo.tasa_iva || 0;
+        const precioLista07 = parseFloat(pInfo.precio_lista_07) || 0;
 
-         await InventoryService.registrarSalida({
-            transaction,
-            productoId: pInfo.id,
-            cantidad: qty,
-            bodega: codalm,
-            numeroDocumentoInt: remNumInt,
-            tipoMovimiento: 'SA',
-            precioVenta: precioVentaTransaccion, 
-            precioBase: precioBaseVal, // -> venkar
-            costo: costoParaKardex,      // -> coskar (y valinv)
-            observaciones: `Remisión ${numeroRemision}`,
-            codUsuario: codusu,
-            clienteId: clienteId,
-            numRemision: remNumInt
-         });
+        let precioBaseVal = 0; // Para venkar
+
+        if (precioLista07 > 0) {
+          precioBaseVal = precioLista07 / (1 + (tasaIva / 100));
+        } else {
+          // Fallback para venkar: ultimo_costo
+          precioBaseVal = parseFloat(pInfo.ultimo_costo) || 0;
+        }
+
+        // DEFINIR COSKAR: Ultimo Costo (según solicitud usuario)
+        const costoParaKardex = parseFloat(pInfo.ultimo_costo) || 0;
+
+        await InventoryService.registrarSalida({
+          transaction,
+          productoId: pInfo.id,
+          cantidad: qty,
+          bodega: codalm,
+          numeroDocumentoInt: remNumInt,
+          tipoMovimiento: 'SA',
+          precioVenta: precioVentaTransaccion,
+          precioBase: precioBaseVal, // -> venkar
+          costo: costoParaKardex,      // -> coskar (y valinv)
+          observaciones: `Remisión ${numeroRemision}`,
+          codUsuario: codusu,
+          clienteId: clienteId,
+          numRemision: remNumInt
+        });
       }
     }
 
@@ -463,7 +463,7 @@ const createRemission = async (req, res) => {
     if (pedidoId) {
       const requestStatus = new sql.Request(transaction);
       requestStatus.input('pid', sql.Int, pedidoId);
-      
+
       // Calcular si todos los items han sido totalmente remitidos
       // Se compara cantidad pedida vs (suma de cantidades enviadas en remisiones no anuladas)
       // FIX: ven_detapedidos NO tiene columna 'id', se agrupa por codins
@@ -488,20 +488,20 @@ const createRemission = async (req, res) => {
           END as NuevoEstado
         FROM ItemStatus
       `;
-      
+
       const statusResult = await requestStatus.query(statusQuery);
-      
+
       if (statusResult.recordset.length > 0) {
         let nuevoEstado = statusResult.recordset[0].NuevoEstado;
-        
+
         // Validar si el estado calculado es PARCIALMENTE_REMITIDO pero no se envió nada (caso raro)
         // O si ya estaba REMITIDO, no devolverlo a PARCIALMENTE si hay sobre-entrega (ya manejado por >= 0)
-        
+
         const updatePed = new sql.Request(transaction);
         updatePed.input('nest', sql.VarChar(20), nuevoEstado);
         updatePed.input('pid', sql.Int, pedidoId);
         await updatePed.query(`UPDATE ${TABLE_NAMES.pedidos} SET estado = @nest WHERE id = @pid`);
-        
+
         console.log(`🔄 Estado del pedido ${pedidoId} actualizado a: ${nuevoEstado}`);
       }
     }
@@ -541,11 +541,11 @@ const driveService = require('../services/driveService.js');
 const sendRemissionEmail = async (req, res) => {
   try {
     const { id } = req.params;
-    const { destinatario, asunto, mensaje, pdfBase64 } = req.body; 
+    const { destinatario, asunto, mensaje, pdfBase64 } = req.body;
 
-    const pool = await getConnection();
+    const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
     const idNum = parseInt(id, 10);
-    
+
     // Obtener Datos de Remición
     const remQuery = `
       SELECT 
@@ -557,8 +557,8 @@ const sendRemissionEmail = async (req, res) => {
       LEFT JOIN ${TABLE_NAMES.clientes} c ON LTRIM(RTRIM(c.codter)) = LTRIM(RTRIM(r.codter))
       WHERE r.id = @id
     `;
-    const remRes = await executeQueryWithParams(remQuery, { id: idNum });
-    
+    const remRes = await executeQueryWithParams(remQuery, { id: idNum }, req.db_name);
+
     if (remRes.length === 0) {
       return res.status(404).json({ success: false, message: 'Remisión no encontrada' });
     }
@@ -573,43 +573,43 @@ const sendRemissionEmail = async (req, res) => {
 
     // --- PARALELIZACIÓN: Drive + Email ---
     // Ejecutamos ambas tareas simultáneamente para reducir el tiempo de espera del usuario
-    
+
     // Tarea 1: Subir a Drive
     const driveTask = async () => {
-        try {
-            const fechaDoc = new Date(remision.fecha_remision);
-            const folderId = await driveService.ensureHierarchy('Remisiones', fechaDoc);
-            const safeRecipient = (remision.nomter || 'Cliente').replace(/[^a-zA-Z0-9]/g, '_');
-            const nombreArchivo = `REM-${remision.numero_remision}-${safeRecipient}.pdf`;
+      try {
+        const fechaDoc = new Date(remision.fecha_remision);
+        const folderId = await driveService.ensureHierarchy('Remisiones', fechaDoc);
+        const safeRecipient = (remision.nomter || 'Cliente').replace(/[^a-zA-Z0-9]/g, '_');
+        const nombreArchivo = `REM-${remision.numero_remision}-${safeRecipient}.pdf`;
 
-            const driveFile = await driveService.uploadFile(
-                nombreArchivo, 'application/pdf', pdfBuffer, folderId, true
-            );
-            console.log('✅ Guardado en Drive OK:', driveFile.id);
-            return { success: true, type: 'drive' };
-        } catch (driveErr) {
-            console.error('❌ Error Drive:', driveErr.message);
-            return { success: false, type: 'drive', error: driveErr.message };
-        }
+        const driveFile = await driveService.uploadFile(
+          nombreArchivo, 'application/pdf', pdfBuffer, folderId, true
+        );
+        console.log('✅ Guardado en Drive OK:', driveFile.id);
+        return { success: true, type: 'drive' };
+      } catch (driveErr) {
+        console.error('❌ Error Drive:', driveErr.message);
+        return { success: false, type: 'drive', error: driveErr.message };
+      }
     };
 
     // Tarea 2: Enviar Email
     const emailTask = async () => {
-        const documentDetails = [
-            { label: 'Fecha Remisión', value: new Date(remision.fecha_remision).toLocaleDateString('es-CO') }
-        ];
-        await sendDocumentEmail({
-            to: clienteEmail,
-            customerName: remision.nomter,
-            documentNumber: remision.numero_remision,
-            documentType: 'Remisión',
-            pdfBuffer: pdfBuffer, 
-            subject: asunto,
-            body: mensaje,
-            documentDetails,
-            processSteps: `<p>Le informamos que su pedido ha sido despachado. Adjuntamos la remisión para que pueda validar las cantidades físicas al momento de la recepción. Por favor, devuélvanos una copia firmada o confirme por este medio.</p>`
-        });
-        return { success: true, type: 'email' };
+      const documentDetails = [
+        { label: 'Fecha Remisión', value: new Date(remision.fecha_remision).toLocaleDateString('es-CO') }
+      ];
+      await sendDocumentEmail({
+        to: clienteEmail,
+        customerName: remision.nomter,
+        documentNumber: remision.numero_remision,
+        documentType: 'Remisión',
+        pdfBuffer: pdfBuffer,
+        subject: asunto,
+        body: mensaje,
+        documentDetails,
+        processSteps: `<p>Le informamos que su pedido ha sido despachado. Adjuntamos la remisión para que pueda validar las cantidades físicas al momento de la recepción. Por favor, devuélvanos una copia firmada o confirme por este medio.</p>`
+      });
+      return { success: true, type: 'email' };
     };
 
     // Ejecutar en paralelo
@@ -618,7 +618,7 @@ const sendRemissionEmail = async (req, res) => {
 
     // Verificar si el email falló (que es lo crítico para el usuario)
     if (!emailResult.success) {
-        throw new Error('El envío del correo falló.');
+      throw new Error('El envío del correo falló.');
     }
 
     res.json({ success: true, message: 'Remisión guardada en Drive y correo enviado' });

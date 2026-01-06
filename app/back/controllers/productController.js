@@ -87,14 +87,14 @@ const productController = {
       if (sortColumn && sortDirection) {
         const direction = sortDirection === 'desc' ? 'DESC' : 'ASC';
         const validColumns = {
-            'nombre': 'ins.nomins',
-            'referencia': 'ins.referencia',
-            'ultimoCosto': 'COALESCE(ins.ultimo_costo, 0)', // Simplified sort logic
-            'stock': 'COALESCE(SUM(inv.caninv), 0)'
+          'nombre': 'ins.nomins',
+          'referencia': 'ins.referencia',
+          'ultimoCosto': 'COALESCE(ins.ultimo_costo, 0)', // Simplified sort logic
+          'stock': 'COALESCE(SUM(inv.caninv), 0)'
         };
 
         if (validColumns[sortColumn]) {
-             orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
+          orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
         }
       }
       query += ` ${orderByClause}`;
@@ -113,7 +113,7 @@ const productController = {
       }
 
       // Execution
-      const data = await executeQueryWithParams(query, queryParams);
+      const data = await executeQueryWithParams(query, queryParams, req.db_name);
 
       // Count Query for Pagination Metadata
       // OPTIMIZATION: Count distinct IDs only with same filter to be fast.
@@ -125,7 +125,7 @@ const productController = {
       if (searchTerm) {
         countQuery += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search OR ins.codins LIKE @search)`;
       }
-      const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {});
+      const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {}, req.db_name);
       const totalRecords = countResult[0]?.total || 0;
 
       res.json({
@@ -141,10 +141,10 @@ const productController = {
 
     } catch (error) {
       console.error('Error in getAllProducts:', error);
-      res.status(500).json({ 
-        success: false, 
-        message: 'Error al obtener productos', 
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener productos',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   },
@@ -158,7 +158,7 @@ const productController = {
       if (String(search).trim().length < 2) {
         return res.status(400).json({ success: false, message: 'Ingrese al menos 2 caracteres' });
       }
-  
+
       const query = `
         SELECT TOP (@limit)
           ins.id,
@@ -186,18 +186,18 @@ const productController = {
         GROUP BY ins.id, ins.codins, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva, dp.valins
         ORDER BY ins.nomins
       `;
-  
-      const data = await executeQueryWithParams(query, { 
-          like: `%${search}%`, 
-          limit: Math.min(parseInt(limit) || 20, 100),
-          codalm: codalm || null
-      });
-  
+
+      const data = await executeQueryWithParams(query, {
+        like: `%${search}%`,
+        limit: Math.min(parseInt(limit) || 20, 100),
+        codalm: codalm || null
+      }, req.db_name);
+
       res.json({ success: true, data });
-  
+
     } catch (error) {
-       console.error('Error in searchProducts:', error);
-       res.status(500).json({ success: false, message: 'Error en búsqueda de productos', error: error.message });
+      console.error('Error in searchProducts:', error);
+      res.status(500).json({ success: false, message: 'Error en búsqueda de productos', error: error.message });
     }
   },
   /**
@@ -206,7 +206,7 @@ const productController = {
   getProductStockDetails: async (req, res) => {
     try {
       const { id } = req.params;
-      
+
       const query = `
         SELECT 
             LTRIM(RTRIM(i.codalm)) as codalm,
@@ -218,7 +218,7 @@ const productController = {
         ORDER BY i.codalm
       `;
 
-      const data = await executeQueryWithParams(query, { id: parseInt(id, 10) });
+      const data = await executeQueryWithParams(query, { id: parseInt(id, 10) }, req.db_name);
 
       res.json({ success: true, data });
     } catch (error) {

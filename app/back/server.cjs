@@ -276,16 +276,19 @@ app.post('/api/ai/generate', async (req, res) => {
   }
 });
 
+// Middleware moved to middleware/authMiddleware.js
+const verifyToken = require('./middleware/authMiddleware');
+
 // --- BUSQUEDAS (server-side) ---
-app.get('/api/buscar/clientes', clientController.searchClients);
+app.get('/api/buscar/clientes', verifyToken, clientController.searchClients);
 // Ruta alternativa para compatibilidad
-app.get('/api/clientes/search', clientController.searchClients);
+app.get('/api/clientes/search', verifyToken, clientController.searchClients);
 
 // BUSQUEDA PRODUCTOS
-app.get('/api/buscar/productos', productController.searchProducts);
+app.get('/api/buscar/productos', verifyToken, productController.searchProducts);
 
 
-app.get('/api/buscar/vendedores', async (req, res) => {
+app.get('/api/buscar/vendedores', verifyToken, async (req, res) => {
   try {
     const { search = '', limit = 20 } = req.query;
     if (String(search).trim().length < 2) {
@@ -312,7 +315,7 @@ app.get('/api/buscar/vendedores', async (req, res) => {
       WHERE Activo = 1
         AND (UPPER(LTRIM(RTRIM(nomven))) LIKE @likeUpper OR codven LIKE @like OR CAST(ideven AS VARCHAR(20)) LIKE @like)
       ORDER BY nomven`;
-    const data = await executeQueryWithParams(query, { likeUpper, like, limit: Number(limit) });
+    const data = await executeQueryWithParams(query, { likeUpper, like, limit: Number(limit) }, req.db_name);
 
     // Procesar los datos para extraer primer nombre y apellido del nombre completo
     const processedData = data.map((item) => {
@@ -348,7 +351,7 @@ app.use('/api', quoteRoutes); // Mounting at /api to support /api/cotizaciones a
 app.use('/api', orderRoutes); // Mounting at /api to support /api/pedidos and /api/pedidos-detalle
 app.use('/api', invoiceRoutes);
 app.use('/api', creditNoteRoutes);
-app.use('/api', remissionRoutes); 
+app.use('/api', remissionRoutes);
 app.use('/api/inventario', inventoryRoutes);
 app.use('/api/categorias', require('./routes/categoryRoutes')); // Registration of category routes
 app.use('/api/medidas', require('./routes/measureRoutes')); // Registration of measure routes

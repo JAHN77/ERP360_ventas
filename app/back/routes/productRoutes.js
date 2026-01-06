@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
 
+const verifyToken = require('../middleware/authMiddleware');
+
 // GET /api/productos/
-router.get('/', productController.getAllProducts);
+router.get('/', verifyToken, productController.getAllProducts);
 
 // GET /api/productos/search (Mapped from /api/buscar/productos logic if we want to consolidate, 
 // OR keep legacy path in server.cjs and point to controller. 
@@ -15,6 +17,6 @@ router.get('/', productController.getAllProducts);
 // For now, let's expose specific routes.
 
 
-router.get('/:id/stock', productController.getProductStockDetails);
+router.get('/:id/stock', verifyToken, productController.getProductStockDetails);
 
 module.exports = router;

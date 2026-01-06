@@ -13,7 +13,7 @@ interface AuthContextType {
   selectedCompany: Empresa | null;
   selectedSede: Sede | null;
   permissions: Permission[];
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string, companyId?: number) => Promise<boolean>;
   logout: () => void;
   switchCompany: (companyId: number) => void;
   switchSede: (sedeId: number | string, sedeData?: { codigo?: string; nombre?: string }) => void;
@@ -388,9 +388,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   }, [bodegas, isLoadingBodegas, refreshUser]);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  const login = async (username: string, password: string, companyId?: number): Promise<boolean> => {
     try {
-      const response = await apiClient.login(username, password);
+      const response = await apiClient.login(username, password, companyId);
 
       if (response.success && response.data) {
         const { token, user: userData } = response.data;

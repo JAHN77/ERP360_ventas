@@ -28,10 +28,10 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
-  public async login(username: string, password: string): Promise<ApiResponse<any>> {
+  public async login(username: string, password: string, companyId?: number): Promise<ApiResponse<any>> {
     return this.request('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, companyId })
     });
   }
 

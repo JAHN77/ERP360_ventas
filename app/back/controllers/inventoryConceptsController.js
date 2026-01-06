@@ -17,7 +17,7 @@ const inventoryConceptsController = {
         FROM inv_conceptos
         ORDER BY codcon
       `;
-      const result = await executeQuery(query);
+      const result = await executeQuery(query, req.db_name);
       res.json({ success: true, data: result });
     } catch (error) {
       console.error('Error fetching inventory concepts:', error);
@@ -34,8 +34,8 @@ const inventoryConceptsController = {
         FROM inv_conceptos
         WHERE codcon = @codcon
       `;
-      const result = await executeQueryWithParams(query, { codcon });
-      
+      const result = await executeQueryWithParams(query, { codcon }, req.db_name);
+
       if (result.length === 0) {
         return res.status(404).json({ success: false, message: 'Concepto no encontrado' });
       }
@@ -66,8 +66,8 @@ const inventoryConceptsController = {
       }
 
       const checkQuery = `SELECT codcon FROM inv_conceptos WHERE codcon = @codcon`;
-      const existing = await executeQueryWithParams(checkQuery, { codcon });
-      
+      const existing = await executeQueryWithParams(checkQuery, { codcon }, req.db_name);
+
       if (existing.length > 0) {
         return res.status(400).json({ success: false, message: 'El código de concepto ya existe' });
       }
@@ -91,8 +91,8 @@ const inventoryConceptsController = {
         inicializa_inventario: inicializa_inventario ? 1 : 0
       };
 
-      await executeQueryWithParams(query, params);
-      
+      await executeQueryWithParams(query, params, req.db_name);
+
       res.json({ success: true, message: 'Concepto creado exitosamente', data: params });
     } catch (error) {
       console.error('Error creating inventory concept:', error);
@@ -142,7 +142,7 @@ const inventoryConceptsController = {
         inicializa_inventario: inicializa_inventario ? 1 : 0
       };
 
-      await executeQueryWithParams(query, params);
+      await executeQueryWithParams(query, params, req.db_name);
 
       res.json({ success: true, message: 'Concepto actualizado exitosamente' });
     } catch (error) {
@@ -155,10 +155,10 @@ const inventoryConceptsController = {
   deleteConcept: async (req, res) => {
     try {
       const { codcon } = req.params;
-      
+
       // Check if system concept (consys)
       const checkQuery = `SELECT consys FROM inv_conceptos WHERE codcon = @codcon`;
-      const concept = await executeQueryWithParams(checkQuery, { codcon });
+      const concept = await executeQueryWithParams(checkQuery, { codcon }, req.db_name);
 
       if (concept.length === 0) {
         return res.status(404).json({ success: false, message: 'Concepto no encontrado' });
@@ -166,9 +166,9 @@ const inventoryConceptsController = {
 
       // Optional: Prevent deletion if consys is true?
       // For now, allowing deletion as requested, but user can add logic here.
-      
+
       const query = `DELETE FROM inv_conceptos WHERE codcon = @codcon`;
-      await executeQueryWithParams(query, { codcon });
+      await executeQueryWithParams(query, { codcon }, req.db_name);
 
       res.json({ success: true, message: 'Concepto eliminado exitosamente' });
     } catch (error) {

@@ -52,9 +52,9 @@ const clientController = {
    */
   getAllClients: async (req, res) => {
     try {
-      const { 
-        page = '1', 
-        pageSize = '100', 
+      const {
+        page = '1',
+        pageSize = '100',
         search,
         sortBy = 'razonSocial',
         sortOrder = 'asc',
@@ -75,7 +75,7 @@ const clientController = {
 
       // Base Conditon (Active Terceros + Email Required)
       let whereClause = "WHERE t.activo = 1 AND t.EMAIL IS NOT NULL AND LTRIM(RTRIM(t.EMAIL)) <> ''";
-      
+
       console.log('🔍 [DEBUG] getAllClients - Params:', { page, pageSize, search, sortBy, sortOrder, isProveedor, tipoPersonaId, diasCredito });
 
       const params = { offset, pageSize: pageSizeNum };
@@ -94,24 +94,24 @@ const clientController = {
       if (isProveedor !== undefined && isProveedor !== null && isProveedor !== 'Todos') {
         const isProvBool = String(isProveedor) === 'true' || String(isProveedor) === '1';
         if (isProvBool) {
-            whereClause += " AND (t.isproveedor = 1)";
+          whereClause += " AND (t.isproveedor = 1)";
         } else {
-            whereClause += " AND (t.isproveedor = 0 OR t.isproveedor IS NULL)";
+          whereClause += " AND (t.isproveedor = 0 OR t.isproveedor IS NULL)";
         }
       }
 
       // Filter by Type
       if (tipoPersonaId && tipoPersonaId !== 'Todos') {
-          whereClause += " AND t.tipter = @tipoPersonaId";
-          params.tipoPersonaId = tipoPersonaId;
+        whereClause += " AND t.tipter = @tipoPersonaId";
+        params.tipoPersonaId = tipoPersonaId;
       }
 
       // Filter by Payment Condition (diasCredito)
       if (diasCredito && diasCredito !== 'Todos') {
-          whereClause += " AND t.plazo = @diasCredito";
-          params.diasCredito = diasCredito;
+        whereClause += " AND t.plazo = @diasCredito";
+        params.diasCredito = diasCredito;
       }
-      
+
       // Mapeo de columnas para ordenamiento
       const sortMapping = {
         'razonSocial': 't.nomter',
@@ -129,16 +129,16 @@ const clientController = {
 
       let orderByColumn = sortMapping[sortBy] || 't.nomter';
       const orderDirection = sortOrder.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-      
+
       let columnExpression = orderByColumn;
-      
+
       // Special sort for 'ciudad': Resolve name from code if possible
       if (sortBy === 'ciudad' || sortBy === 'ciudadId') {
-          columnExpression = `LTRIM(ISNULL(COALESCE(gm.nommun, t.ciudad), ''))`;
+        columnExpression = `LTRIM(ISNULL(COALESCE(gm.nommun, t.ciudad), ''))`;
       } else {
         const stringColumns = ['t.nomter', 't.codter', 't.EMAIL', 't.dirter', 't.TELTER'];
         if (stringColumns.includes(orderByColumn)) {
-            columnExpression = `LTRIM(ISNULL(${orderByColumn}, ''))`;
+          columnExpression = `LTRIM(ISNULL(${orderByColumn}, ''))`;
         }
       }
 
@@ -194,25 +194,25 @@ const clientController = {
       `;
 
       const [clientes, countResult] = await Promise.all([
-        executeQueryWithParams(query, params),
-        executeQueryWithParams(countQuery, searchTerm ? { search: params.search } : {})
+        executeQueryWithParams(query, params, req.db_name),
+        executeQueryWithParams(countQuery, searchTerm ? { search: params.search } : {}, req.db_name)
       ]);
 
 
 
       const processedClientes = clientes.map(c => ({
-          ...c,
-          nombreCompleto: c.razonSocial || [c.primerNombre, c.segundoNombre, c.primerApellido, c.segundoApellido].filter(Boolean).join(' ').trim() || 'Sin Nombre'
+        ...c,
+        nombreCompleto: c.razonSocial || [c.primerNombre, c.segundoNombre, c.primerApellido, c.segundoApellido].filter(Boolean).join(' ').trim() || 'Sin Nombre'
       }));
 
       // DEBUG: Inspect actual data being returned
       if (processedClientes.length > 0) {
-          console.log('🔍 [DEBUG] First 5 rows:', processedClientes.slice(0, 5).map(c => ({ 
-              id: c.id, 
-              nombre: c.nombreCompleto, 
-              ciudadRaw: c.ciudad, 
-              ciudadId: c.ciudadId 
-          })));
+        console.log('🔍 [DEBUG] First 5 rows:', processedClientes.slice(0, 5).map(c => ({
+          id: c.id,
+          nombre: c.nombreCompleto,
+          ciudadRaw: c.ciudad,
+          ciudadId: c.ciudadId
+        })));
       }
 
       const total = countResult[0]?.total || 0;
@@ -269,7 +269,7 @@ const clientController = {
           AND (nomter LIKE @like OR codter LIKE @like) -- Reduced fields for speed if needed, but keeping main ones
         ORDER BY nomter`;
 
-      const data = await executeQueryWithParams(query, { like, limit: Number(limit) });
+      const data = await executeQueryWithParams(query, { like, limit: Number(limit) }, req.db_name);
       res.json({ success: true, data });
     } catch (error) {
       console.error('Error searching clients:', error);
@@ -326,7 +326,7 @@ const clientController = {
         params = { codter: String(id).trim() };
       }
 
-      const data = await executeQueryWithParams(query, params);
+      const data = await executeQueryWithParams(query, params, req.db_name);
       if (!data || data.length === 0) {
         return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
       }
@@ -335,9 +335,9 @@ const clientController = {
       console.log("DB Result (Backend) for ID " + id + ":", cliente); // DEBUG
       // Normalize Full Name
       if (!cliente.nombreCompleto) {
-         const parts = [cliente.primerNombre, cliente.segundoNombre, cliente.primerApellido, cliente.segundoApellido];
-         const fullName = parts.filter(Boolean).join(' ').trim();
-         cliente.nombreCompleto = fullName || cliente.razonSocial || 'Sin Nombre';
+        const parts = [cliente.primerNombre, cliente.segundoNombre, cliente.primerApellido, cliente.segundoApellido];
+        const fullName = parts.filter(Boolean).join(' ').trim();
+        cliente.nombreCompleto = fullName || cliente.razonSocial || 'Sin Nombre';
       }
 
       res.json({ success: true, data: cliente });
@@ -366,7 +366,7 @@ const clientController = {
 
       // Validation
       const creditLimitDecimal = validateDecimal18_2(limiteCredito, 'limiteCredito');
-      
+
       let tipterVal = 2; // Default Cliente
       if (tipoPersonaId) tipterVal = parseInt(tipoPersonaId, 10) || 2;
 
@@ -394,13 +394,13 @@ const clientController = {
         contacto: String(contacto || '').trim().substring(0, 100),
         tipter: tipterVal
       };
-      
+
       // NOTE: `nomter` (Razon Social) logic:
       // In DB, `nomter` usually stores the full name or business name.
       // If `razonSocial` (input) is present, use it. Else validation of parts.
       let nomter = params.razonSocial;
       if (!nomter) {
-         nomter = [params.primerNombre, params.segundoNombre, params.primerApellido, params.segundoApellido].filter(Boolean).join(' ');
+        nomter = [params.primerNombre, params.segundoNombre, params.primerApellido, params.segundoApellido].filter(Boolean).join(' ');
       }
       params.nomter = nomter.substring(0, 100);
 
@@ -431,10 +431,10 @@ const clientController = {
         WHERE id = @id
       `;
 
-      await executeQueryWithParams(query, params);
+      await executeQueryWithParams(query, params, req.db_name);
 
       // Return updated
-      const updated = await executeQueryWithParams('SELECT * FROM con_terceros WHERE id = @id', { id: params.id });
+      const updated = await executeQueryWithParams('SELECT * FROM con_terceros WHERE id = @id', { id: params.id }, req.db_name);
       res.json({ success: true, data: updated[0] });
 
     } catch (error) {
@@ -451,10 +451,11 @@ const clientController = {
       const { id } = req.params;
       const { listaPrecioId } = req.body || {};
       if (!listaPrecioId) return res.status(400).json({ success: false, message: 'listaPrecioId requerido' });
-      
+
       await executeQueryWithParams(
-          `UPDATE con_terceros SET lista_precios_id = @listaPrecioId WHERE id = @clienteId;`, 
-          { listaPrecioId, clienteId: id }
+        `UPDATE con_terceros SET lista_precios_id = @listaPrecioId WHERE id = @clienteId;`,
+        { listaPrecioId, clienteId: id },
+        req.db_name
       );
       res.json({ success: true });
     } catch (error) {
@@ -484,7 +485,7 @@ const clientController = {
         ORDER BY nombre
       `;
 
-      const data = await executeQueryWithParams(query, { like, limit: Number(limit) });
+      const data = await executeQueryWithParams(query, { like, limit: Number(limit) }, req.db_name);
       res.json({ success: true, data });
     } catch (error) {
       console.error('Error searching actividades:', error);
@@ -509,15 +510,15 @@ const clientController = {
 
       // Basic Validation
       if (!numeroDocumento) return res.status(400).json({ success: false, message: 'Número de documento requerido' });
-      
-      const checkExists = await executeQueryWithParams(`SELECT id FROM con_terceros WHERE codter = @codter`, { codter: numeroDocumento });
+
+      const checkExists = await executeQueryWithParams(`SELECT id FROM con_terceros WHERE codter = @codter`, { codter: numeroDocumento }, req.db_name);
       if (checkExists.length > 0) {
         return res.status(400).json({ success: false, message: 'El cliente/tercero con este documento ya existe.' });
       }
 
       const creditLimitDecimal = validateDecimal18_2(limiteCredito, 'limiteCredito');
 
-      let tipterVal = 2; 
+      let tipterVal = 2;
       if (tipoPersonaId) tipterVal = parseInt(tipoPersonaId, 10) || 2;
 
       const params = {
@@ -548,7 +549,7 @@ const clientController = {
       // Construct Name if razonSocial empty
       let nomter = params.razonSocial;
       if (!nomter) {
-         nomter = [params.primerNombre, params.segundoNombre, params.primerApellido, params.segundoApellido].filter(Boolean).join(' ');
+        nomter = [params.primerNombre, params.segundoNombre, params.primerApellido, params.segundoApellido].filter(Boolean).join(' ');
       }
       params.nomter = nomter.substring(0, 150);
 
@@ -569,10 +570,10 @@ const clientController = {
         SELECT SCOPE_IDENTITY() as id;
       `;
 
-      const result = await executeQueryWithParams(query, params);
+      const result = await executeQueryWithParams(query, params, req.db_name);
       const newId = result[0].id;
 
-      const newClient = await executeQueryWithParams('SELECT * FROM con_terceros WHERE id = @id', { id: newId });
+      const newClient = await executeQueryWithParams('SELECT * FROM con_terceros WHERE id = @id', { id: newId }, req.db_name);
       res.json({ success: true, data: newClient[0] });
 
     } catch (error) {

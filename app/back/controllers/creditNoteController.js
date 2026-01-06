@@ -206,7 +206,7 @@ const creditNoteController = {
         ORDER BY t.nomter, f.fecfac DESC
       `;
 
-      const result = await executeQuery(query);
+      const result = await executeQuery(query, req.db_name);
 
       // Agrupar resultados por cliente
       const clientesMap = new Map();
@@ -263,7 +263,7 @@ const creditNoteController = {
       const pageSizeNum = Math.min(500, Math.max(10, parseInt(String(pageSize), 10) || 100)); // Máximo 500
       const offset = (pageNum - 1) * pageSizeNum;
 
-      const pool = await getConnection();
+      const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
 
       // Construir WHERE
       let whereClauses = [];
@@ -311,8 +311,8 @@ const creditNoteController = {
       `;
 
       const [notasResult, countResult] = await Promise.all([
-        executeQueryWithParams(query, params),
-        executeQueryWithParams(countQuery, facturaId || clienteId ? { ...(facturaId && { facturaId: params.facturaId }), ...(clienteId && { clienteId: params.clienteId }) } : {})
+        executeQueryWithParams(query, params, req.db_name),
+        executeQueryWithParams(countQuery, facturaId || clienteId ? { ...(facturaId && { facturaId: params.facturaId }), ...(clienteId && { clienteId: params.clienteId }) } : {}, req.db_name)
       ]);
 
       const notas = notasResult || [];
@@ -446,10 +446,10 @@ const creditNoteController = {
         });
       }
 
-      const pool = await getConnection();
+      const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
       // Si es testMode, no iniciamos transacción real aun, o usamos una dummy/rollback al final
       // Pero mejor: Para testMode, solo leemos datos.
-      
+
       let tx;
       if (!testMode) {
         tx = new sql.Transaction(pool);
@@ -458,7 +458,7 @@ const creditNoteController = {
       } else {
         console.log('🧪 MODO DE PRUEBA: No se iniciará transacción de escritura');
       }
-      
+
       const safeRollback = async () => { if (tx) await tx.rollback(); };
       const createRequest = () => testMode ? pool.request() : new sql.Request(tx);
 
@@ -665,85 +665,85 @@ const creditNoteController = {
         const totalTotal = detallesNormalizados.reduce((acc, item) => acc + item.total, 0);
 
         const fechaNota = fechaEmision ? new Date(fechaEmision) : new Date();
-        
+
         let numeroNota = String(numero || '').trim();
 
         // SI ES MODO DE PRUEBA: Generar JSON y retornar sin guardar
         if (testMode) {
-            console.log('🧪 Generando JSON para previsualización (Test Mode)');
-            const facturaData = await DIANService.getFacturaCompleta(factura.id);
-            const resolution = await DIANService.getDIANCreditNoteResolution(); 
-            const dianParams = await DIANService.getDIANParameters(); 
+          console.log('🧪 Generando JSON para previsualización (Test Mode)');
+          const facturaData = await DIANService.getFacturaCompleta(factura.id);
+          const resolution = await DIANService.getDIANCreditNoteResolution();
+          const dianParams = await DIANService.getDIANParameters();
 
-            let nextNum;
-            if (numeroNota) {
-                 nextNum = parseInt(numeroNota, 10);
-                 console.log(`🧪 Usando número proporcionado para prueba: ${nextNum}`);
-            } else {
-                // Calcular consecutivo numérico simulado para que el JSON no tenga number: null
-                const consecutivoRequest = createRequest();
-                const minConsecutivoResult = await consecutivoRequest.query(`
+          let nextNum;
+          if (numeroNota) {
+            nextNum = parseInt(numeroNota, 10);
+            console.log(`🧪 Usando número proporcionado para prueba: ${nextNum}`);
+          } else {
+            // Calcular consecutivo numérico simulado para que el JSON no tenga number: null
+            const consecutivoRequest = createRequest();
+            const minConsecutivoResult = await consecutivoRequest.query(`
                     SELECT MIN(consecutivo) as minConsecutivo 
                     FROM gen_movimiento_notas 
                     WHERE consecutivo <= 100000 AND consecutivo > 90000
                 `);
-                
-                nextNum = 100000;
-                if (minConsecutivoResult.recordset.length > 0 && minConsecutivoResult.recordset[0].minConsecutivo) {
-                     nextNum = minConsecutivoResult.recordset[0].minConsecutivo - 1;
+
+            nextNum = 100000;
+            if (minConsecutivoResult.recordset.length > 0 && minConsecutivoResult.recordset[0].minConsecutivo) {
+              nextNum = minConsecutivoResult.recordset[0].minConsecutivo - 1;
+            }
+            console.log(`🧪 Consecutivo simulado para prueba: ${nextNum}`);
+          }
+
+          // Construir objeto nota temporal para la transformación
+          const notaTemp = {
+            id: 0,
+            numero: nextNum, // Número real para que parseInt no de NaN
+            facturaId: factura.id,
+            clienteId: clienteFinal,
+            fechaEmision: fechaNota,
+            subtotal: subtotalTotal,
+            iva: ivaTotal,
+            total: totalTotal,
+            motivo: motivo,
+            estadoDian: '0',
+            cufe: null,
+            itemsDevueltos: detallesNormalizados.map(d => ({
+              ...d,
+              descripcion: d.descripcion || `Producto ${d.productoId}`
+            }))
+          };
+
+          // Completar descripciones si faltan
+          for (const item of notaTemp.itemsDevueltos) {
+            if (!item.descripcion || item.descripcion.startsWith('Producto')) {
+              try {
+                const descReq = pool.request();
+                descReq.input('pid', sql.Int, item.productoId);
+                const descRes = await descReq.query('SELECT nomins FROM inv_insumos WHERE id = @pid');
+                if (descRes.recordset.length > 0) {
+                  item.descripcion = descRes.recordset[0].nomins;
                 }
-                console.log(`🧪 Consecutivo simulado para prueba: ${nextNum}`);
+              } catch (e) { }
             }
+          }
 
-            // Construir objeto nota temporal para la transformación
-            const notaTemp = {
-                id: 0,
-                numero: nextNum, // Número real para que parseInt no de NaN
-                facturaId: factura.id,
-                clienteId: clienteFinal,
-                fechaEmision: fechaNota,
-                subtotal: subtotalTotal,
-                iva: ivaTotal,
-                total: totalTotal,
-                motivo: motivo,
-                estadoDian: '0',
-                cufe: null,
-                itemsDevueltos: detallesNormalizados.map(d => ({
-                    ...d,
-                    descripcion: d.descripcion || `Producto ${d.productoId}` 
-                }))
-            };
+          const notaData = {
+            nota: { ...notaTemp, tipo_nota: tipoNota },
+            detalles: notaTemp.itemsDevueltos,
+            facturaOriginal: facturaData.factura,
+            cliente: facturaData.cliente
+          };
 
-            // Completar descripciones si faltan
-            for (const item of notaTemp.itemsDevueltos) {
-                 if (!item.descripcion || item.descripcion.startsWith('Producto')) {
-                     try {
-                        const descReq = pool.request();
-                        descReq.input('pid', sql.Int, item.productoId);
-                        const descRes = await descReq.query('SELECT nomins FROM inv_insumos WHERE id = @pid');
-                        if (descRes.recordset.length > 0) {
-                            item.descripcion = descRes.recordset[0].nomins;
-                        }
-                     } catch (e) {}
-                 }
-            }
+          const notaJson = await DIANService.transformNotaCreditoForDIAN(notaData, resolution, dianParams);
 
-            const notaData = {
-                nota: { ...notaTemp, tipo_nota: tipoNota },
-                detalles: notaTemp.itemsDevueltos,
-                facturaOriginal: facturaData.factura,
-                cliente: facturaData.cliente
-            };
-
-            const notaJson = await DIANService.transformNotaCreditoForDIAN(notaData, resolution, dianParams);
-            
-            return res.json({
-                success: true,
-                isTest: true,
-                message: 'JSON generado exitosamente (Modo Prueba)',
-                data: notaJson,
-                notaPreview: notaTemp
-            });
+          return res.json({
+            success: true,
+            isTest: true,
+            message: 'JSON generado exitosamente (Modo Prueba)',
+            data: notaJson,
+            notaPreview: notaTemp
+          });
         }
         let isUpdate = false;
         let nextConsecutivo;
@@ -756,75 +756,75 @@ const creditNoteController = {
           const numeroResult = await numeroReq.query(`
             SELECT id, estado FROM gen_movimiento_notas WHERE comprobante = @numero
           `);
-          
+
           if (numeroResult.recordset.length > 0) {
             const existingNote = numeroResult.recordset[0];
             // Check if existing note is Rejected/Error
             if (existingNote.estado === 'RE' || existingNote.estado === 'AN') {
-                 console.log(`♻️ Modificando nota existente ${numeroNota} (ID: ${existingNote.id})`);
-                 isUpdate = true;
-                 nuevaNotaId = existingNote.id;
-                 // We need to fetch 'consecutivo' and 'comprobante' from DB as they weren't in the initial SELECT above
-                 // Actually they weren't selected in line 751. Let's fix that too by assuming we need to fetch them or updating the SELECT in a separate step?
-                 // Wait, I can't update line 751 easily here.
-                 // I will fetch them now.
-                 const detailsReq = new sql.Request(tx);
-                 detailsReq.input('eid', sql.Int, existingNote.id);
-                 const detailsRes = await detailsReq.query(`SELECT consecutivo, comprobante FROM gen_movimiento_notas WHERE id = @eid`);
-                 const fullExisting = detailsRes.recordset[0];
+              console.log(`♻️ Modificando nota existente ${numeroNota} (ID: ${existingNote.id})`);
+              isUpdate = true;
+              nuevaNotaId = existingNote.id;
+              // We need to fetch 'consecutivo' and 'comprobante' from DB as they weren't in the initial SELECT above
+              // Actually they weren't selected in line 751. Let's fix that too by assuming we need to fetch them or updating the SELECT in a separate step?
+              // Wait, I can't update line 751 easily here.
+              // I will fetch them now.
+              const detailsReq = new sql.Request(tx);
+              detailsReq.input('eid', sql.Int, existingNote.id);
+              const detailsRes = await detailsReq.query(`SELECT consecutivo, comprobante FROM gen_movimiento_notas WHERE id = @eid`);
+              const fullExisting = detailsRes.recordset[0];
 
-                 nextConsecutivo = fullExisting.consecutivo;
-                 
-                 // 1. REVERSE INVENTORY (Void previous return impact)
-                 // Fetch old items to reverse their inventory movement
-                 const oldItemsReq = new sql.Request(tx);
-                 oldItemsReq.input('oldId', sql.Int, existingNote.id);
-                 const oldItemsResult = await oldItemsReq.query(`SELECT * FROM Ven_Devolucion WHERE id_nota = @oldId`);
+              nextConsecutivo = fullExisting.consecutivo;
 
-                 for (const item of oldItemsResult.recordset) {
-                    console.log(`↩️ Reversando inventario para item ${item.Codins} (Qty: ${item.QTYDEV})`);
-                    // Find product ID from Codins (best effort)
-                    const prodLookup = new sql.Request(tx);
-                    prodLookup.input('codins', sql.Char(8), item.Codins);
-                    const prodRes = await prodLookup.query(`SELECT id FROM inv_insumos WHERE codins = @codins`);
-                    const prodId = prodRes.recordset[0]?.id;
+              // 1. REVERSE INVENTORY (Void previous return impact)
+              // Fetch old items to reverse their inventory movement
+              const oldItemsReq = new sql.Request(tx);
+              oldItemsReq.input('oldId', sql.Int, existingNote.id);
+              const oldItemsResult = await oldItemsReq.query(`SELECT * FROM Ven_Devolucion WHERE id_nota = @oldId`);
 
-                    if (prodId) {
-                         // Register SALIDA to cancel the previous ENTRADA
-                         await InventoryService.registrarSalida({
-                            transaction: tx,
-                            productoId: prodId,
-                            cantidad: item.QTYDEV, // Reverse the quantity returned
-                            bodega: item.Codalm,
-                            numeroDocumentoInt: nextConsecutivo,
-                            tipoMovimiento: 'SA', // Salida por corrección de devolución
-                            observaciones: `Corrección Devolución ${fullExisting.comprobante} (Reverso)`,
-                            codUsuario: usuarioFinal,
-                            clienteId: clienteFinal,
-                            numComprobante: nextConsecutivo
-                         });
-                    }
-                 }
+              for (const item of oldItemsResult.recordset) {
+                console.log(`↩️ Reversando inventario para item ${item.Codins} (Qty: ${item.QTYDEV})`);
+                // Find product ID from Codins (best effort)
+                const prodLookup = new sql.Request(tx);
+                prodLookup.input('codins', sql.Char(8), item.Codins);
+                const prodRes = await prodLookup.query(`SELECT id FROM inv_insumos WHERE codins = @codins`);
+                const prodId = prodRes.recordset[0]?.id;
 
-                 // 2. CLEAR OLD DETAILS
-                 const deleteReq = new sql.Request(tx);
-                 deleteReq.input('oldId', sql.Int, existingNote.id);
-                 await deleteReq.query(`DELETE FROM Ven_Devolucion WHERE id_nota = @oldId`);
+                if (prodId) {
+                  // Register SALIDA to cancel the previous ENTRADA
+                  await InventoryService.registrarSalida({
+                    transaction: tx,
+                    productoId: prodId,
+                    cantidad: item.QTYDEV, // Reverse the quantity returned
+                    bodega: item.Codalm,
+                    numeroDocumentoInt: nextConsecutivo,
+                    tipoMovimiento: 'SA', // Salida por corrección de devolución
+                    observaciones: `Corrección Devolución ${fullExisting.comprobante} (Reverso)`,
+                    codUsuario: usuarioFinal,
+                    clienteId: clienteFinal,
+                    numComprobante: nextConsecutivo
+                  });
+                }
+              }
 
-                 // 3. UPDATE HEADER
-                 const updateHeaderReq = new sql.Request(tx);
-                 updateHeaderReq.input('id', sql.Int, existingNote.id);
-                 updateHeaderReq.input('fecha', sql.Date, fechaNota);
-                 updateHeaderReq.input('detalle', sql.VarChar(100), String(motivo).trim().substring(0, 100));
-                 updateHeaderReq.input('valor_nota', sql.Decimal(18, 2), Number(subtotalTotal.toFixed(2)));
-                 updateHeaderReq.input('iva_nota', sql.Decimal(18, 2), Number(ivaTotal.toFixed(2)));
-                 updateHeaderReq.input('total_nota', sql.Decimal(18, 2), Number(totalTotal.toFixed(2)));
-                 
-                 // Reset status to allow processing
-                 updateHeaderReq.input('estado', sql.Char(2), ''); 
-                 updateHeaderReq.input('estado_envio', sql.Bit, 0);
+              // 2. CLEAR OLD DETAILS
+              const deleteReq = new sql.Request(tx);
+              deleteReq.input('oldId', sql.Int, existingNote.id);
+              await deleteReq.query(`DELETE FROM Ven_Devolucion WHERE id_nota = @oldId`);
 
-                 await updateHeaderReq.query(`
+              // 3. UPDATE HEADER
+              const updateHeaderReq = new sql.Request(tx);
+              updateHeaderReq.input('id', sql.Int, existingNote.id);
+              updateHeaderReq.input('fecha', sql.Date, fechaNota);
+              updateHeaderReq.input('detalle', sql.VarChar(100), String(motivo).trim().substring(0, 100));
+              updateHeaderReq.input('valor_nota', sql.Decimal(18, 2), Number(subtotalTotal.toFixed(2)));
+              updateHeaderReq.input('iva_nota', sql.Decimal(18, 2), Number(ivaTotal.toFixed(2)));
+              updateHeaderReq.input('total_nota', sql.Decimal(18, 2), Number(totalTotal.toFixed(2)));
+
+              // Reset status to allow processing
+              updateHeaderReq.input('estado', sql.Char(2), '');
+              updateHeaderReq.input('estado_envio', sql.Bit, 0);
+
+              await updateHeaderReq.query(`
                     UPDATE gen_movimiento_notas 
                     SET fecha = @fecha, detalle = @detalle, 
                         valor_nota = @valor_nota, iva_nota = @iva_nota, total_nota = @total_nota,
@@ -833,11 +833,11 @@ const creditNoteController = {
                  `);
 
             } else {
-                await tx.rollback();
-                return res.status(409).json({
-                  success: false,
-                  message: `Ya existe una nota de crédito ACTIVA con el número ${numeroNota}`
-                });
+              await tx.rollback();
+              return res.status(409).json({
+                success: false,
+                message: `Ya existe una nota de crédito ACTIVA con el número ${numeroNota}`
+              });
             }
           }
         }
@@ -855,52 +855,52 @@ const creditNoteController = {
         const codalmFinal = codalmreq || factura.codalm || '001';
 
         if (!isUpdate) {
-            if (req.body.numero) {
-                 nextConsecutivo = parseInt(req.body.numero, 10);
-                 console.log('🔢 Usando consecutivo proporcionado (Retry):', nextConsecutivo);
-            } else {
-                const consecutivoRequest = new sql.Request(tx);
-                const minConsecutivoResult = await consecutivoRequest.query(`
+          if (req.body.numero) {
+            nextConsecutivo = parseInt(req.body.numero, 10);
+            console.log('🔢 Usando consecutivo proporcionado (Retry):', nextConsecutivo);
+          } else {
+            const consecutivoRequest = new sql.Request(tx);
+            const minConsecutivoResult = await consecutivoRequest.query(`
                   SELECT MIN(consecutivo) as minConsecutivo 
                   FROM gen_movimiento_notas 
                   WHERE consecutivo <= 100000 AND consecutivo > 90000
                 `);
-    
-                const minConsecutivo = minConsecutivoResult.recordset[0]?.minConsecutivo;
-                if (minConsecutivo) {
-                  nextConsecutivo = minConsecutivo - 1;
-                } else {
-                  nextConsecutivo = 100000;
-                }
-                console.log('🔢 Consecutivo generado:', nextConsecutivo);
+
+            const minConsecutivo = minConsecutivoResult.recordset[0]?.minConsecutivo;
+            if (minConsecutivo) {
+              nextConsecutivo = minConsecutivo - 1;
+            } else {
+              nextConsecutivo = 100000;
             }
-    
-            const year = fechaNota.getFullYear();
-            comprobante = `${year}-${nextConsecutivo}`;
-    
-            const insertNotaRequest = new sql.Request(tx);
-            insertNotaRequest.input('id_factura', sql.BigInt, factura.id);
-            insertNotaRequest.input('codalm', sql.Char(3), codalmFinal);
-            insertNotaRequest.input('consecutivo', sql.Int, nextConsecutivo);
-            insertNotaRequest.input('comprobante', sql.VarChar(12), comprobante);
-            insertNotaRequest.input('fecha', sql.Date, fechaNota);
-            insertNotaRequest.input('codter', sql.VarChar(15), clienteFinal);
-            insertNotaRequest.input('tipo_nota', sql.Char(2), 'NC');
-            insertNotaRequest.input('clase', sql.Int, 2);
-            insertNotaRequest.input('codcon', sql.VarChar(3), '002');
-            insertNotaRequest.input('detalle', sql.VarChar(100), String(motivo).trim().substring(0, 100));
-            insertNotaRequest.input('valor_nota', sql.Decimal(18, 2), Number(subtotalTotal.toFixed(2)));
-            insertNotaRequest.input('iva_nota', sql.Decimal(18, 2), Number(ivaTotal.toFixed(2)));
-            insertNotaRequest.input('retencion_nota', sql.Decimal(18, 2), 0);
-            insertNotaRequest.input('reteica_nota', sql.Decimal(18, 2), 0);
-            insertNotaRequest.input('reteiva_nota', sql.Decimal(18, 2), 0);
-            insertNotaRequest.input('total_nota', sql.Decimal(18, 2), Number(totalTotal.toFixed(2)));
-            insertNotaRequest.input('usuario', sql.VarChar(10), usuarioFinal);
-            insertNotaRequest.input('estado', sql.Char(2), '');
-            insertNotaRequest.input('valor_descuento', sql.Decimal(18, 2), 0);
-            insertNotaRequest.input('estado_envio', sql.Bit, 0);
-    
-            const insertNotaResult = await insertNotaRequest.query(`
+            console.log('🔢 Consecutivo generado:', nextConsecutivo);
+          }
+
+          const year = fechaNota.getFullYear();
+          comprobante = `${year}-${nextConsecutivo}`;
+
+          const insertNotaRequest = new sql.Request(tx);
+          insertNotaRequest.input('id_factura', sql.BigInt, factura.id);
+          insertNotaRequest.input('codalm', sql.Char(3), codalmFinal);
+          insertNotaRequest.input('consecutivo', sql.Int, nextConsecutivo);
+          insertNotaRequest.input('comprobante', sql.VarChar(12), comprobante);
+          insertNotaRequest.input('fecha', sql.Date, fechaNota);
+          insertNotaRequest.input('codter', sql.VarChar(15), clienteFinal);
+          insertNotaRequest.input('tipo_nota', sql.Char(2), 'NC');
+          insertNotaRequest.input('clase', sql.Int, 2);
+          insertNotaRequest.input('codcon', sql.VarChar(3), '002');
+          insertNotaRequest.input('detalle', sql.VarChar(100), String(motivo).trim().substring(0, 100));
+          insertNotaRequest.input('valor_nota', sql.Decimal(18, 2), Number(subtotalTotal.toFixed(2)));
+          insertNotaRequest.input('iva_nota', sql.Decimal(18, 2), Number(ivaTotal.toFixed(2)));
+          insertNotaRequest.input('retencion_nota', sql.Decimal(18, 2), 0);
+          insertNotaRequest.input('reteica_nota', sql.Decimal(18, 2), 0);
+          insertNotaRequest.input('reteiva_nota', sql.Decimal(18, 2), 0);
+          insertNotaRequest.input('total_nota', sql.Decimal(18, 2), Number(totalTotal.toFixed(2)));
+          insertNotaRequest.input('usuario', sql.VarChar(10), usuarioFinal);
+          insertNotaRequest.input('estado', sql.Char(2), '');
+          insertNotaRequest.input('valor_descuento', sql.Decimal(18, 2), 0);
+          insertNotaRequest.input('estado_envio', sql.Bit, 0);
+
+          const insertNotaResult = await insertNotaRequest.query(`
               INSERT INTO gen_movimiento_notas (
                 id_factura, codalm, consecutivo, comprobante, fecha, codter, 
                 tipo_nota, clase, codcon, detalle, valor_nota, iva_nota, 
@@ -915,15 +915,15 @@ const creditNoteController = {
                 @usuario, @estado, GETDATE(), @valor_descuento, @estado_envio
               );
             `);
-            
-            console.log('✅ Resultado INSERT gen_movimiento_notas:', insertNotaResult);
-            nuevaNotaId = insertNotaResult.recordset[0]?.id; // Assign to outer variable
-            console.log('🆔 ID Nueva Nota:', nuevaNotaId);
+
+          console.log('✅ Resultado INSERT gen_movimiento_notas:', insertNotaResult);
+          nuevaNotaId = insertNotaResult.recordset[0]?.id; // Assign to outer variable
+          console.log('🆔 ID Nueva Nota:', nuevaNotaId);
 
         } else {
-             // Update mode: Fetch comprobante for existing note
-             const cRes = await new sql.Request(tx).query(`SELECT comprobante FROM gen_movimiento_notas WHERE id = ${nuevaNotaId}`);
-             comprobante = cRes.recordset[0].comprobante;
+          // Update mode: Fetch comprobante for existing note
+          const cRes = await new sql.Request(tx).query(`SELECT comprobante FROM gen_movimiento_notas WHERE id = ${nuevaNotaId}`);
+          comprobante = cRes.recordset[0].comprobante;
         }
 
         if (!nuevaNotaId) {
@@ -997,7 +997,7 @@ const creditNoteController = {
           });
         }
 
-        
+
 
 
         console.log('💾 Haciendo COMMIT de la transacción...');
@@ -1029,7 +1029,7 @@ const creditNoteController = {
             updateDianReq.input('estadoEnvio', sql.Bit, 1);
             updateDianReq.input('estado', sql.Char(2), 'OK');
             await updateDianReq.query(`UPDATE gen_movimiento_notas SET cufe = @cufe, estado_envio = @estadoEnvio, estado = @estado, fecsys = GETDATE() WHERE id = @notaId`);
-            
+
             notaCreada.estadoDian = '1';
             notaCreada.cufe = dianResponse.cufe;
             notaCreada.estado = 'OK';
@@ -1135,7 +1135,7 @@ const creditNoteController = {
   getNextCreditNoteNumber: async (req, res) => {
     try {
       const pool = await getConnection();
-      
+
       const consecutivoRequest = new sql.Request(pool);
       const minConsecutivoResult = await consecutivoRequest.query(`
         SELECT MIN(consecutivo) as minConsecutivo 
@@ -1145,15 +1145,15 @@ const creditNoteController = {
 
       let nextConsecutivo;
       const minConsecutivo = minConsecutivoResult.recordset[0]?.minConsecutivo;
-      
+
       if (minConsecutivo) {
         nextConsecutivo = minConsecutivo - 1;
       } else {
         nextConsecutivo = 100000;
       }
-      
-    const nextNumber = String(nextConsecutivo);
-      
+
+      const nextNumber = String(nextConsecutivo);
+
       res.json({ success: true, data: { nextNumber } });
     } catch (error) {
       console.error('Error getting next credit note number:', error);
@@ -1165,11 +1165,11 @@ const creditNoteController = {
   sendCreditNoteEmail: async (req, res) => {
     try {
       const { id } = req.params;
-      const { destinatario, asunto, mensaje, pdfBase64 } = req.body; 
+      const { destinatario, asunto, mensaje, pdfBase64 } = req.body;
 
       const pool = await getConnection();
       const idNum = parseInt(id, 10);
-      
+
       // 1. Obtener Datos de Nota Crédito
       const notaQuery = `
         SELECT 
@@ -1186,7 +1186,7 @@ const creditNoteController = {
         WHERE n.id = @id
       `;
       const notaRes = await executeQueryWithParams(notaQuery, { id: idNum });
-      
+
       if (notaRes.length === 0) {
         return res.status(404).json({ success: false, message: 'Nota de crédito no encontrada' });
       }
@@ -1195,37 +1195,37 @@ const creditNoteController = {
       const clienteEmail = destinatario || nota.EMAIL;
 
       if (!clienteEmail) {
-         return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado.' });
+        return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado.' });
       }
 
       // 2. Preparar PDF
       let pdfBuffer;
       if (pdfBase64) {
-          pdfBuffer = pdfBase64;
+        pdfBuffer = pdfBase64;
       } else {
-          return res.status(400).json({ success: false, message: 'Se requiere el PDF generado.' });
+        return res.status(400).json({ success: false, message: 'Se requiere el PDF generado.' });
       }
 
       // 3. Preparar Detalles
       const formatCurrency = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(val);
       const documentDetails = [
-          { label: 'Total Nota', value: formatCurrency(nota.total_nota || 0) },
-          { label: 'Fecha Emisión', value: new Date(nota.fecha).toLocaleDateString('es-CO') },
-          { label: 'Factura Afectada', value: nota.facturaNumero || 'N/A' }
+        { label: 'Total Nota', value: formatCurrency(nota.total_nota || 0) },
+        { label: 'Fecha Emisión', value: new Date(nota.fecha).toLocaleDateString('es-CO') },
+        { label: 'Factura Afectada', value: nota.facturaNumero || 'N/A' }
       ];
 
       // 4. Enviar Correo
       const { sendDocumentEmail } = require('../services/emailService.cjs');
       await sendDocumentEmail({
-          to: clienteEmail,
-          customerName: nota.nomter,
-          documentNumber: nota.consecutivo,
-          documentType: 'Nota Crédito',
-          pdfBuffer,
-          subject: asunto,
-          body: mensaje,
-          documentDetails,
-          processSteps: `
+        to: clienteEmail,
+        customerName: nota.nomter,
+        documentNumber: nota.consecutivo,
+        documentType: 'Nota Crédito',
+        pdfBuffer,
+        subject: asunto,
+        body: mensaje,
+        documentDetails,
+        processSteps: `
             <p>Hemos generado esta Nota Crédito para aplicar el ajuste correspondiente a la factura <strong>${nota.facturaNumero || 'N/A'}</strong> debido a: <strong>${nota.motivo || 'Ajuste administrativo'}</strong>. El saldo a favor ha sido aplicado.</p>
           `
       });

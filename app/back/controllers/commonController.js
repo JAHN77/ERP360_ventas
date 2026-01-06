@@ -28,13 +28,13 @@ const getVendedores = async (req, res) => {
 
     const params = {};
     if (search) {
-        query += ` AND (v.codven LIKE @search OR v.nomven LIKE @search OR CAST(v.ideven AS VARCHAR) LIKE @search)`;
-        params.search = `%${search}%`;
+      query += ` AND (v.codven LIKE @search OR v.nomven LIKE @search OR CAST(v.ideven AS VARCHAR) LIKE @search)`;
+      params.search = `%${search}%`;
     }
-    
+
     query += ` ORDER BY v.nomven`;
 
-    const data = await executeQueryWithParams(query, params);
+    const data = await executeQueryWithParams(query, params, req.db_name);
 
     const processedData = data.map((item) => {
       const nombreCompleto = item.nombreCompleto || '';
@@ -72,30 +72,30 @@ const getEmpresa = async (req, res) => {
         LTRIM(RTRIM(regimen_empresa)) as regimen
       FROM gen_empresa
     `;
-    const result = await executeQuery(query);
+    const result = await executeQueryWithParams(query, {}, req.db_name);
     const empresa = result[0] || null;
-    
+
     // Si hay empresa, forzar la carga del logo solicitado por el usuario como base64
     if (empresa) {
       try {
-          const logoPath = path.join(__dirname, '../public/assets/images.png');
+        const logoPath = path.join(__dirname, '../public/assets/images.png');
 
-          if (fs.existsSync(logoPath)) {
-              const bitmap = fs.readFileSync(logoPath);
-              const extension = path.extname(logoPath).replace('.', '') || 'png';
-              const base64Logo = `data:image/${extension};base64,${bitmap.toString('base64')}`;
-              
-              empresa.logoBase64 = base64Logo;
-              empresa.logoExt = base64Logo; 
-              console.log('✅ Logo cargado exitosamente como Base64');
-          } else {
-              console.warn('⚠️ Logo no encontrado en:', logoPath);
-          }
+        if (fs.existsSync(logoPath)) {
+          const bitmap = fs.readFileSync(logoPath);
+          const extension = path.extname(logoPath).replace('.', '') || 'png';
+          const base64Logo = `data:image/${extension};base64,${bitmap.toString('base64')}`;
+
+          empresa.logoBase64 = base64Logo;
+          empresa.logoExt = base64Logo;
+          console.log('✅ Logo cargado exitosamente como Base64');
+        } else {
+          console.warn('⚠️ Logo no encontrado en:', logoPath);
+        }
       } catch (err) {
-          console.warn('⚠️ Error procesando el logo:', err.message);
+        console.warn('⚠️ Error procesando el logo:', err.message);
       }
     }
-    
+
     res.json({ success: true, data: empresa });
   } catch (error) {
     console.error('Error fetching empresa:', error);
@@ -105,10 +105,10 @@ const getEmpresa = async (req, res) => {
 
 const getBodegas = async (req, res) => {
   try {
-    const bodegas = await executeQuery(`
+    const bodegas = await executeQueryWithParams(`
       SELECT codalm, RTRIM(nomalm) as nomalm, RTRIM(COALESCE(diralm, '')) as diralm, RTRIM(COALESCE(ciualm, '')) as ciualm, CAST(activo AS INT) as activo
       FROM inv_almacen WHERE activo = 1 ORDER BY codalm
-    `);
+    `, {}, req.db_name);
     const bodegasMapeadas = bodegas.map(b => ({
       id: b.codalm,
       codigo: b.codalm,
@@ -117,7 +117,7 @@ const getBodegas = async (req, res) => {
       ciudad: b.ciualm || '',
       activo: b.activo === 1 || b.activo === true
     }));
-    
+
     res.set({
       'Cache-Control': 'public, max-age=300, must-revalidate',
       'ETag': `"${Date.now()}-${bodegasMapeadas.length}"`
@@ -131,10 +131,10 @@ const getBodegas = async (req, res) => {
 
 const getCiudades = async (req, res) => {
   try {
-    const ciudades = await executeQuery(`
+    const ciudades = await executeQueryWithParams(`
       SELECT ID as id, nommun as nombre, coddane as codigo, coddep as departamentoId
       FROM gen_municipios ORDER BY nommun ASC
-    `);
+    `, {}, req.db_name);
     res.json({ success: true, data: ciudades });
   } catch (error) {
     console.error('Error obteniendo ciudades:', error);
@@ -146,7 +146,7 @@ const executeCustomQuery = async (req, res) => {
   try {
     const { query } = req.body;
     if (!query || typeof query !== 'string') return res.status(400).json({ success: false, message: 'Query requerida' });
-    const result = await executeQuery(query);
+    const result = await executeQueryWithParams(query, {}, req.db_name);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('Error executing custom query:', error);

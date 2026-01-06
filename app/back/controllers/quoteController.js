@@ -1,11 +1,11 @@
 const sql = require('mssql');
 const { executeQueryWithParams, getConnection } = require('../services/sqlServerClient.cjs');
 const { TABLE_NAMES } = require('../services/dbConfig.cjs');
-const { 
-  mapEstadoToDb, 
-  mapEstadoFromDb, 
-  validateDecimal18_2, 
-  validateDecimal5_2 
+const {
+  mapEstadoToDb,
+  mapEstadoFromDb,
+  validateDecimal18_2,
+  validateDecimal5_2
 } = require('../utils/helpers');
 const { generateQuotePdfBuffer } = require('../services/pdfService.cjs');
 // sendCotizacionEmail removed (using sendDocumentEmail directly)
@@ -120,8 +120,8 @@ const getAllQuotes = async (req, res) => {
     `;
 
     const [cotizaciones, countResult] = await Promise.all([
-      executeQueryWithParams(query, params),
-      executeQueryWithParams(countQuery, estadoDb || searchTerm ? { ...(estadoDb && { estado: estadoDb }), ...(searchTerm && { search: `%${searchTerm}%` }) } : {})
+      executeQueryWithParams(query, params, req.db_name),
+      executeQueryWithParams(countQuery, estadoDb || searchTerm ? { ...(estadoDb && { estado: estadoDb }), ...(searchTerm && { search: `%${searchTerm}%` }) } : {}, req.db_name)
     ]);
 
     // Mapear estados de BD a frontend
@@ -209,7 +209,7 @@ const getQuoteDetails = async (req, res) => {
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `;
 
-    const detalles = await executeQueryWithParams(query, params);
+    const detalles = await executeQueryWithParams(query, params, req.db_name);
 
     res.json({
       success: true,
@@ -260,9 +260,9 @@ const createQuote = async (req, res) => {
     }
 
     // Iniciar transacción SQL
-    const pool = await getConnection();
+    const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
     const tx = new sql.Transaction(pool);
-    
+
     try {
       await tx.begin();
 
@@ -301,38 +301,38 @@ const createQuote = async (req, res) => {
       }
 
       const codTerFinal = clienteData.codter;
-      
+
       // Validar vendedor con estrategia similar
-      let codVendedorFinal = clienteData.codven; 
+      let codVendedorFinal = clienteData.codven;
       if (vendedorId) {
         const vendedorIdStr = String(vendedorId).trim();
         let vendedorFound = false;
-        
+
         // Intento 1: Buscar por ID Interno (si es numérico)
         const venIdNum = parseInt(vendedorIdStr, 10);
         if (!isNaN(venIdNum) && String(venIdNum) === vendedorIdStr) {
-             const reqVenId = new sql.Request(tx);
-             reqVenId.input('vid', sql.Int, venIdNum);
-             const resVen = await reqVenId.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE id = @vid`);
-             if (resVen.recordset.length > 0) {
-                 codVendedorFinal = resVen.recordset[0].codven;
-                 vendedorFound = true;
-             }
+          const reqVenId = new sql.Request(tx);
+          reqVenId.input('vid', sql.Int, venIdNum);
+          const resVen = await reqVenId.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE id = @vid`);
+          if (resVen.recordset.length > 0) {
+            codVendedorFinal = resVen.recordset[0].codven;
+            vendedorFound = true;
+          }
         }
 
         // Intento 2: Buscar por Código (codven) si no se encontró por ID
         if (!vendedorFound) {
-             // Verificar si existe como código
-             const reqVenCod = new sql.Request(tx);
-             reqVenCod.input('vcod', sql.VarChar(20), vendedorIdStr);
-             const resVenCod = await reqVenCod.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE LTRIM(RTRIM(codven)) = @vcod`);
-             if (resVenCod.recordset.length > 0) {
-                 codVendedorFinal = resVenCod.recordset[0].codven;
-                 vendedorFound = true;
-             } else {
-                 // Si no se encuentra en DB, asumir que el string pasado ES el código y confiar (fallback legacy)
-                 codVendedorFinal = vendedorIdStr;
-             }
+          // Verificar si existe como código
+          const reqVenCod = new sql.Request(tx);
+          reqVenCod.input('vcod', sql.VarChar(20), vendedorIdStr);
+          const resVenCod = await reqVenCod.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE LTRIM(RTRIM(codven)) = @vcod`);
+          if (resVenCod.recordset.length > 0) {
+            codVendedorFinal = resVenCod.recordset[0].codven;
+            vendedorFound = true;
+          } else {
+            // Si no se encuentra en DB, asumir que el string pasado ES el código y confiar (fallback legacy)
+            codVendedorFinal = vendedorIdStr;
+          }
         }
       }
 
@@ -350,9 +350,9 @@ const createQuote = async (req, res) => {
       if (ultimoNumResult.recordset.length > 0) {
         const ultimoNum = ultimoNumResult.recordset[0].numcot;
         // Extraer solo los dígitos del último número (maneja "C-000004" y "000004")
-        const soloDigitos = ultimoNum.replace(/\D/g, ''); 
+        const soloDigitos = ultimoNum.replace(/\D/g, '');
         const consecutivo = parseInt(soloDigitos, 10);
-        
+
         if (!isNaN(consecutivo)) {
           nuevoNumero = String(consecutivo + 1).padStart(6, '0');
         }
@@ -362,25 +362,25 @@ const createQuote = async (req, res) => {
       const reqInsertHeader = new sql.Request(tx);
       reqInsertHeader.input('numcot', sql.VarChar(8), nuevoNumero);
       reqInsertHeader.input('fecha', sql.Date, fechaCotizacion || new Date());
-      reqInsertHeader.input('fecha_vence', sql.Date, fechaVencimiento || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)); 
-      
+      reqInsertHeader.input('fecha_vence', sql.Date, fechaVencimiento || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000));
+
       reqInsertHeader.input('codter', sql.VarChar(15), String(codTerFinal).substring(0, 15));
       reqInsertHeader.input('cod_vendedor', sql.VarChar(10), String(codVendedorFinal || '').substring(0, 10));
-      
+
       let codAlmFinal = '001';
       if (empresaId) {
-          codAlmFinal = String(empresaId).trim().substring(0, 3);
+        codAlmFinal = String(empresaId).trim().substring(0, 3);
       }
       reqInsertHeader.input('codalm', sql.VarChar(3), codAlmFinal);
-      
+
       reqInsertHeader.input('subtotal', sql.Decimal(18, 2), validateDecimal18_2(subtotal || 0, 'subtotal'));
       reqInsertHeader.input('val_descuento', sql.Decimal(18, 2), validateDecimal18_2(descuentoValor || 0, 'descuentoValor'));
       reqInsertHeader.input('val_iva', sql.Decimal(18, 2), validateDecimal18_2(ivaValor || 0, 'ivaValor'));
       reqInsertHeader.input('valor_anticipo', sql.Decimal(18, 2), 0);
       reqInsertHeader.input('observa', sql.VarChar(200), String(observaciones || '').substring(0, 200));
-      
+
       reqInsertHeader.input('estado', sql.VarChar(10), 'B');
-      
+
       let formaPagoFinal = '01';
       if (formaPago) {
         const fpStr = String(formaPago).trim();
@@ -389,7 +389,7 @@ const createQuote = async (req, res) => {
         else formaPagoFinal = fpStr.substring(0, 2);
       }
       reqInsertHeader.input('formapago', sql.NChar(4), formaPagoFinal);
-      
+
       reqInsertHeader.input('fecsys', sql.Date, new Date());
       reqInsertHeader.input('cod_usuario', sql.VarChar(10), 'ADMIN');
       reqInsertHeader.input('COD_TARIFA', sql.Char(2), '01');
@@ -416,38 +416,38 @@ const createQuote = async (req, res) => {
 
         const reqInsertDetail = new sql.Request(tx);
         reqInsertDetail.input('id_cotizacion', sql.BigInt, cotizacionId);
-        
+
         let codProductoStr = String(item.codProducto || '').trim();
         if (!codProductoStr && item.productoId) {
-             const prodIdStr = String(item.productoId).trim();
-             const prodIdNum = parseInt(prodIdStr, 10);
-             let prodFound = false;
+          const prodIdStr = String(item.productoId).trim();
+          const prodIdNum = parseInt(prodIdStr, 10);
+          let prodFound = false;
 
-             // Intento 1: Por ID interno
-             if (!isNaN(prodIdNum) && String(prodIdNum) === prodIdStr) {
-                 const reqProdId = new sql.Request(tx);
-                 reqProdId.input('prodId', sql.Int, prodIdNum);
-                 const resProdId = await reqProdId.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @prodId`);
-                 if (resProdId.recordset.length > 0) {
-                     codProductoStr = resProdId.recordset[0].codins;
-                     prodFound = true;
-                 }
-             }
+          // Intento 1: Por ID interno
+          if (!isNaN(prodIdNum) && String(prodIdNum) === prodIdStr) {
+            const reqProdId = new sql.Request(tx);
+            reqProdId.input('prodId', sql.Int, prodIdNum);
+            const resProdId = await reqProdId.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @prodId`);
+            if (resProdId.recordset.length > 0) {
+              codProductoStr = resProdId.recordset[0].codins;
+              prodFound = true;
+            }
+          }
 
-             // Intento 2: Por Código (codins)
-             if (!prodFound) {
-                 const reqProdCod = new sql.Request(tx);
-                 reqProdCod.input('prodCod', sql.VarChar(20), prodIdStr);
-                 const resProdCod = await reqProdCod.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE LTRIM(RTRIM(codins)) = @prodCod`);
-                 if (resProdCod.recordset.length > 0) {
-                     codProductoStr = resProdCod.recordset[0].codins;
-                 }
-             }
+          // Intento 2: Por Código (codins)
+          if (!prodFound) {
+            const reqProdCod = new sql.Request(tx);
+            reqProdCod.input('prodCod', sql.VarChar(20), prodIdStr);
+            const resProdCod = await reqProdCod.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE LTRIM(RTRIM(codins)) = @prodCod`);
+            if (resProdCod.recordset.length > 0) {
+              codProductoStr = resProdCod.recordset[0].codins;
+            }
+          }
         }
-        
+
         // Fix: Schema ven_detacotizacion.cod_producto is char(8). 
         reqInsertDetail.input('cod_producto', sql.VarChar(8), codProductoStr.substring(0, 8));
-        
+
         const cant = validateDecimal18_2(item.cantidad, 'item.cantidad');
         const precio = validateDecimal18_2(item.precioUnitario, 'item.precioUnitario');
         const tasaDcto = validateDecimal5_2(item.descuentoPorcentaje || 0, 'item.descuentoPorcentaje');
@@ -461,7 +461,7 @@ const createQuote = async (req, res) => {
         reqInsertDetail.input('valor', sql.Decimal(18, 2), totalItem);
         // Fix: Schema ven_detacotizacion.codigo_medida is char(3).
         reqInsertDetail.input('codigo_medida', sql.VarChar(3), String(item.codigoMedida || 'UND').substring(0, 3));
-        
+
         await reqInsertDetail.query(`
           INSERT INTO ${TABLE_NAMES.cotizaciones_detalle} (
             id_cotizacion, cod_producto, cantidad, preciound, 
@@ -508,22 +508,22 @@ const updateQuote = async (req, res) => {
     return res.status(400).json({ success: false, message: 'ID de cotización inválido' });
   }
 
-  const pool = await getConnection();
+  const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
   const tx = new sql.Transaction(pool);
 
   try {
     await tx.begin();
-    
+
     // Verificar estado actual
     const reqCheck = new sql.Request(tx);
     reqCheck.input('id', sql.Int, idNum);
     const checkRes = await reqCheck.query(`SELECT estado, numcot, codter FROM ${TABLE_NAMES.cotizaciones} WHERE id = @id`);
-    
+
     if (checkRes.recordset.length === 0) {
-        await tx.rollback();
-        return res.status(404).json({ success: false, message: 'Cotización no encontrada' });
+      await tx.rollback();
+      return res.status(404).json({ success: false, message: 'Cotización no encontrada' });
     }
-    
+
     const currentState = checkRes.recordset[0];
     const currentStatusMapped = mapEstadoFromDb(currentState.estado);
 
@@ -533,55 +533,55 @@ const updateQuote = async (req, res) => {
     reqUpdate.input('id', sql.Int, idNum);
 
     if (body.estado) {
-        const estadoDb = mapEstadoToDb(body.estado);
-        updates.push('estado = @estado');
-        reqUpdate.input('estado', sql.VarChar(10), estadoDb);
-        
-        // Si se aprueba, actualizar fecha_aprobacion
-        if (body.estado === 'APROBADA' && currentStatusMapped !== 'APROBADA') {
-            updates.push('fecha_aprobacion = GETDATE()');
-        }
+      const estadoDb = mapEstadoToDb(body.estado);
+      updates.push('estado = @estado');
+      reqUpdate.input('estado', sql.VarChar(10), estadoDb);
+
+      // Si se aprueba, actualizar fecha_aprobacion
+      if (body.estado === 'APROBADA' && currentStatusMapped !== 'APROBADA') {
+        updates.push('fecha_aprobacion = GETDATE()');
+      }
     }
 
     if (body.fechaCotizacion) {
-        updates.push('fecha = @fecha');
-        reqUpdate.input('fecha', sql.Date, body.fechaCotizacion);
+      updates.push('fecha = @fecha');
+      reqUpdate.input('fecha', sql.Date, body.fechaCotizacion);
     }
-    
+
     if (body.fechaVencimiento) {
-        updates.push('fecha_vence = @fecha_vence');
-        reqUpdate.input('fecha_vence', sql.Date, body.fechaVencimiento);
+      updates.push('fecha_vence = @fecha_vence');
+      reqUpdate.input('fecha_vence', sql.Date, body.fechaVencimiento);
     }
-    
+
     if (body.observaciones !== undefined) {
-        updates.push('observa = @observa');
-        reqUpdate.input('observa', sql.VarChar(500), body.observaciones);
+      updates.push('observa = @observa');
+      reqUpdate.input('observa', sql.VarChar(500), body.observaciones);
     }
 
     if (body.formaPago) {
-        let fp = '01';
-        const fps = String(body.formaPago).toLowerCase();
-        if (fps === '1' || fps === 'contado' || fps === '01') fp = '01';
-        else if (fps === '2' || fps === 'credito' || fps === '02') fp = '02';
-        else fp = fps.substring(0, 2);
-        
-        updates.push('formapago = @formapago');
-        reqUpdate.input('formapago', sql.NChar(2), fp);
+      let fp = '01';
+      const fps = String(body.formaPago).toLowerCase();
+      if (fps === '1' || fps === 'contado' || fps === '01') fp = '01';
+      else if (fps === '2' || fps === 'credito' || fps === '02') fp = '02';
+      else fp = fps.substring(0, 2);
+
+      updates.push('formapago = @formapago');
+      reqUpdate.input('formapago', sql.NChar(2), fp);
     }
 
     if (updates.length > 0) {
-        const updateQuery = `UPDATE ${TABLE_NAMES.cotizaciones} SET ${updates.join(', ')} WHERE id = @id`;
-        await reqUpdate.query(updateQuery);
+      const updateQuery = `UPDATE ${TABLE_NAMES.cotizaciones} SET ${updates.join(', ')} WHERE id = @id`;
+      await reqUpdate.query(updateQuery);
     }
 
     // Nota: Lógica de creación automática de pedido
     let pedidoCreado = null;
     if (body.estado === 'APROBADA' && currentStatusMapped !== 'APROBADA') {
-        try {
-            // 1. Obtener items de la cotización
-            const reqItems = new sql.Request(tx);
-            reqItems.input('cotizacionId', sql.BigInt, idNum);
-            const itemsRes = await reqItems.query(`
+      try {
+        // 1. Obtener items de la cotización
+        const reqItems = new sql.Request(tx);
+        reqItems.input('cotizacionId', sql.BigInt, idNum);
+        const itemsRes = await reqItems.query(`
                 SELECT 
                     d.cod_producto as codProducto, 
                     d.cantidad, 
@@ -594,72 +594,72 @@ const updateQuote = async (req, res) => {
                 FROM ${TABLE_NAMES.cotizaciones_detalle} d 
                 WHERE d.id_cotizacion = @cotizacionId
             `);
-            
-            const itemsCotizacion = itemsRes.recordset;
-            
-            if (itemsCotizacion.length > 0) {
-                 // 2. Preparar payload para pedido
-                 // Necesitamos datos completos de la cotización header para mapear
-                 const cotHeader = currentState; // ya tenemos numcot, codter, etc.
-                 
-                 // Necesitamos más datos del header que tal vez no trajimos en el check inicial (solo trajimos estado, numcot, codter)
-                 // Vamos a traer todo el header actualizado
-                 const reqFullHeader = new sql.Request(tx);
-                 reqFullHeader.input('id', sql.Int, idNum);
-                 const fullHeaderRes = await reqFullHeader.query(`SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE id = @id`);
-                 const fullHeader = fullHeaderRes.recordset[0];
 
-                 // Función helper local para asegurar 2 decimales
-                 const rnd = (val) => Math.round((val || 0) * 100) / 100;
+        const itemsCotizacion = itemsRes.recordset;
 
-                 const orderPayload = {
-                     clienteId: fullHeader.codter, // createOrderInternal maneja codter como string
-                     fechaPedido: new Date(),
-                     fechaEntregaEstimada: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 días
-                     vendedorId: fullHeader.cod_vendedor,
-                     observaciones: fullHeader.observa ? `Desde Cotización ${fullHeader.numcot}: ${fullHeader.observa}` : `Basado en Cotización ${fullHeader.numcot}`,
-                     items: itemsCotizacion.map(i => {
-                         const precio = rnd(i.precioUnitario);
-                         const cant = rnd(i.cantidad);
-                         const ivaPorc = rnd(i.ivaPorcentaje);
-                         
-                         // Calcular valor IVA individual: (Precio * Cantidad) * (%IVA / 100)
-                         const base = precio * cant;
-                         const valorIvaCalc = rnd(base * (ivaPorc / 100));
-                         const totalCalc = rnd(base + valorIvaCalc); // Total simple por línea
+        if (itemsCotizacion.length > 0) {
+          // 2. Preparar payload para pedido
+          // Necesitamos datos completos de la cotización header para mapear
+          const cotHeader = currentState; // ya tenemos numcot, codter, etc.
 
-                         return {
-                             productoId: i.productoId,
-                             codProducto: i.codProducto,
-                             cantidad: cant,
-                             precioUnitario: precio,
-                             descuentoPorcentaje: i.descuentoPorcentaje,
-                             ivaPorcentaje: ivaPorc,
-                             valorIva: valorIvaCalc, // CORRECCIÓN: Pasar el valor del IVA calculado
-                             total: totalCalc // Asegurar total consistente
-                         };
-                     }),
-                     subtotal: fullHeader.subtotal,
-                     descuentoValor: fullHeader.val_descuento,
-                     ivaValor: fullHeader.val_iva,
-                     total: fullHeader.subtotal - fullHeader.val_descuento + fullHeader.val_iva, // Recalcular simple
-                     formaPago: fullHeader.formapago,
-                     cotizacionId: idNum,
-                     empresaId: fullHeader.codalm,
-                     numeroPedido: 'AUTO',
-                     estado: 'B' // Asegurar explícitamente estado Borrador
-                 };
+          // Necesitamos más datos del header que tal vez no trajimos en el check inicial (solo trajimos estado, numcot, codter)
+          // Vamos a traer todo el header actualizado
+          const reqFullHeader = new sql.Request(tx);
+          reqFullHeader.input('id', sql.Int, idNum);
+          const fullHeaderRes = await reqFullHeader.query(`SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE id = @id`);
+          const fullHeader = fullHeaderRes.recordset[0];
 
-                 const { createOrderInternal } = require('./orderController');
-                 pedidoCreado = await createOrderInternal(tx, orderPayload);
-                 
-                 // Actualizar cotización con ID de pedido si existiera campo (no existe explícitamente en cotización, pero pedido tiene cotizacion_id)
-            }
-        } catch (errPedido) {
-            console.error('Error creando pedido automático:', errPedido);
-            // No fallamos la aprobación si falla el pedido, pero retornamos warning (o podríamos fallar todo, decisión de diseño: mejor fallar para consistencia)
-            throw new Error(`Error creando pedido automático: ${errPedido.message}`);
+          // Función helper local para asegurar 2 decimales
+          const rnd = (val) => Math.round((val || 0) * 100) / 100;
+
+          const orderPayload = {
+            clienteId: fullHeader.codter, // createOrderInternal maneja codter como string
+            fechaPedido: new Date(),
+            fechaEntregaEstimada: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 días
+            vendedorId: fullHeader.cod_vendedor,
+            observaciones: fullHeader.observa ? `Desde Cotización ${fullHeader.numcot}: ${fullHeader.observa}` : `Basado en Cotización ${fullHeader.numcot}`,
+            items: itemsCotizacion.map(i => {
+              const precio = rnd(i.precioUnitario);
+              const cant = rnd(i.cantidad);
+              const ivaPorc = rnd(i.ivaPorcentaje);
+
+              // Calcular valor IVA individual: (Precio * Cantidad) * (%IVA / 100)
+              const base = precio * cant;
+              const valorIvaCalc = rnd(base * (ivaPorc / 100));
+              const totalCalc = rnd(base + valorIvaCalc); // Total simple por línea
+
+              return {
+                productoId: i.productoId,
+                codProducto: i.codProducto,
+                cantidad: cant,
+                precioUnitario: precio,
+                descuentoPorcentaje: i.descuentoPorcentaje,
+                ivaPorcentaje: ivaPorc,
+                valorIva: valorIvaCalc, // CORRECCIÓN: Pasar el valor del IVA calculado
+                total: totalCalc // Asegurar total consistente
+              };
+            }),
+            subtotal: fullHeader.subtotal,
+            descuentoValor: fullHeader.val_descuento,
+            ivaValor: fullHeader.val_iva,
+            total: fullHeader.subtotal - fullHeader.val_descuento + fullHeader.val_iva, // Recalcular simple
+            formaPago: fullHeader.formapago,
+            cotizacionId: idNum,
+            empresaId: fullHeader.codalm,
+            numeroPedido: 'AUTO',
+            estado: 'B' // Asegurar explícitamente estado Borrador
+          };
+
+          const { createOrderInternal } = require('./orderController');
+          pedidoCreado = await createOrderInternal(tx, orderPayload);
+
+          // Actualizar cotización con ID de pedido si existiera campo (no existe explícitamente en cotización, pero pedido tiene cotizacion_id)
         }
+      } catch (errPedido) {
+        console.error('Error creando pedido automático:', errPedido);
+        // No fallamos la aprobación si falla el pedido, pero retornamos warning (o podríamos fallar todo, decisión de diseño: mejor fallar para consistencia)
+        throw new Error(`Error creando pedido automático: ${errPedido.message}`);
+      }
     }
 
     // Obtener cotización actualizada para devolver al frontend
@@ -667,16 +667,16 @@ const updateQuote = async (req, res) => {
     reqFinal.input('finalId', sql.Int, idNum);
     const finalRes = await reqFinal.query(`SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE id = @finalId`);
     const finalCotizacion = finalRes.recordset[0] ? {
-        ...finalRes.recordset[0],
-        estado: mapEstadoFromDb(finalRes.recordset[0].estado) // Mapear estado para frontend
+      ...finalRes.recordset[0],
+      estado: mapEstadoFromDb(finalRes.recordset[0].estado) // Mapear estado para frontend
     } : null;
 
     await tx.commit();
-    res.json({ 
-        success: true, 
-        message: 'Cotización actualizada' + (pedidoCreado ? ' y pedido creado' : ''),
-        data: finalCotizacion,
-        pedido: pedidoCreado 
+    res.json({
+      success: true,
+      message: 'Cotización actualizada' + (pedidoCreado ? ' y pedido creado' : ''),
+      data: finalCotizacion,
+      pedido: pedidoCreado
     });
 
   } catch (error) {
@@ -692,7 +692,7 @@ const updateQuote = async (req, res) => {
 const sendQuoteEmail = async (req, res) => {
   try {
     const { id } = req.params;
-    const { firmaVendedor, destinatario, asunto, mensaje, pdfBase64 } = req.body; 
+    const { firmaVendedor, destinatario, asunto, mensaje, pdfBase64 } = req.body;
 
     const idNum = parseInt(id, 10);
     if (isNaN(idNum)) {
@@ -700,7 +700,7 @@ const sendQuoteEmail = async (req, res) => {
     }
 
     // 1. Obtener datos de la cotización con información completa del cliente y vendedor
-    const pool = await getConnection();
+    const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
     const request = new sql.Request(pool);
     request.input('id', sql.Int, idNum);
 
@@ -730,9 +730,9 @@ const sendQuoteEmail = async (req, res) => {
 
     // Validar que el cliente tenga email
     if (!cotizacion.clienteEmail || cotizacion.clienteEmail.trim() === '') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'El cliente no tiene un correo electrónico registrado' 
+      return res.status(400).json({
+        success: false,
+        message: 'El cliente no tiene un correo electrónico registrado'
       });
     }
 
@@ -775,7 +775,7 @@ const sendQuoteEmail = async (req, res) => {
     // 4. Preparar datos para el componente PDF
     // Obtener logo como base64
     const logoBase64 = getCompanyLogo();
-    
+
     const pdfComponentProps = {
       cotizacion: {
         numeroCotizacion: cotizacion.numcot,
@@ -788,18 +788,18 @@ const sendQuoteEmail = async (req, res) => {
         total: cotizacion.subtotal - cotizacion.val_descuento + cotizacion.val_iva,
         // Move items here
         items: detallesResult.recordset.map(item => ({
-            codProducto: item.cod_producto,
-            productoId: item.productoId,
-            descripcion: item.descripcion,
-            referencia: item.referencia,
-            cantidad: item.cantidad,
-            precioUnitario: item.preciound,
-            descuentoPorcentaje: item.tasa_descuento,
-            ivaPorcentaje: item.tasa_iva,
-            subtotal: item.valor - (item.valor * (item.tasa_iva / 100)),
-            valorIva: item.valor * (item.tasa_iva / 100),
-            total: item.valor,
-            unidadMedida: item.unidadMedida,
+          codProducto: item.cod_producto,
+          productoId: item.productoId,
+          descripcion: item.descripcion,
+          referencia: item.referencia,
+          cantidad: item.cantidad,
+          precioUnitario: item.preciound,
+          descuentoPorcentaje: item.tasa_descuento,
+          ivaPorcentaje: item.tasa_iva,
+          subtotal: item.valor - (item.valor * (item.tasa_iva / 100)),
+          valorIva: item.valor * (item.tasa_iva / 100),
+          total: item.valor,
+          unidadMedida: item.unidadMedida,
         })),
       },
       cliente: {
@@ -833,22 +833,22 @@ const sendQuoteEmail = async (req, res) => {
     // Generar el PDF    // 2. Preparar PDF
     let pdfBuffer;
     if (pdfBase64) {
-        // Enviar string base64 directamente a emailService para limpieza centralizada
-        pdfBuffer = pdfBase64;
+      // Enviar string base64 directamente a emailService para limpieza centralizada
+      pdfBuffer = pdfBase64;
     } else {
-        pdfBuffer = await generateQuotePdfBuffer(pdfComponentProps);
+      pdfBuffer = await generateQuotePdfBuffer(pdfComponentProps);
     }
-    
+
     // Helper para formatear moneda en el backend
     const formatCurrencyCO = (value) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value || 0);
     const formatDateCO = (date) => new Date(date).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
 
     // Preparar detalles para el documento
     const documentDetails = [
-        { label: 'Total Propuesta', value: formatCurrencyCO(cotizacion.subtotal - cotizacion.val_descuento + cotizacion.val_iva) },
-        { label: 'Válida Hasta', value: formatDateCO(cotizacion.fecha_vence) },
-        { label: 'Fecha Emisión', value: formatDateCO(cotizacion.fecha) },
-        { label: 'Asesor Comercial', value: cotizacion.vendedorNombre || 'Asesor Comercial' }
+      { label: 'Total Propuesta', value: formatCurrencyCO(cotizacion.subtotal - cotizacion.val_descuento + cotizacion.val_iva) },
+      { label: 'Válida Hasta', value: formatDateCO(cotizacion.fecha_vence) },
+      { label: 'Fecha Emisión', value: formatDateCO(cotizacion.fecha) },
+      { label: 'Asesor Comercial', value: cotizacion.vendedorNombre || 'Asesor Comercial' }
     ];
 
     // Calcular días de validez
@@ -892,7 +892,7 @@ const getNextQuoteNumber = async (req, res) => {
       FROM ${TABLE_NAMES.cotizaciones} 
       ORDER BY id DESC
     `);
-    
+
     let nextNum = '000001';
     if (result.recordset.length > 0) {
       const lastNum = result.recordset[0].numcot;
@@ -907,9 +907,9 @@ const getNextQuoteNumber = async (req, res) => {
         console.log('🔍 [DEBUG] getNextQuoteNumber - Calculated next:', nextNum);
       }
     } else {
-       console.log('🔍 [DEBUG] getNextQuoteNumber - No existing quotes found, defaulting to 000001');
+      console.log('🔍 [DEBUG] getNextQuoteNumber - No existing quotes found, defaulting to 000001');
     }
-    
+
     res.json({ success: true, data: { nextNumber: nextNum } });
   } catch (error) {
     console.error('Error getting next quote number:', error);

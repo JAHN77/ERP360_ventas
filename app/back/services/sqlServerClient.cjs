@@ -1,168 +1,130 @@
 const sql = require('mssql');
 require('dotenv').config();
 
-// Validar variables de entorno requeridas (pero no hacer exit, solo advertir)
-// El servidor puede iniciar sin conexión a BD y manejar errores en tiempo de ejecución
+// Validar variables de entorno requeridas
 const requiredEnvVars = ['DB_SERVER', 'DB_DATABASE', 'DB_USER', 'DB_PASSWORD'];
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
   console.warn('⚠️  Advertencia: Faltan variables de entorno requeridas:', missingVars.join(', '));
-  console.warn('💡 Por favor, crea un archivo .env con las variables necesarias.');
-  console.warn('💡 Puedes usar .env.example como referencia.');
-  console.warn('💡 El servidor iniciará, pero las operaciones de BD fallarán hasta que se configuren las variables.');
-  // NO hacer process.exit(1) - permitir que el servidor inicie
 }
 
-// Configuración de conexión SQL Server desde variables de entorno
-const config = {
+// Configuración base
+const baseConfig = {
   server: process.env.DB_SERVER,
   port: parseInt(process.env.DB_PORT || '1433', 10),
-  database: process.env.DB_DATABASE,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   options: {
-    encrypt: process.env.DB_ENCRYPT !== 'false', // Default to true (secure by default for cloud)
+    encrypt: process.env.DB_ENCRYPT !== 'false',
     trustServerCertificate: process.env.DB_TRUST_CERT === 'true' || process.env.NODE_ENV !== 'production',
     enableArithAbort: true,
     requestTimeout: parseInt(process.env.DB_REQUEST_TIMEOUT || '30000', 10),
     connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || '30000', 10),
   },
   pool: {
-    max: parseInt(process.env.DB_POOL_MAX || '50', 10), // Aumentado de 10 a 50 para mayor concurrencia
-    min: parseInt(process.env.DB_POOL_MIN || '5', 10), // Mantener al menos 5 conexiones activas
-    idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '300000', 10), // 5 minutos
-    acquireTimeoutMillis: parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '60000', 10), // 1 minuto
+    max: parseInt(process.env.DB_POOL_MAX || '50', 10),
+    min: parseInt(process.env.DB_POOL_MIN || '5', 10),
+    idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '300000', 10),
+    acquireTimeoutMillis: parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '60000', 10),
   },
 };
 
-// Pool de conexiones global
-let pool = null;
+// Cache de pools de conexión: { 'NombreBD': ConnectionPool }
+const connectionPools = {};
 
-// Función para obtener la conexión
-const getConnection = async () => {
-  try {
-    // Verificar que las variables de entorno estén configuradas
-    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-    if (missingVars.length > 0) {
-      throw new Error(`Variables de entorno faltantes: ${missingVars.join(', ')}. Por favor, configura el archivo .env`);
-    }
-    
-    if (!pool) {
-      console.log(`🔄 Conectando a SQL Server (${config.server})...`);
-      pool = new sql.ConnectionPool(config);
+// Obtener conexión para una base de datos específica
+const getConnectionForDb = async (dbName) => {
+  const targetDb = dbName || process.env.DB_DATABASE; // Default a la maestra si no se especifica
+
+  if (!connectionPools[targetDb]) {
+    console.log(`🔄 Creando nuevo pool para BD: ${targetDb}...`);
+    const dbConfig = {
+      ...baseConfig,
+      database: targetDb
+    };
+
+    try {
+      const pool = new sql.ConnectionPool(dbConfig);
       await pool.connect();
-      console.log('✅ Conectado exitosamente a SQL Server');
+      connectionPools[targetDb] = pool;
+      console.log(`✅ Conectado exitosamente a ${targetDb}`);
+    } catch (error) {
+      console.error(`❌ Error conectando a ${targetDb}:`, error.message);
+      throw error;
     }
-    return pool;
-  } catch (error) {
-    console.error('❌ Error CRÍTICO conectando a SQL Server:', error.message || error);
-    if (error.originalError) {
-      console.error('   Detalles:', error.originalError);
-    }
-    // No hacer throw inmediato si queremos que el servidor arranque, 
-    // pero para operaciones que requieren DB, sí debemos lanzar error.
-    throw error;
   }
+
+  return connectionPools[targetDb];
 };
 
-// Función para ejecutar consultas (posicionales)
-const executeQuery = async (query, params) => {
-  const connection = await getConnection();
-  
+// Alias para compatibilidad (usa la BD por defecto/maestra)
+const getConnection = () => getConnectionForDb(process.env.DB_DATABASE);
+
+// Ejecutar query en una BD específica (o la default)
+const executeQuery = async (query, params, dbName = null) => {
+  const connection = await getConnectionForDb(dbName);
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const logPath = path.join(process.cwd(), 'debug.log');
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ⚡ [SQL] Executing query on DB: ${dbName || 'DEFAULT'}\n`);
+  } catch (e) { console.error('Log error:', e); }
+
   try {
     const request = connection.request();
-    
-    // Agregar parámetros posicionales si existen
     if (Array.isArray(params)) {
       params.forEach((param, index) => {
         request.input(`param${index}`, param);
       });
     }
-    
     const result = await request.query(query);
     return result.recordset || [];
   } catch (error) {
-    console.error('❌ Error ejecutando consulta:', error);
+    console.error(`❌ Error ejecutando consulta en ${dbName || 'Default'}:`, error);
     throw error;
   }
 };
 
-// Función para ejecutar consultas con parámetros nombrados
-const executeQueryWithParams = async (query, params = {}) => {
-  const connection = await getConnection();
+const executeQueryWithParams = async (query, params = {}, dbName = null) => {
+  const connection = await getConnectionForDb(dbName);
+  console.log(`⚡ [SQL] Executing query with params on DB: ${dbName || 'DEFAULT'}`);
   try {
     const request = connection.request();
     Object.entries(params).forEach(([key, value]) => request.input(key, value));
     const result = await request.query(query);
     return result.recordset || [];
   } catch (error) {
-    console.error('❌ Error ejecutando consulta con parámetros:', error);
+    console.error(`❌ Error ejecutando consulta con params en ${dbName || 'Default'}:`, error);
     throw error;
   }
 };
 
-// Función para ejecutar procedimientos almacenados
-const executeProcedure = async (procedureName, params) => {
-  const connection = await getConnection();
-  
+const executeProcedure = async (procedureName, params, dbName = null) => {
+  const connection = await getConnectionForDb(dbName);
   try {
     const request = connection.request();
-    
-    // Agregar parámetros si existen
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         request.input(key, value);
       });
     }
-    
     const result = await request.execute(procedureName);
     return result.recordset || [];
   } catch (error) {
-    console.error('❌ Error ejecutando procedimiento:', error);
+    console.error(`❌ Error ejecutando procedimiento en ${dbName || 'Default'}:`, error);
     throw error;
   }
 };
 
-// Función para cerrar la conexión con timeout
 const closeConnection = async () => {
-  if (!pool) {
-    return;
-  }
-  
-  const currentPool = pool;
-  pool = null; // Limpiar la referencia inmediatamente para evitar nuevas conexiones
-  
-  try {
-    // Crear una promesa con timeout para forzar el cierre si tarda demasiado
-    const closePromise = currentPool.close();
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Timeout cerrando pool de conexiones')), 2000);
-    });
-    
-    await Promise.race([closePromise, timeoutPromise]);
-    console.log('🔌 Conexión SQL Server cerrada');
-  } catch (error) {
-    // Si hay un timeout o error, simplemente loguear y continuar
-    // El pool ya se limpió de la referencia, así que no se pueden crear nuevas conexiones
-    if (error.message && error.message.includes('Timeout')) {
-      console.log('⚠️ Timeout cerrando pool de conexiones (forzando cierre)');
-    } else {
-      console.error('❌ Error cerrando conexión:', error.message || error);
-    }
-    
-    // Intentar destruir el pool de forma forzada
-    try {
-      if (currentPool && typeof currentPool.close === 'function') {
-        currentPool.close().catch(() => {}); // Ignorar errores al cerrar forzadamente
-      }
-    } catch (forceError) {
-      // Ignorar errores al forzar cierre
-    }
-  }
+  const pools = Object.values(connectionPools);
+  await Promise.all(pools.map(p => p.close()));
+  // Clear cache
+  Object.keys(connectionPools).forEach(k => delete connectionPools[k]);
+  console.log('🔌 Todas las conexiones cerradas');
 };
 
-// Función para probar la conexión
 const testConnection = async () => {
   try {
     const connection = await getConnection();
@@ -175,7 +137,6 @@ const testConnection = async () => {
   }
 };
 
-// Función para obtener información de la base de datos
 const getDatabaseInfo = async () => {
   try {
     const connection = await getConnection();
@@ -194,6 +155,7 @@ const getDatabaseInfo = async () => {
 
 module.exports = {
   getConnection,
+  getConnectionForDb, // Exported for explicit usage
   executeQuery,
   executeProcedure,
   executeQueryWithParams,
