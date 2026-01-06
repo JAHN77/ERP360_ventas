@@ -159,7 +159,8 @@ const authController = {
             codusu: user.codusu,
             nomusu: user.nomusu,
             role: user.tipousu === 1 ? 'admin' : 'vendedor',
-            firma: user.firma || null
+            firma: user.firma || null,
+            empresaDb: req.db_name // CRITICAL: Return current DB context
           }
         }
       });
@@ -199,6 +200,83 @@ const authController = {
     } catch (error) {
       console.error('Update signature error:', error);
       res.status(500).json({ success: false, message: 'Error actualizando firma' });
+    }
+  },
+  /**
+   * Switch Company (Generate new token for target DB)
+   */
+  switchCompany: async (req, res) => {
+    try {
+      const { companyId } = req.body;
+      const userId = req.user.id;
+
+      if (!companyId) {
+        return res.status(400).json({ success: false, message: 'Company ID is required' });
+      }
+
+      console.log(`🔄 Switching company for user ${req.user.codusu} to Company ID: ${companyId}`);
+
+      // 1. Get target DB name from Master DB
+      const tenantQuery = `SELECT db_name FROM config_empresas WHERE id = @id AND activo = 1`;
+      const tenants = await executeQueryWithParams(tenantQuery, { id: companyId });
+
+      if (tenants.length === 0) {
+        return res.status(404).json({ success: false, message: 'Empresa no encontrada o inactiva' });
+      }
+
+      const targetDbName = tenants[0].db_name;
+      console.log(`🏢 New Target DB: ${targetDbName}`);
+
+      // 2. Generate new token with new db_name
+      const token = jwt.sign(
+        {
+          id: userId,
+          codusu: req.user.codusu,
+          role: req.user.role,
+          db_name: targetDbName
+        },
+        process.env.JWT_SECRET || 'erp360_secret_key_development_only',
+        { expiresIn: '24h' }
+      );
+
+      res.json({
+        success: true,
+        data: {
+          token,
+          user: {
+            id: userId,
+            codusu: req.user.codusu,
+            role: req.user.role,
+            empresaDb: targetDbName
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Switch company error:', error);
+      res.status(500).json({ success: false, message: 'Error al cambiar de empresa' });
+    }
+  },
+
+  /**
+   * Get available companies for the user
+   */
+  getCompanies: async (req, res) => {
+    try {
+      // For now, return all active companies. 
+      // In a real multi-tenant system, we should filter by user access if there's a mapping table.
+      // Assuming 'admin' has access to all, or we just list all active tenants.
+
+      const query = `SELECT id, razon_social as razonSocial, nit, direccion, ciudad, telefono, db_name FROM config_empresas WHERE activo = 1`;
+      const companies = await executeQueryWithParams(query, {}); // Uses master DB
+
+      res.json({
+        success: true,
+        data: companies
+      });
+    } catch (error) {
+      console.error('Get companies error:', error);
+      res.status(500).json({ success: false, message: 'Error obteniendo empresas' });
     }
   }
 };

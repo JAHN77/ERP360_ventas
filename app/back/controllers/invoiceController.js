@@ -1351,6 +1351,38 @@ const invoiceController = {
       console.error('Error enviando correo de factura:', error);
       res.status(500).json({ success: false, message: 'Error enviando correo', error: error.message });
     }
+  },
+
+  // POST /api/facturas/manual-test
+  manualDianTest: async (req, res) => {
+    try {
+      const invoiceJson = req.body;
+      console.log('Recibido JSON manual para prueba DIAN');
+
+      // Obtener parámetros DIAN actuales
+      const dianParams = await DIANService.getDIANParameters();
+
+      // Enviar a DIAN
+      const result = await DIANService.sendInvoiceToDIAN(
+        invoiceJson,
+        dianParams.testSetID,
+        dianParams.url_base
+      );
+
+      res.json({
+        success: true,
+        message: 'Prueba manual enviada a DIAN',
+        dianResult: result
+      });
+
+    } catch (error) {
+      console.error('Error en prueba manual DIAN:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error en prueba manual DIAN',
+        error: error.message
+      });
+    }
   }
 };
 

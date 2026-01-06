@@ -325,9 +325,25 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (response.success && response.data) {
         const userData = response.data.user; // { id, codusu, nomusu, role, firma }
 
+        // Fetch companies from backend
+        let userCompanies: Empresa[] = [];
+        try {
+          const companiesRes = await apiClient.getCompanies();
+          if (companiesRes.success && Array.isArray(companiesRes.data)) {
+            userCompanies = companiesRes.data;
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Empresas cargadas desde backend:', userCompanies.length);
+          } else {
+            logger.warn({ prefix: 'AuthContext' }, '⚠️ Fallo al cargar empresas, usando mock data');
+            userCompanies = allEmpresas;
+          }
+        } catch (e) {
+          logger.error({ prefix: 'AuthContext' }, '❌ Error fetching companies:', e);
+          userCompanies = allEmpresas;
+        }
+
         // Construct Usuario object
         const sedesToUse = bodegas.length > 0 ? bodegas : [];
-        const empresasWithSedes = allEmpresas.map(e => ({
+        const empresasWithSedes = userCompanies.map(e => ({
           ...e,
           sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id }))
         }));
@@ -358,18 +374,50 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
         // Select Company/Sede Logic (Restore or Default)
         if (userObj.empresas.length > 0) {
-          if (!selectedCompany) {
-            const firstCompany = userObj.empresas[0];
-            setSelectedCompany(firstCompany);
+          let companyToSelect = null;
 
-            // Try restore sede
-            try {
-              const savedSedeId = localStorage.getItem('selectedSedeId');
-              if (savedSedeId && firstCompany.sedes) {
-                const found = firstCompany.sedes.find(s => String(s.id) === savedSedeId);
-                if (found) setSelectedSede(found);
+          // 1. Priority: Match company with current Token DB
+          if (userData.empresaDb) {
+            companyToSelect = userObj.empresas.find(e => e.db_name === userData.empresaDb || e.razonSocial.toLowerCase().includes(userData.empresaDb.toLowerCase()));
+            if (companyToSelect) {
+              logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Seleccionando empresa basada en Token DB:', companyToSelect.razonSocial);
+            }
+          }
+
+          // 2. Fallback: Restore from localStorage
+          if (!companyToSelect) {
+            const savedCompanyId = localStorage.getItem('selectedCompanyId');
+            if (savedCompanyId) {
+              const foundCompany = userObj.empresas.find(e => String(e.id) === savedCompanyId);
+              if (foundCompany) {
+                companyToSelect = foundCompany;
               }
-            } catch (e) { }
+            }
+          }
+
+          // 3. Fallback: First available
+          if (!companyToSelect) {
+            companyToSelect = userObj.empresas[0];
+          }
+
+          if (companyToSelect) {
+            // CRÍTICO: Evitar actualización de estado si es la misma empresa (previene loop infinito)
+            // Comparar por ID
+            if (!selectedCompany || selectedCompany.id !== companyToSelect.id) {
+              logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔄 Actualizando empresa seleccionada:', companyToSelect.razonSocial);
+              setSelectedCompany(companyToSelect);
+              // Ensure localStorage is in sync
+              localStorage.setItem('selectedCompanyId', String(companyToSelect.id));
+
+              // Try restore sede logic...
+              try {
+                const savedSedeId = localStorage.getItem('selectedSedeId');
+                if (savedSedeId && companyToSelect.sedes) {
+                  const found = companyToSelect.sedes.find(s => String(s.id) === savedSedeId);
+                  if (found) setSelectedSede(found);
+                }
+              } catch (e) { }
+            }
           }
         }
       } else {
@@ -379,7 +427,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       console.error('Auth check failed', error);
       localStorage.removeItem('token');
     }
-  }, [bodegas, selectedCompany]);
+  }, [bodegas, selectedCompany]); // Mantenemos dependencias pero controlamos la actualización interna
+
 
   // Check Auth on Mount
   useEffect(() => {
@@ -429,10 +478,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           setPermissions(userPermissions as Permission[]);
         }
 
-        // Select First Company/Sede
         if (userObj.empresas.length > 0) {
           const firstCompany = userObj.empresas[0];
           setSelectedCompany(firstCompany);
+          localStorage.setItem('selectedCompanyId', String(firstCompany.id));
 
           if (firstCompany.sedes && firstCompany.sedes.length === 1) {
             const unicaBodega = firstCompany.sedes[0];
@@ -461,37 +510,61 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setPermissions([]);
   };
 
-  const switchCompany = (companyId: number) => {
+  const switchCompany = async (companyId: number) => {
     const company = user?.empresas.find(e => e.id === companyId);
     if (company) {
-      setSelectedCompany(company);
+      try {
+        logger.log({ prefix: 'AuthContext', level: 'info' }, `Switching to company: ${company.razonSocial} (ID: ${companyId})`);
 
-      // Si solo hay una bodega en la nueva empresa, seleccionarla automáticamente
-      if (company.sedes && company.sedes.length === 1) {
-        const unicaBodega = company.sedes[0];
-        setSelectedSede(unicaBodega);
-        try {
-          localStorage.setItem('selectedSedeId', String(unicaBodega.id));
-          localStorage.setItem('selectedSedeData', JSON.stringify({
-            id: unicaBodega.id,
-            nombre: unicaBodega.nombre,
-            codigo: unicaBodega.codigo,
-            empresaId: unicaBodega.empresaId
-          }));
-        } catch (error) {
-          logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage en switchCompany:', error);
+        // 1. Call API to get new token for the target company
+        const response = await apiClient.switchCompany(companyId);
+
+        if (response.success && response.data && response.data.token) {
+          logger.log({ prefix: 'AuthContext', level: 'info' }, '✅ Token updated for new company');
+
+          // 2. Update token in localStorage
+          localStorage.setItem('token', response.data.token);
+          localStorage.setItem('selectedCompanyId', String(companyId));
+
+          // 3. Update Selected Company
+          setSelectedCompany(company);
+
+          // 4. Handle Sede selection (Local logic)
+          if (company.sedes && company.sedes.length === 1) {
+            const unicaBodega = company.sedes[0];
+            setSelectedSede(unicaBodega);
+            try {
+              localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+              localStorage.setItem('selectedSedeData', JSON.stringify({
+                id: unicaBodega.id,
+                nombre: unicaBodega.nombre,
+                codigo: unicaBodega.codigo,
+                empresaId: unicaBodega.empresaId
+              }));
+            } catch (error) {
+              logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage en switchCompany:', error);
+            }
+          } else {
+            setSelectedSede(null);
+            try {
+              localStorage.removeItem('selectedSedeId');
+              localStorage.removeItem('selectedSedeData');
+            } catch (error) {
+              logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en switchCompany:', error);
+            }
+          }
+
+          // 5. Force reload to ensure clean state and new DB connection usage
+          // This prevents data leakage between companies
+          window.location.reload();
+        } else {
+          logger.error({ prefix: 'AuthContext' }, '❌ Failed to switch company token:', response.message);
+          // Fallback: Just update local state (legacy behavior) - but warn user
+          alert('Error al cambiar de empresa. Por favor cierre sesión e intente nuevamente.');
         }
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Empresa cambiada. Bodega única seleccionada automáticamente:', unicaBodega.nombre);
-      } else {
-        // Si hay múltiples bodegas, no preseleccionar ninguna - el usuario debe elegir manualmente
-        setSelectedSede(null);
-        try {
-          localStorage.removeItem('selectedSedeId');
-          localStorage.removeItem('selectedSedeData');
-        } catch (error) {
-          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en switchCompany:', error);
-        }
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Empresa cambiada. Usuario debe seleccionar una bodega manualmente.');
+      } catch (error) {
+        logger.error({ prefix: 'AuthContext' }, '❌ Error switching company:', error);
+        alert('Error de conexión al cambiar de empresa.');
       }
     }
   };

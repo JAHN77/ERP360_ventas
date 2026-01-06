@@ -372,6 +372,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 // PRIORIDAD 3: Cargar datos de la empresa
                 try {
                     const empresaResp = await fetchEmpresa();
+                    logger.log({ prefix: 'DataContext', level: 'debug' }, '🏢 Respuesta fetchEmpresa:', empresaResp);
                     if (empresaResp.success && empresaResp.data) {
                         const e = empresaResp.data as any;
                         setDatosEmpresa({
@@ -495,7 +496,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     return {
                         ...c,
                         activo: activoNormalizado, // Siempre número: 1 (activo) o 0 (inactivo)
-                        nombreCompleto: c.razonSocial || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim(),
+                        // Map nomter (from DB) to nombreCompleto if razonSocial is missing
+                        razonSocial: c.razonSocial || (c as any).nomter || '',
+                        nombreCompleto: c.razonSocial || (c as any).nomter || `${c.primerNombre || ''} ${c.primerApellido || ''}`.trim(),
                         condicionPago: c.diasCredito > 0 ? `Crédito ${c.diasCredito} días` : 'Contado',
                         createdAt: fechaIngreso || new Date().toISOString() // Asegurar que siempre haya una fecha
                     };

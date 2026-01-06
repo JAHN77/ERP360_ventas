@@ -35,6 +35,17 @@ class ApiClient {
     });
   }
 
+  public async switchCompany(companyId: number): Promise<ApiResponse<any>> {
+    return this.request('/auth/switch-company', {
+      method: 'POST',
+      body: JSON.stringify({ companyId })
+    });
+  }
+
+  public async getCompanies(): Promise<ApiResponse<any[]>> {
+    return this.request('/auth/companies');
+  }
+
   public async sendCreditNoteEmail(id: number | string, to: string, body: string, pdfBase64?: string, customerName?: string) {
     return this.request('/email/credit-note', {
       method: 'POST',
@@ -654,6 +665,13 @@ class ApiClient {
     return this.request(`/facturas/${id}/timbrar`, {
       method: 'POST',
       body: JSON.stringify({ mode }),
+    });
+  }
+
+  async sendManualDianTest(payload: any) {
+    return this.request('/facturas/manual-test', {
+      method: 'POST',
+      body: JSON.stringify(payload)
     });
   }
 

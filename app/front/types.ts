@@ -75,6 +75,7 @@ export interface Usuario {
   empresas: Empresa[];
   nombre?: string;
   firma?: string;
+  empresaDb?: string;
 }
 
 // --- ENTIDADES COMERCIALES ---

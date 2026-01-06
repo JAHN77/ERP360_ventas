@@ -9,5 +9,7 @@ const verifyToken = require('../middleware/authMiddleware');
 router.post('/login', authController.login);
 router.get('/me', verifyToken, authController.me);
 router.post('/firma', verifyToken, authController.updateSignature);
+router.post('/switch-company', verifyToken, authController.switchCompany);
+router.get('/companies', verifyToken, authController.getCompanies);
 
 module.exports = router;

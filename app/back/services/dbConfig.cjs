@@ -449,6 +449,9 @@ const QUERIES = {
       LTRIM(RTRIM(COALESCE(r.observaciones, ''))) as observaciones,
       LTRIM(RTRIM(COALESCE(r.codusu, ''))) as codUsuario,
       COALESCE(r.fec_creacion, GETDATE()) as fechaCreacion,
+      -- Campos adicionales para UI
+      (SELECT TOP 1 numero_pedido FROM ${TABLE_NAMES.pedidos} WHERE id = r.pedido_id) as numeroPedido,
+      (SELECT TOP 1 nomter FROM ${TABLE_NAMES.clientes} WHERE codter = r.codter) as clienteNombre,
       -- Campos calculados/compatibilidad (no existen en la tabla pero se dejan como NULL)
       -- Campos calculados
       (

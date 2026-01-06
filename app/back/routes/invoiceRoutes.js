@@ -22,6 +22,9 @@ router.post('/facturas/:id/timbrar', verifyToken, invoiceController.stampInvoice
 // POST /api/facturas/:id/send-email
 router.post('/facturas/:id/send-email', verifyToken, invoiceController.sendInvoiceEmail);
 
+// POST /api/facturas/manual-test - Enviar JSON manual a DIAN (Prueba)
+router.post('/facturas/manual-test', verifyToken, invoiceController.manualDianTest);
+
 router.get('/facturas/next-number', verifyToken, invoiceController.getNextInvoiceNumber);
 
 module.exports = router;
