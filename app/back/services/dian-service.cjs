@@ -656,20 +656,20 @@ class DIANService {
     // Lógica para determinar el método principal
     // Si hay tarjeta > 0
     if (valTarjeta > 0) {
-      paymentFormId = 1; 
+      paymentFormId = 1;
       paymentMethodId = 48; // Tarjeta crédito
       console.log('   ✅ Forma de pago: Tarjeta (Form ID: 1, Method ID: 48)');
-    } 
+    }
     // Si hay transferencia > 0
     else if (valTransferencia > 0) {
-      paymentFormId = 1; 
+      paymentFormId = 1;
       paymentMethodId = 47; // Transferencia Débito Bancaria
       console.log('   ✅ Forma de pago: Transferencia (Form ID: 1, Method ID: 47)');
-    } 
+    }
     // Si hay crédito > 0
     // IMPORTANTE: Solo marcar como crédito si valCredito > 0.
     // Si venFactura.credito venía como string "0" o similar, el parseFloat lo manejará.
-    else if (valCredito > 0.01) { 
+    else if (valCredito > 0.01) {
       paymentFormId = 2; // Crédito (DIAN ID 2)
       paymentMethodId = 30; // Instrumento no definido
       console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 30, Plazo: ${valPlazo} días)`);
@@ -722,9 +722,9 @@ class DIANService {
         if (detalleLineExtension > 0 && detalleIvaPercent > 0) {
           const recalculatedTax = this.roundCOP(detalleLineExtension * (detalleIvaPercent / 100));
           // Si la diferencia sugiere error de redondeo (ej. 23 vs 22.81), usamos el calculado
-          if (Math.abs(recalculatedTax - detalleTaxAmount) < 1) { 
-              console.log(`     ⚠️ Ajustando IVA línea por precisión: ${detalleTaxAmount} -> ${recalculatedTax}`);
-              detalleTaxAmount = recalculatedTax;
+          if (Math.abs(recalculatedTax - detalleTaxAmount) < 1) {
+            console.log(`     ⚠️ Ajustando IVA línea por precisión: ${detalleTaxAmount} -> ${recalculatedTax}`);
+            detalleTaxAmount = recalculatedTax;
           }
         }
 
@@ -770,14 +770,14 @@ class DIANService {
       // Ajustamos el TOTAL GLOBAL para coincidir con la suma precisa de las líneas.
       console.log(`   - IVA Total Original (BD): ${taxAmount}`);
       console.log(`   - Suma IVAs Líneas (Recalculado): ${sumaIvasLineas}`);
-      
+
       if (Math.abs(taxAmount - sumaIvasLineas) > 0.001) {
-          console.log(`   ⚠️ Diferencia en totales IVA detectada. Actualizando taxAmount global para coincidir con líneas precisas.`);
-          taxAmount = sumaIvasLineas;
-          // También actualizar el total con impuestos
-          totalAmount = this.roundCOP(lineExtensionAmount + taxAmount);
-          console.log(`   ✅ Nuevo taxAmount: ${taxAmount}`);
-          console.log(`   ✅ Nuevo totalAmount: ${totalAmount}`);
+        console.log(`   ⚠️ Diferencia en totales IVA detectada. Actualizando taxAmount global para coincidir con líneas precisas.`);
+        taxAmount = sumaIvasLineas;
+        // También actualizar el total con impuestos
+        totalAmount = this.roundCOP(lineExtensionAmount + taxAmount);
+        console.log(`   ✅ Nuevo taxAmount: ${taxAmount}`);
+        console.log(`   ✅ Nuevo totalAmount: ${totalAmount}`);
       }
 
       console.log(`   - Diferencia IVA Final: ${this.roundCOP(Math.abs(taxAmount - sumaIvasLineas))}`);
@@ -788,15 +788,15 @@ class DIANService {
       // Ajustar IVAs si hay diferencia (CRÍTICO: La DIAN rechaza si no coinciden exactamente)
       const diferenciaIva = this.roundCOP(taxAmount - sumaIvasLineas);
       // Solo ajustamos si AÚN hay diferencia (no debería haber si hicimos la corrección arriba)
-      if (Math.abs(diferenciaIva) > 0.001) { 
+      if (Math.abs(diferenciaIva) > 0.001) {
         console.log(`   ⚠️ ADVERTENCIA: Diferencia detectada en IVAs (${diferenciaIva}). Ajustando última línea...`);
         // ... Logica de ajuste de línea si fuera necesario (backup) ...
-         if (invoiceLines.length > 0) {
+        if (invoiceLines.length > 0) {
           const ultimaLinea = invoiceLines[invoiceLines.length - 1];
           const ivaAnterior = ultimaLinea.tax_totals[0].tax_amount || 0;
           const ivaAjustado = this.roundCOP(ivaAnterior + diferenciaIva);
           ultimaLinea.tax_totals[0].tax_amount = Number(ivaAjustado);
-         }
+        }
       }
 
       // Ajustar subtotales si hay diferencia
@@ -1167,12 +1167,12 @@ class DIANService {
     let customerDv = null;
 
     if (codterLimpio.includes('-')) {
-        const parts = codterLimpio.split('-');
-        codterLimpio = parts[0].trim();
-        // Intentar obtener DV explícito si es numérico
-        if (parts[1] && !isNaN(parseInt(parts[1]))) {
-            customerDv = parseInt(parts[1], 10);
-        }
+      const parts = codterLimpio.split('-');
+      codterLimpio = parts[0].trim();
+      // Intentar obtener DV explícito si es numérico
+      if (parts[1] && !isNaN(parseInt(parts[1]))) {
+        customerDv = parseInt(parts[1], 10);
+      }
     }
     // Remover cualquier carácter no numérico que pueda quedar
     codterLimpio = codterLimpio.replace(/[^\d]/g, '');
@@ -1180,7 +1180,7 @@ class DIANService {
 
     // Si no se extrajo DV explícito, calcularlo
     if (customerDv === null) {
-        customerDv = this.calculateDV(customerNit);
+      customerDv = this.calculateDV(customerNit);
     }
 
     // Construir JSON
@@ -1295,12 +1295,12 @@ class DIANService {
 
         // Lógica para determinar el método principal
         if (valTarjeta > 0) {
-          paymentFormId = 1; 
+          paymentFormId = 1;
           paymentMethodId = 48; // Tarjeta crédito
         } else if (valTransferencia > 0) {
-          paymentFormId = 1; 
+          paymentFormId = 1;
           paymentMethodId = 47; // Transferencia Débito Bancaria
-        } else if (valCredito > 0.01) { 
+        } else if (valCredito > 0.01) {
           paymentFormId = 2; // Crédito (DIAN ID 2)
           paymentMethodId = 30; // Instrumento no definido
         }
@@ -1308,9 +1308,9 @@ class DIANService {
         // Calcular fecha vencimiento si es crédito
         let paymentDueDate = issueDate;
         if (paymentFormId === 2 && valPlazo > 0) {
-            const dueDateObj = new Date(); // Fecha actual como base de emisión
-            dueDateObj.setDate(dueDateObj.getDate() + valPlazo);
-            paymentDueDate = dueDateObj.toISOString().split('T')[0];
+          const dueDateObj = new Date(); // Fecha actual como base de emisión
+          dueDateObj.setDate(dueDateObj.getDate() + valPlazo);
+          paymentDueDate = dueDateObj.toISOString().split('T')[0];
         }
 
         return [{
@@ -1435,7 +1435,7 @@ class DIANService {
           console.log('─'.repeat(100));
           console.log(responseText);
           console.log('─'.repeat(100));
-          
+
           throw new Error(`Respuesta de DIAN no es JSON válido: ${responseText.substring(0, 200)}`);
         }
       }

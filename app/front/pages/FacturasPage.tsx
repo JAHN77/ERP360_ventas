@@ -42,7 +42,7 @@ const filterOptions = [
 const FacturasPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const { user } = useAuth();
-  const { remisiones, clientes, pedidos, cotizaciones, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones, isLoadingRemisiones } = useData();
+  const { remisiones, clientes, pedidos, cotizaciones, facturas, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones, isLoadingRemisiones } = useData();
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [selectedRemisiones, setSelectedRemisiones] = useState<Set<string>>(new Set());
   const { addNotification } = useNotifications();
@@ -339,8 +339,11 @@ const FacturasPage: React.FC = () => {
       return defaultTotals;
     }
 
-    // Usar valor por defecto para evitar errores si items es undefined
-    const itemsToCalculate: DocumentItem[] = selectedFactura.items || [];
+    // Prioridad 1: Usar items cargados por lazy loading (selectedFacturaItems)
+    // Prioridad 2: Usar items que ya venían en el objeto (selectedFactura.items)
+    const itemsToCalculate: DocumentItem[] = (selectedFacturaItems && selectedFacturaItems.length > 0)
+      ? selectedFacturaItems
+      : (selectedFactura.items || []);
 
     if (itemsToCalculate.length === 0) {
       return defaultTotals;
@@ -372,7 +375,7 @@ const FacturasPage: React.FC = () => {
     const total = subtotalNeto + iva;
 
     return { subtotalBruto, descuentoTotal, subtotalNeto, iva, total };
-  }, [selectedFactura]);
+  }, [selectedFactura, selectedFacturaItems]);
 
   const clienteForEmail = useMemo(() => {
     if (!facturaToEmail) return null;
@@ -1305,13 +1308,19 @@ const FacturasPage: React.FC = () => {
         />
         {/* Botón Manual - Solo visible para Orquidea */}
         {(() => {
-          const showButton = datosEmpresa?.razonSocial?.toLowerCase().includes('orquidea') || user?.empresaDb === 'orquidea';
-          console.log('DEBUG: Manual Button Check', {
-            empresa: datosEmpresa?.razonSocial,
-            empresaDb: user?.empresaDb,
-            includesOrquidea: showButton,
-            clientesCount: clientes.length,
-            firstInvoice: facturas[0]
+          // TEMPORARY FIX: Force button visibility to debug/unblock
+          const showButton = true;
+
+          /* 
+          const normalize = (str: string | undefined | null) => str ? str.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() : '';
+          const empName = normalize(datosEmpresa?.razonSocial);
+          const dbName = normalize(user?.empresaDb);
+          const showButton = empName.includes('orquidea') || dbName.includes('orquidea') || 
+                           empName.includes('multiacabados') || dbName.includes('multiacabados');
+          */
+
+          console.log('DEBUG: Manual Button FORCED', {
+            visible: showButton
           });
           return showButton;
         })() && (
@@ -1785,9 +1794,11 @@ El equipo de ${datosEmpresa.nombre}`
         </div>
       </Modal>
       {/* Modal de Factura Manual (Orquidea) */}
+      {/* Modal de Factura Manual (Orquidea) */}
       <ManualInvoiceModal
         isOpen={isManualModalOpen}
         onClose={() => setIsManualModalOpen(false)}
+        nextInvoiceNumber={facturas.reduce((max, f) => Math.max(max, parseInt(f.numeroFactura) || 0), 0) + 1}
       />
     </PageContainer >
   );

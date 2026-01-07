@@ -19,6 +19,7 @@ export interface ApiResponse<T> {
     pageSize: number;
     total: number;
   };
+  isTest?: boolean;
 }
 
 class ApiClient {

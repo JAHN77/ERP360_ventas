@@ -267,7 +267,7 @@ const authController = {
       // In a real multi-tenant system, we should filter by user access if there's a mapping table.
       // Assuming 'admin' has access to all, or we just list all active tenants.
 
-      const query = `SELECT id, razon_social as razonSocial, nit, direccion, ciudad, telefono, db_name FROM config_empresas WHERE activo = 1`;
+      const query = `SELECT id, razon_social as razonSocial, nit, db_name FROM config_empresas WHERE activo = 1`;
       const companies = await executeQueryWithParams(query, {}); // Uses master DB
 
       res.json({

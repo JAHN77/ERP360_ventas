@@ -47,6 +47,7 @@ export interface Empresa {
   slogan?: string;
   regimen?: string;
   sedes?: Sede[];
+  db_name?: string;
 }
 
 export interface Bodega {

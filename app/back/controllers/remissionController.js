@@ -66,11 +66,12 @@ const getAllRemissions = async (req, res) => {
             COALESCE(rd.cantidad_enviada, 0) * 
             COALESCE(pd.valins, p.ultimo_costo, 0) * 
             (1 - COALESCE(pd.dctped / NULLIF(pd.valins * pd.canped, 0), 0)) *
-            (1 + COALESCE(p.tasa_iva, 0) / 100.0)
+            (1 + 0 / 100.0)
           )
           FROM ${TABLE_NAMES.remisiones_detalle} rd
           LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(rd.codins))
-          LEFT JOIN ${TABLE_NAMES.pedidos_detalle} pd ON pd.pedido_id = r.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+          LEFT JOIN ${TABLE_NAMES.pedidos} ped ON ped.id = r.pedido_id
+          LEFT JOIN ${TABLE_NAMES.pedidos_detalle} pd ON LTRIM(RTRIM(pd.numped)) = LTRIM(RTRIM(ped.numped)) AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
           WHERE rd.remision_id = r.id
         ) as total
       FROM ${TABLE_NAMES.remisiones} r
@@ -389,7 +390,7 @@ const createRemission = async (req, res) => {
         SELECT TOP 1 
           i.id, 
           i.ultimo_costo, 
-          i.tasa_iva,
+          0 as tasa_iva,
           dp.valins as precio_lista_07
         FROM ${TABLE_NAMES.productos} i
         LEFT JOIN inv_detaprecios dp ON dp.codins = i.codins AND dp.codtar = '07'

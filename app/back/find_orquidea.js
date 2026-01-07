@@ -1,3 +1,5 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { executeQuery } = require('./services/sqlServerClient.cjs');
 
 async function findOrquideaDb() {

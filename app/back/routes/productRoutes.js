@@ -19,4 +19,7 @@ router.get('/', verifyToken, productController.getAllProducts);
 
 router.get('/:id/stock', verifyToken, productController.getProductStockDetails);
 
+// PUT /api/productos/:id
+router.put('/:id', verifyToken, productController.updateProduct);
+
 module.exports = router;

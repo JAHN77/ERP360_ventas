@@ -244,8 +244,21 @@ const invoiceController = {
 
         const factura = facturaResult[0];
         facturaIdValue = factura.id;
-        whereClause = `WHERE fd.id_factura = @facturaId`;
-        params.facturaId = factura.id;
+
+        // Intentar primero por id_factura
+        const checkIdQuery = `SELECT TOP 1 ID FROM ${TABLE_NAMES.facturas_detalle} WHERE id_factura = @facturaId`;
+        const checkIdResult = await executeQueryWithParams(checkIdQuery, { facturaId: factura.id }, req.db_name);
+
+        if (checkIdResult && checkIdResult.length > 0) {
+          whereClause = `WHERE fd.id_factura = @facturaId`;
+          params.facturaId = factura.id;
+        } else {
+          // Fallback: buscar por numfac y tipfact (para registros manuales antiguos)
+          // Se añade soporte para tipfact NULL en la base de datos
+          whereClause = `WHERE LTRIM(RTRIM(fd.numfac)) = LTRIM(RTRIM(@numfact)) AND (fd.tipfact IS NULL OR LTRIM(RTRIM(fd.tipfact)) = LTRIM(RTRIM(@tipfact)))`;
+          params.numfact = factura.numeroFactura;
+          params.tipfact = factura.tipoFactura;
+        }
       }
 
       const query = `
@@ -1000,9 +1013,9 @@ const invoiceController = {
         if (debeTimbrar) {
           estadoFinal = 'P';
           try {
-            const resolution = await DIANService.getDIANResolution();
-            const dianParams = await DIANService.getDIANParameters();
-            const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
+            const resolution = await DIANService.getDIANResolution(req.db_name);
+            const dianParams = await DIANService.getDIANParameters(req.db_name);
+            const facturaCompleta = await DIANService.getFacturaCompleta(idNum, req.db_name);
 
             // Ajustar valores (cálculo inverso IVA)
             const roundCOP = (val) => Math.round(parseFloat(val || 0) * 100) / 100;
@@ -1018,7 +1031,7 @@ const invoiceController = {
               }) : []
             };
 
-            const invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompletaAjustada, resolution, dianParams, body.invoiceData || {});
+            const invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompletaAjustada, resolution, dianParams, body.invoiceData || {}, req.db_name);
 
             // MODIFICACIÓN TEMPORAL: No enviar a la DIAN, solo retornar el JSON paara validación
             // const dianResponse = await DIANService.sendInvoiceToDIAN(invoiceJson, dianParams.testSetID, dianParams.url_base);
@@ -1153,9 +1166,9 @@ const invoiceController = {
         }
 
         // Logic similar to updateInvoice but forced timbrado
-        const resolution = await DIANService.getDIANResolution();
-        const dianParams = await DIANService.getDIANParameters();
-        const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
+        const resolution = await DIANService.getDIANResolution(req.db_name);
+        const dianParams = await DIANService.getDIANParameters(req.db_name);
+        const facturaCompleta = await DIANService.getFacturaCompleta(idNum, req.db_name);
 
         // Generate invoice JSON payload
         // This was missing and caused ReferenceError
