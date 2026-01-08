@@ -676,6 +676,46 @@ class ApiClient {
     });
   }
 
+  async generatePreviewPdf(payload: any) {
+    const url = `${this.baseUrl}/facturas/preview-pdf`;
+    const token = localStorage.getItem('token');
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, message: 'Error generando PDF', error: errorText };
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/pdf')) {
+      const blob = await response.blob();
+      const pdfUrl = URL.createObjectURL(blob);
+
+      // Intentar extraer el nombre del archivo del header Content-Disposition
+      const contentDisposition = response.headers.get('content-disposition');
+      let filename = null;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) {
+          filename = match[1];
+        }
+      }
+
+      return { success: true, data: { pdf_url: pdfUrl, filename } };
+    }
+
+    // Fallback JSON
+    return await response.json();
+  }
+
   async createNotaCredito(payload: any) {
     return this.request('/notas-credito', {
       method: 'POST',

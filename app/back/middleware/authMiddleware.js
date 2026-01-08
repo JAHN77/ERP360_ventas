@@ -18,12 +18,13 @@ const verifyToken = (req, res, next) => {
         // If db_name is present in token, attach it to request for controllers to use
         if (user.db_name) {
             req.db_name = user.db_name;
-            try {
-                const fs = require('fs');
-                const path = require('path');
-                const logPath = path.join(process.cwd(), 'debug.log');
-                fs.appendFileSync(logPath, `[${new Date().toISOString()}] 🔑 [AuthMiddleware] User: ${req.user.id}, DB: ${req.db_name}\n`);
-            } catch (e) { console.error('Log error:', e); }
+        } else {
+            // If no db_name is present, this is a security risk for tenant-specific routes
+            console.error(`[AuthMiddleware] ❌ Token missing db_name for user ${user.id}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Contexto de empresa no válido. Por favor inicie sesión nuevamente.'
+            });
         }
 
         next();

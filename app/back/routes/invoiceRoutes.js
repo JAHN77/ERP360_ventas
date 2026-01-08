@@ -27,4 +27,7 @@ router.post('/facturas/manual-test', verifyToken, invoiceController.manualDianTe
 
 router.get('/facturas/next-number', verifyToken, invoiceController.getNextInvoiceNumber);
 
+// POST /api/facturas/preview-pdf
+router.post('/facturas/preview-pdf', verifyToken, invoiceController.generatePreviewPdf);
+
 module.exports = router;

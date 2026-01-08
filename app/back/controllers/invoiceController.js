@@ -1,7 +1,10 @@
+const { Readable } = require('stream');
 const sql = require('mssql');
 const { getConnection, executeQuery, executeQueryWithParams } = require('../services/sqlServerClient.cjs');
 const { TABLE_NAMES } = require('../services/dbConfig.cjs');
 const { mapEstadoFromDb, mapEstadoToDb } = require('../utils/helpers.js');
+const fs = require('fs');
+const path = require('path');
 const DIANService = require('../services/dian-service.cjs');
 const InventoryService = require('../services/inventoryService.js');
 const { sendDocumentEmail } = require('../services/emailService.cjs');
@@ -566,16 +569,20 @@ const invoiceController = {
         let numeroFacturaFinal = numeroFactura ? String(numeroFactura).trim() : null;
 
         if (!numeroFacturaFinal || numeroFacturaFinal === 'AUTO' || numeroFacturaFinal === '') {
-          // LOGIC UPGRADE:
-          // 1. Get the lowest number currently in the DB (since we are descending).
-          // 2. Check if THAT number has any record with a valid CUFE.
-          // 3. If yes, decrement.
-          // 4. If no (it's a draft or failed attempt without CUFE), we REUSE existing number.
-          //    The user requirement is "use it again until it has cufe".
-          //    This implies we must remove the "failed" record to allow the new transaction to take its number.
+          // Lógica de Numeración Ascendente Robusta
+          // Buscamos el número más alto actualmente en la DB
+          const resultMax = await tx.request().query(`
+            SELECT TOP 1 numfact 
+            FROM ${TABLE_NAMES.facturas} 
+            WHERE ISNUMERIC(numfact) = 1
+            ORDER BY CAST(numfact AS INT) DESC
+          `);
 
-          // Lógica de Numeración Descendente Robusta (Start: 88996)
-          let currentNum = 88996; // Punto de partida solicitado
+          let currentNum = 88996; // Punto de partida base
+          if (resultMax.recordset.length > 0) {
+            currentNum = parseInt(resultMax.recordset[0].numfact, 10);
+          }
+
           let assignedNum = null;
           let reuseId = null;
 
@@ -583,7 +590,6 @@ const invoiceController = {
             // Verificar estado de 'currentNum'
             const checkReq = new sql.Request(tx);
             checkReq.input('cNum', sql.VarChar(50), String(currentNum));
-            // Buscamos si existe y su estado (CUFE)
             const checkRes = await checkReq.query(`
                    SELECT TOP 1 ID, CUFE, numfact 
                    FROM ${TABLE_NAMES.facturas} 
@@ -591,7 +597,6 @@ const invoiceController = {
                 `);
 
             if (checkRes.recordset.length === 0) {
-              // CASO 1: El número está libre. Usarlo.
               assignedNum = currentNum;
             } else {
               const record = checkRes.recordset[0];
@@ -599,15 +604,12 @@ const invoiceController = {
               const isStamped = cufe.length > 20 && cufe !== 'null';
 
               if (!isStamped) {
-                // CASO 2: Existe pero es Borrador/Fallido (Sin CUFE). REUTILIZAR.
                 console.log(`♻️ Encontrado Borrador/Fallido en ${currentNum} (ID: ${record.ID}). Reutilizando...`);
                 reuseId = record.ID;
                 assignedNum = currentNum;
               } else {
-                // CASO 3: Existe y es Válido (Timbrado).
-                // El número está ocupado legítimamente. Bajamos al siguiente.
                 console.log(`⚠️ Número ${currentNum} ocupado y válido. Probando siguiente...`);
-                currentNum--;
+                currentNum++; // ASCENDENTE
               }
             }
           }
@@ -641,9 +643,8 @@ const invoiceController = {
             if (checkRes.recordset.length === 0) {
               break;
             }
-            // If collision happens despite our logic (e.g. concurrency?), we decrement.
-            // (If we tried to reuse and it still exists, we theoretically shouldn't stem down, but for safety of not crashing:)
-            nextNumFact--;
+            // If collision happens despite our logic (e.g. concurrency?), we increment.
+            nextNumFact++;
             attempts++;
           }
 
@@ -874,7 +875,8 @@ const invoiceController = {
 
           if (productoResult.recordset.length === 0) throw new Error(`Item ${idx}: Producto no encontrado`);
 
-          const codins = String(productoResult.recordset[0].codins || '').trim().substring(0, 8).padStart(8, '0');
+          // Usar el código enviado por el frontend si existe (para respetar referencias/códigos específicos), sino el de la BD
+          const codins = String(it.codProducto || productoResult.recordset[0].codins || '').trim().substring(0, 8).padStart(8, '0');
           const nomins = String(productoResult.recordset[0].nomins || '').trim();
           const tasaIvaProducto = Number(productoResult.recordset[0].tasa_iva || 0);
 
@@ -1271,19 +1273,37 @@ const invoiceController = {
   getNextInvoiceNumber: async (req, res) => {
     try {
       const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
+
+      // Lógica de Numeración Ascendente Robusta
+      // Buscamos el número más alto actualmente en la DB
       const result = await pool.request().query(`
         SELECT TOP 1 numfact 
         FROM ${TABLE_NAMES.facturas} 
-        ORDER BY ID DESC
+        WHERE ISNUMERIC(numfact) = 1
+        ORDER BY CAST(numfact AS INT) DESC
       `);
 
-      let nextNum = '000001';
+      let nextNum = '88996';
       if (result.recordset.length > 0) {
         const lastNum = result.recordset[0].numfact;
-        const soloDigitos = lastNum.replace(/\D/g, '');
-        const consecutivo = parseInt(soloDigitos, 10);
-        if (!isNaN(consecutivo)) {
-          nextNum = String(consecutivo + 1).padStart(6, '0');
+        const consecutivo = parseInt(lastNum, 10);
+
+        const checkReq = pool.request();
+        checkReq.input('lastNum', sql.VarChar(50), String(consecutivo));
+        const checkRes = await checkReq.query(`
+          SELECT CUFE FROM ${TABLE_NAMES.facturas} WHERE numfact = @lastNum
+        `);
+
+        const record = checkRes.recordset[0];
+        const cufe = record?.CUFE ? String(record.CUFE).trim() : '';
+        const isStamped = cufe.length > 20 && cufe !== 'null';
+
+        if (isStamped) {
+          // Si está timbrado, el siguiente es el posterior (ascendente)
+          nextNum = String(consecutivo + 1);
+        } else {
+          // Si no está timbrado, se reutiliza
+          nextNum = String(consecutivo);
         }
       }
 
@@ -1373,9 +1393,11 @@ const invoiceController = {
       console.log('Recibido JSON manual para prueba DIAN');
 
       // Obtener parámetros DIAN actuales
-      const dianParams = await DIANService.getDIANParameters();
+      const dianParams = await DIANService.getDIANParameters(req.db_name);
 
-      // Enviar a DIAN
+      // Test mode block removed to enable real DIAN submission
+
+      // Enviar a DIAN (Para otras empresas o si no es orquidea)
       const result = await DIANService.sendInvoiceToDIAN(
         invoiceJson,
         dianParams.testSetID,
@@ -1395,6 +1417,89 @@ const invoiceController = {
         message: 'Error en prueba manual DIAN',
         error: error.message
       });
+    }
+  },
+
+  // POST /api/facturas/preview-pdf
+  generatePreviewPdf: async (req, res) => {
+    try {
+      const invoiceJson = req.body;
+      const { db_name } = req;
+
+      // Obtener parámetros DIAN
+      const dianParams = await DIANService.getDIANParameters(db_name);
+
+      // Logo injection removed as per user request
+
+      // Llamar a la API externa para generar el PDF
+      const url = `${dianParams.url_base}/api/ubl2.1/invoice/pdf/generate`;
+      console.log(`📤 Solicitando previsualización de PDF a: ${url}`);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, application/pdf'
+        },
+        body: JSON.stringify(invoiceJson)
+      });
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error(`❌ Error en API de PDF (${response.status}):`, responseText);
+        return res.status(response.status).json({
+          success: false,
+          message: 'Error generando previsualización de PDF',
+          error: responseText
+        });
+      }
+
+      // Verificar si la respuesta es un PDF
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/pdf')) {
+        console.log('✅ Respuesta PDF recibida, enviando stream al cliente...');
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', response.headers.get('content-disposition') || 'attachment; filename="factura.pdf"');
+
+        // Pipear el stream directamente
+        // @ts-ignore
+        if (response.body && typeof response.body.pipe === 'function') {
+          // Node-fetch v2 style
+          response.body.pipe(res);
+        } else if (response.body) {
+          // Node 18+ fetch / Undici style (ReadableStream)
+          const reader = response.body.getReader();
+          const stream = new Readable({
+            async read() {
+              const { done, value } = await reader.read();
+              if (done) {
+                this.push(null);
+              } else {
+                this.push(Buffer.from(value));
+              }
+            }
+          });
+          stream.pipe(res);
+        }
+        return;
+      }
+
+      const responseText = await response.text();
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        responseData = { pdf_url: responseText }; // Fallback si no es JSON
+      }
+
+      res.json({
+        success: true,
+        data: responseData
+      });
+
+    } catch (error) {
+      console.error('Error en generatePreviewPdf:', error);
+      res.status(500).json({ success: false, message: 'Error interno generando PDF', error: error.message });
     }
   }
 };

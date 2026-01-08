@@ -13,6 +13,7 @@ interface AuthContextType {
   selectedCompany: Empresa | null;
   selectedSede: Sede | null;
   permissions: Permission[];
+  token: string | null;
   login: (username: string, password: string, companyId?: number) => Promise<boolean>;
   logout: () => void;
   switchCompany: (companyId: number) => void;
@@ -221,10 +222,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               logger.warn({ prefix: 'AuthContext' }, 'Error cargando bodega desde localStorage:', error);
             }
 
-            // Si no se cargó desde localStorage, no preseleccionar ninguna - el usuario debe elegir manualmente
-            if (!bodegaCargada) {
-              setSelectedSede(null);
-              logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas cargadas desde BD. Usuario debe seleccionar una bodega manualmente.');
+            // Si no se cargó desde localStorage, seleccionar la primera por defecto
+            if (!bodegaCargada && mappedBodegas.length > 0) {
+              const primeraBodega = mappedBodegas[0];
+              setSelectedSede(primeraBodega);
+              try {
+                localStorage.setItem('selectedSedeId', String(primeraBodega.id));
+                localStorage.setItem('selectedSedeData', JSON.stringify({
+                  id: primeraBodega.id,
+                  nombre: primeraBodega.nombre,
+                  codigo: primeraBodega.codigo,
+                  empresaId: primeraBodega.empresaId
+                }));
+              } catch (error) { }
+              logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Primera bodega seleccionada por defecto:', primeraBodega.nombre);
             }
           }
         } else {
@@ -406,17 +417,38 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             if (!selectedCompany || selectedCompany.id !== companyToSelect.id) {
               logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔄 Actualizando empresa seleccionada:', companyToSelect.razonSocial);
               setSelectedCompany(companyToSelect);
-              // Ensure localStorage is in sync
               localStorage.setItem('selectedCompanyId', String(companyToSelect.id));
 
-              // Try restore sede logic...
+              // Lógica de restauración de sede mejorada
               try {
                 const savedSedeId = localStorage.getItem('selectedSedeId');
+                const savedSedeData = localStorage.getItem('selectedSedeData');
+                let sedeToSelect = null;
+
                 if (savedSedeId && companyToSelect.sedes) {
-                  const found = companyToSelect.sedes.find(s => String(s.id) === savedSedeId);
-                  if (found) setSelectedSede(found);
+                  sedeToSelect = companyToSelect.sedes.find(s =>
+                    String(s.id) === String(savedSedeId) ||
+                    (savedSedeData && JSON.parse(savedSedeData).codigo === s.codigo)
+                  );
                 }
-              } catch (e) { }
+
+                if (!sedeToSelect && companyToSelect.sedes && companyToSelect.sedes.length > 0) {
+                  sedeToSelect = companyToSelect.sedes[0];
+                }
+
+                if (sedeToSelect) {
+                  setSelectedSede(sedeToSelect);
+                  localStorage.setItem('selectedSedeId', String(sedeToSelect.id));
+                  localStorage.setItem('selectedSedeData', JSON.stringify({
+                    id: sedeToSelect.id,
+                    nombre: sedeToSelect.nombre,
+                    codigo: sedeToSelect.codigo,
+                    empresaId: sedeToSelect.empresaId
+                  }));
+                }
+              } catch (e) {
+                logger.error({ prefix: 'AuthContext' }, 'Error restoring sede in refreshUser:', e);
+              }
             }
           }
         }
@@ -436,6 +468,39 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       refreshUser();
     }
   }, [bodegas, isLoadingBodegas, refreshUser]);
+
+  // Sincronización automática de bodega cuando cambia la empresa
+  useEffect(() => {
+    if (selectedCompany && !selectedSede) {
+      const companySedes = selectedCompany.sedes || [];
+      if (companySedes.length > 0) {
+        // Intentar recuperar del localStorage primero
+        const savedSedeId = localStorage.getItem('selectedSedeId');
+        let sedeToSelect = null;
+
+        if (savedSedeId) {
+          sedeToSelect = companySedes.find(s => String(s.id) === String(savedSedeId));
+        }
+
+        // Si no hay guardada o no coincide, usar la primera
+        if (!sedeToSelect) {
+          sedeToSelect = companySedes[0];
+        }
+
+        if (sedeToSelect) {
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔄 Sincronización automática: Seleccionando bodega', sedeToSelect.nombre);
+          setSelectedSede(sedeToSelect);
+          localStorage.setItem('selectedSedeId', String(sedeToSelect.id));
+          localStorage.setItem('selectedSedeData', JSON.stringify({
+            id: sedeToSelect.id,
+            nombre: sedeToSelect.nombre,
+            codigo: sedeToSelect.codigo,
+            empresaId: sedeToSelect.empresaId
+          }));
+        }
+      }
+    }
+  }, [selectedCompany, selectedSede]);
 
   const login = async (username: string, password: string, companyId?: number): Promise<boolean> => {
     try {
@@ -483,10 +548,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           setSelectedCompany(firstCompany);
           localStorage.setItem('selectedCompanyId', String(firstCompany.id));
 
-          if (firstCompany.sedes && firstCompany.sedes.length === 1) {
-            const unicaBodega = firstCompany.sedes[0];
-            setSelectedSede(unicaBodega);
-            localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+          if (firstCompany.sedes && firstCompany.sedes.length > 0) {
+            const defaultSede = firstCompany.sedes[0];
+            setSelectedSede(defaultSede);
+            localStorage.setItem('selectedSedeId', String(defaultSede.id));
           } else {
             setSelectedSede(null);
             localStorage.removeItem('selectedSedeId');
@@ -530,33 +595,29 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           setSelectedCompany(company);
 
           // 4. Handle Sede selection (Local logic)
-          if (company.sedes && company.sedes.length === 1) {
-            const unicaBodega = company.sedes[0];
-            setSelectedSede(unicaBodega);
+          if (company.sedes && company.sedes.length > 0) {
+            const defaultSede = company.sedes[0];
+            setSelectedSede(defaultSede);
             try {
-              localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+              localStorage.setItem('selectedSedeId', String(defaultSede.id));
               localStorage.setItem('selectedSedeData', JSON.stringify({
-                id: unicaBodega.id,
-                nombre: unicaBodega.nombre,
-                codigo: unicaBodega.codigo,
-                empresaId: unicaBodega.empresaId
+                id: defaultSede.id,
+                nombre: defaultSede.nombre,
+                codigo: defaultSede.codigo,
+                empresaId: defaultSede.empresaId
               }));
-            } catch (error) {
-              logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage en switchCompany:', error);
-            }
+            } catch (error) { }
           } else {
             setSelectedSede(null);
             try {
               localStorage.removeItem('selectedSedeId');
               localStorage.removeItem('selectedSedeData');
-            } catch (error) {
-              logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage en switchCompany:', error);
-            }
+            } catch (error) { }
           }
 
-          // 5. Force reload to ensure clean state and new DB connection usage
-          // This prevents data leakage between companies
-          window.location.reload();
+          // 5. Update local state for Sede and Company is already done
+          // The router will handle the URL change and the context update will trigger re-renders
+          logger.log({ prefix: 'AuthContext', level: 'info' }, '✅ Company switch completed without reload');
         } else {
           logger.error({ prefix: 'AuthContext' }, '❌ Failed to switch company token:', response.message);
           // Fallback: Just update local state (legacy behavior) - but warn user
@@ -802,6 +863,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     selectedCompany,
     selectedSede,
     permissions,
+    token: localStorage.getItem('token'),
     login,
     logout,
     // FIX: Removed incorrect wrapper functions that caused a type mismatch with AuthContextType. The original functions are now passed directly.

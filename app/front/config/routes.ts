@@ -17,59 +17,61 @@ export interface RouteConfig {
  */
 export const routeMap: Record<Page, string> = {
   // Dashboard
-  dashboard: '/',
+  dashboard: '/:companySlug',
 
   // Clientes
-  clientes: '/clientes',
-  nuevo_cliente: '/clientes/nuevo',
-  editar_cliente: '/clientes/editar/:id',
+  clientes: '/:companySlug/clientes',
+  nuevo_cliente: '/:companySlug/clientes/nuevo',
+  editar_cliente: '/:companySlug/clientes/editar/:id',
 
   // Productos
-  productos: '/productos',
-  nuevo_producto: '/productos/nuevo',
-  editar_producto: '/productos/editar/:id',
-  entrada_inventario: '/productos/inventario',
-  inventory_concepts: '/inventarios/conceptos',
-  conteo_fisico: '/inventarios/conteo-fisico',
+  productos: '/:companySlug/productos',
+  nuevo_producto: '/:companySlug/productos/nuevo',
+  editar_producto: '/:companySlug/productos/editar/:id',
+  entrada_inventario: '/:companySlug/productos/inventario',
+  inventory_concepts: '/:companySlug/inventarios/conceptos',
+  conteo_fisico: '/:companySlug/inventarios/conteo-fisico',
 
   // Categorías
-  categorias: '/categorias',
-  categoria_detalle: '/categorias/:id',
+  categorias: '/:companySlug/categorias',
+  categoria_detalle: '/:companySlug/categorias/:id',
 
   // Cotizaciones
-  cotizaciones: '/cotizaciones',
-  nueva_cotizacion: '/cotizaciones/nueva',
-  editar_cotizacion: '/cotizaciones/editar/:id',
+  cotizaciones: '/:companySlug/cotizaciones',
+  nueva_cotizacion: '/:companySlug/cotizaciones/nueva',
+  editar_cotizacion: '/:companySlug/cotizaciones/editar/:id',
 
   // Pedidos
-  pedidos: '/pedidos',
-  nuevo_pedido: '/pedidos/nuevo',
+  pedidos: '/:companySlug/pedidos',
+  nuevo_pedido: '/:companySlug/pedidos/nuevo',
 
   // Ordenes de Compra
-  ordenes_compra: '/ordenes-compra',
-  nueva_orden_compra: '/ordenes-compra/nueva',
+  ordenes_compra: '/:companySlug/ordenes-compra',
+  nueva_orden_compra: '/:companySlug/ordenes-compra/nueva',
 
   // Remisiones
-  remisiones: '/remisiones',
-  editar_remision: '/remisiones/editar/:id',
+  remisiones: '/:companySlug/remisiones',
+  editar_remision: '/:companySlug/remisiones/editar/:id',
 
   // Facturación
-  facturacion_electronica: '/facturas',
-  nueva_factura: '/facturas/nueva',
+  facturacion_electronica: '/:companySlug/facturas',
+  nueva_factura: '/:companySlug/facturas/nueva',
+  factura_directa: '/:companySlug/facturas/directa',
 
   // Devoluciones
-  devoluciones: '/devoluciones',
-  notas_credito_debito: '/devoluciones/notas-credito',
+  devoluciones: '/:companySlug/devoluciones',
+  notas_credito_debito: '/:companySlug/devoluciones/notas-credito',
 
   // Informes
-  reportes: '/reportes',
-  demas_informes: '/informes',
+  reportes: '/:companySlug/reportes',
+  demas_informes: '/:companySlug/informes',
 
   // Administración
-  activity_log: '/admin/actividad',
-  factura_profesional: '/facturas/profesional',
-  usuarios: '/configuracion/usuarios',
-  perfil: '/perfil',
+  activity_log: '/:companySlug/admin/actividad',
+  factura_profesional: '/:companySlug/facturas/profesional',
+  usuarios: '/:companySlug/configuracion/usuarios',
+  perfil: '/:companySlug/perfil',
+  analytics: '/:companySlug/analytics',
 };
 
 /**

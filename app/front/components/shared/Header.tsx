@@ -191,7 +191,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                     <button
                       key={empresa.id}
                       onClick={() => {
-                        switchCompany(empresa.id);
+                        setPage('dashboard', { companySlug: empresa.db_name });
                         setIsCompanyDropdownOpen(false);
                       }}
                       className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-2 ${selectedCompany.id === empresa.id ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-200'
@@ -282,94 +282,34 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
               setIsSedePopoverOpen(willBeOpen);
 
               if (willBeOpen) {
-                setIsLoadingBodegasLocal(true);
-                setBodegasDisponibles([]);
-
-                try {
-                  let response;
-                  try {
-                    response = await fetchBodegas();
-                  } catch (fetchError) {
-                    logger.warn({ prefix: 'Header' }, 'Error de red al cargar bodegas:', fetchError);
-                    setBodegasDisponibles([]);
-                    setIsLoadingBodegasLocal(false);
-                    return;
-                  }
-
-                  if (!response || !response.success || !response.data || !Array.isArray(response.data) || response.data.length === 0) {
-                    logger.warn({ prefix: 'Header' }, 'No se pudieron cargar bodegas desde la BD');
-                    setBodegasDisponibles([]);
-                    setIsLoadingBodegasLocal(false);
-                    return;
-                  }
-
-                  const extractArrayData = (response: any): any[] => {
-                    if (!response.success) return [];
-                    const raw = response.data;
-                    if (Array.isArray(raw)) return raw;
-                    if (raw && typeof raw === 'object' && 'data' in raw && Array.isArray((raw as any).data)) {
-                      return (raw as any).data;
-                    }
-                    if (raw && typeof raw === 'object' && 'items' in raw && Array.isArray((raw as any).items)) {
-                      return (raw as any).items;
-                    }
-                    return [];
-                  };
-
-                  const bodegasData = extractArrayData(response);
-
-                  if (bodegasData.length > 0) {
-                    // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
-                    const mappedBodegas = bodegasData.map((b: any, index: number) => {
-                      const nombreBodega = ((b.nombre || b.nomalm || '').trim() || `Bodega ${index + 1}`).replace(/MULTIACABADOS\s*-\s*/i, '');
-                      const codigoAlmacen = String(b.codigo || b.codalm || b.id || '').trim();
-
-                      // Convertir código a número para el ID si es posible
-                      let bodegaId: number;
-                      if (codigoAlmacen && /^\d+$/.test(codigoAlmacen)) {
-                        bodegaId = parseInt(codigoAlmacen, 10);
-                      } else {
-                        bodegaId = index + 1;
-                      }
-
-                      // Usar el código directamente de la BD (ya viene formateado)
-                      const bodegaCodigo = codigoAlmacen.padStart(3, '0');
-
-                      return {
-                        id: bodegaId,
-                        nombre: nombreBodega,
-                        codigo: bodegaCodigo,
-                        empresaId: selectedCompany?.id || 1,
-                        municipioId: 11001,
-                        direccion: (b.direccion || b.diralm || '').trim(),
-                        ciudad: (b.ciudad || b.ciualm || '').trim()
-                      };
-                    });
-
-                    // Ordenar bodegas por código (001, 002, 003, etc.)
-                    const bodegasOrdenadas = [...mappedBodegas].sort((a, b) => {
-                      const codigoA = String(a.codigo || '').padStart(3, '0');
-                      const codigoB = String(b.codigo || '').padStart(3, '0');
-                      return codigoA.localeCompare(codigoB);
-                    });
-
-                    logger.log({ prefix: 'Header', level: 'debug' }, 'Bodegas mapeadas y ordenadas por código:', bodegasOrdenadas.map(b => ({
-                      nombre: b.nombre,
-                      codigo: b.codigo,
-                      id: b.id
-                    })));
-                    setBodegasDisponibles(bodegasOrdenadas);
-                  } else {
-                    setBodegasDisponibles([]);
-                  }
-                } catch (error) {
-                  logger.error({ prefix: 'Header' }, 'Error cargando bodegas:', error);
-                  setBodegasDisponibles([]);
-                } finally {
+                // Usar bodegas del contexto si están disponibles en la empresa seleccionada
+                if (selectedCompany?.sedes && selectedCompany.sedes.length > 0) {
+                  setBodegasDisponibles(selectedCompany.sedes);
                   setIsLoadingBodegasLocal(false);
+                } else {
+                  // Fallback: Intentar cargar si no hay en contexto (aunque debería haber)
+                  setIsLoadingBodegasLocal(true);
+                  try {
+                    const response = await fetchBodegas();
+                    if (response.success && Array.isArray(response.data)) {
+                      // Mapeo simplificado asumiendo estructura consistente o adaptando
+                      const mapped = response.data.map((b: any, idx: number) => ({
+                        id: b.id || idx + 1,
+                        nombre: b.nombre || b.nomalm || `Bodega ${idx + 1}`,
+                        codigo: b.codigo || b.codalm || String(idx + 1).padStart(3, '0'),
+                        empresaId: selectedCompany?.id || 1
+                      }));
+                      setBodegasDisponibles(mapped);
+                    } else {
+                      setBodegasDisponibles([]);
+                    }
+                  } catch (e) {
+                    console.error("Error fetching bodegas fallback", e);
+                    setBodegasDisponibles([]);
+                  } finally {
+                    setIsLoadingBodegasLocal(false);
+                  }
                 }
-              } else {
-                setBodegasDisponibles([]);
               }
             }}
             aria-haspopup="listbox"
@@ -528,7 +468,14 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                 <div className="relative">
                   <select
                     value={selectedCompany?.id || ''}
-                    onChange={(e) => { switchCompany(Number(e.target.value)); setIsMoreMenuOpen(false); }}
+                    onChange={(e) => {
+                      const empId = Number(e.target.value);
+                      const emp = user?.empresas.find(comp => comp.id === empId);
+                      if (emp) {
+                        setPage('dashboard', { companySlug: emp.db_name });
+                      }
+                      setIsMoreMenuOpen(false);
+                    }}
                     className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {(user?.empresas || []).map(empresa => (

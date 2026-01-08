@@ -22,7 +22,7 @@ import PageHeader from '../components/ui/PageHeader';
 import RemisionPreviewModal from '../components/remisiones/RemisionPreviewModal'; // New Import
 import { pdf } from '@react-pdf/renderer';
 import FacturaPDFDocument from '../components/facturacion/FacturaPDFDocument';
-import ManualInvoiceModal from '../components/facturacion/ManualInvoiceModal';
+
 
 
 
@@ -1325,11 +1325,11 @@ const FacturasPage: React.FC = () => {
           return showButton;
         })() && (
             <button
-              onClick={() => setIsManualModalOpen(true)}
+              onClick={() => setPage('factura_directa')}
               className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2 shadow-md transition-all hover:-translate-y-0.5"
             >
               <i className="fas fa-file-pen"></i>
-              <span>Nueva Factura Manual</span>
+              <span>Factura Directa</span>
             </button>
           )}
       </div>
@@ -1609,7 +1609,7 @@ const FacturasPage: React.FC = () => {
                           : itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
                         return (
                           <tr key={item.productoId} className="text-sm">
-                            <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{producto?.referencia || 'N/A'}</td>
+                            <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{item.referencia || producto?.referencia || item.codProducto || 'N/A'}</td>
                             <td className="px-4 py-2 whitespace-nowrap font-semibold">{item.descripcion}</td>
                             <td className="px-4 py-2 whitespace-nowrap">{producto?.unidadMedida}</td>
                             <td className="px-4 py-2 whitespace-nowrap text-right">{item.cantidad}</td>
@@ -1793,13 +1793,7 @@ El equipo de ${datosEmpresa.nombre}`
           </div>
         </div>
       </Modal>
-      {/* Modal de Factura Manual (Orquidea) */}
-      {/* Modal de Factura Manual (Orquidea) */}
-      <ManualInvoiceModal
-        isOpen={isManualModalOpen}
-        onClose={() => setIsManualModalOpen(false)}
-        nextInvoiceNumber={facturas.reduce((max, f) => Math.max(max, parseInt(f.numeroFactura) || 0), 0) + 1}
-      />
+
     </PageContainer >
   );
 };

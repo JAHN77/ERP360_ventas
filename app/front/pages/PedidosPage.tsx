@@ -26,10 +26,16 @@ import { pdf } from '@react-pdf/renderer';
 import { formatDateOnly } from '../utils/formatters';
 import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
+import OrderTimeline from '../components/analytics/OrderTimeline';
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
+
+const formatProductName = (name: string) => {
+  if (!name) return '';
+  return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+};
 
 const getPedidoProgressStatus = (pedido: Pedido): 'complete' | 'current' | 'incomplete' => {
   if (!pedido || pedido.estado === 'CANCELADO') return 'incomplete';
@@ -76,6 +82,12 @@ const PedidosPage: React.FC = () => {
   const [approvalResult, setApprovalResult] = useState<Pedido | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+
+  // Estado para el modal de línea de tiempo
+  const [timelineModalOpen, setTimelineModalOpen] = useState(false);
+  const [timelineOrderId, setTimelineOrderId] = useState<string | null>(null);
+  const [comparisonData, setComparisonData] = useState<any[]>([]);
+  const [isLoadingComparison, setIsLoadingComparison] = useState(false);
 
   // Cargar pedidos con paginación (con debounce para búsqueda)
   useEffect(() => {
@@ -241,6 +253,25 @@ const PedidosPage: React.FC = () => {
     // Primero establecer el pedido para mostrar el modal inmediatamente
     setSelectedPedido(pedido);
     setDetailModalOpen(true);
+    setComparisonData([]); // Reset comparison data
+
+    // Cargar datos de comparación si no es borrador
+    if (pedido.estado !== 'BORRADOR') {
+      setIsLoadingComparison(true);
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/analytics/comparison/${pedido.id}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          setComparisonData(data.data);
+        }
+      } catch (error) {
+        console.error('Error loading comparison:', error);
+      } finally {
+        setIsLoadingComparison(false);
+      }
+    }
 
     // SIEMPRE intentar cargar los detalles, incluso si ya tiene items
     // Esto asegura que siempre tengamos los datos más actualizados
@@ -436,6 +467,16 @@ const PedidosPage: React.FC = () => {
 
   const handleSendEmail = (pedido: Pedido) => {
     setPedidoToEmail(pedido);
+  };
+
+  const handleOpenTimeline = (pedidoId: string) => {
+    setTimelineOrderId(pedidoId);
+    setTimelineModalOpen(true);
+  };
+
+  const handleCloseTimeline = () => {
+    setTimelineModalOpen(false);
+    setTimelineOrderId(null);
   };
 
   const handleConfirmSendEmail = async (emailData: { to: string; subject: string; body: string }) => {
@@ -658,6 +699,13 @@ const PedidosPage: React.FC = () => {
           >
             <i className="fas fa-paper-plane"></i>
           </button>
+          <button
+            onClick={() => handleOpenTimeline(String(item.id))}
+            className="p-2 text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-lg transition-all duration-200"
+            title="Ver Línea de Tiempo"
+          >
+            <i className="fas fa-stream"></i>
+          </button>
           <ProtectedComponent permission="pedidos:approve">
             {(item.estado === 'ENVIADA' || item.estado === 'BORRADOR') && (
               <button
@@ -746,8 +794,8 @@ const PedidosPage: React.FC = () => {
           isOpen={isDetailModalOpen}
           onClose={handleCloseModals}
           title=""
-          size="5xl"
-          className="bg-slate-50 dark:bg-slate-900"
+          size="7xl" // Increased size as requested (approx 70% width depending on screen)
+          className="bg-slate-50 dark:bg-slate-900 w-[90%] max-w-[90%] sm:w-[85%] md:w-[80%] lg:w-[70%]" // Custom width classes
         >
           {/* Header Personalizado del Modal */}
           <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 -mx-6 -mt-6 px-6 py-4 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -904,100 +952,160 @@ const PedidosPage: React.FC = () => {
                   {selectedPedido.items?.length || 0} items
                 </span>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full divide-y divide-slate-100 dark:divide-slate-700/50">
-                  <thead className="bg-slate-50 dark:bg-slate-700/30">
-                    <tr>
-                      <th scope="col" className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Producto</th>
-                      <th scope="col" className="px-5 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Unidad</th>
-                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Cant.</th>
-                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-32">P. Unit.</th>
-                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Desc.</th>
-                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">IVA</th>
-                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-32">Subtotal</th>
-                      <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-28">Total IVA</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {selectedPedido.items && Array.isArray(selectedPedido.items) && selectedPedido.items.length > 0 ? (
-                      selectedPedido.items.map((item: DocumentItem, index: number) => {
-                        const product = productos.find(p =>
-                          String(p.id) === String(item.productoId) ||
-                          p.id === item.productoId
-                        );
 
-                        const qty = Number(item.cantidad || 0);
-                        const price = Number(item.precioUnitario || 0);
-                        const discountPct = Number(item.descuentoPorcentaje || 0);
-
-                        const ivaPct = (item.ivaPorcentaje !== undefined && item.ivaPorcentaje !== null)
-                          ? Number(item.ivaPorcentaje)
-                          : (product && product.tasaIva !== undefined && product.tasaIva !== null ? Number(product.tasaIva) : 0);
-
-                        const itemSubtotal = price * qty * (1 - discountPct / 100);
-                        const itemIva = itemSubtotal * (ivaPct / 100);
-
-                        const productoNombre = product?.nombre ||
-                          item.descripcion ||
-                          (item as any).nombre ||
-                          `Producto ${index + 1}`;
-
-                        const unidadMedida = (item as any).unidadMedida ||
-                          product?.unidadMedida ||
-                          'Unidad';
+              {selectedPedido.estado !== 'BORRADOR' && comparisonData.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
+                      <tr>
+                        <th className="px-6 py-3 font-semibold text-slate-500 dark:text-slate-400">Producto</th>
+                        <th className="px-6 py-3 font-semibold text-center text-slate-500 dark:text-slate-400">Cotizado</th>
+                        <th className="px-6 py-3 font-semibold text-center text-slate-500 dark:text-slate-400">Pedido</th>
+                        <th className="px-6 py-3 font-semibold text-center text-slate-500 dark:text-slate-400">Enviado</th>
+                        <th className="px-6 py-3 font-semibold text-center text-slate-500 dark:text-slate-400">Facturado</th>
+                        <th className="px-6 py-3 font-semibold text-right text-slate-500 dark:text-slate-400">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                      {comparisonData.map((item, idx) => {
+                        const isFullyShipped = item.qtyRemitted >= item.qtyOrder;
+                        const isFullyInvoiced = item.qtyInvoiced >= item.qtyRemitted && item.qtyRemitted > 0;
 
                         return (
-                          <tr key={item.productoId || `item-${index}`} className="group hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                            <td className="px-5 py-4">
-                              <div className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-0.5">{productoNombre}</div>
-                              {!product && (
-                                <span className="inline-flex items-center text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">
-                                  <i className="fas fa-exclamation-triangle mr-1"></i> No catálogo
+                          <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                            <td className="px-6 py-4 font-medium text-slate-800 dark:text-slate-200">
+                              {item.productName ? (item.productName.charAt(0).toUpperCase() + item.productName.slice(1).toLowerCase()) : ''}
+                              <div className="text-xs text-slate-400 font-normal mt-0.5">{item.codins}</div>
+                            </td>
+                            <td className="px-6 py-4 text-center text-slate-600 dark:text-slate-400">{item.qtyQuote}</td>
+                            <td className="px-6 py-4 text-center font-bold text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg">{item.qtyOrder}</td>
+                            <td className="px-6 py-4 text-center text-slate-600 dark:text-slate-400">
+                              <span className={item.qtyRemitted < item.qtyOrder ? 'text-orange-500 font-medium' : 'text-green-600 font-medium'}>
+                                {item.qtyRemitted}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-center text-slate-600 dark:text-slate-400">
+                              <span className={item.qtyInvoiced < item.qtyRemitted ? 'text-orange-500 font-medium' : 'text-green-600 font-medium'}>
+                                {item.qtyInvoiced}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex flex-col gap-1 items-end">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${isFullyShipped ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'}`}>
+                                  {isFullyShipped ? 'Enviado' : 'Pendiente'}
                                 </span>
-                              )}
-                            </td>
-                            <td className="px-5 py-4 text-sm text-center text-slate-500 dark:text-slate-400">{unidadMedida}</td>
-                            <td className="px-5 py-4 text-sm text-right font-medium text-slate-700 dark:text-slate-300 bg-slate-50/30 dark:bg-slate-800/30">{item.cantidad}</td>
-                            <td className="px-5 py-4 text-sm text-right text-slate-600 dark:text-slate-400">{formatCurrency(item.precioUnitario)}</td>
-                            <td className="px-5 py-4 text-sm text-right">
-                              {item.descuentoPorcentaje && item.descuentoPorcentaje > 0 ? (
-                                <span className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded font-medium text-xs">
-                                  -{item.descuentoPorcentaje.toFixed(0)}%
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${isFullyInvoiced ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                                  {isFullyInvoiced ? 'Facturado' : 'Por Facturar'}
                                 </span>
-                              ) : (
-                                <span className="text-slate-400">-</span>
-                              )}
+                              </div>
                             </td>
-                            <td className="px-5 py-4 text-sm text-right text-slate-500 dark:text-slate-400">
-                              {ivaPct > 0 ? `${ivaPct.toFixed(0)}%` : '-'}
-                            </td>
-                            <td className="px-5 py-4 text-sm text-right font-semibold text-slate-700 dark:text-slate-200">{formatCurrency(itemSubtotal)}</td>
-                            <td className="px-5 py-4 text-sm text-right text-slate-500 dark:text-slate-400">{formatCurrency(itemIva)}</td>
                           </tr>
                         );
-                      })
-                    ) : (
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full divide-y divide-slate-100 dark:divide-slate-700/50">
+                    <thead className="bg-slate-50 dark:bg-slate-700/30">
                       <tr>
-                        <td colSpan={8} className="px-5 py-12 text-center">
-                          <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
-                            {selectedPedido.items === undefined ? (
-                              <>
-                                <i className="fas fa-spinner fa-spin text-3xl mb-3 text-blue-500"></i>
-                                <span>Cargando productos...</span>
-                              </>
-                            ) : (
-                              <>
-                                <i className="fas fa-box-open text-4xl mb-3 opacity-50"></i>
-                                <span>No hay productos en este pedido</span>
-                              </>
-                            )}
-                          </div>
-                        </td>
+                        <th scope="col" className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Producto</th>
+                        <th scope="col" className="px-5 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Unidad</th>
+                        <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Cant.</th>
+                        <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-32">P. Unit.</th>
+                        <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">Desc.</th>
+                        <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24">IVA</th>
+                        <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-32">Subtotal</th>
+                        <th scope="col" className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-28">Total IVA</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-100 dark:divide-slate-700/50">
+                      {selectedPedido.items && Array.isArray(selectedPedido.items) && selectedPedido.items.length > 0 ? (
+                        selectedPedido.items.map((item: DocumentItem, index: number) => {
+                          const product = productos.find(p =>
+                            String(p.id) === String(item.productoId) ||
+                            p.id === item.productoId
+                          );
+
+                          const qty = Number(item.cantidad || 0);
+                          const price = Number(item.precioUnitario || 0);
+                          const discountPct = Number(item.descuentoPorcentaje || 0);
+
+                          const ivaPct = (item.ivaPorcentaje !== undefined && item.ivaPorcentaje !== null)
+                            ? Number(item.ivaPorcentaje)
+                            : (product && product.tasaIva !== undefined && product.tasaIva !== null ? Number(product.tasaIva) : 0);
+
+                          const itemSubtotal = price * qty * (1 - discountPct / 100);
+                          const itemIva = itemSubtotal * (ivaPct / 100);
+
+                          let productoNombre = product?.nombre ||
+                            item.descripcion ||
+                            (item as any).nombre ||
+                            `Producto ${index + 1}`;
+
+                          // Apply Sentence Case formatting
+                          if (productoNombre) {
+                            productoNombre = productoNombre.charAt(0).toUpperCase() + productoNombre.slice(1).toLowerCase();
+                          }
+
+                          const unidadMedida = (item as any).unidadMedida ||
+                            product?.unidadMedida ||
+                            'Unidad';
+
+                          return (
+                            <tr key={item.productoId || `item-${index}`} className="group hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                              <td className="px-5 py-4">
+                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-0.5">{productoNombre}</div>
+                                {!product && (
+                                  <span className="inline-flex items-center text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">
+                                    <i className="fas fa-exclamation-triangle mr-1"></i> No catálogo
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-5 py-4 text-sm text-center text-slate-500 dark:text-slate-400">{unidadMedida}</td>
+                              <td className="px-5 py-4 text-sm text-right font-medium text-slate-700 dark:text-slate-300 bg-slate-50/30 dark:bg-slate-800/30">{item.cantidad}</td>
+                              <td className="px-5 py-4 text-sm text-right text-slate-600 dark:text-slate-400">{formatCurrency(item.precioUnitario)}</td>
+                              <td className="px-5 py-4 text-sm text-right">
+                                {item.descuentoPorcentaje && item.descuentoPorcentaje > 0 ? (
+                                  <span className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded font-medium text-xs">
+                                    -{item.descuentoPorcentaje.toFixed(0)}%
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">-</span>
+                                )}
+                              </td>
+                              <td className="px-5 py-4 text-sm text-right text-slate-500 dark:text-slate-400">
+                                {ivaPct > 0 ? `${ivaPct.toFixed(0)}%` : '-'}
+                              </td>
+                              <td className="px-5 py-4 text-sm text-right font-semibold text-slate-700 dark:text-slate-200">{formatCurrency(itemSubtotal)}</td>
+                              <td className="px-5 py-4 text-sm text-right text-slate-500 dark:text-slate-400">{formatCurrency(itemIva)}</td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={8} className="px-5 py-12 text-center">
+                            <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
+                              {selectedPedido.items === undefined ? (
+                                <>
+                                  <i className="fas fa-spinner fa-spin text-3xl mb-3 text-blue-500"></i>
+                                  <span>Cargando productos...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <i className="fas fa-box-open text-4xl mb-3 opacity-50"></i>
+                                  <span>No hay productos en este pedido</span>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             {/* Resumen Totales */}
@@ -1248,6 +1356,25 @@ const PedidosPage: React.FC = () => {
         );
       })()}
 
+      {/* Modal de Línea de Tiempo */}
+      <Modal
+        isOpen={timelineModalOpen}
+        onClose={handleCloseTimeline}
+        title=""
+        size="4xl"
+        className="bg-slate-50 dark:bg-slate-900"
+      >
+        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 -mx-6 -mt-6 px-6 py-4 mb-6 flex justify-between items-center">
+          <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">
+            Rastreo de Pedido
+          </h3>
+          <button onClick={handleCloseTimeline} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+            <i className="fas fa-times text-xl"></i>
+          </button>
+        </div>
+
+        {timelineOrderId && <OrderTimeline orderId={timelineOrderId} />}
+      </Modal>
     </PageContainer>
   );
 };
