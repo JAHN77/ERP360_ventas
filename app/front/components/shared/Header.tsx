@@ -32,7 +32,7 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
-  const { user, selectedCompany, switchCompany, logout, selectedSede, switchSede, isLoadingBodegas } = useAuth();
+  const { user, selectedCompany, switchCompany, logout, selectedSede, switchSede, isLoadingBodegas, bodegas } = useAuth();
   const { theme } = useTheme();
   const { setPage } = useNavigation();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -40,8 +40,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isCompanyDropdownOpen, setIsCompanyDropdownOpen] = useState(false);
   const [isSedePopoverOpen, setIsSedePopoverOpen] = useState(false);
-  const [bodegasDisponibles, setBodegasDisponibles] = useState<any[]>([]);
-  const [isLoadingBodegasLocal, setIsLoadingBodegasLocal] = useState(false);
+  // Removed local state for bodegas, using global state from AuthContext
   const bodegasDropdownRef = useRef<HTMLDivElement>(null);
   const bodegasPopoverRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -273,57 +272,24 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
             className={`inline-flex items-center gap-2 pl-3 pr-2 py-2 text-sm bg-white dark:bg-slate-800 border rounded-lg transition-all max-w-[200px] focus:outline-none ${isSedePopoverOpen
               ? 'border-blue-500 shadow-md bg-blue-50 dark:bg-blue-900/20'
               : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 hover:shadow-sm'
-              } ${isLoadingBodegasLocal ? 'opacity-50 cursor-wait' : ''}`}
-            onClick={async (e) => {
+              } ${isLoadingBodegas ? 'opacity-50 cursor-wait' : ''}`}
+            onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-
-              const willBeOpen = !isSedePopoverOpen;
-              setIsSedePopoverOpen(willBeOpen);
-
-              if (willBeOpen) {
-                // Usar bodegas del contexto si están disponibles en la empresa seleccionada
-                if (selectedCompany?.sedes && selectedCompany.sedes.length > 0) {
-                  setBodegasDisponibles(selectedCompany.sedes);
-                  setIsLoadingBodegasLocal(false);
-                } else {
-                  // Fallback: Intentar cargar si no hay en contexto (aunque debería haber)
-                  setIsLoadingBodegasLocal(true);
-                  try {
-                    const response = await fetchBodegas();
-                    if (response.success && Array.isArray(response.data)) {
-                      // Mapeo simplificado asumiendo estructura consistente o adaptando
-                      const mapped = response.data.map((b: any, idx: number) => ({
-                        id: b.id || idx + 1,
-                        nombre: b.nombre || b.nomalm || `Bodega ${idx + 1}`,
-                        codigo: b.codigo || b.codalm || String(idx + 1).padStart(3, '0'),
-                        empresaId: selectedCompany?.id || 1
-                      }));
-                      setBodegasDisponibles(mapped);
-                    } else {
-                      setBodegasDisponibles([]);
-                    }
-                  } catch (e) {
-                    console.error("Error fetching bodegas fallback", e);
-                    setBodegasDisponibles([]);
-                  } finally {
-                    setIsLoadingBodegasLocal(false);
-                  }
-                }
-              }
+              setIsSedePopoverOpen(!isSedePopoverOpen);
             }}
             aria-haspopup="listbox"
             aria-expanded={isSedePopoverOpen}
             title={selectedSede?.nombre || 'Seleccionar bodega'}
-            disabled={isLoadingBodegasLocal}
+            disabled={isLoadingBodegas}
           >
-            {isLoadingBodegasLocal ? (
+            {isLoadingBodegas ? (
               <i className="fas fa-spinner fa-spin text-xs text-slate-500 flex-shrink-0"></i>
             ) : (
               <i className="fas fa-warehouse text-xs text-slate-500 flex-shrink-0"></i>
             )}
             <span className="truncate max-w-[140px] text-slate-700 dark:text-slate-200 font-medium">
-              {isLoadingBodegasLocal ? 'Cargando...' : (
+              {isLoadingBodegas ? 'Cargando...' : (
                 selectedSede ? (
                   <>
                     {/* ✅ 100% DINÁMICO - Lee del estado selectedSede */}
@@ -353,26 +319,25 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
               </div>
 
               {/* Loading State */}
-              {isLoadingBodegasLocal && (
+              {isLoadingBodegas && (
                 <div className="px-3 py-4 text-center text-sm text-slate-500 dark:text-slate-400">
                   <i className="fas fa-spinner fa-spin mb-2"></i>
-                  <p>Cargando bodegas desde la API...</p>
+                  <p>Cargando bodegas...</p>
                 </div>
               )}
 
               {/* Empty State - Sin datos */}
-              {!isLoadingBodegasLocal && bodegasDisponibles.length === 0 && (
+              {!isLoadingBodegas && bodegas.length === 0 && (
                 <div className="px-3 py-4 text-center text-sm text-slate-500 dark:text-slate-400">
                   <i className="fas fa-exclamation-triangle mb-2"></i>
                   <p>No hay bodegas disponibles</p>
-                  <p className="text-xs mt-1">Verifica la conexión con la base de datos</p>
                 </div>
               )}
 
               {/* Lista de Bodegas - Solo mostrar si hay datos y no está cargando */}
-              {!isLoadingBodegasLocal && bodegasDisponibles.length > 0 && (
+              {!isLoadingBodegas && bodegas.length > 0 && (
                 <ul role="listbox" className="py-2 text-sm">
-                  {bodegasDisponibles.map((sede, index) => {
+                  {bodegas.map((sede, index) => {
                     // Verificar si esta bodega está seleccionada - USAR SOLO ID para evitar múltiples selecciones
                     // Primero intentar por ID (más confiable), luego por código si no hay ID
                     const isSelected = selectedSede?.id && sede.id

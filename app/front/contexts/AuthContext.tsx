@@ -14,6 +14,8 @@ interface AuthContextType {
   selectedSede: Sede | null;
   permissions: Permission[];
   token: string | null;
+  bodegas: Sede[];
+  loadBodegas: (signal?: AbortSignal) => Promise<void>;
   login: (username: string, password: string, companyId?: number) => Promise<boolean>;
   logout: () => void;
   switchCompany: (companyId: number) => void;
@@ -64,268 +66,143 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, []);
 
   // Cargar bodegas desde la base de datos
-  useEffect(() => {
-    let isMounted = true;
-    let abortController: AbortController | null = null;
+  const loadBodegas = useCallback(async (signal?: AbortSignal) => {
+    try {
+      // CRÍTICO: Establecer loading ANTES de cualquier operación
+      setIsLoadingBodegas(true);
+      logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔄 Iniciando carga de bodegas desde la BD...');
 
-    const loadBodegas = async () => {
+      let response;
       try {
-        // CRÍTICO: Establecer loading ANTES de cualquier operación
-        setIsLoadingBodegas(true);
-        logger.log({ prefix: 'AuthContext', level: 'debug' }, '🔄 Iniciando carga de bodegas desde la BD...');
-
-        // Crear AbortController para poder cancelar la petición si el componente se desmonta
-        abortController = new AbortController();
-
-        let response;
-        let fetchError: any = null;
-
-        try {
-          // Llamar directamente a fetchBodegas - el apiClient ya maneja timeouts (30 segundos)
-          // IMPORTANTE: Esperar a que la promesa se resuelva o rechace completamente
-          response = await fetchBodegas();
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Respuesta recibida del backend:', {
-            success: response?.success,
-            hasData: !!response?.data,
-            dataLength: Array.isArray(response?.data) ? response.data.length : 0
-          });
-        } catch (error) {
-          // Capturar el error pero NO usar mocks todavía
-          // Solo usaremos mocks si realmente falla después de todos los intentos
-          fetchError = error;
-          logger.warn({ prefix: 'AuthContext' }, '⚠️ Error al cargar bodegas desde backend:', {
-            error: error instanceof Error ? error.message : String(error),
-            type: error instanceof Error ? error.constructor.name : typeof error,
-            isAbortError: error instanceof Error && error.name === 'AbortError'
-          });
-
-          // Si es un error de aborto (componente desmontado), no hacer nada más
-          if (error instanceof Error && error.name === 'AbortError') {
-            logger.log({ prefix: 'AuthContext' }, '🛑 Petición cancelada (componente desmontado)');
-            return;
-          }
-
-          // Para otros errores, establecer response como fallido pero NO usar mocks aún
-          response = {
-            success: false,
-            data: null,
-            error: error instanceof Error ? error.message : 'Unknown error'
-          };
-        }
-
-        // Verificar que el componente aún esté montado antes de actualizar el estado
-        if (!isMounted) {
-          logger.log({ prefix: 'AuthContext' }, '🛑 Componente desmontado, cancelando actualización de bodegas');
-          return;
-        }
-
-        // Verificar que la respuesta sea válida y tenga datos
-        if (response && response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
-          // Mapear bodegas de la BD al formato Sede
-          // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
-          const mappedBodegas = response.data.map((b: any, index: number) => {
-            // CRÍTICO: Obtener el código directamente desde la BD (codalm) y preservarlo como string
-            // No convertir el código a número, ya que puede tener formato "002", "003", etc.
-            const codigoAlmacenRaw = b.codigo || b.codalm || b.id || '';
-            // Asegurar que el código se preserve como string con formato correcto
-            let codigoAlmacen: string;
-            if (codigoAlmacenRaw !== null && codigoAlmacenRaw !== undefined) {
-              // Convertir a string y eliminar espacios
-              codigoAlmacen = String(codigoAlmacenRaw).trim();
-              // Si es numérico, asegurar formato con ceros a la izquierda (002, 003, etc.)
-              if (/^\d+$/.test(codigoAlmacen)) {
-                codigoAlmacen = codigoAlmacen.padStart(3, '0');
-              }
-            } else {
-              // Si no hay código, usar índice + 1 como código (formato 001, 002, etc.)
-              codigoAlmacen = String(index + 1).padStart(3, '0');
-            }
-
-            // Convertir código a número para el ID si es posible (ej: "001" -> 1, "002" -> 2)
-            // Esto es solo para compatibilidad con el ID numérico, pero el código se preserva como string
-            let bodegaId: number;
-            if (codigoAlmacen && /^\d+$/.test(codigoAlmacen)) {
-              bodegaId = parseInt(codigoAlmacen, 10);
-            } else {
-              bodegaId = index + 1;
-            }
-
-            const nombreBodega = (b.nombre || b.nomalm || '').trim();
-            const direccionBodega = (b.direccion || b.diralm || '').trim();
-            const ciudadBodega = (b.ciudad || b.ciualm || '').trim();
-
-            // CRÍTICO: Usar el código preservado directamente (ya está formateado con padStart)
-            const bodegaCodigo = codigoAlmacen; // Ya está formateado como "002", "003", etc.
-
-            logger.log({ prefix: 'AuthContext', level: 'debug' }, `Mapeando bodega: ${nombreBodega} - ID: ${bodegaId}, Código: ${bodegaCodigo}`);
-
-            return {
-              id: bodegaId, // ID numérico para compatibilidad (1, 2, 3, etc.)
-              nombre: nombreBodega,
-              codigo: bodegaCodigo, // CRÍTICO: Código del almacén desde BD preservado como string ("002", "003", etc.)
-              empresaId: 1, // Por defecto asignar a la empresa principal
-              municipioId: 11001, // Bogotá por defecto
-              direccion: direccionBodega,
-              ciudad: ciudadBodega
-            };
-          });
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodegas mapeadas con códigos asignados:', mappedBodegas.map(b => ({
-            nombre: b.nombre,
-            codigo: b.codigo,
-            id: b.id
-          })));
-          setBodegas(mappedBodegas);
-
-          // Si solo hay una bodega, seleccionarla automáticamente
-          if (mappedBodegas.length === 1) {
-            const unicaBodega = mappedBodegas[0];
-            setSelectedSede(unicaBodega);
-            try {
-              localStorage.setItem('selectedSedeId', String(unicaBodega.id));
-              localStorage.setItem('selectedSedeData', JSON.stringify({
-                id: unicaBodega.id,
-                nombre: unicaBodega.nombre,
-                codigo: unicaBodega.codigo,
-                empresaId: unicaBodega.empresaId
-              }));
-            } catch (error) {
-              logger.warn({ prefix: 'AuthContext' }, 'No se pudo guardar en localStorage:', error);
-            }
-            logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega única seleccionada automáticamente:', unicaBodega.nombre);
-          } else {
-            // Si hay múltiples bodegas, intentar cargar desde localStorage
-            let bodegaCargada = false;
-            try {
-              const savedSedeId = localStorage.getItem('selectedSedeId');
-              const savedSedeData = localStorage.getItem('selectedSedeData');
-
-              if (savedSedeId && savedSedeData) {
-                const sedeData = JSON.parse(savedSedeData);
-                // Buscar la bodega guardada en las bodegas cargadas
-                const bodegaEncontrada = mappedBodegas.find(b =>
-                  String(b.id) === String(sedeData.id) ||
-                  String(b.codigo) === String(sedeData.codigo)
-                );
-
-                if (bodegaEncontrada) {
-                  setSelectedSede(bodegaEncontrada);
-                  bodegaCargada = true;
-                  logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Bodega cargada desde localStorage:', bodegaEncontrada.nombre);
-                } else {
-                  // Si la bodega guardada no existe, limpiar localStorage
-                  localStorage.removeItem('selectedSedeId');
-                  localStorage.removeItem('selectedSedeData');
-                  logger.warn({ prefix: 'AuthContext' }, 'Bodega guardada en localStorage no encontrada en las bodegas disponibles');
-                }
-              }
-            } catch (error) {
-              logger.warn({ prefix: 'AuthContext' }, 'Error cargando bodega desde localStorage:', error);
-            }
-
-            // Si no se cargó desde localStorage, seleccionar la primera por defecto
-            if (!bodegaCargada && mappedBodegas.length > 0) {
-              const primeraBodega = mappedBodegas[0];
-              setSelectedSede(primeraBodega);
-              try {
-                localStorage.setItem('selectedSedeId', String(primeraBodega.id));
-                localStorage.setItem('selectedSedeData', JSON.stringify({
-                  id: primeraBodega.id,
-                  nombre: primeraBodega.nombre,
-                  codigo: primeraBodega.codigo,
-                  empresaId: primeraBodega.empresaId
-                }));
-              } catch (error) { }
-              logger.log({ prefix: 'AuthContext', level: 'debug' }, 'Primera bodega seleccionada por defecto:', primeraBodega.nombre);
-            }
-          }
-        } else {
-          // Si no hay datos o la respuesta no fue exitosa
-          const reason = !response
-            ? 'Sin respuesta del servidor'
-            : !response.success
-              ? 'Respuesta no exitosa del servidor'
-              : !response.data
-                ? 'Sin datos en la respuesta'
-                : Array.isArray(response.data) && response.data.length === 0
-                  ? 'Array vacío'
-                  : 'Datos inválidos';
-
-          logger.warn({ prefix: 'AuthContext' }, `❌ Sin datos válidos de bodegas desde BD: ${reason}`);
-
-          // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
-          // Si no hay datos reales, establecer array vacío y permitir que la UI muestre el estado apropiado
-          logger.warn({ prefix: 'AuthContext' }, '⚠️ No hay bodegas disponibles desde la base de datos. No se usarán datos simulados.');
-          setBodegas([]);
-          setSelectedSede(null);
-
-          // Limpiar localStorage si no hay datos reales
-          try {
-            localStorage.removeItem('selectedSedeId');
-            localStorage.removeItem('selectedSedeData');
-          } catch (error) {
-            logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', error);
-          }
-        }
+        // Llamar directamente a fetchBodegas - el apiClient ya maneja timeouts (30 segundos)
+        // IMPORTANTE: Esperar a que la promesa se resuelva o rechace completamente
+        response = await fetchBodegas();
+        logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Respuesta recibida del backend:', {
+          success: response?.success,
+          hasData: !!response?.data,
+          dataLength: Array.isArray(response?.data) ? response.data.length : 0
+        });
       } catch (error) {
-        // Error inesperado en el procesamiento (no en la petición HTTP)
-        logger.error({ prefix: 'AuthContext' }, '❌ Error inesperado procesando bodegas:', error);
+        logger.warn({ prefix: 'AuthContext' }, '⚠️ Error al cargar bodegas desde backend:', {
+          error: error instanceof Error ? error.message : String(error),
+          type: error instanceof Error ? error.constructor.name : typeof error,
+          isAbortError: error instanceof Error && error.name === 'AbortError'
+        });
 
-        // Verificar que el componente aún esté montado
-        if (!isMounted) {
+        // Si es un error de aborto, no hacer nada más
+        if (error instanceof Error && error.name === 'AbortError') {
           return;
         }
 
-        // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
-        logger.error({ prefix: 'AuthContext' }, '❌ Error procesando bodegas. No se usarán datos simulados.');
+        response = {
+          success: false,
+          data: null,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        };
+      }
+
+      // Verificar que la respuesta sea válida y tenga datos
+      if (response && response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+        // Mapear bodegas de la BD al formato Sede
+        const mappedBodegas = response.data.map((b: any, index: number) => {
+          const codigoAlmacenRaw = b.codigo || b.codalm || b.id || '';
+          let codigoAlmacen: string;
+          if (codigoAlmacenRaw !== null && codigoAlmacenRaw !== undefined) {
+            codigoAlmacen = String(codigoAlmacenRaw).trim();
+            if (/^\d+$/.test(codigoAlmacen)) {
+              codigoAlmacen = codigoAlmacen.padStart(3, '0');
+            }
+          } else {
+            codigoAlmacen = String(index + 1).padStart(3, '0');
+          }
+
+          let bodegaId: number;
+          if (codigoAlmacen && /^\d+$/.test(codigoAlmacen)) {
+            bodegaId = parseInt(codigoAlmacen, 10);
+          } else {
+            bodegaId = index + 1;
+          }
+
+          const nombreBodega = (b.nombre || b.nomalm || '').trim();
+          const direccionBodega = (b.direccion || b.diralm || '').trim();
+          const ciudadBodega = (b.ciudad || b.ciualm || '').trim();
+          const bodegaCodigo = codigoAlmacen;
+
+          return {
+            id: bodegaId,
+            nombre: nombreBodega,
+            codigo: bodegaCodigo,
+            empresaId: 1,
+            municipioId: 11001,
+            direccion: direccionBodega,
+            ciudad: ciudadBodega
+          };
+        });
+
+        setBodegas(mappedBodegas);
+
+        // Lógica de selección automática
+        if (mappedBodegas.length === 1) {
+          const unicaBodega = mappedBodegas[0];
+          setSelectedSede(unicaBodega);
+          localStorage.setItem('selectedSedeId', String(unicaBodega.id));
+          localStorage.setItem('selectedSedeData', JSON.stringify({
+            id: unicaBodega.id,
+            nombre: unicaBodega.nombre,
+            codigo: unicaBodega.codigo,
+            empresaId: unicaBodega.empresaId
+          }));
+        } else {
+          let bodegaCargada = false;
+          const savedSedeId = localStorage.getItem('selectedSedeId');
+          const savedSedeData = localStorage.getItem('selectedSedeData');
+
+          if (savedSedeId && savedSedeData) {
+            try {
+              const sedeData = JSON.parse(savedSedeData);
+              const bodegaEncontrada = mappedBodegas.find(b =>
+                String(b.id) === String(sedeData.id) ||
+                String(b.codigo) === String(sedeData.codigo)
+              );
+
+              if (bodegaEncontrada) {
+                setSelectedSede(bodegaEncontrada);
+                bodegaCargada = true;
+              }
+            } catch (e) { }
+          }
+
+          if (!bodegaCargada && mappedBodegas.length > 0) {
+            const primeraBodega = mappedBodegas[0];
+            setSelectedSede(primeraBodega);
+            localStorage.setItem('selectedSedeId', String(primeraBodega.id));
+            localStorage.setItem('selectedSedeData', JSON.stringify({
+              id: primeraBodega.id,
+              nombre: primeraBodega.nombre,
+              codigo: primeraBodega.codigo,
+              empresaId: primeraBodega.empresaId
+            }));
+          }
+        }
+      } else {
         setBodegas([]);
         setSelectedSede(null);
-
-        // Limpiar localStorage si hay error
-        try {
-          localStorage.removeItem('selectedSedeId');
-          localStorage.removeItem('selectedSedeData');
-        } catch (localError) {
-          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', localError);
-        }
-      } finally {
-        // CRÍTICO: Solo establecer loading en false cuando realmente terminamos
-        // Esto asegura que la UI no muestre datos mock prematuramente
-        if (isMounted) {
-          setIsLoadingBodegas(false);
-          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Estado de carga de bodegas finalizado');
-        }
       }
-    };
-
-    loadBodegas().catch((error) => {
-      // Capturar cualquier error no manejado en la promesa
-      logger.error({ prefix: 'AuthContext' }, '❌ Error no manejado en loadBodegas:', error);
-      if (isMounted) {
-        setIsLoadingBodegas(false);
-        // CRÍTICO: NUNCA usar datos mock - solo usar datos reales de la base de datos
-        logger.error({ prefix: 'AuthContext' }, '❌ Error no manejado. No se usarán datos simulados.');
-        setBodegas([]);
-        setSelectedSede(null);
-
-        // Limpiar localStorage
-        try {
-          localStorage.removeItem('selectedSedeId');
-          localStorage.removeItem('selectedSedeData');
-        } catch (localError) {
-          logger.warn({ prefix: 'AuthContext' }, 'No se pudo limpiar localStorage:', localError);
-        }
-      }
-    });
-
-    // Cleanup: marcar como desmontado y abortar peticiones pendientes
-    return () => {
-      isMounted = false;
-      if (abortController) {
-        abortController.abort();
-        logger.log({ prefix: 'AuthContext' }, '🛑 Cleanup: AbortController activado');
-      }
-    };
+    } catch (error) {
+      logger.error({ prefix: 'AuthContext' }, '❌ Error inesperado procesando bodegas:', error);
+      setBodegas([]);
+      setSelectedSede(null);
+    } finally {
+      setIsLoadingBodegas(false);
+    }
   }, []);
+
+  // Cargar bodegas al montar
+  useEffect(() => {
+    const abortController = new AbortController();
+    loadBodegas(abortController.signal);
+    return () => abortController.abort();
+  }, [loadBodegas]);
 
   const refreshUser = useCallback(async () => {
     const token = localStorage.getItem('token');
@@ -508,7 +385,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
       if (response.success && response.data) {
         const { token, user: userData } = response.data;
-        if (token) localStorage.setItem('token', token);
+        if (token) {
+          localStorage.setItem('token', token);
+          // CRÍTICO: Cargar bodegas inmediatamente después de obtener el token
+          await loadBodegas();
+        }
 
         // Construct User
         const sedesToUse = bodegas.length > 0 ? bodegas : [];
@@ -864,6 +745,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     selectedSede,
     permissions,
     token: localStorage.getItem('token'),
+    bodegas,
+    loadBodegas,
     login,
     logout,
     // FIX: Removed incorrect wrapper functions that caused a type mismatch with AuthContextType. The original functions are now passed directly.
@@ -871,7 +754,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     switchSede,
     hasPermission,
     refreshUser,
-  }), [isAuthenticated, isLoadingBodegas, user, selectedCompany, selectedSede, permissions, refreshUser]);
+  }), [isAuthenticated, isLoadingBodegas, user, selectedCompany, selectedSede, permissions, refreshUser, bodegas, loadBodegas]);
 
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
