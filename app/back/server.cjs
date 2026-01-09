@@ -348,7 +348,7 @@ app.use('/api', quoteRoutes); // Mounting at /api to support /api/cotizaciones a
 app.use('/api', orderRoutes); // Mounting at /api to support /api/pedidos and /api/pedidos-detalle
 app.use('/api', invoiceRoutes);
 app.use('/api', creditNoteRoutes);
-app.use('/api', remissionRoutes); 
+app.use('/api', remissionRoutes);
 app.use('/api/inventario', inventoryRoutes);
 app.use('/api/categorias', require('./routes/categoryRoutes')); // Registration of category routes
 app.use('/api/medidas', require('./routes/measureRoutes')); // Registration of measure routes

@@ -1,10 +1,10 @@
 const sql = require('mssql');
 const { executeQuery, executeQueryWithParams, getConnection } = require('../services/sqlServerClient.cjs');
 const { TABLE_NAMES } = require('../services/dbConfig.cjs');
-const { 
-  mapEstadoToDb, 
-  mapEstadoFromDb, 
-  validateDecimal18_2, 
+const {
+  mapEstadoToDb,
+  mapEstadoFromDb,
+  validateDecimal18_2,
   validateDecimal5_2,
   validatePedidoItems
 } = require('../utils/helpers');
@@ -70,6 +70,7 @@ const getAllOrders = async (req, res) => {
           ELSE NULL
         END as clienteNombre,
         LTRIM(RTRIM(COALESCE(p.codven, ''))) as vendedorId,
+        LTRIM(RTRIM(COALESCE(v.nomven, u.nomusu, ''))) as vendedorNombre,
         CAST(COALESCE(p.cotizacion_id, NULL) AS VARCHAR(50)) as cotizacionId,
         LTRIM(RTRIM(COALESCE(c.numcot, ''))) as numeroCotizacionOrigen,
         COALESCE(p.subtotal, 0) as subtotal,
@@ -86,10 +87,16 @@ const getAllOrders = async (req, res) => {
         COALESCE(p.impoconsumo_valor, 0) as impoconsumoValor,
         LTRIM(RTRIM(COALESCE(p.instrucciones_entrega, ''))) as instruccionesEntrega,
         LTRIM(RTRIM(COALESCE(p.formapago, '01'))) as formaPago,
+        LTRIM(RTRIM(COALESCE(cli.telter, ''))) as clienteTelefono,
+        LTRIM(RTRIM(COALESCE(cli.celter, ''))) as clienteCelular,
+        LTRIM(RTRIM(COALESCE(cli.email, ''))) as clienteEmail,
+        p.fec_creacion as fechaCreacion,
+        p.fec_modificacion as fechaModificacion,
         u.firma as firmaVendedor
       FROM ${TABLE_NAMES.pedidos} p
       LEFT JOIN ven_cotizacion c ON c.id = p.cotizacion_id
       LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(p.codter)) AND cli.activo = 1
+      LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(v.codven)) = LTRIM(RTRIM(p.codven))
       LEFT JOIN ${TABLE_NAMES.usuarios} u ON LTRIM(RTRIM(u.codusu)) = LTRIM(RTRIM(p.codven))
       ${where}
       ORDER BY p.fecha_pedido DESC, p.id DESC
@@ -128,7 +135,7 @@ const getAllOrders = async (req, res) => {
 
           if (tieneRemisiones) {
             let numeroPedidoStr = pedido.numeroPedido || pedido.numero_pedido || 'N/A';
-            
+
             // Obtener items del pedido para calcular estado real
             const reqItemsPedido = new sql.Request(pool);
             reqItemsPedido.input('pedidoId', sql.Int, pedidoId);
@@ -240,7 +247,7 @@ const getOrderDetails = async (req, res) => {
     const { pedidoId, page = '1', pageSize = '500' } = req.query;
     const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
     const pageSizeNum = Math.min(1000, Math.max(50, parseInt(String(pageSize), 10) || 500));
-    
+
     let whereClause = "WHERE pd.pedido_id IS NOT NULL OR (pd.numped IS NOT NULL AND LTRIM(RTRIM(pd.numped)) <> '')";
     const params = {};
     params.pageSize = pedidoId ? 1000 : pageSizeNum;
@@ -250,14 +257,14 @@ const getOrderDetails = async (req, res) => {
       if (isFinite(pedidoIdNum)) {
         whereClause = "WHERE pd.pedido_id = @pedidoId";
         params.pedidoId = pedidoIdNum;
-        
+
         // Verificar existencia (opcional, pero buena práctica)
-        const check = await executeQueryWithParams(`SELECT COUNT(*) as total FROM ${TABLE_NAMES.pedidos_detalle} WHERE pedido_id = @pedidoId`, {pedidoId: pedidoIdNum});
+        const check = await executeQueryWithParams(`SELECT COUNT(*) as total FROM ${TABLE_NAMES.pedidos_detalle} WHERE pedido_id = @pedidoId`, { pedidoId: pedidoIdNum });
         if (check[0].total === 0) {
-            // Intentar buscar por numped si pedido_id falla (legacy fallback)
-            // Lógica omitida para simplificar, confiamos en pedido_id
+          // Intentar buscar por numped si pedido_id falla (legacy fallback)
+          // Lógica omitida para simplificar, confiamos en pedido_id
         }
-      } 
+      }
     }
 
     const offset = (pageNum - 1) * pageSizeNum;
@@ -266,7 +273,7 @@ const getOrderDetails = async (req, res) => {
     // Ajuste de query para usar offset en SQL Server
     // Si params.pedidoId existe, no usamos paginación severa
     // Pero el tool original usaba OFFSET siempre.
-    
+
     const query = `
       SELECT 
         pd.pedido_id as pedidoId,
@@ -297,25 +304,25 @@ const getOrderDetails = async (req, res) => {
 
     // Calcular porcentajes aproximados
     const detalles = result.map(d => {
-        const subtotal = d.cantidad * d.precioUnitario;
-        const baseForIva = subtotal - d.descuentoValor;
-        
-        // Calculate IVA percentage: 
-        // 1. If stored IVA value exists (>0), calculate percentage from it (Historical accuracy)
-        // 2. If stored IVA is 0, fallback to product's current tax rate (Fix for missing data)
-        let calculatedIvaPct = 0;
-        if (baseForIva > 0 && d.valorIva > 0) {
-            calculatedIvaPct = (d.valorIva / baseForIva) * 100;
-        } else {
-            calculatedIvaPct = d.productoTasaIva || 0;
-        }
+      const subtotal = d.cantidad * d.precioUnitario;
+      const baseForIva = subtotal - d.descuentoValor;
 
-        return {
-            ...d,
-            subtotal: subtotal, 
-            descuentoPorcentaje: subtotal > 0 ? (d.descuentoValor / subtotal) * 100 : 0,
-            ivaPorcentaje: calculatedIvaPct
-        };
+      // Calculate IVA percentage: 
+      // 1. If stored IVA value exists (>0), calculate percentage from it (Historical accuracy)
+      // 2. If stored IVA is 0, fallback to product's current tax rate (Fix for missing data)
+      let calculatedIvaPct = 0;
+      if (baseForIva > 0 && d.valorIva > 0) {
+        calculatedIvaPct = (d.valorIva / baseForIva) * 100;
+      } else {
+        calculatedIvaPct = d.productoTasaIva || 0;
+      }
+
+      return {
+        ...d,
+        subtotal: subtotal,
+        descuentoPorcentaje: subtotal > 0 ? (d.descuentoValor / subtotal) * 100 : 0,
+        ivaPorcentaje: calculatedIvaPct
+      };
     });
 
     res.json({
@@ -336,170 +343,170 @@ const getOrderDetails = async (req, res) => {
 
 const createOrderInternal = async (tx, orderData) => {
   const {
-      clienteId,
-      fechaPedido,
-      fechaEntregaEstimada,
-      vendedorId,
-      observaciones,
-      items,
-      subtotal,
-      descuentoValor,
-      ivaValor,
-      total,
-      ivaPorcentaje,
-      impoconsumoValor,
-      instruccionesEntrega,
-      cotizacionId,
-      empresaId, // codalm
-      formaPago,
-      numeroPedido // Opcional, si viene 'AUTO' se genera
+    clienteId,
+    fechaPedido,
+    fechaEntregaEstimada,
+    vendedorId,
+    observaciones,
+    items,
+    subtotal,
+    descuentoValor,
+    ivaValor,
+    total,
+    ivaPorcentaje,
+    impoconsumoValor,
+    instruccionesEntrega,
+    cotizacionId,
+    empresaId, // codalm
+    formaPago,
+    numeroPedido // Opcional, si viene 'AUTO' se genera
   } = orderData;
 
-    // Validación básica
-    if (!clienteId || !items || !Array.isArray(items) || items.length === 0) {
-      throw new Error('Faltan campos requeridos (cliente, items)');
+  // Validación básica
+  if (!clienteId || !items || !Array.isArray(items) || items.length === 0) {
+    throw new Error('Faltan campos requeridos (cliente, items)');
+  }
+
+  // 1. Validar Cliente
+  const clienteIdStr = String(clienteId).trim();
+  const reqCliente = new sql.Request(tx);
+  let clienteQuery = `SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @codter`;
+  // Si es numérico, podría ser ID
+  if (!isNaN(parseInt(clienteIdStr)) && String(parseInt(clienteIdStr)) === clienteIdStr) {
+    // Intentar por ID también si fuese necesario, pero useremos codter normalmente
+    // Asumimos clienteId es codter
+  }
+  reqCliente.input('codter', sql.VarChar(20), clienteIdStr);
+  const clienteRes = await reqCliente.query(clienteQuery);
+
+  if (clienteRes.recordset.length === 0) {
+    // Fallback: buscar por ID
+    const reqCliId = new sql.Request(tx);
+    reqCliId.input('id', sql.Int, parseInt(clienteIdStr));
+    const cliIdRes = await reqCliId.query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = @id`);
+    if (cliIdRes.recordset.length === 0) {
+      throw new Error('Cliente no encontrado');
     }
+    // Encontrado por ID
+  }
 
-      // 1. Validar Cliente
-      const clienteIdStr = String(clienteId).trim();
-      const reqCliente = new sql.Request(tx);
-      let clienteQuery = `SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @codter`;
-      // Si es numérico, podría ser ID
-      if (!isNaN(parseInt(clienteIdStr)) && String(parseInt(clienteIdStr)) === clienteIdStr) {
-           // Intentar por ID también si fuese necesario, pero useremos codter normalmente
-           // Asumimos clienteId es codter
-      }
-      reqCliente.input('codter', sql.VarChar(20), clienteIdStr);
-      const clienteRes = await reqCliente.query(clienteQuery);
-      
-      if (clienteRes.recordset.length === 0) {
-        // Fallback: buscar por ID
-        const reqCliId = new sql.Request(tx);
-        reqCliId.input('id', sql.Int, parseInt(clienteIdStr));
-        const cliIdRes = await reqCliId.query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = @id`);
-        if (cliIdRes.recordset.length === 0) {
-             throw new Error('Cliente no encontrado');
-        }
-        // Encontrado por ID
-      }
-      
-      const clienteData = clienteRes.recordset.length > 0 ? clienteRes.recordset[0] : (await new sql.Request(tx).query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = ${parseInt(clienteIdStr)}`)).recordset[0];
-      const codTerFinal = clienteData.codter;
+  const clienteData = clienteRes.recordset.length > 0 ? clienteRes.recordset[0] : (await new sql.Request(tx).query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = ${parseInt(clienteIdStr)}`)).recordset[0];
+  const codTerFinal = clienteData.codter;
 
-      // 2. Validar Empresa/Almacén
-      let codAlmFinal = '001';
-      let empresaIdValid = 1;
-      // Lógica simplificada: usar '001' si no viene, o validar si viene.
-      if (empresaId) codAlmFinal = String(empresaId).trim();
+  // 2. Validar Empresa/Almacén
+  let codAlmFinal = '001';
+  let empresaIdValid = 1;
+  // Lógica simplificada: usar '001' si no viene, o validar si viene.
+  if (empresaId) codAlmFinal = String(empresaId).trim();
 
-      // 3. Generar/Validar Número
-      let numeroPedidoFinal = numeroPedido;
-      if (!numeroPedido || numeroPedido === 'AUTO') {
-          const reqUltimo = new sql.Request(tx);
-          const ultimoRes = await reqUltimo.query(`
+  // 3. Generar/Validar Número
+  let numeroPedidoFinal = numeroPedido;
+  if (!numeroPedido || numeroPedido === 'AUTO') {
+    const reqUltimo = new sql.Request(tx);
+    const ultimoRes = await reqUltimo.query(`
             SELECT TOP 1 numero_pedido FROM ven_pedidos 
             WHERE numero_pedido NOT LIKE 'B-%' 
             ORDER BY id DESC
           `);
-          
-          let nextNum = 1;
-          if (ultimoRes.recordset.length > 0) {
-              const lastNum = ultimoRes.recordset[0].numero_pedido;
-              const soloDigitos = String(lastNum).replace(/\D/g, '');
-              if (soloDigitos) nextNum = parseInt(soloDigitos, 10) + 1;
-          }
-          numeroPedidoFinal = String(nextNum).padStart(6, '0');
+
+    let nextNum = 1;
+    if (ultimoRes.recordset.length > 0) {
+      const lastNum = ultimoRes.recordset[0].numero_pedido;
+      const soloDigitos = String(lastNum).replace(/\D/g, '');
+      if (soloDigitos) nextNum = parseInt(soloDigitos, 10) + 1;
+    }
+    numeroPedidoFinal = String(nextNum).padStart(6, '0');
+  } else {
+    // Validar existencia
+    const reqCheck = new sql.Request(tx);
+    reqCheck.input('num', sql.VarChar(50), numeroPedido);
+    const check = await reqCheck.query(`SELECT id FROM ven_pedidos WHERE numero_pedido = @num`);
+    if (check.recordset.length > 0) throw new Error('Número de pedido duplicado');
+  }
+
+  // 4. Validar Totales
+  const subtotalFinal = validateDecimal18_2(subtotal, 'subtotal');
+  const descuentoFinal = validateDecimal18_2(descuentoValor || 0, 'descuentoValor');
+  const ivaValFinal = validateDecimal18_2(ivaValor || 0, 'ivaValor');
+  const totalFinal = validateDecimal18_2(total, 'total');
+  const impoconsumoFinal = validateDecimal18_2(impoconsumoValor || 0, 'impoconsumoValor');
+
+  const ivaPorcFinal = validateDecimal5_2(ivaPorcentaje || 19, 'ivaPorcentaje', true);
+  const descPorcFinal = subtotalFinal > 0 ? validateDecimal5_2((descuentoFinal / subtotalFinal) * 100, 'descuentoPorcentaje') : 0;
+
+  // 5. Insertar Encabezado
+  const reqHead = new sql.Request(tx);
+  reqHead.input('numero_pedido', sql.VarChar(50), numeroPedidoFinal);
+  reqHead.input('fecha_pedido', sql.Date, fechaPedido || new Date());
+  reqHead.input('fecha_entrega_estimada', sql.Date, fechaEntregaEstimada || null);
+  reqHead.input('codter', sql.VarChar(20), codTerFinal);
+
+  let codVendedorFinal = clienteData.codven;
+  if (vendedorId) {
+    const vendedorIdStr = String(vendedorId).trim();
+    if (!isNaN(parseInt(vendedorIdStr)) && String(parseInt(vendedorIdStr)) === vendedorIdStr) {
+      const reqVen = new sql.Request(tx);
+      reqVen.input('vid', sql.Int, parseInt(vendedorIdStr));
+      const resVen = await reqVen.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE id = @vid`);
+      if (resVen.recordset.length > 0) {
+        codVendedorFinal = resVen.recordset[0].codven;
       } else {
-          // Validar existencia
-          const reqCheck = new sql.Request(tx);
-          reqCheck.input('num', sql.VarChar(50), numeroPedido);
-          const check = await reqCheck.query(`SELECT id FROM ven_pedidos WHERE numero_pedido = @num`);
-          if (check.recordset.length > 0) throw new Error('Número de pedido duplicado');
+        codVendedorFinal = vendedorIdStr;
       }
+    } else {
+      codVendedorFinal = vendedorIdStr;
+    }
+  }
+  reqHead.input('codven', sql.VarChar(20), codVendedorFinal);
 
-      // 4. Validar Totales
-      const subtotalFinal = validateDecimal18_2(subtotal, 'subtotal');
-      const descuentoFinal = validateDecimal18_2(descuentoValor || 0, 'descuentoValor');
-      const ivaValFinal = validateDecimal18_2(ivaValor || 0, 'ivaValor');
-      const totalFinal = validateDecimal18_2(total, 'total');
-      const impoconsumoFinal = validateDecimal18_2(impoconsumoValor || 0, 'impoconsumoValor');
-      
-      const ivaPorcFinal = validateDecimal5_2(ivaPorcentaje || 19, 'ivaPorcentaje', true);
-      const descPorcFinal = subtotalFinal > 0 ? validateDecimal5_2((descuentoFinal / subtotalFinal) * 100, 'descuentoPorcentaje') : 0;
+  reqHead.input('empresa_id', sql.Int, empresaIdValid);
+  reqHead.input('cotizacion_id', sql.Int, cotizacionId || null);
+  reqHead.input('subtotal', sql.Decimal(18, 2), subtotalFinal);
+  reqHead.input('descuento_valor', sql.Decimal(18, 2), descuentoFinal);
+  reqHead.input('descuento_porcentaje', sql.Decimal(5, 2), descPorcFinal);
+  reqHead.input('iva_valor', sql.Decimal(18, 2), ivaValFinal);
+  reqHead.input('iva_porcentaje', sql.Decimal(5, 2), ivaPorcFinal);
+  reqHead.input('total', sql.Decimal(18, 2), totalFinal);
+  reqHead.input('observaciones', sql.VarChar(500), observaciones || '');
+  reqHead.input('estado', sql.VarChar(20), 'B'); // Borrador mapped
 
-      // 5. Insertar Encabezado
-      const reqHead = new sql.Request(tx);
-      reqHead.input('numero_pedido', sql.VarChar(50), numeroPedidoFinal);
-      reqHead.input('fecha_pedido', sql.Date, fechaPedido || new Date());
-      reqHead.input('fecha_entrega_estimada', sql.Date, fechaEntregaEstimada || null);
-      reqHead.input('codter', sql.VarChar(20), codTerFinal);
-      
-      let codVendedorFinal = clienteData.codven; 
-      if (vendedorId) {
-        const vendedorIdStr = String(vendedorId).trim();
-        if (!isNaN(parseInt(vendedorIdStr)) && String(parseInt(vendedorIdStr)) === vendedorIdStr) {
-             const reqVen = new sql.Request(tx);
-             reqVen.input('vid', sql.Int, parseInt(vendedorIdStr));
-             const resVen = await reqVen.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE id = @vid`);
-             if (resVen.recordset.length > 0) {
-                 codVendedorFinal = resVen.recordset[0].codven;
-             } else {
-                 codVendedorFinal = vendedorIdStr;
-             }
+  let formaPagoFinal = '01';
+
+  // Lógica de forma de pago mejorada:
+  // 1. Si viene explícita en body, usarla.
+  // 2. Si no viene, intentar usar la condición de pago del cliente.
+  // 3. Fallback a '01' (Contado).
+
+  if (formaPago) {
+    const fpStr = String(formaPago).trim();
+    if (fpStr === '1' || fpStr.toLowerCase() === 'contado') formaPagoFinal = '01';
+    else if (fpStr === '2' || fpStr.toLowerCase() === 'credito' || fpStr.toLowerCase() === 'crédito') formaPagoFinal = '02';
+    else formaPagoFinal = fpStr.substring(0, 2);
+  } else {
+    // Intentar obtener del cliente si no se especificó
+    const reqCliFP = new sql.Request(tx);
+    // Asumimos que clienteData ya se cargó arriba, pero necesitamos informacion extra (condicion_pago, dias_credito)
+    // La consulta original arriba solo traía codter, nomter, codven. 
+    // Hacemos una nueva consulta rápida o mejoramos la de arriba? 
+    // Mejoramos la consulta independiente para no tocar demasiado código legacy arriba si no es necesario.
+    try {
+      const resCliFP = await reqCliFP.query(`SELECT condicion_pago, dias_credito FROM ${TABLE_NAMES.clientes} WHERE codter = '${codTerFinal}'`);
+      if (resCliFP.recordset.length > 0) {
+        const cliFP = resCliFP.recordset[0];
+        if ((cliFP.dias_credito && cliFP.dias_credito > 0) ||
+          (cliFP.condicion_pago && (cliFP.condicion_pago.toLowerCase().includes('crédito') || cliFP.condicion_pago === '2'))) {
+          formaPagoFinal = '02'; // Crédito
         } else {
-             codVendedorFinal = vendedorIdStr;
+          formaPagoFinal = '01'; // Contado
         }
       }
-      reqHead.input('codven', sql.VarChar(20), codVendedorFinal);
+    } catch (errFP) {
+      console.warn('No se pudo obtener condición pago cliente, usando default Contado', errFP);
+    }
+  }
+  reqHead.input('formapago', sql.NChar(4), formaPagoFinal);
 
-      reqHead.input('empresa_id', sql.Int, empresaIdValid);
-      reqHead.input('cotizacion_id', sql.Int, cotizacionId || null);
-      reqHead.input('subtotal', sql.Decimal(18, 2), subtotalFinal);
-      reqHead.input('descuento_valor', sql.Decimal(18, 2), descuentoFinal);
-      reqHead.input('descuento_porcentaje', sql.Decimal(5, 2), descPorcFinal);
-      reqHead.input('iva_valor', sql.Decimal(18, 2), ivaValFinal);
-      reqHead.input('iva_porcentaje', sql.Decimal(5, 2), ivaPorcFinal);
-      reqHead.input('total', sql.Decimal(18, 2), totalFinal);
-      reqHead.input('observaciones', sql.VarChar(500), observaciones || '');
-      reqHead.input('estado', sql.VarChar(20), 'B'); // Borrador mapped
-      
-      let formaPagoFinal = '01';
-      
-      // Lógica de forma de pago mejorada:
-      // 1. Si viene explícita en body, usarla.
-      // 2. Si no viene, intentar usar la condición de pago del cliente.
-      // 3. Fallback a '01' (Contado).
-
-      if (formaPago) {
-        const fpStr = String(formaPago).trim();
-        if (fpStr === '1' || fpStr.toLowerCase() === 'contado') formaPagoFinal = '01';
-        else if (fpStr === '2' || fpStr.toLowerCase() === 'credito' || fpStr.toLowerCase() === 'crédito') formaPagoFinal = '02';
-        else formaPagoFinal = fpStr.substring(0, 2);
-      } else {
-        // Intentar obtener del cliente si no se especificó
-        const reqCliFP = new sql.Request(tx);
-        // Asumimos que clienteData ya se cargó arriba, pero necesitamos informacion extra (condicion_pago, dias_credito)
-        // La consulta original arriba solo traía codter, nomter, codven. 
-        // Hacemos una nueva consulta rápida o mejoramos la de arriba? 
-        // Mejoramos la consulta independiente para no tocar demasiado código legacy arriba si no es necesario.
-        try {
-            const resCliFP = await reqCliFP.query(`SELECT condicion_pago, dias_credito FROM ${TABLE_NAMES.clientes} WHERE codter = '${codTerFinal}'`);
-            if (resCliFP.recordset.length > 0) {
-                const cliFP = resCliFP.recordset[0];
-                if ((cliFP.dias_credito && cliFP.dias_credito > 0) || 
-                    (cliFP.condicion_pago && (cliFP.condicion_pago.toLowerCase().includes('crédito') || cliFP.condicion_pago === '2'))) {
-                    formaPagoFinal = '02'; // Crédito
-                } else {
-                    formaPagoFinal = '01'; // Contado
-                }
-            }
-        } catch (errFP) {
-            console.warn('No se pudo obtener condición pago cliente, usando default Contado', errFP);
-        }
-      }
-      reqHead.input('formapago', sql.NChar(4), formaPagoFinal);
-
-      const headQuery = `
+  const headQuery = `
         INSERT INTO ven_pedidos (
           numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, empresa_id,
           cotizacion_id, subtotal, descuento_valor, descuento_porcentaje, iva_valor,
@@ -511,62 +518,62 @@ const createOrderInternal = async (tx, orderData) => {
         );
         SELECT SCOPE_IDENTITY() AS id;
       `;
-      
-      const headRes = await reqHead.query(headQuery);
-      const pedidoId = headRes.recordset[0].id;
 
-      // 6. Insertar Detalles
-      // Generar numped formato 8 char para detalles (legacy support)
-      // PED-00001 -> PED00001
-      const soloDigitos = String(numeroPedidoFinal).replace(/\D/g, '');
-      const numpedLegacy = soloDigitos ? soloDigitos.substring(0, 8).padStart(8, '0') : numeroPedidoFinal.substring(0, 8).padStart(8, '0');
+  const headRes = await reqHead.query(headQuery);
+  const pedidoId = headRes.recordset[0].id;
 
-      for (const item of items) {
-          const reqDet = new sql.Request(tx);
-          
-          let codIns = String(item.codProducto || '').substring(0, 8);
-          if (!codIns && item.productoId) {
-             const pRes = await new sql.Request(tx).query(`SELECT codins FROM inv_insumos WHERE id = ${item.productoId}`);
-             if (pRes.recordset.length) codIns = pRes.recordset[0].codins;
-          }
+  // 6. Insertar Detalles
+  // Generar numped formato 8 char para detalles (legacy support)
+  // PED-00001 -> PED00001
+  const soloDigitos = String(numeroPedidoFinal).replace(/\D/g, '');
+  const numpedLegacy = soloDigitos ? soloDigitos.substring(0, 8).padStart(8, '0') : numeroPedidoFinal.substring(0, 8).padStart(8, '0');
 
-          const cant = validateDecimal18_2(item.cantidad, 'cant');
-          const prec = validateDecimal18_2(item.precioUnitario, 'prec');
-          
-          // Calcular descuentos por item correctamente
-          let dctoVal = 0;
-          if (item.descuentoValor) {
-             dctoVal = validateDecimal18_2(item.descuentoValor, 'dctoVal');
-          } else if (item.descuentoPorcentaje) {
-             dctoVal = (cant * prec) * (parseFloat(item.descuentoPorcentaje)/100);
-          }
-          dctoVal = validateDecimal18_2(dctoVal, 'dcto');
+  for (const item of items) {
+    const reqDet = new sql.Request(tx);
 
-          const ivaVal = validateDecimal18_2(item.valorIva || 0, 'iva');
-          
-          reqDet.input('numped', sql.Char(8), numpedLegacy.substring(0, 8).padStart(8, '0'));
-          reqDet.input('codins', sql.Char(8), codIns.padStart(8, '0'));
-          reqDet.input('valins', sql.Decimal(18, 2), prec);
-          reqDet.input('canped', sql.Decimal(18, 2), cant);
-          reqDet.input('ivaped', sql.Decimal(18, 2), ivaVal);
-          reqDet.input('dctped', sql.Decimal(18, 2), dctoVal);
-          reqDet.input('estped', sql.Char(1), 'B');
-          reqDet.input('codalm', sql.Char(3), codAlmFinal.substring(0, 3).padStart(3, '0'));
-          reqDet.input('pedido_id', sql.Int, pedidoId);
-          reqDet.input('feccargo', sql.Date, fechaPedido || new Date());
+    let codIns = String(item.codProducto || '').substring(0, 8);
+    if (!codIns && item.productoId) {
+      const pRes = await new sql.Request(tx).query(`SELECT codins FROM inv_insumos WHERE id = ${item.productoId}`);
+      if (pRes.recordset.length) codIns = pRes.recordset[0].codins;
+    }
 
-          reqDet.input('codtec', sql.VarChar(20), ''); // Valor por defecto
-          
-          await reqDet.query(`
+    const cant = validateDecimal18_2(item.cantidad, 'cant');
+    const prec = validateDecimal18_2(item.precioUnitario, 'prec');
+
+    // Calcular descuentos por item correctamente
+    let dctoVal = 0;
+    if (item.descuentoValor) {
+      dctoVal = validateDecimal18_2(item.descuentoValor, 'dctoVal');
+    } else if (item.descuentoPorcentaje) {
+      dctoVal = (cant * prec) * (parseFloat(item.descuentoPorcentaje) / 100);
+    }
+    dctoVal = validateDecimal18_2(dctoVal, 'dcto');
+
+    const ivaVal = validateDecimal18_2(item.valorIva || 0, 'iva');
+
+    reqDet.input('numped', sql.Char(8), numpedLegacy.substring(0, 8).padStart(8, '0'));
+    reqDet.input('codins', sql.Char(8), codIns.padStart(8, '0'));
+    reqDet.input('valins', sql.Decimal(18, 2), prec);
+    reqDet.input('canped', sql.Decimal(18, 2), cant);
+    reqDet.input('ivaped', sql.Decimal(18, 2), ivaVal);
+    reqDet.input('dctped', sql.Decimal(18, 2), dctoVal);
+    reqDet.input('estped', sql.Char(1), 'B');
+    reqDet.input('codalm', sql.Char(3), codAlmFinal.substring(0, 3).padStart(3, '0'));
+    reqDet.input('pedido_id', sql.Int, pedidoId);
+    reqDet.input('feccargo', sql.Date, fechaPedido || new Date());
+
+    reqDet.input('codtec', sql.VarChar(20), ''); // Valor por defecto
+
+    await reqDet.query(`
             INSERT INTO ven_detapedidos (
                numped, codins, valins, canped, ivaped, dctped, estped, codalm, pedido_id, feccargo, Fecsys, codtec
             ) VALUES (
                @numped, @codins, @valins, @canped, @ivaped, @dctped, @estped, @codalm, @pedido_id, @feccargo, GETDATE(), @codtec
             )
           `);
-      }
+  }
 
-      return { id: pedidoId, numeroPedido: numeroPedidoFinal };
+  return { id: pedidoId, numeroPedido: numeroPedidoFinal };
 };
 
 const createOrder = async (req, res) => {
@@ -580,9 +587,9 @@ const createOrder = async (req, res) => {
       await tx.commit();
 
       res.status(201).json({
-          success: true, 
-          message: 'Pedido creado', 
-          data: result
+        success: true,
+        message: 'Pedido creado',
+        data: result
       });
 
     } catch (err) {
@@ -599,20 +606,20 @@ const createOrder = async (req, res) => {
 const updateOrder = async (req, res) => {
   const { id } = req.params;
   const { estado } = req.body;
-  
+
   if (!id) {
     return res.status(400).json({ success: false, message: 'ID de pedido requerido' });
   }
 
   try {
     const pool = await getConnection();
-    
+
     // Si solo actualizamos estado
     if (estado) {
-       const estadoDb = mapEstadoToDb(estado);
-       const estadoDbTruncado = String(estadoDb || 'B').substring(0, 1);
-       
-       const query = `
+      const estadoDb = mapEstadoToDb(estado);
+      const estadoDbTruncado = String(estadoDb || 'B').substring(0, 1);
+
+      const query = `
          UPDATE ${TABLE_NAMES.pedidos} 
          SET estado = @estado, fec_modificacion = GETDATE()
          WHERE id = @id;
@@ -622,24 +629,24 @@ const updateOrder = async (req, res) => {
          FROM ${TABLE_NAMES.pedidos} 
          WHERE id = @id;
        `;
-       
-       const result = await executeQueryWithParams(query, {
-         id: parseInt(id),
-         estado: estadoDbTruncado
-       });
 
-       if (result.length === 0) {
-         return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
-       }
+      const result = await executeQueryWithParams(query, {
+        id: parseInt(id),
+        estado: estadoDbTruncado
+      });
 
-       return res.json({
-         success: true,
-         message: 'Pedido actualizado',
-         data: {
-           ...result[0],
-           estado: mapEstadoFromDb(result[0].estado)
-         }
-       });
+      if (result.length === 0) {
+        return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Pedido actualizado',
+        data: {
+          ...result[0],
+          estado: mapEstadoFromDb(result[0].estado)
+        }
+      });
     }
 
     // Si hay más campos por actualizar en el futuro, agregarlos aquí
@@ -648,10 +655,10 @@ const updateOrder = async (req, res) => {
 
   } catch (error) {
     console.error('Error actualizando pedido:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Error actualizando pedido',
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -664,7 +671,7 @@ const getNextOrderNumber = async (req, res) => {
       FROM ${TABLE_NAMES.pedidos} 
       ORDER BY id DESC
     `);
-    
+
     let nextNum = '000001';
     if (result.recordset.length > 0) {
       const lastNum = result.recordset[0].numero_pedido;
@@ -674,7 +681,7 @@ const getNextOrderNumber = async (req, res) => {
         nextNum = String(consecutivo + 1).padStart(6, '0');
       }
     }
-    
+
     res.json({ success: true, data: { nextNumber: nextNum } });
   } catch (error) {
     console.error('Error getting next order number:', error);
@@ -687,11 +694,11 @@ const { sendDocumentEmail } = require('../services/emailService.cjs');
 const sendOrderEmail = async (req, res) => {
   try {
     const { id } = req.params;
-    const { destinatario, asunto, mensaje, pdfBase64 } = req.body; 
+    const { destinatario, asunto, mensaje, pdfBase64 } = req.body;
 
     const pool = await getConnection();
     const idNum = parseInt(id, 10);
-    
+
     // 1. Obtener Datos del Pedido
     const orderQuery = `
       SELECT 
@@ -705,7 +712,7 @@ const sendOrderEmail = async (req, res) => {
       WHERE p.id = @id
     `;
     const orderRes = await executeQueryWithParams(orderQuery, { id: idNum });
-    
+
     if (orderRes.length === 0) {
       return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
     }
@@ -714,35 +721,35 @@ const sendOrderEmail = async (req, res) => {
     const clienteEmail = destinatario || pedido.EMAIL;
 
     if (!clienteEmail) {
-       return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado y no se proporcionó uno alternativo.' });
+      return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado y no se proporcionó uno alternativo.' });
     }
 
     // 2. Preparar PDF
     let pdfBuffer;
     if (pdfBase64) {
-        pdfBuffer = pdfBase64;
+      pdfBuffer = pdfBase64;
     } else {
-        return res.status(400).json({ success: false, message: 'Se requiere el PDF generado para enviar el correo (pdfBase64).' });
+      return res.status(400).json({ success: false, message: 'Se requiere el PDF generado para enviar el correo (pdfBase64).' });
     }
 
     // 3. Preparar Detalles para el Correo
     const formatCurrency = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(val);
     const documentDetails = [
-        { label: 'Total Pedido', value: formatCurrency(pedido.total || 0) },
-        { label: 'Fecha', value: new Date(pedido.fecha_pedido).toLocaleDateString('es-CO') }
+      { label: 'Total Pedido', value: formatCurrency(pedido.total || 0) },
+      { label: 'Fecha', value: new Date(pedido.fecha_pedido).toLocaleDateString('es-CO') }
     ];
 
     // 4. Enviar Correo
     await sendDocumentEmail({
-        to: clienteEmail,
-        customerName: pedido.nomter,
-        documentNumber: pedido.numero_pedido,
-        documentType: 'Pedido',
-        pdfBuffer,
-        subject: asunto,
-        body: mensaje,
-        documentDetails,
-        processSteps: `
+      to: clienteEmail,
+      customerName: pedido.nomter,
+      documentNumber: pedido.numero_pedido,
+      documentType: 'Pedido',
+      pdfBuffer,
+      subject: asunto,
+      body: mensaje,
+      documentDetails,
+      processSteps: `
             <p>Hemos recibido su orden correctamente. En este momento el equipo de almacén está preparando sus productos. Le notificaremos en cuanto el despacho sea realizado.</p>
         `
     });

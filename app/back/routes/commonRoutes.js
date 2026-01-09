@@ -9,6 +9,8 @@ router.get('/ciudades', commonController.getCiudades);
 router.post('/query', commonController.executeCustomQuery);
 router.get('/health', commonController.getHealth);
 router.get('/empresa', commonController.getEmpresa);
+const traceabilityController = require('../controllers/traceabilityController');
+router.get('/trazabilidad', traceabilityController.getTraceability);
 
 
 module.exports = router;

@@ -76,6 +76,8 @@ const PedidosPage: React.FC = () => {
   const [approvalResult, setApprovalResult] = useState<Pedido | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [traceabilityData, setTraceabilityData] = useState<any>(null);
+  const [isLoadingTraceability, setIsLoadingTraceability] = useState(false);
 
   // Cargar pedidos con paginación (con debounce para búsqueda)
   useEffect(() => {
@@ -314,6 +316,19 @@ const PedidosPage: React.FC = () => {
         items: []
       });
     }
+
+    // Cargar Trazabilidad
+    setIsLoadingTraceability(true);
+    try {
+      const traceRes = await apiClient.getTraceability('pedido', pedido.id);
+      if (traceRes.success) {
+        setTraceabilityData(traceRes.data);
+      }
+    } catch (error) {
+      console.error('Error cargando trazabilidad:', error);
+    } finally {
+      setIsLoadingTraceability(false);
+    }
   };
 
   useEffect(() => {
@@ -331,6 +346,7 @@ const PedidosPage: React.FC = () => {
   const handleCloseModals = () => {
     setDetailModalOpen(false);
     setSelectedPedido(null);
+    setTraceabilityData(null);
     if (params?.focusId || params?.highlightId) {
       const { focusId: _focus, highlightId: _highlight, ...rest } = params;
       setPage('pedidos', rest);
@@ -783,23 +799,83 @@ const PedidosPage: React.FC = () => {
 
             {/* Cards de Información Principal */}
             {/* Progress Section (Top) */}
-            <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-              <h4 className="text-sm font-semibold mb-4 text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Progreso del Ciclo de Venta</h4>
+            <div className="mb-8 bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-6">
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                  <i className="fas fa-project-diagram text-blue-500"></i>
+                  Flujo del Proceso de Venta
+                </h4>
+                {isLoadingTraceability && <i className="fas fa-spinner fa-spin text-blue-500"></i>}
+              </div>
               <ProgressFlow>
-                <ProgressStep title="Cotización" status={selectedPedido.cotizacionId ? 'complete' : 'incomplete'}>
-                  {selectedPedido.numeroCotizacionOrigen && (
-                    <span className="text-[10px] font-mono text-slate-500 block mt-1">{selectedPedido.numeroCotizacionOrigen.replace('C-', '')}</span>
-                  )}
-                </ProgressStep>
-                <ProgressStep title="Pedido" status={getPedidoProgressStatus(selectedPedido)}>
-                  <StatusBadge status={selectedPedido.estado as any} />
-                </ProgressStep>
-                <ProgressStep title="Remisión" status={getRemisionProgressStatus(selectedPedido)}>
+                <ProgressStep
+                  title="Cotización"
+                  status={traceabilityData?.cotizacion ? 'complete' : (selectedPedido.cotizacionId ? 'complete' : 'incomplete')}
+                >
                   <div className="flex flex-col items-center">
-                    {selectedPedido.estado === 'REMITIDO' || selectedPedido.estado === 'PARCIALMENTE_REMITIDO' ? (
-                      <span className="text-xs font-bold text-green-600 dark:text-green-400">Generada</span>
+                    {traceabilityData?.cotizacion ? (
+                      <>
+                        <span className="font-bold text-green-600 dark:text-green-400">{traceabilityData.cotizacion.numero}</span>
+                        <span className="text-[10px] opacity-70">{formatDateOnly(traceabilityData.cotizacion.fecha)}</span>
+                      </>
+                    ) : selectedPedido.cotizacionId ? (
+                      <span className="font-bold text-green-600 dark:text-green-400">Vinculada</span>
                     ) : (
-                      <span className="text-xs text-slate-400 italic">Pendiente</span>
+                      <span className="text-slate-400 italic">No aplica</span>
+                    )}
+                  </div>
+                </ProgressStep>
+
+                <ProgressStep
+                  title="Pedido"
+                  status={getPedidoProgressStatus(selectedPedido)}
+                >
+                  <div className="flex flex-col items-center">
+                    <span className="font-bold text-blue-600 dark:text-blue-400">{selectedPedido.numeroPedido}</span>
+                    <span className="text-[10px] opacity-70">{formatDateOnly(selectedPedido.fechaPedido)}</span>
+                  </div>
+                </ProgressStep>
+
+                <ProgressStep
+                  title="Remisión"
+                  status={traceabilityData?.remisiones?.length > 0 ? 'complete' : getRemisionProgressStatus(selectedPedido)}
+                >
+                  <div className="flex flex-col items-center">
+                    {traceabilityData?.remisiones?.length > 0 ? (
+                      <>
+                        <span className="font-bold text-green-600 dark:text-green-400">
+                          {traceabilityData.remisiones.length === 1
+                            ? traceabilityData.remisiones[0].numero
+                            : `${traceabilityData.remisiones.length} Remisiones`}
+                        </span>
+                        {traceabilityData.remisiones.length === 1 && (
+                          <span className="text-[10px] opacity-70">{formatDateOnly(traceabilityData.remisiones[0].fecha)}</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-slate-400 italic">Pendiente</span>
+                    )}
+                  </div>
+                </ProgressStep>
+
+                <ProgressStep
+                  title="Facturación"
+                  status={traceabilityData?.facturas?.length > 0 ? 'complete' : 'incomplete'}
+                >
+                  <div className="flex flex-col items-center">
+                    {traceabilityData?.facturas?.length > 0 ? (
+                      <>
+                        <span className="font-bold text-green-600 dark:text-green-400">
+                          {traceabilityData.facturas.length === 1
+                            ? traceabilityData.facturas[0].numero
+                            : `${traceabilityData.facturas.length} Facturas`}
+                        </span>
+                        {traceabilityData.facturas.length === 1 && (
+                          <span className="text-[10px] opacity-70">{formatDateOnly(traceabilityData.facturas[0].fecha)}</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-slate-400 italic">Pendiente</span>
                     )}
                   </div>
                 </ProgressStep>
@@ -808,17 +884,16 @@ const PedidosPage: React.FC = () => {
 
             {/* Information Grid (Middle) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-              {/* Card 1: Información del Cliente */}
-              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700 p-5">
-                <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200 mb-4 pb-3 border-b border-slate-100 dark:border-slate-700">
-                  <i className="fas fa-user-circle text-blue-500"></i>
+              {/* Información del Cliente */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-700">
+                <h5 className="flex items-center text-sm font-bold text-slate-800 dark:text-slate-100 mb-4 border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <i className="fas fa-user-circle mr-2 text-blue-500"></i>
                   Información del Cliente
-                </h4>
-                <div className="space-y-4">
+                </h5>
+                <div className="space-y-3">
                   <div>
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Cliente</p>
-                    <p className="text-base font-medium text-slate-800 dark:text-slate-200 mt-1">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Razón Social / Nombre</p>
+                    <p className="font-medium text-base text-slate-800 dark:text-slate-200">
                       {(() => {
                         const cliente = clientes.find(c =>
                           String(c.id) === String(selectedPedido.clienteId) ||
@@ -829,70 +904,80 @@ const PedidosPage: React.FC = () => {
                       })()}
                     </p>
                   </div>
-                  {(selectedPedido.instruccionesEntrega) && (
-                    <div className="bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg border border-amber-100 dark:border-amber-900/30">
-                      <p className="text-xs font-medium text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1">
-                        <i className="fas fa-comment-alt mr-1"></i> Instrucciones
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Teléfono</p>
+                      <p className="font-medium text-slate-700 dark:text-slate-300">
+                        {selectedPedido.clienteTelefono || selectedPedido.clienteCelular || 'N/A'}
                       </p>
-                      <p className="text-slate-700 dark:text-slate-300 italic">
-                        {selectedPedido.instruccionesEntrega}
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Email</p>
+                      <p className="font-medium text-slate-700 dark:text-slate-300 truncate" title={selectedPedido.clienteEmail || ''}>
+                        {selectedPedido.clienteEmail || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Información Comercial */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-700">
+                <h5 className="flex items-center text-sm font-bold text-slate-800 dark:text-slate-100 mb-4 border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <i className="fas fa-file-invoice-dollar mr-2 text-green-500"></i>
+                  Datos Comerciales
+                </h5>
+                <div className="grid grid-cols-2 gap-y-3 gap-x-4">
+                  <div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Vendedor</p>
+                    <p className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                      {selectedPedido.vendedorNombre || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Forma de Pago</p>
+                    <p className="font-medium text-slate-700 dark:text-slate-300">
+                      {(() => {
+                        let val = selectedPedido.formaPago;
+                        if (!val && selectedPedido.cotizacionId) {
+                          const cot = cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId));
+                          val = cot?.formaPago;
+                        }
+                        return val === '01' || val === '1' ? 'Contado' : val === '02' || val === '2' ? 'Crédito' : val || 'N/A';
+                      })()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Fecha Emisión</p>
+                    <p className="font-medium text-slate-700 dark:text-slate-300">{formatDateOnly(selectedPedido.fechaPedido)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Vencimiento</p>
+                    <p className="font-medium text-slate-700 dark:text-slate-300">{formatDateOnly(selectedPedido.fechaEntregaEstimada)}</p>
+                  </div>
+                  {(selectedPedido.estado === 'REMITIDO' || selectedPedido.estado === 'PARCIALMENTE_REMITIDO') && (
+                    <div className="col-span-2 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Completado el</p>
+                      <p className="font-medium text-green-600 dark:text-green-400">
+                        {traceabilityData?.remisiones?.[0]?.fecha
+                          ? formatDateOnly(traceabilityData.remisiones[0].fecha)
+                          : formatDateOnly(selectedPedido.fechaModificacion || selectedPedido.fechaPedido)}
                       </p>
                     </div>
                   )}
                 </div>
               </div>
+            </div>
 
-              {/* Card 2: Detalles del Pedido */}
-              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700 p-5">
-                <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200 mb-4 pb-3 border-b border-slate-100 dark:border-slate-700">
-                  <i className="fas fa-info-circle text-purple-500"></i>
-                  Detalles Generales
-                </h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Cotización</p>
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mt-1">
-                      {(selectedPedido.numeroCotizacionOrigen ||
-                        (selectedPedido.cotizacionId ? cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId))?.numeroCotizacion : 'N/A') ||
-                        'N/A').replace('C-', '')}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Forma Pago</p>
-                    <div className="mt-1">
-                      {(selectedPedido.formaPago || (() => {
-                        let formaPagoPedido = selectedPedido.formaPago;
-                        if (!formaPagoPedido && selectedPedido.cotizacionId) {
-                          const cotizacion = cotizaciones.find(c => String(c.id) === String(selectedPedido.cotizacionId));
-                          if (cotizacion && cotizacion.formaPago) {
-                            formaPagoPedido = cotizacion.formaPago;
-                          }
-                        }
-                        return formaPagoPedido;
-                      })()) ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
-                          {(() => {
-                            const val = selectedPedido.formaPago || 'N/A';
-                            return val === '01' || val === '1' ? 'Contado' : val === '02' || val === '2' ? 'Crédito' : val;
-                          })()}
-                        </span>
-                      ) : 'N/A'}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Emisión</p>
-                    <p className="text-sm text-slate-800 dark:text-slate-200 mt-1">{formatDateOnly(selectedPedido.fechaPedido)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Entrega Est.</p>
-                    <p className="text-sm text-slate-800 dark:text-slate-200 mt-1">{formatDateOnly(selectedPedido.fechaEntregaEstimada)}</p>
-                  </div>
+            {selectedPedido.instruccionesEntrega && (
+              <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-lg border border-amber-100 dark:border-amber-800/30 flex gap-3">
+                <i className="fas fa-comment-alt text-amber-500 mt-0.5"></i>
+                <div>
+                  <p className="text-xs font-bold text-amber-700 dark:text-amber-500 mb-1">Instrucciones de Entrega</p>
+                  <p className="text-sm text-amber-800 dark:text-amber-200 italic">{selectedPedido.instruccionesEntrega}</p>
                 </div>
               </div>
-
-
-
-            </div>
+            )}
 
             {/* Tabla de Items */}
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">

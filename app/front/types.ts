@@ -278,6 +278,12 @@ export interface Pedido {
   instruccionesEntrega?: string;
   notaPago?: string; // Nota de pago
   formaPago?: string; // Forma de pago: 1=Contado, 2=Crédito
+  vendedorNombre?: string;
+  clienteTelefono?: string;
+  clienteCelular?: string;
+  clienteEmail?: string;
+  fechaCreacion?: string;
+  fechaModificacion?: string;
 }
 
 export interface OrdenCompra {

@@ -105,6 +105,8 @@ const CotizacionesPage: React.FC = () => {
   const [approvingCotizacionId, setApprovingCotizacionId] = useState<string | null>(null);
   const [approvedCotizacionResult, setApprovedCotizacionResult] = useState<{ cotizacion: Cotizacion, pedido?: Pedido } | null>(null);
   const [cotizacionToEdit, setCotizacionToEdit] = useState<Cotizacion | null>(null);
+  const [traceabilityData, setTraceabilityData] = useState<any>(null);
+  const [isLoadingTraceability, setIsLoadingTraceability] = useState(false);
 
   const filteredData = useMemo(() => {
     const sortedQuotes = [...cotizaciones].sort((a, b) => new Date(b.fechaCotizacion).getTime() - new Date(a.fechaCotizacion).getTime());
@@ -187,7 +189,20 @@ const CotizacionesPage: React.FC = () => {
     }
 
     setSelectedCotizacion(cotizacionConItems);
-    setSelectedCotizacion(cotizacionConItems);
+
+    // Cargar Trazabilidad
+    setIsLoadingTraceability(true);
+    try {
+      const traceRes = await apiClient.getTraceability('cotizacion', cotizacion.id);
+      if (traceRes.success) {
+        setTraceabilityData(traceRes.data);
+      }
+    } catch (error) {
+      console.error('Error cargando trazabilidad:', error);
+    } finally {
+      setIsLoadingTraceability(false);
+    }
+
     if (cotizacionConItems.estado === 'ENVIADA' || cotizacionConItems.estado === 'BORRADOR') {
       // Auto-select all items for approval by default
       if (cotizacionConItems.items && cotizacionConItems.items.length > 0) {
@@ -206,6 +221,7 @@ const CotizacionesPage: React.FC = () => {
   const handleCloseModal = useCallback(() => {
     setIsModalOpen(false);
     setSelectedCotizacion(null);
+    setTraceabilityData(null);
     setApprovedItems(new Set());
     if (params.focusId) {
       setPage('cotizaciones', {}); // Clear param on close
@@ -901,51 +917,82 @@ const CotizacionesPage: React.FC = () => {
           </div>
 
           <div className="space-y-6 text-sm">
-            {/* Sección de Progreso */}
-            <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-              <h4 className="text-sm font-semibold mb-4 text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Ciclo de Venta</h4>
+            {/* Progress Section (Top) */}
+            <div className="mb-8 bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-6">
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                  <i className="fas fa-project-diagram text-blue-500"></i>
+                  Flujo del Proceso de Venta
+                </h4>
+                {isLoadingTraceability && <i className="fas fa-spinner fa-spin text-blue-500"></i>}
+              </div>
               <ProgressFlow>
-                <ProgressStep title="Cotización" status={getCotizacionProgressStatus(selectedCotizacion)}>
+                <ProgressStep
+                  title="Cotización"
+                  status={getCotizacionProgressStatus(selectedCotizacion)}
+                >
                   <div className="flex flex-col items-center">
-                    <StatusBadge status={selectedCotizacion.estado as any} />
-                    {selectedCotizacion.estado === 'APROBADA' && selectedCotizacion.fechaAprobacion && (
-                      <span className="text-[10px] text-slate-400 mt-1">{formatDateOnly(selectedCotizacion.fechaAprobacion)}</span>
+                    <span className="font-bold text-blue-600 dark:text-blue-400">{selectedCotizacion.numeroCotizacion}</span>
+                    <span className="text-[10px] opacity-70">{formatDateOnly(selectedCotizacion.fechaCotizacion)}</span>
+                  </div>
+                </ProgressStep>
+
+                <ProgressStep
+                  title="Pedido"
+                  status={traceabilityData?.pedido ? 'complete' : (selectedCotizacion.estado === 'APROBADA' ? 'current' : 'incomplete')}
+                >
+                  <div className="flex flex-col items-center">
+                    {traceabilityData?.pedido ? (
+                      <>
+                        <span className="font-bold text-green-600 dark:text-green-400">{traceabilityData.pedido.numero}</span>
+                        <span className="text-[10px] opacity-70">{formatDateOnly(traceabilityData.pedido.fecha)}</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400 italic">Pendiente</span>
                     )}
                   </div>
                 </ProgressStep>
-                <ProgressStep title="Pedido" status={getPedidoProgressStatus(selectedCotizacion, pedido)}>
-                  <div className="flex flex-col items-center gap-1">
-                    {pedido ? (
+
+                <ProgressStep
+                  title="Remisión"
+                  status={traceabilityData?.remisiones?.length > 0 ? 'complete' : 'incomplete'}
+                >
+                  <div className="flex flex-col items-center">
+                    {traceabilityData?.remisiones?.length > 0 ? (
                       <>
-                        <StatusBadge status={pedido.estado as any} />
-                        <span className="text-[10px] font-mono font-medium text-slate-500 dark:text-slate-400">{pedido.numeroPedido}</span>
+                        <span className="font-bold text-green-600 dark:text-green-400">
+                          {traceabilityData.remisiones.length === 1
+                            ? traceabilityData.remisiones[0].numero
+                            : `${traceabilityData.remisiones.length} Remisiones`}
+                        </span>
+                        {traceabilityData.remisiones.length === 1 && (
+                          <span className="text-[10px] opacity-70">{formatDateOnly(traceabilityData.remisiones[0].fecha)}</span>
+                        )}
                       </>
                     ) : (
-                      <span className="text-xs text-slate-400 italic">Pendiente</span>
+                      <span className="text-slate-400 italic">Pendiente</span>
                     )}
                   </div>
                 </ProgressStep>
-                <ProgressStep title="Remisión" status={getRemisionProgressStatus(pedido)}>
+
+                <ProgressStep
+                  title="Facturación"
+                  status={traceabilityData?.facturas?.length > 0 ? 'complete' : 'incomplete'}
+                >
                   <div className="flex flex-col items-center">
-                    {remisionesPedido.length > 0 ? (
+                    {traceabilityData?.facturas?.length > 0 ? (
                       <>
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{remisionesPedido.length}</span>
-                        <span className="text-[10px] text-slate-500">Entrega(s)</span>
+                        <span className="font-bold text-green-600 dark:text-green-400">
+                          {traceabilityData.facturas.length === 1
+                            ? traceabilityData.facturas[0].numero
+                            : `${traceabilityData.facturas.length} Facturas`}
+                        </span>
+                        {traceabilityData.facturas.length === 1 && (
+                          <span className="text-[10px] opacity-70">{formatDateOnly(traceabilityData.facturas[0].fecha)}</span>
+                        )}
                       </>
                     ) : (
-                      <span className="text-xs text-slate-400 italic">Sin entregas</span>
-                    )}
-                  </div>
-                </ProgressStep>
-                <ProgressStep title="Facturación" status={getFacturacionProgressStatus(remisionesPedido, facturasPedido)}>
-                  <div className="flex flex-col items-center">
-                    {facturasPedido.length > 0 ? (
-                      <>
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{facturasPedido.length}</span>
-                        <span className="text-[10px] text-slate-500">Factura(s)</span>
-                      </>
-                    ) : (
-                      <span className="text-xs text-slate-400 italic">Pendiente</span>
+                      <span className="text-slate-400 italic">Pendiente</span>
                     )}
                   </div>
                 </ProgressStep>
@@ -1435,21 +1482,23 @@ const CotizacionesPage: React.FC = () => {
         )
       }
 
-      {quoteToEmail && (() => {
-        const clienteCotizacion = clientes.find(c => String(c.id) === String(quoteToEmail.clienteId));
-        return (
-          <SendEmailModal
-            isOpen={!!quoteToEmail}
-            onClose={() => setQuoteToEmail(null)}
-            onSend={handleConfirmSendEmail}
-            to={clienteCotizacion?.email || ''}
-            subject={`Cotización ${quoteToEmail.numeroCotizacion} - ${datosEmpresa.nombre}`}
-            body={`Estimado cliente ${clienteCotizacion?.nombreCompleto || 'Cliente'},\n\nAdjuntamos la cotización de los productos de su interés.\n\nCordialmente,\n${datosEmpresa.nombre}`}
-          />
-        );
-      })()}
+      {
+        quoteToEmail && (() => {
+          const clienteCotizacion = clientes.find(c => String(c.id) === String(quoteToEmail.clienteId));
+          return (
+            <SendEmailModal
+              isOpen={!!quoteToEmail}
+              onClose={() => setQuoteToEmail(null)}
+              onSend={handleConfirmSendEmail}
+              to={clienteCotizacion?.email || ''}
+              subject={`Cotización ${quoteToEmail.numeroCotizacion} - ${datosEmpresa.nombre}`}
+              body={`Estimado cliente ${clienteCotizacion?.nombreCompleto || 'Cliente'},\n\nAdjuntamos la cotización de los productos de su interés.\n\nCordialmente,\n${datosEmpresa.nombre}`}
+            />
+          );
+        })()
+      }
 
-    </PageContainer>
+    </PageContainer >
   );
 };
 

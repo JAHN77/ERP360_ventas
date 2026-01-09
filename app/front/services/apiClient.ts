@@ -773,6 +773,10 @@ class ApiClient {
   public async getNextCreditNoteNumber(): Promise<ApiResponse<{ nextNumber: string }>> {
     return this.request<{ nextNumber: string }>('/notas-credito/next-number');
   }
+
+  public async getTraceability(type: 'pedido' | 'cotizacion' | 'remision' | 'factura', id: string | number): Promise<ApiResponse<any>> {
+    return this.request(`/trazabilidad?type=${type}&id=${id}`);
+  }
 }
 
 // Instancia singleton del cliente API
