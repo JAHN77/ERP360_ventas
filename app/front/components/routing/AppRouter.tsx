@@ -38,6 +38,7 @@ const NuevoConteoFisicoPage = lazy(() => import('../../pages/NuevoConteoFisicoPa
 const DetalleConteoFisicoPage = lazy(() => import('../../pages/DetalleConteoFisicoPage'));
 const UsersPage = lazy(() => import('../../pages/UsersPage'));
 const ProfilePage = lazy(() => import('../../pages/ProfilePage'));
+const AnalyticsPage = lazy(() => import('../../pages/AnalyticsPage'));
 
 /**
  * Componente de ruta protegida que verifica permisos
@@ -362,6 +363,14 @@ const AppRouter: React.FC = () => {
             element={
               <ProtectedRoute page="reportes">
                 <InformesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path={routeMap.analisis_comercial}
+            element={
+              <ProtectedRoute page="analisis_comercial">
+                <AnalyticsPage />
               </ProtectedRoute>
             }
           />

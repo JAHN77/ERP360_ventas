@@ -21,6 +21,7 @@ export type Page =
   'inventory_concepts' |
   'conteo_fisico' |
   'usuarios' |
+  'analisis_comercial' |
   'perfil';
 
 interface NavigationState {

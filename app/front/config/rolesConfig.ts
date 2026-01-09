@@ -43,7 +43,7 @@ export const rolesConfig: Record<Role, RoleConfig> = {
   },
   supervisor_comercial: {
     can: ['dashboard:view', 'cotizaciones:view', 'cotizaciones:supervise', 'clientes:view', 'clientes:create', 'clientes:edit', 'productos:view', 'reportes:view', 'pedidos:edit', 'pedidos:approve'],
-    pages: ['dashboard', 'cotizaciones', 'clientes', 'productos', 'reportes', 'pedidos', 'demas_informes'],
+    pages: ['dashboard', 'cotizaciones', 'clientes', 'productos', 'reportes', 'pedidos', 'demas_informes', 'analisis_comercial'],
   },
   coordinador_pedidos: {
     can: ['dashboard:view', 'pedidos:view', 'pedidos:edit', 'pedidos:approve', 'pedidos:mark-ready-for-dispatch', 'remisiones:view', 'reportes:view'],
@@ -89,7 +89,7 @@ export const rolesConfig: Record<Role, RoleConfig> = {
       'devoluciones', 'notas_credito_debito',
       'reportes',
       'demas_informes', 'factura_profesional', 'activity_log',
-      'usuarios'
+      'usuarios', 'analisis_comercial'
     ],
   },
 };

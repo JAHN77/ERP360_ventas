@@ -113,7 +113,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarOpen, setIsSidebarOpen }) =>
         const groups: Record<string, Page[]> = {
             'comercial': ['cotizaciones', 'pedidos', 'facturacion_electronica', 'notas_credito_debito', 'clientes', 'nuevo_cliente'],
             'inventario': ['productos', 'entrada_inventario', 'remisiones', 'inventory_concepts', 'categorias', 'conteo_fisico'],
-            'informes': ['reportes'],
+            'informes': ['reportes', 'analisis_comercial'],
             'compras': ['ordenes_compra', 'nueva_orden_compra'],
             'config': ['activity_log', 'factura_profesional', 'usuarios']
         };
@@ -227,6 +227,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarOpen, setIsSidebarOpen }) =>
                     >
                         <SubHeader label="Reportes" />
                         <NavItem label="Centro de Informes" active={page === 'reportes'} onClick={() => setPage('reportes')} indent />
+                        <NavItem label="Análisis Comercial" active={page === 'analisis_comercial'} onClick={() => setPage('analisis_comercial')} indent />
                     </NavGroup>
 
                     {/* Compras Group */}

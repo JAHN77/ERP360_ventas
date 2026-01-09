@@ -142,6 +142,7 @@ const remissionRoutes = require('./routes/remissionRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
 const commonRoutes = require('./routes/commonRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 const inventoryConceptsController = require('./controllers/inventoryConceptsController');
 
 // --- Inventory Concepts Routes ---
@@ -350,6 +351,7 @@ app.use('/api', invoiceRoutes);
 app.use('/api', creditNoteRoutes);
 app.use('/api', remissionRoutes);
 app.use('/api/inventario', inventoryRoutes);
+app.use('/api/analytics', analyticsRoutes);
 app.use('/api/categorias', require('./routes/categoryRoutes')); // Registration of category routes
 app.use('/api/medidas', require('./routes/measureRoutes')); // Registration of measure routes
 app.use('/api', require('./routes/commonRoutes')); // Phase 6

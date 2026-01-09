@@ -64,6 +64,7 @@ export const routeMap: Record<Page, string> = {
   // Informes
   reportes: '/reportes',
   demas_informes: '/informes',
+  analisis_comercial: '/analisis-comercial',
 
   // Administración
   activity_log: '/admin/actividad',
