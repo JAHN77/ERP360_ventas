@@ -53,7 +53,7 @@ const analyticsController = {
             if (clienteId) {
                 params.clienteId = clienteId;
                 whereClauses.cotizaciones.push('c.codter = @clienteId');
-                whereClauses.pedidos.push('p.codter = @clienteId');
+                whereClauses.pedidos.push('p.codter = @clienteId'); // Fixed: p.codter
                 whereClauses.remisiones.push('r.codter = @clienteId');
                 whereClauses.facturas.push('f.codter = @clienteId');
             }
@@ -74,13 +74,12 @@ const analyticsController = {
                 const prodQuery = `SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @productoId`;
                 const prodRes = await executeQueryWithParams(prodQuery, { productoId }, req.db_name);
 
-                if (prodRes.length > 0) {
+                    if (prodRes.length > 0) {
                     const codins = prodRes[0].codins;
                     params.codins = codins;
 
-                    productJoin.cotizaciones = `INNER JOIN ${TABLE_NAMES.cotizaciones_detalle} cd ON cd.numcot = c.numcot AND cd.cod_producto = @codins`; // Ojo: numcot vs id
-                    // Revisando dbConfig: ven_detacotiz usa numcot (string) que enlaza con ven_cotizacion.numcot
-
+                    productJoin.cotizaciones = `INNER JOIN ${TABLE_NAMES.cotizaciones_detalle} cd ON cd.id_cotizacion = c.id AND cd.cod_producto = @codins`; // Fixed: use id_cotizacion
+                    
                     productJoin.pedidos = `INNER JOIN ${TABLE_NAMES.pedidos_detalle} pd ON pd.pedido_id = p.id AND pd.codins = @codins`;
 
                     productJoin.remisiones = `INNER JOIN ${TABLE_NAMES.remisiones_detalle} rd ON rd.remision_id = r.id AND rd.codins = @codins`;
@@ -348,19 +347,21 @@ const analyticsController = {
             let qComparison = `
                 SELECT 
                     p.codins,
-                    p.descripcion as productName,
-                    p.cantidad as qtyOrder,
+                    p.codins,
+                    COALESCE(i.nomins, 'Producto') as productName,
+                    p.canped as qtyOrder,
                     COALESCE(c.cantidad, 0) as qtyQuote,
                     COALESCE(r.qtyRemitted, 0) as qtyRemitted,
                     COALESCE(f.qtyInvoiced, 0) as qtyInvoiced
                 FROM ${TABLE_NAMES.pedidos_detalle} p
+                LEFT JOIN ${TABLE_NAMES.productos} i ON i.codins = p.codins
             `;
 
             // Join Cotización
             if (pedido.cotizacion_id) {
                 qComparison += `
                     LEFT JOIN ${TABLE_NAMES.cotizaciones_detalle} c 
-                    ON c.numcot = (SELECT numcot FROM ${TABLE_NAMES.cotizaciones} WHERE id = @cotId) 
+                    ON c.id_cotizacion = @cotId
                     AND c.cod_producto = p.codins
                 `;
                 params.cotId = pedido.cotizacion_id;

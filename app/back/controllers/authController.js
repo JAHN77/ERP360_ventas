@@ -23,23 +23,26 @@ const authController = {
       let targetDbName = process.env.DB_DATABASE; // Default to master/env DB if no companyId
 
       // 1. Si hay companyId, buscar la configuración de la empresa en la BD Maestra
+      // 1. Si hay companyId, intentar buscar la configuración de la empresa
       if (companyId) {
         try {
           const tenantQuery = `SELECT db_name FROM config_empresas WHERE id = @id AND activo = 1`;
-          // Usar executeQueryWithParams sin tercer argumento usa la BD por defecto (Maestra)
           const tenants = await executeQueryWithParams(tenantQuery, { id: companyId });
 
           if (tenants.length > 0) {
             targetDbName = tenants[0].db_name;
             console.log(`🏢 Empresa encontrada. Conectando a BD: ${targetDbName}`);
           } else {
-            console.warn(`⚠️ Empresa con ID ${companyId} no encontrada o inactiva.`);
-            return res.status(400).json({ success: false, message: 'Empresa no válida o inactiva' });
+            console.warn(`⚠️ Empresa con ID ${companyId} no encontrada o inactiva. Usando BD por defecto.`);
           }
         } catch (err) {
-          console.error('❌ Error consultando config_empresas:', err);
-          // Fallback o error crítico dependiendo de la política
-          return res.status(500).json({ success: false, message: 'Error verificando empresa' });
+            // Si la tabla no existe (error 208), ignorar y usar la BD actual
+            if (err.number === 208 || (err.originalError && err.originalError.info && err.originalError.info.number === 208)) {
+                console.warn('⚠️ Tabla config_empresas no existe. Continuando con Single Tenant (DB actual).');
+            } else {
+                console.error('❌ Error consultando config_empresas:', err);
+            }
+          // No retornar error, permitir intentar login en la BD por defecto
         }
       }
 
@@ -98,7 +101,8 @@ const authController = {
         { 
           id: user.codusu, // Using codusu as ID since actual ID doesn't exist
           codusu: user.codusu, 
-          role: user.tipousu === 1 ? 'admin' : 'vendedor' 
+          role: user.tipousu === 1 ? 'admin' : 'vendedor',
+          db_name: targetDbName 
         },
         process.env.JWT_SECRET || 'erp360_secret_key_development_only',
         { expiresIn: '24h' }
@@ -198,9 +202,30 @@ const authController = {
           console.error('Update signature error:', error);
           res.status(500).json({ success: false, message: 'Error actualizando firma' });
       }
+  },
+
+  /**
+   * Switch Company / Tenant
+   */
+  switchCompany: async (req, res) => {
+    try {
+      const { companyId } = req.body;
+      const userId = req.user.id;
+
+      if (!companyId) {
+         return res.status(400).json({ success: false, message: 'ID de empresa requerido' });
+      }
+
+      // 1. Get Company DB Name from Master DB
+      const tenantQuery = `SELECT db_name FROM config_empresas WHERE id = @id AND activo = 1`;
+      const tenants = await executeQueryWithParams(tenantQuery, { id: companyId });
+
+      if (tenants.length === 0) {
+        return res.status(404).json({ success: false, message: 'Empresa no encontrada o inactiva' });
+      }
 
       const targetDbName = tenants[0].db_name;
-      console.log(`🏢 New Target DB: ${targetDbName}`);
+      console.log(`🏢 Switching to DB: ${targetDbName}`);
 
       // 2. Generate new token with new db_name
       const token = jwt.sign(

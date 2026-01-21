@@ -240,18 +240,14 @@ const createQuote = async (req, res) => {
       fechaVencimiento,
       vendedorId,
       observaciones,
-      observacionesInternas,
       items,
       subtotal,
       descuentoValor,
       ivaValor,
-      total,
       formaPago,
-      listaPrecioId,
       empresaId
     } = req.body;
 
-    // Validación básica de campos requeridos
     if (!clienteId || !items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -259,137 +255,93 @@ const createQuote = async (req, res) => {
       });
     }
 
-    // Iniciar transacción SQL
     const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
     const tx = new sql.Transaction(pool);
 
     try {
       await tx.begin();
 
-      // 1. Obtener datos del cliente y vendedor para asegurar consistencia
-      // 1. Obtener datos del cliente y vendedor para asegurar consistencia
+      // 1. Cliente Lookup (codter)
       const reqCliente = new sql.Request(tx);
       const clienteIdStr = String(clienteId).trim();
       let clienteData = null;
 
-      // Estrategia de búsqueda dual para Cliente: ID Interno vs Código (NIT/CC)
-      // Primero intentar por ID numérico si aplica
-      const clienteIdNum = parseInt(clienteIdStr, 10);
-      const isNumero = !isNaN(clienteIdNum) && String(clienteIdNum) === clienteIdStr;
-
-      if (isNumero) {
-        // Intento 1: Buscar por ID Interno
-        reqCliente.input('clienteIdVal', sql.Int, clienteIdNum);
-        const resId = await reqCliente.query(`SELECT codter, nomter, codven, dirter, ciudad, TELTER as telefono FROM ${TABLE_NAMES.clientes} WHERE id = @clienteIdVal`);
-        if (resId.recordset.length > 0) {
+      reqCliente.input('clienteIdVal', sql.VarChar(20), clienteIdStr);
+      const resId = await reqCliente.query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @clienteIdVal`);
+      if (resId.recordset.length > 0) {
           clienteData = resId.recordset[0];
-        }
       }
-
-      // Intento 2: Si no se encontró por ID (o no era número), buscar por Código (codter)
+      
       if (!clienteData) {
-        const reqCod = new sql.Request(tx);
-        reqCod.input('codterVal', sql.VarChar(20), clienteIdStr);
-        const resCod = await reqCod.query(`SELECT codter, nomter, codven, dirter, ciudad, TELTER as telefono FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @codterVal`);
-        if (resCod.recordset.length > 0) {
-          clienteData = resCod.recordset[0];
-        }
-      }
-
-      if (!clienteData) {
-        throw new Error(`Cliente no encontrado: ${clienteId} (Buscado por ID y por Código)`);
+        throw new Error(`Cliente no encontrado: ${clienteId}`);
       }
 
       const codTerFinal = clienteData.codter;
 
-      // Validar vendedor con estrategia similar
+      // 2. Vendedor Lookup
       let codVendedorFinal = clienteData.codven;
       if (vendedorId) {
-        const vendedorIdStr = String(vendedorId).trim();
-        let vendedorFound = false;
-
-        // Intento 1: Buscar por ID Interno (si es numérico)
-        const venIdNum = parseInt(vendedorIdStr, 10);
-        if (!isNaN(venIdNum) && String(venIdNum) === vendedorIdStr) {
-          const reqVenId = new sql.Request(tx);
-          reqVenId.input('vid', sql.Int, venIdNum);
-          const resVen = await reqVenId.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE id = @vid`);
-          if (resVen.recordset.length > 0) {
-            codVendedorFinal = resVen.recordset[0].codven;
-            vendedorFound = true;
-          }
-        }
-
-        // Intento 2: Buscar por Código (codven) si no se encontró por ID
-        if (!vendedorFound) {
-          // Verificar si existe como código
-          const reqVenCod = new sql.Request(tx);
-          reqVenCod.input('vcod', sql.VarChar(20), vendedorIdStr);
-          const resVenCod = await reqVenCod.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE LTRIM(RTRIM(codven)) = @vcod`);
-          if (resVenCod.recordset.length > 0) {
-            codVendedorFinal = resVenCod.recordset[0].codven;
-            vendedorFound = true;
-          } else {
-            // Si no se encuentra en DB, asumir que el string pasado ES el código y confiar (fallback legacy)
-            codVendedorFinal = vendedorIdStr;
-          }
+        let vendedorIdStr = String(vendedorId).trim();
+        const reqVen = new sql.Request(tx);
+        reqVen.input('vcod', sql.VarChar(20), vendedorIdStr);
+        const resVen = await reqVen.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE LTRIM(RTRIM(codven)) = @vcod`);
+        if (resVen.recordset.length > 0) {
+           codVendedorFinal = resVen.recordset[0].codven;
+        } else {
+           codVendedorFinal = vendedorIdStr;
         }
       }
 
-      // 2. Generar número de cotización (Schema Limit: char(8))
+      // 3. Generar Consecutivo (numcot)
       const reqUltimoNum = new sql.Request(tx);
-      // Buscar el último número, ordenado por ID descendente
       const ultimoNumResult = await reqUltimoNum.query(`
         SELECT TOP 1 numcot 
         FROM ${TABLE_NAMES.cotizaciones} 
-        WHERE numcot NOT LIKE 'B-%' -- Excluir borradores temporales si los hubiera
-        ORDER BY id DESC
+        WHERE ISNUMERIC(numcot) = 1 
+        ORDER BY CAST(numcot AS BIGINT) DESC
       `);
 
       let nuevoNumero = '000001';
       if (ultimoNumResult.recordset.length > 0) {
         const ultimoNum = ultimoNumResult.recordset[0].numcot;
-        // Extraer solo los dígitos del último número (maneja "C-000004" y "000004")
-        const soloDigitos = ultimoNum.replace(/\D/g, '');
-        const consecutivo = parseInt(soloDigitos, 10);
-
+        const consecutivo = parseInt(ultimoNum, 10);
         if (!isNaN(consecutivo)) {
           nuevoNumero = String(consecutivo + 1).padStart(6, '0');
         }
       }
 
-      // 3. Insertar encabezado de cotización
+      // 3. Insertar Header (ven_cotizacion) - Schema Confirmado
       const reqInsertHeader = new sql.Request(tx);
       reqInsertHeader.input('numcot', sql.VarChar(8), nuevoNumero);
       reqInsertHeader.input('fecha', sql.Date, fechaCotizacion || new Date());
       reqInsertHeader.input('fecha_vence', sql.Date, fechaVencimiento || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000));
-
+      
       reqInsertHeader.input('codter', sql.VarChar(15), String(codTerFinal).substring(0, 15));
       reqInsertHeader.input('cod_vendedor', sql.VarChar(10), String(codVendedorFinal || '').substring(0, 10));
-
+      
       let codAlmFinal = '001';
-      if (empresaId) {
-        codAlmFinal = String(empresaId).trim().substring(0, 3);
-      }
+      if (empresaId) codAlmFinal = String(empresaId).trim().substring(0, 3);
       reqInsertHeader.input('codalm', sql.VarChar(3), codAlmFinal);
 
+      // Totales
       reqInsertHeader.input('subtotal', sql.Decimal(18, 2), validateDecimal18_2(subtotal || 0, 'subtotal'));
       reqInsertHeader.input('val_descuento', sql.Decimal(18, 2), validateDecimal18_2(descuentoValor || 0, 'descuentoValor'));
       reqInsertHeader.input('val_iva', sql.Decimal(18, 2), validateDecimal18_2(ivaValor || 0, 'ivaValor'));
       reqInsertHeader.input('valor_anticipo', sql.Decimal(18, 2), 0);
-      reqInsertHeader.input('observa', sql.VarChar(200), String(observaciones || '').substring(0, 200));
 
-      reqInsertHeader.input('estado', sql.VarChar(10), 'B');
+      reqInsertHeader.input('observa', sql.VarChar(200), String(observaciones || '').substring(0, 200));
+      reqInsertHeader.input('estado', sql.VarChar(10), 'B'); // 'B' seems to be the active state in new schema, or 'P'
 
       let formaPagoFinal = '01';
       if (formaPago) {
         const fpStr = String(formaPago).trim();
+         // Basic Mapping
         if (fpStr === '1' || fpStr.toLowerCase() === 'contado') formaPagoFinal = '01';
-        else if (fpStr === '2' || fpStr.toLowerCase() === 'credito' || fpStr.toLowerCase() === 'crédito') formaPagoFinal = '02';
+        else if (fpStr === '2' || fpStr.toLowerCase().includes('credito')) formaPagoFinal = '02';
         else formaPagoFinal = fpStr.substring(0, 2);
       }
       reqInsertHeader.input('formapago', sql.NChar(4), formaPagoFinal);
-
+      
       reqInsertHeader.input('fecsys', sql.Date, new Date());
       reqInsertHeader.input('cod_usuario', sql.VarChar(10), 'ADMIN');
       reqInsertHeader.input('COD_TARIFA', sql.Char(2), '01');
@@ -406,69 +358,53 @@ const createQuote = async (req, res) => {
         );
         SELECT SCOPE_IDENTITY() AS id;
       `;
-
+      
       const headerResult = await reqInsertHeader.query(insertHeaderQuery);
-      const cotizacionId = headerResult.recordset[0].id;
+      const cotizacionId = headerResult.recordset[0].id; // Capture ID for Details
 
-      // 4. Insertar detalles
+      // 4. Insertar Detalles (ven_detacotizacion)
       for (const item of items) {
-        if (!item.productoId || !item.cantidad) continue;
+        if (!item.productoId && !item.codProducto) continue;
 
-        const reqInsertDetail = new sql.Request(tx);
-        reqInsertDetail.input('id_cotizacion', sql.BigInt, cotizacionId);
+        const reqDetail = new sql.Request(tx);
+        reqDetail.input('id_cotizacion', sql.BigInt, cotizacionId);
 
         let codProductoStr = String(item.codProducto || '').trim();
+        // Fallback lookup
         if (!codProductoStr && item.productoId) {
-          const prodIdStr = String(item.productoId).trim();
-          const prodIdNum = parseInt(prodIdStr, 10);
-          let prodFound = false;
-
-          // Intento 1: Por ID interno
-          if (!isNaN(prodIdNum) && String(prodIdNum) === prodIdStr) {
-            const reqProdId = new sql.Request(tx);
-            reqProdId.input('prodId', sql.Int, prodIdNum);
-            const resProdId = await reqProdId.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @prodId`);
-            if (resProdId.recordset.length > 0) {
-              codProductoStr = resProdId.recordset[0].codins;
-              prodFound = true;
-            }
-          }
-
-          // Intento 2: Por Código (codins)
-          if (!prodFound) {
-            const reqProdCod = new sql.Request(tx);
-            reqProdCod.input('prodCod', sql.VarChar(20), prodIdStr);
-            const resProdCod = await reqProdCod.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE LTRIM(RTRIM(codins)) = @prodCod`);
-            if (resProdCod.recordset.length > 0) {
-              codProductoStr = resProdCod.recordset[0].codins;
-            }
-          }
+             const reqProd = new sql.Request(tx);
+             reqProd.input('pid', sql.Int, item.productoId);
+             try {
+                const resProd = await reqProd.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @pid`);
+                if (resProd.recordset.length > 0) codProductoStr = resProd.recordset[0].codins;
+             } catch (e) { }
         }
 
-        // Fix: Schema ven_detacotizacion.cod_producto is char(8). 
-        reqInsertDetail.input('cod_producto', sql.VarChar(8), codProductoStr.substring(0, 8));
+        reqDetail.input('cod_producto', sql.VarChar(8), codProductoStr.substring(0, 8));
 
-        const cant = validateDecimal18_2(item.cantidad, 'item.cantidad');
-        const precio = validateDecimal18_2(item.precioUnitario, 'item.precioUnitario');
-        const tasaDcto = validateDecimal5_2(item.descuentoPorcentaje || 0, 'item.descuentoPorcentaje');
-        const tasaIva = validateDecimal5_2(item.ivaPorcentaje || 0, 'item.ivaPorcentaje');
-        const totalItem = validateDecimal18_2(item.total || 0, 'item.total');
+        const cant = validateDecimal18_2(item.cantidad, 'cantidad');
+        const precio = validateDecimal18_2(item.precioUnitario, 'precio');
+        const tasaDcto = parseFloat(item.descuentoPorcentaje || 0);
+        const tasaIva = parseFloat(item.ivaPorcentaje || 0);
+        const totalItem = validateDecimal18_2(item.total || 0, 'total');
 
-        reqInsertDetail.input('cantidad', sql.Decimal(18, 2), cant);
-        reqInsertDetail.input('preciound', sql.Decimal(18, 2), precio);
-        reqInsertDetail.input('tasa_descuento', sql.Decimal(5, 2), tasaDcto);
-        reqInsertDetail.input('tasa_iva', sql.Decimal(5, 2), tasaIva);
-        reqInsertDetail.input('valor', sql.Decimal(18, 2), totalItem);
-        // Fix: Schema ven_detacotizacion.codigo_medida is char(3).
-        reqInsertDetail.input('codigo_medida', sql.VarChar(3), String(item.codigoMedida || 'UND').substring(0, 3));
+        reqDetail.input('cantidad', sql.Decimal(9, 2), cant);
+        reqDetail.input('preciound', sql.Decimal(19, 5), precio);
+        reqDetail.input('tasa_descuento', sql.Decimal(9, 5), tasaDcto);
+        reqDetail.input('tasa_iva', sql.Decimal(5, 2), tasaIva);
+        reqDetail.input('valor', sql.Decimal(18, 2), totalItem);
+        
+        reqDetail.input('codigo_medida', sql.VarChar(3), String(item.codigoMedida || 'UND').substring(0, 3));
+        reqDetail.input('estado', sql.VarChar(1), 'P'); 
+        reqDetail.input('qtycot', sql.Decimal(10, 4), cant);
 
-        await reqInsertDetail.query(`
+        await reqDetail.query(`
           INSERT INTO ${TABLE_NAMES.cotizaciones_detalle} (
             id_cotizacion, cod_producto, cantidad, preciound, 
-            tasa_descuento, tasa_iva, valor, codigo_medida
+            tasa_descuento, tasa_iva, valor, codigo_medida, estado, qtycot
           ) VALUES (
             @id_cotizacion, @cod_producto, @cantidad, @preciound,
-            @tasa_descuento, @tasa_iva, @valor, @codigo_medida
+            @tasa_descuento, @tasa_iva, @valor, @codigo_medida, @estado, @qtycot
           )
         `);
       }
@@ -479,7 +415,7 @@ const createQuote = async (req, res) => {
         success: true,
         message: 'Cotización creada exitosamente',
         data: {
-          id: cotizacionId,
+          id: cotizacionId, // Retornamos el ID numérico
           numeroCotizacion: nuevoNumero
         }
       });

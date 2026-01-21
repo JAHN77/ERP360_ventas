@@ -63,8 +63,8 @@ export const pdfStyles = StyleSheet.create({
         alignItems: 'flex-end',
     },
     documentBadge: {
-        backgroundColor: '#fef2f2', // red-50
-        borderColor: '#fee2e2', // red-100 (Default, can be overridden)
+        backgroundColor: '#e6f2ff', // blue-50
+        borderColor: '#93c5fd', // blue-300
         borderWidth: 1,
         borderRadius: 4,
         paddingVertical: 4,
@@ -72,7 +72,7 @@ export const pdfStyles = StyleSheet.create({
         marginBottom: 4,
     },
     documentTitle: {
-        color: '#b91c1c', // red-700 (Default)
+        color: '#1e40af', // blue-800
         fontSize: 12,
         fontWeight: 'heavy',
         textTransform: 'uppercase',
@@ -80,7 +80,7 @@ export const pdfStyles = StyleSheet.create({
     documentNumber: {
         fontSize: 14,
         fontWeight: 'bold',
-        color: '#1e293b', // slate-800
+        color: '#1e3a8a', // blue-900
     },
 
     // Grid Information
@@ -102,7 +102,7 @@ export const pdfStyles = StyleSheet.create({
         position: 'absolute',
         top: 0,
         left: 0,
-        backgroundColor: '#2563eb', // blue-600
+        backgroundColor: '#1e3a8a', // Nisa Blue (Dark)
         color: '#FFFFFF',
         fontSize: 8,
         fontWeight: 'bold',
@@ -113,7 +113,7 @@ export const pdfStyles = StyleSheet.create({
         borderBottomRightRadius: 5,
     },
     cardLabelSecondary: {
-        backgroundColor: '#475569', // slate-600
+        backgroundColor: '#64748b', // slate-500
     },
     cardContent: {
         marginTop: 15,
@@ -121,7 +121,7 @@ export const pdfStyles = StyleSheet.create({
     clientName: {
         fontSize: 10,
         fontWeight: 'bold',
-        color: '#0f172a',
+        color: '#1e3a8a', // Nisa Blue
         marginBottom: 2,
     },
     infoRow: {
@@ -134,7 +134,7 @@ export const pdfStyles = StyleSheet.create({
     },
     infoLabel: {
         fontWeight: 'bold',
-        color: '#64748b',
+        color: '#475569',
         width: 85,
     },
     infoValue: {
@@ -153,9 +153,9 @@ export const pdfStyles = StyleSheet.create({
     },
     tableHeader: {
         flexDirection: 'row',
-        backgroundColor: '#f1f5f9', // slate-100
+        backgroundColor: '#eff6ff', // blue-50
         borderBottomWidth: 1,
-        borderBottomColor: '#e2e8f0',
+        borderBottomColor: '#bfdbfe', // blue-200
         paddingVertical: 6,
     },
     tableRow: {
@@ -176,7 +176,7 @@ export const pdfStyles = StyleSheet.create({
     tableHeaderText: {
         fontSize: 7,
         fontWeight: 'bold',
-        color: '#334155',
+        color: '#1e40af', // blue-800
     },
     tableCellText: {
         fontSize: 8,
@@ -215,7 +215,7 @@ export const pdfStyles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginTop: 8,
-        backgroundColor: '#0f172a', // slate-900
+        backgroundColor: '#1e3a8a', // Nisa Blue (Dark)
         padding: 8,
         borderRadius: 4,
     },

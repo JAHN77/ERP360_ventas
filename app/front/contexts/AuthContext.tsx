@@ -141,9 +141,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
         setBodegas(mappedBodegas);
 
-        // Lógica de selección automática
+        // Lógica de selección automática mejorada
         if (mappedBodegas.length === 1) {
           const unicaBodega = mappedBodegas[0];
+          logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Bodega única detectada, seleccionando automáticamente:', unicaBodega.nombre);
+
           setSelectedSede(unicaBodega);
           localStorage.setItem('selectedSedeId', String(unicaBodega.id));
           localStorage.setItem('selectedSedeData', JSON.stringify({
@@ -153,27 +155,22 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             empresaId: unicaBodega.empresaId
           }));
         } else {
+          // Lógica para múltiples bodegas
           let bodegaCargada = false;
           const savedSedeId = localStorage.getItem('selectedSedeId');
-          const savedSedeData = localStorage.getItem('selectedSedeData');
 
-          if (savedSedeId && savedSedeData) {
-            try {
-              const sedeData = JSON.parse(savedSedeData);
-              const bodegaEncontrada = mappedBodegas.find(b =>
-                String(b.id) === String(sedeData.id) ||
-                String(b.codigo) === String(sedeData.codigo)
-              );
-
-              if (bodegaEncontrada) {
-                setSelectedSede(bodegaEncontrada);
-                bodegaCargada = true;
-              }
-            } catch (e) { }
+          if (savedSedeId) {
+            const bodegaEncontrada = mappedBodegas.find(b => String(b.id) === String(savedSedeId));
+            if (bodegaEncontrada) {
+              logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Restaurando bodega guardada:', bodegaEncontrada.nombre);
+              setSelectedSede(bodegaEncontrada);
+              bodegaCargada = true;
+            }
           }
 
           if (!bodegaCargada && mappedBodegas.length > 0) {
             const primeraBodega = mappedBodegas[0];
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, '⚠️ Ninguna bodega guardada válida, seleccionando la primera por defecto:', primeraBodega.nombre);
             setSelectedSede(primeraBodega);
             localStorage.setItem('selectedSedeId', String(primeraBodega.id));
             localStorage.setItem('selectedSedeData', JSON.stringify({

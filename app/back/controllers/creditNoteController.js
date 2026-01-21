@@ -281,6 +281,7 @@ const creditNoteController = {
 
       const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
+      console.log('🔍 [DEBUG] Executing getAllCreditNotes query on gen_movimiento_notas');
       // Query principal con paginación
       const query = `
         SELECT 

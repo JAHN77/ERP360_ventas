@@ -78,7 +78,7 @@ const getEmpresa = async (req, res) => {
     // Si hay empresa, forzar la carga del logo solicitado por el usuario como base64
     if (empresa) {
       try {
-        const logoPath = path.join(__dirname, '../public/assets/images.png');
+        const logoPath = path.join(__dirname, '../public/assets/grupoNisa.jpg');
 
         if (fs.existsSync(logoPath)) {
           const bitmap = fs.readFileSync(logoPath);

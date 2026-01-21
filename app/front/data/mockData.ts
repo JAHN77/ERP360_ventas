@@ -47,8 +47,7 @@ export let categorias: Categoria[] = [
 // --- EMPRESA, USUARIOS Y VENDEDORES (Para autenticación) ---
 
 export const empresas: Empresa[] = [
-    { id: 5, razonSocial: 'MULTIACABADOS S.A.S.', nit: '802024306-1', direccion: 'Avenida Siempre Viva 123', ciudad: 'Bogotá D.C.', telefono: '601-555-1234', db_name: 'multiacabados' },
-    { id: 6, razonSocial: 'ORQUIDEA IA SOLUTIONS S.A.S', nit: '901994818-0', direccion: 'Calle 123 # 45-67', ciudad: 'Medellín', telefono: '604-555-5678', db_name: 'orquidea' },
+    { id: 5, razonSocial: 'GRUPO EMPRESARIAL NISA SAS', nit: '802024306-1', direccion: 'Avenida Siempre Viva 123', ciudad: 'Bogotá D.C.', telefono: '601-555-1234', db_name: 'nisa' },
 ];
 
 export const sedes: Sede[] = [

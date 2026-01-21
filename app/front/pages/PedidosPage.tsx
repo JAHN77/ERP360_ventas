@@ -699,13 +699,7 @@ const PedidosPage: React.FC = () => {
           >
             <i className="fas fa-paper-plane"></i>
           </button>
-          <button
-            onClick={() => handleOpenTimeline(String(item.id))}
-            className="p-2 text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-lg transition-all duration-200"
-            title="Ver Línea de Tiempo"
-          >
-            <i className="fas fa-stream"></i>
-          </button>
+
           <ProtectedComponent permission="pedidos:approve">
             {(item.estado === 'ENVIADA' || item.estado === 'BORRADOR') && (
               <button

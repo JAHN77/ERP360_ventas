@@ -30,11 +30,11 @@ const TABLE_NAMES = {
   facturas: 'ven_facturas',
   facturas_detalle: 'ven_detafact',
   cotizaciones: 'ven_cotizacion',
-  cotizaciones_detalle: 'ven_detacotiz',
-  pedidos: 'ven_pedidos',
-  pedidos_detalle: 'ven_detapedidos',
-  remisiones: 'ven_remiciones_enc',
-  remisiones_detalle: 'ven_remiciones_det',
+  cotizaciones_detalle: 'ven_detacotizacion',
+  pedidos: 'ven_pedidos_web',
+  pedidos_detalle: 'ven_detapedidos_web',
+  remisiones: 'ven_remiciones_enc_web',
+  remisiones_detalle: 'ven_remiciones_det_web',
   notas_credito: 'ven_notas',
   archivos_adjuntos: 'archivos_adjuntos',
   medidas: 'inv_medidas',
@@ -254,7 +254,7 @@ const QUERIES = {
     FROM ${TABLE_NAMES.facturas_detalle} fd
   `,
 
-  // Obtener cotizaciones - Conectado con venv_cotizacion y venv_detacotizacion
+  // Obtener cotizaciones - Esquema CONFIRMADO por usuario
   GET_COTIZACIONES: `
     SELECT 
       c.id,
@@ -268,26 +268,26 @@ const QUERIES = {
         THEN LTRIM(RTRIM(cli.nomter))
         ELSE NULL
       END AS clienteNombre,
-      -- Obtener el ID numérico del vendedor (ideven) si existe, sino usar el código como fallback
       CAST(COALESCE(v.ideven, NULL) AS VARCHAR(20)) AS vendedorId,
       LTRIM(RTRIM(c.cod_vendedor)) AS codVendedor,
       c.codalm               AS codalm,
       c.codalm               AS empresaId,
+      -- Totales reales desde la tabla (schema confirmado tiene estos campos)
       COALESCE(c.subtotal, 0) AS subtotal,
       COALESCE(c.val_descuento, 0) AS descuentoValor,
       COALESCE(c.val_iva, 0) AS ivaValor,
-      COALESCE(c.subtotal,0) - COALESCE(c.val_descuento,0) + COALESCE(c.val_iva,0) AS total,
+      -- Total calculado: subtotal - descuento + iva
+      (COALESCE(c.subtotal, 0) - COALESCE(c.val_descuento, 0) + COALESCE(c.val_iva, 0)) AS total,
       c.observa              AS observaciones,
-      c.estado,
+      c.estado               AS estado,
       c.formapago            AS formaPago,
       COALESCE(c.valor_anticipo, 0) AS valorAnticipo,
       c.num_orden_compra     AS numOrdenCompra,
       c.fecha_aprobacion     AS fechaAprobacion,
       c.cod_usuario          AS codUsuario,
-      c.id_usuario           AS idUsuario,
-      c.COD_TARIFA           AS codTarifa,
+      c.id_usuario           AS idUsuario, 
       c.fecsys               AS fechaCreacion,
-      -- Campos calculados o no disponibles en BD
+      -- Campos calculados no en BD
       NULL                   AS observacionesInternas,
       NULL                   AS listaPrecioId,
       NULL                   AS descuentoPorcentaje,
@@ -295,36 +295,42 @@ const QUERIES = {
       NULL                   AS domicilios,
       NULL                   AS approvedItems
     FROM ${TABLE_NAMES.cotizaciones} c
-    LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter)) AND cli.activo = 1
-    LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, ''))) AND v.Activo = 1
-    ORDER BY c.fecha DESC
+    LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter))
+    LEFT JOIN ${TABLE_NAMES.vendedores} v ON LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, '')))
+    ORDER BY c.fecha DESC, c.id DESC
   `,
 
-  // Obtener detalles de cotizaciones - Conectado con venv_detacotizacion
-  // cod_producto es CHAR(8) en venv_detacotizacion, necesitamos obtener el id del producto
+  // Obtener detalles de cotizaciones - Esquema CONFIRMADO por usuario
+  // Tabla: ven_detacotizacion (FK: id_cotizacion -> ven_cotizacion.id)
   GET_COTIZACIONES_DETALLE: `
     SELECT 
       d.id,
-      d.numcot                  AS cotizacionId,
-      COALESCE(p.id, NULL)      AS productoId,
-      LTRIM(RTRIM(d.cod_producto)) AS codProducto,
+      d.id_cotizacion           AS cotizacionId,
+      COALESCE(p_resolved.id, NULL)      AS productoId,
+      COALESCE(p_resolved.codins, LTRIM(RTRIM(d.cod_producto))) AS codProducto,
       d.cantidad,
       COALESCE(d.cant_facturada, 0) AS cantFacturada,
       COALESCE(d.qtycot, 0)     AS qtycot,
       COALESCE(d.preciound, 0)  AS precioUnitario,
       COALESCE(d.tasa_descuento, 0) AS descuentoPorcentaje,
-      COALESCE(0, 0)   AS ivaPorcentaje,
+      COALESCE(d.tasa_iva, 0)   AS ivaPorcentaje,
       d.codigo_medida           AS codigoMedida,
       d.estado                  AS estado,
       d.num_factura             AS numFactura,
-      -- Cálculo de subtotal, IVA y total
-      CASE WHEN d.valins IS NOT NULL THEN d.valins ELSE COALESCE(d.valins,0) END AS subtotal,
-      0 AS valorIva,
-      COALESCE(d.valins, 0)      AS total,
-      -- Campo no disponible en BD, usar descripción del producto si existe
-      COALESCE(p.nomins, '')    AS descripcion
+      -- Cálculos
+      CASE WHEN d.valor IS NOT NULL THEN d.valor ELSE 0 END AS total,
+      (d.cantidad * d.preciound) AS subtotal, 
+      (d.cantidad * d.preciound * (COALESCE(d.tasa_iva,0)/100)) AS valorIva,
+      (d.cantidad * d.preciound * (COALESCE(d.tasa_descuento,0)/100)) AS descuentoValor,
+      -- Descripción
+      COALESCE(p_resolved.nomins, '')    AS descripcion
     FROM ${TABLE_NAMES.cotizaciones_detalle} d
-    LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(d.cod_producto))
+    OUTER APPLY (
+        SELECT TOP 1 id, codins, nomins 
+        FROM ${TABLE_NAMES.productos} i 
+        WHERE LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.cod_producto))
+           OR (ISNUMERIC(d.cod_producto) = 1 AND i.id = CAST(d.cod_producto AS INT))
+    ) p_resolved
   `,
 
   // Obtener pedidos - Usando estructura REAL de ven_pedidos
@@ -371,9 +377,10 @@ const QUERIES = {
       -- Usar pedido_id directamente si existe, sino usar el id del JOIN
       CAST(COALESCE(pd.pedido_id, p.id) AS INT) as pedidoId,
       pd.numped,
-      -- Obtener el ID del producto desde inv_insumos usando codins
+      -- Obtener el ID del producto desde inv_insumos (código normal o ID numérico)
       COALESCE(
         (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+        CASE WHEN ISNUMERIC(pd.codins) = 1 THEN (SELECT TOP 1 id FROM inv_insumos WHERE id = CAST(pd.codins AS INT)) ELSE NULL END,
         NULL
       ) as productoId,
       LTRIM(RTRIM(COALESCE(pd.codins, ''))) as codProducto,
@@ -400,7 +407,8 @@ const QUERIES = {
       ) as ivaPorcentaje,
       -- Obtener descripción del producto
       COALESCE(
-        (SELECT TOP 1 LTRIM(RTRIM(COALESCE(nomins, ''))) FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(pd.codins))),
+        (SELECT TOP 1 LTRIM(RTRIM(COALESCE(i.nomins, ''))) FROM inv_insumos i WHERE LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(pd.codins))),
+        CASE WHEN ISNUMERIC(pd.codins) = 1 THEN (SELECT TOP 1 LTRIM(RTRIM(COALESCE(ii.nomins, ''))) FROM inv_insumos ii WHERE ii.id = CAST(pd.codins AS INT)) ELSE NULL END,
         LTRIM(RTRIM(COALESCE(pd.codins, '')))
       ) as descripcion,
       -- Obtener unidad de medida (similar a cotizaciones)

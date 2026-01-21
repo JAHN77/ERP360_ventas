@@ -71,7 +71,7 @@ const getAllRemissions = async (req, res) => {
           FROM ${TABLE_NAMES.remisiones_detalle} rd
           LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(rd.codins))
           LEFT JOIN ${TABLE_NAMES.pedidos} ped ON ped.id = r.pedido_id
-          LEFT JOIN ${TABLE_NAMES.pedidos_detalle} pd ON LTRIM(RTRIM(pd.numped)) = LTRIM(RTRIM(ped.numped)) AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
+          LEFT JOIN ${TABLE_NAMES.pedidos_detalle} pd ON pd.pedido_id = ped.id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
           WHERE rd.remision_id = r.id
         ) as total
       FROM ${TABLE_NAMES.remisiones} r
