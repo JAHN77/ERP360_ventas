@@ -56,6 +56,7 @@ export const routeMap: Record<Page, string> = {
   // Facturación
   facturacion_electronica: '/facturas',
   nueva_factura: '/facturas/nueva',
+  factura_directa: '/facturas/directa',
 
   // Devoluciones
   devoluciones: '/devoluciones',

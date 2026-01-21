@@ -19,6 +19,7 @@ const PedidosPage = lazy(() => import('../../pages/PedidosPage'));
 const RemisionesPage = lazy(() => import('../../pages/RemisionesPage'));
 const DevolucionesPage = lazy(() => import('../../pages/DevolucionesPage'));
 const NuevaFacturaPage = lazy(() => import('../../pages/NuevaFacturaPage'));
+const FacturaDirectaPage = lazy(() => import('../../pages/FacturaDirectaPage'));
 const FormClientePage = lazy(() => import('../../pages/FormClientePage'));
 const FormProductoPage = lazy(() => import('../../pages/FormProductoPage'));
 const NuevaCotizacionPage = lazy(() => import('../../pages/NuevaCotizacionPage'));
@@ -334,6 +335,14 @@ const AppRouter: React.FC = () => {
             element={
               <ProtectedRoute page="nueva_factura">
                 <NuevaFacturaPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path={routeMap.factura_directa}
+            element={
+              <ProtectedRoute page="factura_directa">
+                <FacturaDirectaPage />
               </ProtectedRoute>
             }
           />

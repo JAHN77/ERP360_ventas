@@ -46,6 +46,7 @@ export interface Empresa {
   logoExt?: string;
   slogan?: string;
   regimen?: string;
+  db_name?: string;
   sedes?: Sede[];
 }
 
@@ -123,6 +124,7 @@ export interface Cliente {
   empresaId: number;
   // FIX: Added missing property to Cliente interface
   regimenFiscalId?: string;
+  digitoVerificacion?: string;
   codter?: string;
 }
 

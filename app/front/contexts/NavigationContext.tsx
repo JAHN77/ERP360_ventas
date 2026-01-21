@@ -20,6 +20,7 @@ export type Page =
   'activity_log' |
   'inventory_concepts' |
   'conteo_fisico' |
+  'factura_directa' |
   'usuarios' |
   'perfil';
 

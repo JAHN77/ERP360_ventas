@@ -1,3 +1,4 @@
+const { Readable } = require('stream');
 const sql = require('mssql');
 const { getConnection, executeQuery, executeQueryWithParams } = require('../services/sqlServerClient.cjs');
 const { TABLE_NAMES } = require('../services/dbConfig.cjs');
@@ -10,12 +11,12 @@ const invoiceController = {
   // GET /api/facturas
   getAllInvoices: async (req, res) => {
     try {
-      const { 
-        page = '1', 
-        pageSize = '20', 
-        search, 
-        estado, 
-        fechaInicio, 
+      const {
+        page = '1',
+        pageSize = '20',
+        search,
+        estado,
+        fechaInicio,
         fechaFin,
         clienteId,
         sortBy = 'fechaFactura',
@@ -23,7 +24,7 @@ const invoiceController = {
       } = req.query;
 
       const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
-      const pageSizeNum = Math.min(100, Math.max(5, parseInt(String(pageSize), 10) || 20)); 
+      const pageSizeNum = Math.min(100, Math.max(5, parseInt(String(pageSize), 10) || 20));
       const offset = (pageNum - 1) * pageSizeNum;
 
       const params = { offset, pageSize: pageSizeNum };
@@ -56,7 +57,7 @@ const invoiceController = {
         else if (estadoUpper === 'APROBADA' || estadoUpper === 'CONFIRMADA') estadoDb = 'A';
         else if (estadoUpper === 'ANULADA') estadoDb = 'N';
         else if (estadoUpper.length === 1) estadoDb = estadoUpper;
-        
+
         whereClauses.push('f.estfac = @estado');
         params.estado = estadoDb;
       }
@@ -91,7 +92,7 @@ const invoiceController = {
       // Construcción dinámica de ORDER BY
       let orderByColumn = sortMapping[sortBy] || 'f.fecfac';
       const orderDirection = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
-      
+
       // Aseguramos un ordenamiento determinista agregando ID al final
       let orderByClause = `ORDER BY ${orderByColumn} ${orderDirection}`;
       if (orderByColumn !== 'f.ID') {
@@ -306,7 +307,7 @@ const invoiceController = {
         subtotal, descuentoValor = 0, ivaValor = 0, total = 0,
         observaciones = '', estado = 'BORRADOR', empresaId, items = [],
         formaPago, codalm,
-        remisionesIds 
+        remisionesIds
       } = body;
 
       let allRemisionIds = [];
@@ -318,13 +319,13 @@ const invoiceController = {
       }
       allRemisionIds = [...new Set(allRemisionIds)].filter(id => id);
 
-      let formaPagoNormalizada = '01'; 
+      let formaPagoNormalizada = '01';
       if (formaPago) {
         const formaPagoStr = String(formaPago).trim().toLowerCase();
         if (formaPagoStr === '1' || formaPagoStr === 'contado' || formaPagoStr === '01') {
-          formaPagoNormalizada = '01'; 
+          formaPagoNormalizada = '01';
         } else if (formaPagoStr === '2' || formaPagoStr === 'crédito' || formaPagoStr === 'credito' || formaPagoStr === '02') {
-          formaPagoNormalizada = '02'; 
+          formaPagoNormalizada = '02';
         } else {
           formaPagoNormalizada = formaPagoStr.substring(0, 2).padStart(2, '0');
         }
@@ -414,7 +415,7 @@ const invoiceController = {
                   codProducto: item.codProducto,
                   cantidad: cantidad,
                   precioUnitario: precioUnitario,
-                  descuentoPorcentaje: 0, 
+                  descuentoPorcentaje: 0,
                   descuentoValor: 0,
                   ivaPorcentaje: ivaPorcentajeItem,
                   valorIva: ivaItem,
@@ -426,7 +427,7 @@ const invoiceController = {
             }
           }
         }
-        
+
         if ((!subtotal || subtotal === 0) && itemsFinales.length > 0) {
           const subtotalCalculado = itemsFinales.reduce((sum, item) => sum + (item.subtotal || 0), 0);
           const ivaCalculado = itemsFinales.reduce((sum, item) => sum + (item.valorIva || 0), 0);
@@ -480,8 +481,8 @@ const invoiceController = {
         } else if (cliente.activoInt !== undefined && cliente.activoInt !== null) {
           activoValue = Number(cliente.activoInt);
         } else if (cliente.activo !== undefined && cliente.activo !== null) {
-           // Basic bool check
-           activoValue = (cliente.activo === true || cliente.activo === 1 || String(cliente.activo) === 'true') ? 1 : 0;
+          // Basic bool check
+          activoValue = (cliente.activo === true || cliente.activo === 1 || String(cliente.activo) === 'true') ? 1 : 0;
         }
 
         if (Number(activoValue) !== 1) {
@@ -495,26 +496,26 @@ const invoiceController = {
 
         let vendedorIdFinal = null;
         if (vendedorId && String(vendedorId).trim()) {
-           // ... (Skipping full seller validation detail for brevity, assuming similar structure logic)
-           // If detailed validation is critical, I should copy it. I'll rely on basic validation here or trust inputs if valid.
-           // Actually, let's implement the query for vendor to be safe.
-           const vendedorIdStr = String(vendedorId).trim();
-           const idevenNum = parseInt(vendedorIdStr, 10);
-           const isNumeric = !isNaN(idevenNum) && String(idevenNum) === vendedorIdStr;
-           
-           const reqVendedor = new sql.Request(tx);
-           let vendedorQuery;
-           if(isNumeric) {
-             reqVendedor.input('ideven', sql.Int, idevenNum);
-             vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, CAST(Activo AS INT) as activo FROM ven_vendedor WHERE ideven = @ideven`;
-           } else {
-             reqVendedor.input('codven', sql.VarChar(20), vendedorIdStr);
-             vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, CAST(Activo AS INT) as activo FROM ven_vendedor WHERE codven = @codven`;
-           }
-           const vendedorResult = await reqVendedor.query(vendedorQuery);
-           if (vendedorResult.recordset.length > 0) {
-             vendedorIdFinal = vendedorResult.recordset[0].codi_emple;
-           }
+          // ... (Skipping full seller validation detail for brevity, assuming similar structure logic)
+          // If detailed validation is critical, I should copy it. I'll rely on basic validation here or trust inputs if valid.
+          // Actually, let's implement the query for vendor to be safe.
+          const vendedorIdStr = String(vendedorId).trim();
+          const idevenNum = parseInt(vendedorIdStr, 10);
+          const isNumeric = !isNaN(idevenNum) && String(idevenNum) === vendedorIdStr;
+
+          const reqVendedor = new sql.Request(tx);
+          let vendedorQuery;
+          if (isNumeric) {
+            reqVendedor.input('ideven', sql.Int, idevenNum);
+            vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, CAST(Activo AS INT) as activo FROM ven_vendedor WHERE ideven = @ideven`;
+          } else {
+            reqVendedor.input('codven', sql.VarChar(20), vendedorIdStr);
+            vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple, CAST(Activo AS INT) as activo FROM ven_vendedor WHERE codven = @codven`;
+          }
+          const vendedorResult = await reqVendedor.query(vendedorQuery);
+          if (vendedorResult.recordset.length > 0) {
+            vendedorIdFinal = vendedorResult.recordset[0].codi_emple;
+          }
         }
 
         let numeroFacturaFinal = numeroFactura ? String(numeroFactura).trim() : null;
@@ -527,71 +528,71 @@ const invoiceController = {
           // 4. If no (it's a draft or failed attempt without CUFE), we REUSE existing number.
           //    The user requirement is "use it again until it has cufe".
           //    This implies we must remove the "failed" record to allow the new transaction to take its number.
-          
-             const reqMin = new sql.Request(tx);
-             // We need ID and CUFE to decide
-             const minResult = await reqMin.query(`
+
+          const reqMin = new sql.Request(tx);
+          // We need ID and CUFE to decide
+          const minResult = await reqMin.query(`
                 SELECT TOP 1 numfact, ID, CUFE
                 FROM ${TABLE_NAMES.facturas}
                 WHERE numfact IS NOT NULL AND numfact NOT LIKE '%AUTO%'
                 ORDER BY ID DESC
              `);
 
-             let nextNumFact = 89000; 
+          let nextNumFact = 89000;
 
-             if (minResult.recordset.length > 0) {
-               const lastRecord = minResult.recordset[0];
-               const lastNumfact = String(lastRecord.numfact || '').trim();
-               const lastNum = parseInt(lastNumfact, 10);
-               const lastId = lastRecord.ID;
-               const lastCufe = lastRecord.CUFE ? String(lastRecord.CUFE).trim() : '';
+          if (minResult.recordset.length > 0) {
+            const lastRecord = minResult.recordset[0];
+            const lastNumfact = String(lastRecord.numfact || '').trim();
+            const lastNum = parseInt(lastNumfact, 10);
+            const lastId = lastRecord.ID;
+            const lastCufe = lastRecord.CUFE ? String(lastRecord.CUFE).trim() : '';
 
-               const tieneCufeValido = lastCufe && lastCufe.length > 20 && lastCufe !== 'null';
-             
-               if (tieneCufeValido) {
-                  // The last invoice is valid/stamped. Proceed to next number.
-                  nextNumFact = lastNum - 1;
-               } else {
-                  // The last invoice has NO CUFE. We must reuse this number.
-                  // To reuse it safely (avoiding duplicate errors), we must DELETE the old draft/failed record.
-                  nextNumFact = lastNum;
-                  console.log(`♻️ Reutilizando número ${nextNumFact} (Factura anterior ID ${lastId} sin CUFE)`);
+            const tieneCufeValido = lastCufe && lastCufe.length > 20 && lastCufe !== 'null';
 
-                  // Clear dependencies before deleting header
-                  // 1. Delete Details
-                  const reqDelDet = new sql.Request(tx);
-                  reqDelDet.input('oldId', sql.Int, lastId);
-                  await reqDelDet.query(`DELETE FROM ${TABLE_NAMES.facturas_detalle} WHERE id_factura = @oldId`);
+            if (tieneCufeValido) {
+              // The last invoice is valid/stamped. Proceed to next number.
+              nextNumFact = lastNum - 1;
+            } else {
+              // The last invoice has NO CUFE. We must reuse this number.
+              // To reuse it safely (avoiding duplicate errors), we must DELETE the old draft/failed record.
+              nextNumFact = lastNum;
+              console.log(`♻️ Reutilizando número ${nextNumFact} (Factura anterior ID ${lastId} sin CUFE)`);
 
-                  // 2. Clear Remissions link (if any remissions were linked to this failed invoice)
-                  const reqClearRem = new sql.Request(tx);
-                  reqClearRem.input('oldId', sql.Int, lastId);
-                  await reqClearRem.query(`UPDATE ${TABLE_NAMES.remisiones} SET factura_id = NULL WHERE factura_id = @oldId`);
+              // Clear dependencies before deleting header
+              // 1. Delete Details
+              const reqDelDet = new sql.Request(tx);
+              reqDelDet.input('oldId', sql.Int, lastId);
+              await reqDelDet.query(`DELETE FROM ${TABLE_NAMES.facturas_detalle} WHERE id_factura = @oldId`);
 
-                  // 3. Delete Header
-                  const reqDelHead = new sql.Request(tx);
-                  reqDelHead.input('oldId', sql.Int, lastId);
-                  await reqDelHead.query(`DELETE FROM ${TABLE_NAMES.facturas} WHERE ID = @oldId`);
-               }
-           }
-            
-           // Double check avoiding collision (in case we decremented, OR if we reused but deletion failed silently?)
-           // If we reused and deleted, this loop should pass immediately.
-           let attempts = 0;
-           while (attempts < 5) {
-              const reqCheck = new sql.Request(tx);
-              reqCheck.input('checkNum', sql.VarChar(50), String(nextNumFact));
-              const checkRes = await reqCheck.query(`SELECT ID FROM ${TABLE_NAMES.facturas} WHERE numfact = @checkNum`);
-              if (checkRes.recordset.length === 0) {
-                 break;
-              }
-              // If collision happens despite our logic (e.g. concurrency?), we decrement.
-              // (If we tried to reuse and it still exists, we theoretically shouldn't stem down, but for safety of not crashing:)
-              nextNumFact--; 
-              attempts++;
-           }
+              // 2. Clear Remissions link (if any remissions were linked to this failed invoice)
+              const reqClearRem = new sql.Request(tx);
+              reqClearRem.input('oldId', sql.Int, lastId);
+              await reqClearRem.query(`UPDATE ${TABLE_NAMES.remisiones} SET factura_id = NULL WHERE factura_id = @oldId`);
 
-           numeroFacturaFinal = String(nextNumFact);
+              // 3. Delete Header
+              const reqDelHead = new sql.Request(tx);
+              reqDelHead.input('oldId', sql.Int, lastId);
+              await reqDelHead.query(`DELETE FROM ${TABLE_NAMES.facturas} WHERE ID = @oldId`);
+            }
+          }
+
+          // Double check avoiding collision (in case we decremented, OR if we reused but deletion failed silently?)
+          // If we reused and deleted, this loop should pass immediately.
+          let attempts = 0;
+          while (attempts < 5) {
+            const reqCheck = new sql.Request(tx);
+            reqCheck.input('checkNum', sql.VarChar(50), String(nextNumFact));
+            const checkRes = await reqCheck.query(`SELECT ID FROM ${TABLE_NAMES.facturas} WHERE numfact = @checkNum`);
+            if (checkRes.recordset.length === 0) {
+              break;
+            }
+            // If collision happens despite our logic (e.g. concurrency?), we decrement.
+            // (If we tried to reuse and it still exists, we theoretically shouldn't stem down, but for safety of not crashing:)
+            nextNumFact--;
+            attempts++;
+          }
+
+          numeroFacturaFinal = String(nextNumFact);
         } else {
           const reqExistente = new sql.Request(tx);
           reqExistente.input('numfact', sql.VarChar(50), numeroFacturaFinal);
@@ -611,8 +612,8 @@ const invoiceController = {
 
         let codalmFinal = '001';
         if (empresaId) {
-             // ... simplify ...
-             codalmFinal = String(empresaId).substring(0,3);
+          // ... simplify ...
+          codalmFinal = String(empresaId).substring(0, 3);
         }
         codalmFinal = codalmFinal.padStart(3, '0').substring(0, 3);
 
@@ -628,7 +629,7 @@ const invoiceController = {
         const numfactFinal = String(numeroFacturaFinal || '').trim().substring(0, 15);
         const tipfacFinal = String(body.tipoFactura || 'FV').trim().substring(0, 2).padEnd(2, ' ');
         const codterFinal = String(clienteIdStr || '').trim().substring(0, 15);
-        
+
         let doccocFinal = body.documentoContable || `${new Date().getFullYear()}-${numfactFinal}`;
         doccocFinal = String(doccocFinal).trim().substring(0, 12).padEnd(12, ' ');
 
@@ -638,11 +639,11 @@ const invoiceController = {
         req1.input('codter', sql.VarChar(15), codterFinal);
         req1.input('doccoc', sql.Char(12), doccocFinal);
         req1.input('fecfac', sql.DateTime, fechaFactura);
-        
+
         // Vencimiento
         let fechaVencimientoFinal = fechaVencimiento;
         if (!fechaVencimientoFinal) {
-           fechaVencimientoFinal = fechaFactura; // Fallback simple
+          fechaVencimientoFinal = fechaFactura; // Fallback simple
         }
         req1.input('venfac', sql.DateTime, fechaVencimientoFinal);
 
@@ -652,49 +653,49 @@ const invoiceController = {
         vendedorIdFinal = null;
 
         console.log('Procesando vendedor para factura:', {
-             vendedorIdBody: body.vendedorId,
-             clienteIdBody: body.clienteId
+          vendedorIdBody: body.vendedorId,
+          clienteIdBody: body.clienteId
         });
 
         if (body.vendedorId) {
-            const vendedorIdStr = String(body.vendedorId);
-            const isNumeric = /^\d+$/.test(vendedorIdStr);
-            const idevenNum = isNumeric ? parseInt(vendedorIdStr) : 0;
-            
-            console.log('Buscando vendedor:', { vendedorIdStr, isNumeric, idevenNum });
+          const vendedorIdStr = String(body.vendedorId);
+          const isNumeric = /^\d+$/.test(vendedorIdStr);
+          const idevenNum = isNumeric ? parseInt(vendedorIdStr) : 0;
 
-            const reqVendedor = new sql.Request(tx);
-            let vendedorQuery;
-            if(isNumeric) {
-              reqVendedor.input('ideven', sql.Int, idevenNum);
-              // Intentar buscar por ID primero
-              vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple FROM ven_vendedor WHERE ideven = @ideven`;
+          console.log('Buscando vendedor:', { vendedorIdStr, isNumeric, idevenNum });
+
+          const reqVendedor = new sql.Request(tx);
+          let vendedorQuery;
+          if (isNumeric) {
+            reqVendedor.input('ideven', sql.Int, idevenNum);
+            // Intentar buscar por ID primero
+            vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple FROM ven_vendedor WHERE ideven = @ideven`;
+          } else {
+            reqVendedor.input('codven', sql.VarChar(20), vendedorIdStr);
+            // Intentar buscar por código
+            vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple FROM ven_vendedor WHERE codven = @codven`;
+          }
+
+          try {
+            const vendedorResult = await reqVendedor.query(vendedorQuery);
+            if (vendedorResult.recordset.length > 0) {
+              vendedorIdFinal = vendedorResult.recordset[0].codi_emple;
+              console.log('✅ Vendedor encontrado en BD:', vendedorIdFinal);
             } else {
-              reqVendedor.input('codven', sql.VarChar(20), vendedorIdStr);
-              // Intentar buscar por código
-              vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple FROM ven_vendedor WHERE codven = @codven`;
+              console.warn('⚠️ Vendedor NO encontrado en BD con criterio:', vendedorIdStr);
             }
-            
-            try {
-                const vendedorResult = await reqVendedor.query(vendedorQuery);
-                if (vendedorResult.recordset.length > 0) {
-                  vendedorIdFinal = vendedorResult.recordset[0].codi_emple;
-                  console.log('✅ Vendedor encontrado en BD:', vendedorIdFinal);
-                } else {
-                  console.warn('⚠️ Vendedor NO encontrado en BD con criterio:', vendedorIdStr);
-                }
-            } catch (errVen) {
-                console.error('❌ Error consultando vendedor:', errVen);
-            }
+          } catch (errVen) {
+            console.error('❌ Error consultando vendedor:', errVen);
+          }
         } else {
-             console.log('ℹ️ No se recibió vendedorId en el request body');
+          console.log('ℹ️ No se recibió vendedorId en el request body');
         }
 
         codvenFinal = vendedorIdFinal ? String(vendedorIdFinal).trim().substring(0, 3).padEnd(3, ' ') : null;
         console.log('Valor final para codven:', codvenFinal);
 
         req1.input('codven', sql.Char(3), codvenFinal);
-        
+
         req1.input('valvta', sql.Decimal(18, 2), subtotalFinal);
         req1.input('valiva', sql.Decimal(18, 2), ivaValorFinal);
         req1.input('valotr', sql.Decimal(18, 2), body.otrosValores || 0);
@@ -768,7 +769,7 @@ const invoiceController = {
             @VALDOMICILIO, @estado_envio, @sey_key, @CUFE, @IdCaja, @Valnotas
           );
           SELECT SCOPE_IDENTITY() AS ID; `);
-        
+
         const newId = insertHeader.recordset[0].ID;
 
         if (allRemisionIds.length > 0 && newId) {
@@ -787,12 +788,12 @@ const invoiceController = {
           const it = itemsFinales[idx];
           const reqDet = new sql.Request(tx);
           const productoIdNum = typeof it.productoId === 'number' ? it.productoId : parseInt(it.productoId, 10);
-          
+
           if (isNaN(productoIdNum) || productoIdNum <= 0) throw new Error(`Item ${idx + 1}: productoId inválido`);
 
           const reqProducto = new sql.Request(tx);
           reqProducto.input('productoId', sql.Int, productoIdNum);
-          
+
           // Query Actualizada: Incluir precio lista 07 para cálculo de costo base
           const productoResult = await reqProducto.query(`
             SELECT TOP 1 
@@ -824,18 +825,18 @@ const invoiceController = {
           const desinsFinal = Math.max(0, Math.min(Math.abs(descuentoPorcentajeNum), 100));
           const valorIvaFinal = Math.max(0, Math.min(Math.abs(valorIvaFinalCalculado), maxDecimal18_2));
           const valdescuentoFinal = Math.max(0, Math.min(Math.abs(subtotalSinIva * (desinsFinal / 100)), maxDecimal18_2));
-          
+
           // CALCULAR COSTO BASE (venkar) usando Lista 07
           const precioLista07 = parseFloat(productoResult.recordset[0].precio_lista_07) || 0;
           let costoBaseCalculado = 0;
-          
+
           if (precioLista07 > 0) {
-             costoBaseCalculado = precioLista07 / (1 + (tasaIvaProducto / 100));
+            costoBaseCalculado = precioLista07 / (1 + (tasaIvaProducto / 100));
           } else {
-             // Fallback a ultimo_costo si no hay precio en lista 07
-             costoBaseCalculado = parseFloat(productoResult.recordset[0].ultimo_costo) || 0;
+            // Fallback a ultimo_costo si no hay precio en lista 07
+            costoBaseCalculado = parseFloat(productoResult.recordset[0].ultimo_costo) || 0;
           }
-          
+
           const cosinsFinal = costoBaseCalculado;
 
           reqDet.input('codalm', sql.Char(3), codalmFinal);
@@ -871,22 +872,22 @@ const invoiceController = {
           // Ajuste: El requerimiento es que "ya sea entrada o salida se debe reflejar". 
           // Si allRemisionIds.length > 0, NO movemos kardex.
           if (allRemisionIds.length === 0) {
-              const numFacInt = parseInt(String(numfactFinal).replace(/\D/g, '')) || 0;
-              await InventoryService.registrarSalida({
-                transaction: tx,
-                productoId: productoIdNum,
-                cantidad: qtyinsFinal,
-                bodega: codalmFinal,
-                numeroDocumentoInt: numFacInt,
-                tipoMovimiento: 'SA',
-                precioVenta: valinsFinal,
-                precioBase: cosinsFinal, // -> venkar (Costo base calculado: Lista 07 / 1+IVA)
-                costo: parseFloat(productoResult.recordset[0].ultimo_costo) || 0, // -> coskar (Ultimo costo real)
-                observaciones: `Factura ${numfactFinal}`,
-                codUsuario: codusuFinal,
-                clienteId: codterFinal,
-                numComprobante: numFacInt
-              });
+            const numFacInt = parseInt(String(numfactFinal).replace(/\D/g, '')) || 0;
+            await InventoryService.registrarSalida({
+              transaction: tx,
+              productoId: productoIdNum,
+              cantidad: qtyinsFinal,
+              bodega: codalmFinal,
+              numeroDocumentoInt: numFacInt,
+              tipoMovimiento: 'SA',
+              precioVenta: valinsFinal,
+              precioBase: cosinsFinal, // -> venkar (Costo base calculado: Lista 07 / 1+IVA)
+              costo: parseFloat(productoResult.recordset[0].ultimo_costo) || 0, // -> coskar (Ultimo costo real)
+              observaciones: `Factura ${numfactFinal}`,
+              codUsuario: codusuFinal,
+              clienteId: codterFinal,
+              numComprobante: numFacInt
+            });
           }
         }
 
@@ -932,7 +933,7 @@ const invoiceController = {
 
         const facturaExistente = checkResult.recordset[0];
         const estadoDb = body.estado ? mapEstadoToDb(body.estado) : facturaExistente.estfac;
-        
+
         const debeTimbrar = (body.estado === 'ENVIADA') || (body.timbrado === true) || (body.timbrar === true);
 
         const updates = [];
@@ -945,7 +946,7 @@ const invoiceController = {
 
         let invoiceJson = null;
         if (debeTimbrar) {
-          estadoFinal = 'P'; 
+          estadoFinal = 'P';
           try {
             const resolution = await DIANService.getDIANResolution();
             const dianParams = await DIANService.getDIANParameters();
@@ -957,20 +958,20 @@ const invoiceController = {
             // Pero el código original hacía ajustes manuales antes de llamar a transform.
             // Por brevedad y robustez, asumiremos que transformVenFacturaForDIAN puede manejar esto o usamos la lógica copia/pega si es posible.
             // Copiaremos la lógica básica de ajuste.
-            
+
             const roundCOP = (val) => Math.round(parseFloat(val || 0) * 100) / 100;
 
             const facturaCompletaAjustada = {
-                ...facturaCompleta,
-                factura: { ...facturaCompleta.factura },
-                detalles: facturaCompleta.detalles ? facturaCompleta.detalles.map(d => {
-                    const totalConIva = parseFloat(d.total || (d.subtotal || 0) + (d.valorIva || 0));
-                    const valorIva = parseFloat(d.valorIva || 0);
-                    const subtotalSinIva = roundCOP(totalConIva - valorIva);
-                    return { ...d, subtotal: subtotalSinIva, valorIva };
-                }) : []
+              ...facturaCompleta,
+              factura: { ...facturaCompleta.factura },
+              detalles: facturaCompleta.detalles ? facturaCompleta.detalles.map(d => {
+                const totalConIva = parseFloat(d.total || (d.subtotal || 0) + (d.valorIva || 0));
+                const valorIva = parseFloat(d.valorIva || 0);
+                const subtotalSinIva = roundCOP(totalConIva - valorIva);
+                return { ...d, subtotal: subtotalSinIva, valorIva };
+              }) : []
             };
-            
+
             // Adjust totals logic...
             // (Skipping full detail for brevity, expecting DIANService handling mostly)
 
@@ -990,10 +991,10 @@ const invoiceController = {
               updates.push('estado_envio = @estado_envio');
             }
           } catch (dianError) {
-             console.error('DIAN Error:', dianError);
-             estadoFinal = 'R';
-             reqUpdate.input('estado_envio', sql.Bit, 0);
-             updates.push('estado_envio = @estado_envio');
+            console.error('DIAN Error:', dianError);
+            estadoFinal = 'R';
+            reqUpdate.input('estado_envio', sql.Bit, 0);
+            updates.push('estado_envio = @estado_envio');
           }
         }
 
@@ -1016,13 +1017,13 @@ const invoiceController = {
         }
 
         if (invoiceJson && invoiceJson.number) {
-            reqUpdate.input('numfact', sql.VarChar(15), String(invoiceJson.number));
-            updates.push('numfact = @numfact');
+          reqUpdate.input('numfact', sql.VarChar(15), String(invoiceJson.number));
+          updates.push('numfact = @numfact');
         }
 
         if (debeTimbrar) {
-            reqUpdate.input('resolucion_dian', sql.Char(2), '58');
-            updates.push('resolucion_dian = @resolucion_dian');
+          reqUpdate.input('resolucion_dian', sql.Char(2), '58');
+          updates.push('resolucion_dian = @resolucion_dian');
         }
 
         reqUpdate.input('fecsys', sql.DateTime, new Date());
@@ -1032,23 +1033,23 @@ const invoiceController = {
         // Por brevedad, si no se envían, no se actualizan.
 
         if (updates.length > 0) {
-            const updateQuery = `UPDATE ${TABLE_NAMES.facturas} SET ${updates.join(', ')} WHERE ID = @id`;
-            await reqUpdate.query(updateQuery);
+          const updateQuery = `UPDATE ${TABLE_NAMES.facturas} SET ${updates.join(', ')} WHERE ID = @id`;
+          await reqUpdate.query(updateQuery);
         }
 
         await tx.commit();
-        
+
         // Fetch updated
         const updatedRes = await executeQueryWithParams(`SELECT * FROM ${TABLE_NAMES.facturas} WHERE ID = @id`, { id: idNum });
         const updatedFactura = updatedRes[0];
 
         res.json({
-            success: true,
-            data: {
-                ...updatedFactura,
-                estado: mapEstadoFromDb(updatedFactura.estfac),
-                cufe: updatedFactura.CUFE || cufeGenerado
-            }
+          success: true,
+          data: {
+            ...updatedFactura,
+            estado: mapEstadoFromDb(updatedFactura.estfac),
+            cufe: updatedFactura.CUFE || cufeGenerado
+          }
         });
 
       } catch (inner) {
@@ -1070,75 +1071,75 @@ const invoiceController = {
     if (isNaN(idNum)) return res.status(400).json({ success: false, message: 'ID inválido' });
 
     try {
-        const pool = await getConnection();
-        const tx = new sql.Transaction(pool);
-        await tx.begin();
+      const pool = await getConnection();
+      const tx = new sql.Transaction(pool);
+      await tx.begin();
 
-        try {
-            const reqCheck = new sql.Request(tx);
-            reqCheck.input('id', sql.Int, idNum);
-            const checkResult = await reqCheck.query(`SELECT ID, numfact, estfac FROM ${TABLE_NAMES.facturas} WHERE ID = @id`);
+      try {
+        const reqCheck = new sql.Request(tx);
+        reqCheck.input('id', sql.Int, idNum);
+        const checkResult = await reqCheck.query(`SELECT ID, numfact, estfac FROM ${TABLE_NAMES.facturas} WHERE ID = @id`);
 
-            if (checkResult.recordset.length === 0) {
-                await tx.rollback();
-                return res.status(404).json({ success: false, message: 'Factura no encontrada' });
-            }
-
-            // Logic similar to updateInvoice but forced timbrado
-            const resolution = await DIANService.getDIANResolution();
-            const dianParams = await DIANService.getDIANParameters();
-            const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
-
-            // ... Reuse transformation and sending logic ...
-            // Simplified for this write:
-            const roundCOP = (val) => Math.round(parseFloat(val || 0) * 100) / 100;
-            const facturaCompletaAjustada = { /* ... same logic as above ... */ ...facturaCompleta }; // Placeholder for actual deep clone/adjust
-
-            const invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompletaAjustada, resolution, dianParams, body.invoiceData || {});
-            const dianResponse = await DIANService.sendInvoiceToDIAN(invoiceJson, dianParams.testSetID, dianParams.url_base);
-            console.log('📝 DIAN Response (stampInvoice):', JSON.stringify(dianResponse, null, 2));
-
-            let estadoFinal = 'E';
-            let cufeGenerado = null;
-            let motivoRechazo = null;
-
-            const reqUpdate = new sql.Request(tx);
-            reqUpdate.input('id', sql.Int, idNum);
-            const updates = ['fecsys = @fecsys'];
-            reqUpdate.input('fecsys', sql.DateTime, new Date());
-
-            if (dianResponse.success && dianResponse.cufe) {
-                estadoFinal = 'A';
-                cufeGenerado = dianResponse.cufe;
-                reqUpdate.input('CUFE', sql.VarChar(100), cufeGenerado);
-                updates.push('CUFE = @CUFE');
-            } else {
-                estadoFinal = 'R';
-                motivoRechazo = dianResponse.message;
-            }
-
-            reqUpdate.input('estfac', sql.VarChar(10), estadoFinal);
-            updates.push('estfac = @estfac');
-
-            await reqUpdate.query(`UPDATE ${TABLE_NAMES.facturas} SET ${updates.join(', ')} WHERE ID = @id`);
-            await tx.commit();
-
-            res.json({
-                success: estadoFinal === 'A' || estadoFinal === 'E',
-                data: {
-                    cufe: cufeGenerado,
-                    estado: mapEstadoFromDb(estadoFinal),
-                    motivoRechazo
-                }
-            });
-
-        } catch (inner) {
-            await tx.rollback();
-            throw inner;
+        if (checkResult.recordset.length === 0) {
+          await tx.rollback();
+          return res.status(404).json({ success: false, message: 'Factura no encontrada' });
         }
+
+        // Logic similar to updateInvoice but forced timbrado
+        const resolution = await DIANService.getDIANResolution();
+        const dianParams = await DIANService.getDIANParameters();
+        const facturaCompleta = await DIANService.getFacturaCompleta(idNum);
+
+        // ... Reuse transformation and sending logic ...
+        // Simplified for this write:
+        const roundCOP = (val) => Math.round(parseFloat(val || 0) * 100) / 100;
+        const facturaCompletaAjustada = { /* ... same logic as above ... */ ...facturaCompleta }; // Placeholder for actual deep clone/adjust
+
+        const invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompletaAjustada, resolution, dianParams, body.invoiceData || {});
+        const dianResponse = await DIANService.sendInvoiceToDIAN(invoiceJson, dianParams.testSetID, dianParams.url_base);
+        console.log('📝 DIAN Response (stampInvoice):', JSON.stringify(dianResponse, null, 2));
+
+        let estadoFinal = 'E';
+        let cufeGenerado = null;
+        let motivoRechazo = null;
+
+        const reqUpdate = new sql.Request(tx);
+        reqUpdate.input('id', sql.Int, idNum);
+        const updates = ['fecsys = @fecsys'];
+        reqUpdate.input('fecsys', sql.DateTime, new Date());
+
+        if (dianResponse.success && dianResponse.cufe) {
+          estadoFinal = 'A';
+          cufeGenerado = dianResponse.cufe;
+          reqUpdate.input('CUFE', sql.VarChar(100), cufeGenerado);
+          updates.push('CUFE = @CUFE');
+        } else {
+          estadoFinal = 'R';
+          motivoRechazo = dianResponse.message;
+        }
+
+        reqUpdate.input('estfac', sql.VarChar(10), estadoFinal);
+        updates.push('estfac = @estfac');
+
+        await reqUpdate.query(`UPDATE ${TABLE_NAMES.facturas} SET ${updates.join(', ')} WHERE ID = @id`);
+        await tx.commit();
+
+        res.json({
+          success: estadoFinal === 'A' || estadoFinal === 'E',
+          data: {
+            cufe: cufeGenerado,
+            estado: mapEstadoFromDb(estadoFinal),
+            motivoRechazo
+          }
+        });
+
+      } catch (inner) {
+        await tx.rollback();
+        throw inner;
+      }
     } catch (error) {
-        console.error('Error stamping invoice:', error);
-        res.status(500).json({ success: false, message: 'Error timbrando factura', error: error.message });
+      console.error('Error stamping invoice:', error);
+      res.status(500).json({ success: false, message: 'Error timbrando factura', error: error.message });
     }
   },
   getNextInvoiceNumber: async (req, res) => {
@@ -1149,17 +1150,17 @@ const invoiceController = {
         FROM ${TABLE_NAMES.facturas} 
         ORDER BY ID DESC
       `);
-      
+
       let nextNum = '000001';
       if (result.recordset.length > 0) {
         const lastNum = result.recordset[0].numfact;
         const soloDigitos = lastNum.replace(/\D/g, '');
         const consecutivo = parseInt(soloDigitos, 10);
         if (!isNaN(consecutivo)) {
-            nextNum = String(consecutivo + 1).padStart(6, '0');
+          nextNum = String(consecutivo + 1).padStart(6, '0');
         }
       }
-      
+
       res.json({ success: true, data: { nextNumber: nextNum } });
     } catch (error) {
       console.error('Error getting next invoice number:', error);
@@ -1171,11 +1172,11 @@ const invoiceController = {
   sendInvoiceEmail: async (req, res) => {
     try {
       const { id } = req.params;
-      const { destinatario, asunto, mensaje, pdfBase64 } = req.body; 
+      const { destinatario, asunto, mensaje, pdfBase64 } = req.body;
 
       const pool = await getConnection();
       const idNum = parseInt(id, 10);
-      
+
       // 1. Obtener Datos de Factura
       const factQuery = `
         SELECT 
@@ -1189,7 +1190,7 @@ const invoiceController = {
         WHERE f.ID = @id
       `;
       const factRes = await executeQueryWithParams(factQuery, { id: idNum });
-      
+
       if (factRes.length === 0) {
         return res.status(404).json({ success: false, message: 'Factura no encontrada' });
       }
@@ -1198,44 +1199,157 @@ const invoiceController = {
       const clienteEmail = destinatario || factura.EMAIL;
 
       if (!clienteEmail) {
-         return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado.' });
+        return res.status(400).json({ success: false, message: 'El cliente no tiene email registrado.' });
       }
 
       // 2. Preparar PDF
       let pdfBuffer;
       if (pdfBase64) {
-          pdfBuffer = pdfBase64;
+        pdfBuffer = pdfBase64;
       } else {
-          return res.status(400).json({ success: false, message: 'Se requiere el PDF generado.' });
+        return res.status(400).json({ success: false, message: 'Se requiere el PDF generado.' });
       }
 
       // 3. Preparar Detalles
       const formatCurrency = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(val);
       const documentDetails = [
-          { label: 'Total Factura', value: formatCurrency(factura.netfac || 0) },
-          { label: 'Fecha Emisión', value: new Date(factura.fecfac).toLocaleDateString('es-CO') }
+        { label: 'Total Factura', value: formatCurrency(factura.netfac || 0) },
+        { label: 'Fecha Emisión', value: new Date(factura.fecfac).toLocaleDateString('es-CO') }
       ];
 
       // 4. Enviar Correo
       await sendDocumentEmail({
-          to: clienteEmail,
-          customerName: factura.nomter,
-          documentNumber: factura.numfact,
-          documentType: 'Factura',
-          pdfBuffer,
-          subject: asunto,
-          body: mensaje,
-          documentDetails,
+        to: clienteEmail,
+        customerName: factura.nomter,
+        documentNumber: factura.numfact,
+        documentType: 'Factura',
+        pdfBuffer,
+        subject: asunto,
+        body: mensaje,
+        documentDetails,
         processSteps: `
             <p>Le recordamos que puede realizar su pago a través de nuestros canales de recaudo autorizados. Si ya realizó el pago, por favor ignore este mensaje o envíenos el comprobante.</p>
         `
-    });
+      });
 
       res.json({ success: true, message: 'Correo de factura enviado exitosamente' });
 
     } catch (error) {
       console.error('Error enviando correo de factura:', error);
       res.status(500).json({ success: false, message: 'Error enviando correo', error: error.message });
+    }
+  },
+
+  // POST /api/facturas/manual-test
+  manualDianTest: async (req, res) => {
+    try {
+      const invoiceJson = req.body;
+      console.log('Recibido JSON manual para prueba DIAN');
+
+      // Obtener parámetros DIAN actuales
+      const dianParams = await DIANService.getDIANParameters(req.db_name);
+
+      // Enviar a DIAN (Para otras empresas o si no es orquidea)
+      const result = await DIANService.sendInvoiceToDIAN(
+        invoiceJson,
+        dianParams.testSetID,
+        dianParams.url_base
+      );
+
+      res.json({
+        success: true,
+        message: 'Prueba manual enviada a DIAN',
+        dianResult: result
+      });
+
+    } catch (error) {
+      console.error('Error en prueba manual DIAN:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error en prueba manual DIAN',
+        error: error.message
+      });
+    }
+  },
+
+  // POST /api/facturas/preview-pdf
+  generatePreviewPdf: async (req, res) => {
+    try {
+      const invoiceJson = req.body;
+      const { db_name } = req;
+
+      // Obtener parámetros DIAN
+      const dianParams = await DIANService.getDIANParameters(db_name);
+
+      // Llamar a la API externa para generar el PDF
+      const url = `${dianParams.url_base}/api/ubl2.1/invoice/pdf/generate`;
+      console.log(`📤 Solicitando previsualización de PDF a: ${url}`);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, application/pdf'
+        },
+        body: JSON.stringify(invoiceJson)
+      });
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error(`❌ Error en API de PDF (${response.status}):`, responseText);
+        return res.status(response.status).json({
+          success: false,
+          message: 'Error generando previsualización de PDF',
+          error: responseText
+        });
+      }
+
+      // Verificar si la respuesta es un PDF
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/pdf')) {
+        console.log('✅ Respuesta PDF recibida, enviando stream al cliente...');
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', response.headers.get('content-disposition') || 'attachment; filename="factura.pdf"');
+
+        // Pipear el stream directamente
+        // @ts-ignore
+        if (response.body && typeof response.body.pipe === 'function') {
+          // Node-fetch v2 style
+          response.body.pipe(res);
+        } else if (response.body) {
+          // Node 18+ fetch / Undici style (ReadableStream)
+          const reader = response.body.getReader();
+          const stream = new Readable({
+            async read() {
+              const { done, value } = await reader.read();
+              if (done) {
+                this.push(null);
+              } else {
+                this.push(Buffer.from(value));
+              }
+            }
+          });
+          stream.pipe(res);
+        }
+        return;
+      }
+
+      const responseText = await response.text();
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        responseData = { pdf_url: responseText }; // Fallback si no es JSON
+      }
+
+      res.json({
+        success: true,
+        data: responseData
+      });
+
+    } catch (error) {
+      console.error('Error en generatePreviewPdf:', error);
+      res.status(500).json({ success: false, message: 'Error interno generando PDF', error: error.message });
     }
   }
 };
