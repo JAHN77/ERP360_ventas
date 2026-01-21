@@ -31,10 +31,10 @@ const TABLE_NAMES = {
   facturas_detalle: 'ven_detafact',
   cotizaciones: 'ven_cotizacion',
   cotizaciones_detalle: 'ven_detacotizacion',
-  pedidos: 'ven_pedidos',
-  pedidos_detalle: 'ven_detapedidos',
-  remisiones: 'ven_remiciones_enc',
-  remisiones_detalle: 'ven_remiciones_det',
+  pedidos: 'ven_pedidos_web',
+  pedidos_detalle: 'ven_detapedidos_web',
+  remisiones: 'ven_remiciones_enc_web',
+  remisiones_detalle: 'ven_remiciones_det_web',
   notas_credito: 'ven_notas',
   archivos_adjuntos: 'archivos_adjuntos',
   medidas: 'inv_medidas',
@@ -496,9 +496,9 @@ const QUERIES = {
       COALESCE(rd.cantidad_enviada, 0) as cantidad,
       
       -- 1. PRECIO UNITARIO: Prioridad Pedido -> Catálogo
-      COALESCE(
+         COALESCE(
         (SELECT TOP 1 pd.valins 
-         FROM ven_detapedidos pd 
+         FROM ${TABLE_NAMES.pedidos_detalle} pd 
          WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
         p.ultimo_costo, -- Fallback al costo/precio de lista si no hay precio en pedido
         0
@@ -508,9 +508,9 @@ const QUERIES = {
       CASE 
         WHEN COALESCE(rd.cantidad_enviada, 0) > 0 THEN
            COALESCE(
-             (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0)) * 100
-              FROM ven_detapedidos pd 
-              WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+            (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0)) * 100
+             FROM ${TABLE_NAMES.pedidos_detalle} pd 
+             WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
              0
            )
         ELSE 0
@@ -523,7 +523,7 @@ const QUERIES = {
       -- Subtotal
       (rd.cantidad_enviada * 
        COALESCE(
-        (SELECT TOP 1 pd.valins FROM ven_detapedidos pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+        (SELECT TOP 1 pd.valins FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
         p.ultimo_costo, 
         0
        ) 
@@ -540,14 +540,14 @@ const QUERIES = {
       -- Valor IVA (sobre el subtotal con descuento)
       ((rd.cantidad_enviada * 
         COALESCE(
-         (SELECT TOP 1 pd.valins FROM ven_detapedidos pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+         (SELECT TOP 1 pd.valins FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
          p.ultimo_costo, 
          0
         ) 
         * (1 - (
           COALESCE(
             (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0))
-             FROM ven_detapedidos pd 
+             FROM ${TABLE_NAMES.pedidos_detalle} pd 
              WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
             0
           )
@@ -557,14 +557,14 @@ const QUERIES = {
       -- Total
       ((rd.cantidad_enviada * 
         COALESCE(
-         (SELECT TOP 1 pd.valins FROM ven_detapedidos pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+         (SELECT TOP 1 pd.valins FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
          p.ultimo_costo, 
          0
         ) 
         * (1 - (
           COALESCE(
             (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0))
-             FROM ven_detapedidos pd 
+             FROM ${TABLE_NAMES.pedidos_detalle} pd 
              WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
             0
           )

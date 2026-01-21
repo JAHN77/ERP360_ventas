@@ -24,7 +24,6 @@ const authController = {
       
       const query = `
         SELECT 
-          id, 
           LTRIM(RTRIM(codusu)) as codusu, 
           LTRIM(RTRIM(nomusu)) as nomusu, 
           password_web,
@@ -67,8 +66,8 @@ const authController = {
       // 3. Update Ultimo_Acceso if valid
       if (isValid) {
           try {
-              const updateAccessQuery = `UPDATE ${TABLE_NAMES.usuarios} SET Ultimo_Acceso = GETDATE() WHERE id = @id`;
-              await executeQueryWithParams(updateAccessQuery, { id: user.id });
+              const updateAccessQuery = `UPDATE ${TABLE_NAMES.usuarios} SET Ultimo_Acceso = GETDATE() WHERE codusu = @codusu`;
+              await executeQueryWithParams(updateAccessQuery, { codusu: user.codusu });
           } catch (accessErr) {
               console.error('Error updating Last Access Date:', accessErr);
               // Non-blocking error
@@ -78,7 +77,7 @@ const authController = {
       // Generate JWT
       const token = jwt.sign(
         { 
-          id: user.id, 
+          id: user.codusu, // Using codusu as ID since actual ID doesn't exist
           codusu: user.codusu, 
           role: user.tipousu === 1 ? 'admin' : 'vendedor' 
         },
@@ -91,7 +90,7 @@ const authController = {
         data: {
             token,
             user: {
-                id: user.id,
+                id: user.codusu,
                 codusu: user.codusu,
                 nomusu: user.nomusu,
                 role: user.tipousu === 1 ? 'admin' : 'vendedor',
@@ -118,10 +117,11 @@ const authController = {
         
         // Fetch fresh data incl signature
         const query = `
-            SELECT id, LTRIM(RTRIM(codusu)) as codusu, LTRIM(RTRIM(nomusu)) as nomusu, tipousu, firma
+            SELECT LTRIM(RTRIM(codusu)) as codusu, LTRIM(RTRIM(nomusu)) as nomusu, tipousu, firma
             FROM ${TABLE_NAMES.usuarios}
-            WHERE id = @id
+            WHERE codusu = @id
         `;
+        // req.user.id is actually codusu now
         const users = await executeQueryWithParams(query, { id: req.user.id });
         
         if (users.length === 0) {
@@ -134,7 +134,7 @@ const authController = {
             success: true,
             data: {
                 user: {
-                    id: user.id,
+                    id: user.codusu,
                     codusu: user.codusu,
                     nomusu: user.nomusu,
                     role: user.tipousu === 1 ? 'admin' : 'vendedor',
@@ -170,7 +170,7 @@ const authController = {
           await executeQueryWithParams(`
             UPDATE ${TABLE_NAMES.usuarios}
             SET firma = @firma
-            WHERE id = @id
+            WHERE codusu = @id
           `, { firma: firmaBase64, id: userId });
           
           res.json({ success: true, message: 'Firma actualizada exitosamente' });

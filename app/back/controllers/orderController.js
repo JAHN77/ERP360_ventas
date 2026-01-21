@@ -132,7 +132,7 @@ const getAllOrders = async (req, res) => {
             // Obtener items del pedido para calcular estado real
             const reqItemsPedido = new sql.Request(pool);
             reqItemsPedido.input('pedidoId', sql.Int, pedidoId);
-            const pedidoNumResult = await reqItemsPedido.query(`SELECT numero_pedido FROM ven_pedidos WHERE id = @pedidoId`);
+            const pedidoNumResult = await reqItemsPedido.query(`SELECT numero_pedido FROM ${TABLE_NAMES.pedidos} WHERE id = @pedidoId`);
             const numeroPedido = pedidoNumResult.recordset[0]?.numero_pedido;
 
             let numpedPedido = null;
@@ -152,13 +152,13 @@ const getAllOrders = async (req, res) => {
               reqItemsPedido2.input('numped', sql.Char(8), numpedPedido);
               itemsPedidoResult = await reqItemsPedido2.query(`
                 SELECT pd.codins, (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as producto_id, pd.canped as cantidad
-                FROM ven_detapedidos pd WHERE pd.numped = @numped
+                FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.numped = @numped
               `);
             } else {
               reqItemsPedido2.input('pedidoId', sql.Int, pedidoId);
               itemsPedidoResult = await reqItemsPedido2.query(`
                 SELECT pd.codins, (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as producto_id, pd.canped as cantidad
-                FROM ven_detapedidos pd WHERE pd.pedido_id = @pedidoId
+                FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = @pedidoId
               `);
             }
 
@@ -200,7 +200,7 @@ const getAllOrders = async (req, res) => {
               const estadoDbTruncado = String(estadoDb || 'B').substring(0, 1);
               reqUpdate.input('nuevoEstado', sql.Char(1), estadoDbTruncado);
 
-              await reqUpdate.query(`UPDATE ven_pedidos SET estado = @nuevoEstado WHERE id = @pedidoId`);
+              await reqUpdate.query(`UPDATE ${TABLE_NAMES.pedidos} SET estado = @nuevoEstado WHERE id = @pedidoId`);
               pedido.estado = estadoDbTruncado;
             }
           }
@@ -397,7 +397,7 @@ const createOrderInternal = async (tx, orderData) => {
       if (!numeroPedido || numeroPedido === 'AUTO') {
           const reqUltimo = new sql.Request(tx);
           const ultimoRes = await reqUltimo.query(`
-            SELECT TOP 1 numero_pedido FROM ven_pedidos 
+            SELECT TOP 1 numero_pedido FROM ${TABLE_NAMES.pedidos} 
             WHERE numero_pedido NOT LIKE 'B-%' 
             ORDER BY id DESC
           `);
@@ -413,7 +413,7 @@ const createOrderInternal = async (tx, orderData) => {
           // Validar existencia
           const reqCheck = new sql.Request(tx);
           reqCheck.input('num', sql.VarChar(50), numeroPedido);
-          const check = await reqCheck.query(`SELECT id FROM ven_pedidos WHERE numero_pedido = @num`);
+          const check = await reqCheck.query(`SELECT id FROM ${TABLE_NAMES.pedidos} WHERE numero_pedido = @num`);
           if (check.recordset.length > 0) throw new Error('Número de pedido duplicado');
       }
 
@@ -500,7 +500,7 @@ const createOrderInternal = async (tx, orderData) => {
       reqHead.input('formapago', sql.NChar(4), formaPagoFinal);
 
       const headQuery = `
-        INSERT INTO ven_pedidos (
+        INSERT INTO ${TABLE_NAMES.pedidos} (
           numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, empresa_id,
           cotizacion_id, subtotal, descuento_valor, descuento_porcentaje, iva_valor,
           iva_porcentaje, total, observaciones, estado, fec_creacion, fec_modificacion, formapago
@@ -558,7 +558,7 @@ const createOrderInternal = async (tx, orderData) => {
           reqDet.input('codtec', sql.VarChar(20), ''); // Valor por defecto
           
           await reqDet.query(`
-            INSERT INTO ven_detapedidos (
+            INSERT INTO ${TABLE_NAMES.pedidos_detalle} (
                numped, codins, valins, canped, ivaped, dctped, estped, codalm, pedido_id, feccargo, Fecsys, codtec
             ) VALUES (
                @numped, @codins, @valins, @canped, @ivaped, @dctped, @estped, @codalm, @pedido_id, @feccargo, GETDATE(), @codtec
