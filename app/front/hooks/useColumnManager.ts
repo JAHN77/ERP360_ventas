@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Column } from '../components/ui/Table';
 
 // Type for the state managed by the hook
@@ -23,7 +23,7 @@ export const useColumnManager = <T extends { id: string | number }>(
       const savedStateJSON = window.localStorage.getItem(storageKey);
       if (savedStateJSON) {
         const savedColumns: SavedColumnState[] = JSON.parse(savedStateJSON);
-        
+
         // Reconstruct columns based on saved order and visibility, including new columns
         const reconstructedColumns: ManagedColumn<T>[] = [];
         const addedAccessors = new Set<string>();
@@ -42,7 +42,7 @@ export const useColumnManager = <T extends { id: string | number }>(
             reconstructedColumns.push({ ...defaultCol, isVisible: true });
           }
         });
-        
+
         return reconstructedColumns;
       }
     } catch (error) {
@@ -53,6 +53,19 @@ export const useColumnManager = <T extends { id: string | number }>(
   }, [tableId, defaultColumns]);
 
   const [managedColumns, setManagedColumns] = useState<ManagedColumn<T>[]>(getInitialState);
+
+  // Sync with defaultColumns when they change (important for dynamic cell renderers)
+  useEffect(() => {
+    setManagedColumns(prev => {
+      return prev.map(managedCol => {
+        const updatedCol = defaultColumns.find(dc => dc.accessor === managedCol.accessor);
+        if (updatedCol) {
+          return { ...managedCol, ...updatedCol };
+        }
+        return managedCol;
+      });
+    });
+  }, [defaultColumns]);
 
   const saveColumns = (columnsToSave: ManagedColumn<T>[]) => {
     try {
@@ -75,9 +88,9 @@ export const useColumnManager = <T extends { id: string | number }>(
       console.warn(`Error resetting column preferences for ${tableId}:`, error);
     }
   };
-  
+
   const visibleColumns = useMemo(() => {
-      return managedColumns.filter(col => col.isVisible);
+    return managedColumns.filter(col => col.isVisible);
   }, [managedColumns]);
 
   return {

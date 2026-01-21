@@ -36,6 +36,11 @@ const ProductosPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: keyof InvProducto | null; direction: 'asc' | 'desc' } | null>(null);
 
+  // Estados para edición de precio
+  const [editingPriceId, setEditingPriceId] = useState<number | null>(null);
+  const [tempPrice, setTempPrice] = useState<string>('');
+  const [isUpdatingPrice, setIsUpdatingPrice] = useState(false);
+
   // Cargar categorías una sola vez
   useEffect(() => {
     (async () => {
@@ -139,13 +144,51 @@ const ProductosPage: React.FC = () => {
       cell: (item) => <span className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">{item.referencia || 'N/A'}</span>
     },
     {
-      header: 'Precio (Inc. IVA)',
+      header: 'Costo Base',
       accessor: 'ultimoCosto',
       cell: (item) => {
-        const costo = (item as any).ultimoCosto || 0;
+        const isEditing = editingPriceId === item.id;
+        const costoBase = (item as any).ultimoCosto || 0;
         const iva = (item as any).tasaIva || 0;
-        const precioConIva = costo * (1 + (iva / 100));
-        return <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{formatCurrency(precioConIva)}</span>
+        const precioConIva = costoBase * (1 + (iva / 100));
+
+        if (isEditing) {
+          return (
+            <div className="flex items-center gap-1">
+              <span className="text-slate-400">$</span>
+              <input
+                type="number"
+                className="w-24 h-8 border border-blue-300 dark:border-blue-500 rounded px-2 py-1 text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                value={tempPrice}
+                onChange={(e) => setTempPrice(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handlePriceUpdate(item);
+                  if (e.key === 'Escape') setEditingPriceId(null);
+                }}
+              />
+            </div>
+          );
+        }
+
+        return (
+          <div
+            className="group flex flex-col cursor-pointer"
+            onClick={() => {
+              setEditingPriceId(item.id);
+              setTempPrice(costoBase.toFixed(0));
+            }}
+            title={`Precio con IVA: ${formatCurrency(precioConIva)}`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-mono font-medium text-slate-700 dark:text-slate-300">
+                {formatCurrency(costoBase)}
+              </span>
+              <i className="fas fa-pencil-alt text-[10px] text-slate-300 group-hover:text-blue-500 transition-colors"></i>
+            </div>
+            <span className="text-[10px] text-slate-400">IVA {iva}%</span>
+          </div>
+        );
       }
     },
     {
@@ -165,28 +208,88 @@ const ProductosPage: React.FC = () => {
       }
     },
     {
-      header: 'Acciones', accessor: 'id', cell: (item) => (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => handleOpenModal(item)}
-            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
-            title="Ver Detalles"
-          >
-            <i className="fas fa-eye"></i>
-          </button>
-          <ProtectedComponent permission="productos:edit">
+      header: 'Acciones', accessor: 'id', cell: (item) => {
+        const isEditing = editingPriceId === item.id;
+
+        if (isEditing) {
+          return (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handlePriceUpdate(item)}
+                disabled={isUpdatingPrice}
+                className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-all"
+                title="Guardar"
+              >
+                {isUpdatingPrice ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check"></i>}
+              </button>
+              <button
+                onClick={() => setEditingPriceId(null)}
+                className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                title="Cancelar"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setPage('editar_producto', { id: item.id })}
+              onClick={() => handleOpenModal(item)}
               className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
-              title="Editar Producto"
+              title="Ver Detalles"
             >
-              <i className="fas fa-pencil-alt"></i>
+              <i className="fas fa-eye"></i>
             </button>
-          </ProtectedComponent>
-        </div>
-      )
+            <ProtectedComponent permission="productos:edit">
+              <button
+                onClick={() => setPage('editar_producto', { id: item.id })}
+                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+                title="Editar Producto"
+              >
+                <i className="fas fa-pencil-alt"></i>
+              </button>
+            </ProtectedComponent>
+          </div>
+        );
+      }
     },
-  ], [setPage]);
+  ], [setPage, editingPriceId, tempPrice, isUpdatingPrice]);
+
+  const handlePriceUpdate = async (item: InvProducto) => {
+    const newBaseCost = parseFloat(tempPrice);
+    if (isNaN(newBaseCost) || newBaseCost < 0) {
+      alert('Por favor ingrese un valor válido');
+      return;
+    }
+
+    setIsUpdatingPrice(true);
+    try {
+      const response = await apiClient.updateProducto(item.id, {
+        precioBase: newBaseCost,
+        tasaIva: (item as any).tasaIva || 0
+      });
+
+      if (response.success) {
+        // Actualizar estado local
+        setProductos(prev => prev.map(p => {
+          if (p.id === item.id) {
+            return { ...p, ultimoCosto: newBaseCost };
+          }
+          return p;
+        }));
+        setEditingPriceId(null);
+      } else {
+        alert('Error al actualizar el costo: ' + response.message);
+      }
+    } catch (error) {
+      console.error('Error updating cost:', error);
+      alert('Error de conexión al actualizar el costo');
+    } finally {
+      setIsUpdatingPrice(false);
+    }
+  };
 
   const {
     visibleColumns,

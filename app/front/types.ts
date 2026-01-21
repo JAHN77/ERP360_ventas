@@ -47,6 +47,7 @@ export interface Empresa {
   slogan?: string;
   regimen?: string;
   sedes?: Sede[];
+  db_name?: string;
 }
 
 export interface Bodega {
@@ -75,6 +76,7 @@ export interface Usuario {
   empresas: Empresa[];
   nombre?: string;
   firma?: string;
+  empresaDb?: string;
 }
 
 // --- ENTIDADES COMERCIALES ---
@@ -124,6 +126,7 @@ export interface Cliente {
   // FIX: Added missing property to Cliente interface
   regimenFiscalId?: string;
   codter?: string;
+  digitoVerificacion?: string;
 }
 
 

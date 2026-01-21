@@ -25,6 +25,7 @@ import FacturaPDFDocument from '../components/facturacion/FacturaPDFDocument';
 
 
 
+
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 }
@@ -41,7 +42,7 @@ const filterOptions = [
 const FacturasPage: React.FC = () => {
   const { params, setPage } = useNavigation();
   const { user } = useAuth();
-  const { remisiones, clientes, pedidos, cotizaciones, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones, isLoadingRemisiones } = useData();
+  const { remisiones, clientes, pedidos, cotizaciones, facturas, crearFacturaDesdeRemisiones, timbrarFactura, datosEmpresa, archivosAdjuntos, productos, vendedores, refreshFacturasYRemisiones, isLoadingRemisiones } = useData();
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [selectedRemisiones, setSelectedRemisiones] = useState<Set<string>>(new Set());
   const { addNotification } = useNotifications();
@@ -72,6 +73,7 @@ const FacturasPage: React.FC = () => {
   // Estado para previsualización JSON DIAN
   const [jsonPreviewPayload, setJsonPreviewPayload] = useState<any>(null);
   const [isJsonPreviewOpen, setIsJsonPreviewOpen] = useState(false);
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
   // Estado local para los items de la factura seleccionada (para lazy loading)
   const [selectedFacturaItems, setSelectedFacturaItems] = useState<DocumentItem[]>([]);
@@ -337,8 +339,11 @@ const FacturasPage: React.FC = () => {
       return defaultTotals;
     }
 
-    // Usar valor por defecto para evitar errores si items es undefined
-    const itemsToCalculate: DocumentItem[] = selectedFactura.items || [];
+    // Prioridad 1: Usar items cargados por lazy loading (selectedFacturaItems)
+    // Prioridad 2: Usar items que ya venían en el objeto (selectedFactura.items)
+    const itemsToCalculate: DocumentItem[] = (selectedFacturaItems && selectedFacturaItems.length > 0)
+      ? selectedFacturaItems
+      : (selectedFactura.items || []);
 
     if (itemsToCalculate.length === 0) {
       return defaultTotals;
@@ -370,7 +375,7 @@ const FacturasPage: React.FC = () => {
     const total = subtotalNeto + iva;
 
     return { subtotalBruto, descuentoTotal, subtotalNeto, iva, total };
-  }, [selectedFactura]);
+  }, [selectedFactura, selectedFacturaItems]);
 
   const clienteForEmail = useMemo(() => {
     if (!facturaToEmail) return null;
@@ -1296,10 +1301,38 @@ const FacturasPage: React.FC = () => {
 
   return (
     <PageContainer>
-      <SectionHeader
-        title="Gestión de Facturas"
-        subtitle="Administra y da seguimiento a las facturas electrónicas."
-      />
+      <div className="flex justify-between items-center mb-6">
+        <SectionHeader
+          title="Gestión de Facturas"
+          subtitle="Administra y da seguimiento a las facturas electrónicas."
+        />
+        {/* Botón Manual - Solo visible para Orquidea */}
+        {(() => {
+          // TEMPORARY FIX: Force button visibility to debug/unblock
+          const showButton = true;
+
+          /* 
+          const normalize = (str: string | undefined | null) => str ? str.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() : '';
+          const empName = normalize(datosEmpresa?.razonSocial);
+          const dbName = normalize(user?.empresaDb);
+          const showButton = empName.includes('orquidea') || dbName.includes('orquidea') || 
+                           empName.includes('multiacabados') || dbName.includes('multiacabados');
+          */
+
+          console.log('DEBUG: Manual Button FORCED', {
+            visible: showButton
+          });
+          return showButton;
+        })() && (
+            <button
+              onClick={() => setPage('factura_directa')}
+              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2 shadow-md transition-all hover:-translate-y-0.5"
+            >
+              <i className="fas fa-file-pen"></i>
+              <span>Factura Directa</span>
+            </button>
+          )}
+      </div>
 
       {/* Sección: Remisiones Pendientes - Ocultar si hay búsqueda de facturas activa para mejorar UX */}
       {!searchTermInvoices && (
@@ -1328,7 +1361,6 @@ const FacturasPage: React.FC = () => {
                     Seleccione remisiones del mismo cliente para consolidar.
                   </p>
                 </div>
-
                 <ProtectedComponent permission="facturacion:create">
                   <button
                     onClick={handleFacturar}
@@ -1375,8 +1407,8 @@ const FacturasPage: React.FC = () => {
                 />
               </div>
             </CardContent>
-          </Card>
-        </section>
+          </Card >
+        </section >
       )}
 
       {/* Sección: Historial de Facturas */}
@@ -1430,293 +1462,301 @@ const FacturasPage: React.FC = () => {
         </Card>
       </section>
 
-      {selectedFactura && cliente && (
-        <Modal
-          isOpen={isDetailModalOpen}
-          onClose={handleCloseModals}
-          title={`Detalle Factura: ${selectedFactura.numeroFactura.replace('FAC-', '')}`}
-          size="3xl"
-        >
-          <div className="space-y-6 text-sm">
-            {/* Header */}
-            <div className="flex justify-between items-start pb-4 border-b border-slate-200 dark:border-slate-700">
-              <div>
-                <h4 className="font-semibold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">Facturado a</h4>
-                <p className="font-bold text-slate-800 dark:text-slate-100">{cliente.nombreCompleto}</p>
-                <p className="text-slate-600 dark:text-slate-300">{cliente.tipoDocumentoId}: {cliente.numeroDocumento}</p>
-                <p className="text-slate-600 dark:text-slate-300 mt-1">{cliente.telefono}</p>
-                <p className="text-slate-600 dark:text-slate-300">{cliente.email}</p>
-              </div>
-              <div className="text-right">
-                <StatusBadge status={selectedFactura.cufe ? 'ACEPTADA' : selectedFactura.estado as any} />
-                <p className="text-slate-600 dark:text-slate-300 mt-2">
-                  <span className="font-semibold">Fecha Emisión:</span> {formatDateOnly(selectedFactura.fechaFactura)}
-                </p>
-                {(selectedFactura.formaPago || formaPago) && (
-                  <p className="text-slate-600 dark:text-slate-300 mt-1">
-                    <span className="font-semibold">Forma de Pago:</span> {
-                      (() => {
-                        const formaPagoValue = selectedFactura.formaPago || formaPago;
-                        const normalizedValue = formaPagoValue === '01' ? '1' : formaPagoValue === '02' ? '2' : formaPagoValue;
-                        return normalizedValue === '1' ? 'Contado' : normalizedValue === '2' ? 'Crédito' : normalizedValue;
-                      })()
-                    }
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Fiscal and Related Docs Info */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {selectedFactura.cufe || selectedFactura.estado === 'ENVIADA' ? (
-                <div className="p-3 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700">
-                  <div className="flex items-center gap-2 mb-2">
-                    <i className="fas fa-check-circle text-green-600 dark:text-green-400 fa-lg"></i>
-                    <h5 className="font-semibold text-green-800 dark:text-green-300">Factura Timbrada</h5>
-                  </div>
-                  <div className="space-y-1">
-                    {selectedFactura.cufe ? (
-                      <>
-                        <p><span className="font-semibold text-slate-600 dark:text-slate-400">CUFE:</span></p>
-                        <p className="font-mono text-xs break-all bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-600">{selectedFactura.cufe}</p>
-                        <p className="mt-2"><span className="font-semibold text-slate-600 dark:text-slate-400">Fecha Timbrado:</span> <span>{formatDateOnly(selectedFactura.fechaTimbrado || new Date().toISOString())}</span></p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-slate-600 dark:text-slate-400">Factura enviada y timbrada correctamente.</p>
-                    )}
-                  </div>
+      {
+        selectedFactura && cliente && (
+          <Modal
+            isOpen={isDetailModalOpen}
+            onClose={handleCloseModals}
+            title={`Detalle Factura: ${selectedFactura.numeroFactura.replace('FAC-', '')}`}
+            size="3xl"
+          >
+            <div className="space-y-6 text-sm">
+              {/* Header */}
+              <div className="flex justify-between items-start pb-4 border-b border-slate-200 dark:border-slate-700">
+                <div>
+                  <h4 className="font-semibold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">Facturado a</h4>
+                  <p className="font-bold text-slate-800 dark:text-slate-100">{cliente.nombreCompleto}</p>
+                  <p className="text-slate-600 dark:text-slate-300">{cliente.tipoDocumentoId}: {cliente.numeroDocumento}</p>
+                  <p className="text-slate-600 dark:text-slate-300 mt-1">{cliente.telefono}</p>
+                  <p className="text-slate-600 dark:text-slate-300">{cliente.email}</p>
                 </div>
-              ) : selectedFactura.estado === 'RECHAZADA' ? (
-                <div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700">
-                  <div className="flex items-start gap-3">
-                    <i className="fas fa-times-circle text-red-500 fa-lg mt-1"></i>
-                    <div className="flex-1">
-                      <h5 className="font-semibold text-red-800 dark:text-red-300 mb-2">Factura Rechazada</h5>
-                      <p className="text-sm text-red-700 dark:text-red-300 mb-2">
-                        La factura fue rechazada en el proceso de timbrado.
-                      </p>
-                      {selectedFactura.motivoRechazo && (
-                        <div className="mt-2 p-2 bg-white dark:bg-slate-800 rounded border border-red-300 dark:border-red-600">
-                          <p className="text-xs font-semibold text-red-800 dark:text-red-300 mb-1">Motivo del rechazo:</p>
-                          <p className="text-xs text-red-700 dark:text-red-400">{selectedFactura.motivoRechazo}</p>
-                        </div>
+                <div className="text-right">
+                  <StatusBadge status={selectedFactura.cufe ? 'ACEPTADA' : selectedFactura.estado as any} />
+                  <p className="text-slate-600 dark:text-slate-300 mt-2">
+                    <span className="font-semibold">Fecha Emisión:</span> {formatDateOnly(selectedFactura.fechaFactura)}
+                  </p>
+                  {(selectedFactura.formaPago || formaPago) && (
+                    <p className="text-slate-600 dark:text-slate-300 mt-1">
+                      <span className="font-semibold">Forma de Pago:</span> {
+                        (() => {
+                          const formaPagoValue = selectedFactura.formaPago || formaPago;
+                          const normalizedValue = formaPagoValue === '01' ? '1' : formaPagoValue === '02' ? '2' : formaPagoValue;
+                          return normalizedValue === '1' ? 'Contado' : normalizedValue === '2' ? 'Crédito' : normalizedValue;
+                        })()
+                      }
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Fiscal and Related Docs Info */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {selectedFactura.cufe || selectedFactura.estado === 'ENVIADA' ? (
+                  <div className="p-3 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700">
+                    <div className="flex items-center gap-2 mb-2">
+                      <i className="fas fa-check-circle text-green-600 dark:text-green-400 fa-lg"></i>
+                      <h5 className="font-semibold text-green-800 dark:text-green-300">Factura Timbrada</h5>
+                    </div>
+                    <div className="space-y-1">
+                      {selectedFactura.cufe ? (
+                        <>
+                          <p><span className="font-semibold text-slate-600 dark:text-slate-400">CUFE:</span></p>
+                          <p className="font-mono text-xs break-all bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-600">{selectedFactura.cufe}</p>
+                          <p className="mt-2"><span className="font-semibold text-slate-600 dark:text-slate-400">Fecha Timbrado:</span> <span>{formatDateOnly(selectedFactura.fechaTimbrado || new Date().toISOString())}</span></p>
+                        </>
+                      ) : (
+                        <p className="text-sm text-slate-600 dark:text-slate-400">Factura enviada y timbrada correctamente.</p>
                       )}
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg border border-yellow-200 dark:border-yellow-700 flex items-center gap-3">
-                  <i className="fas fa-exclamation-triangle text-yellow-500 fa-lg"></i>
-                  <div>
-                    <h5 className="font-semibold text-yellow-800 dark:text-yellow-300">Factura no Timbrada</h5>
-                    <p className="text-xs">Este documento es un borrador y no tiene validez fiscal.</p>
+                ) : selectedFactura.estado === 'RECHAZADA' ? (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700">
+                    <div className="flex items-start gap-3">
+                      <i className="fas fa-times-circle text-red-500 fa-lg mt-1"></i>
+                      <div className="flex-1">
+                        <h5 className="font-semibold text-red-800 dark:text-red-300 mb-2">Factura Rechazada</h5>
+                        <p className="text-sm text-red-700 dark:text-red-300 mb-2">
+                          La factura fue rechazada en el proceso de timbrado.
+                        </p>
+                        {selectedFactura.motivoRechazo && (
+                          <div className="mt-2 p-2 bg-white dark:bg-slate-800 rounded border border-red-300 dark:border-red-600">
+                            <p className="text-xs font-semibold text-red-800 dark:text-red-300 mb-1">Motivo del rechazo:</p>
+                            <p className="text-xs text-red-700 dark:text-red-400">{selectedFactura.motivoRechazo}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg border border-yellow-200 dark:border-yellow-700 flex items-center gap-3">
+                    <i className="fas fa-exclamation-triangle text-yellow-500 fa-lg"></i>
+                    <div>
+                      <h5 className="font-semibold text-yellow-800 dark:text-yellow-300">Factura no Timbrada</h5>
+                      <p className="text-xs">Este documento es un borrador y no tiene validez fiscal.</p>
+                    </div>
+                  </div>
+                )}
+                <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <h5 className="font-semibold text-slate-800 dark:text-slate-300 mb-2">Documentos Relacionados</h5>
+                  <div className="space-y-1">
+                    <p><span className="font-semibold text-slate-600 dark:text-slate-400">Pedido:</span> <span>{(pedido?.numeroPedido || 'Venta Directa').replace('PED-', '')}</span></p>
+                    <p>
+                      <span className="font-semibold text-slate-600 dark:text-slate-400">Remisiones:</span>
+                      <span>
+                        {selectedFactura.remisionesNumeros
+                          ? selectedFactura.remisionesNumeros.replace(/REM-/g, '')
+                          : (remisionesRelacionadas.map(r => r.numeroRemision.replace('REM-', '')).join(', ') || 'N/A')}
+                      </span>
+                    </p>
                   </div>
                 </div>
-              )}
-              <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-700">
-                <h5 className="font-semibold text-slate-800 dark:text-slate-300 mb-2">Documentos Relacionados</h5>
-                <div className="space-y-1">
-                  <p><span className="font-semibold text-slate-600 dark:text-slate-400">Pedido:</span> <span>{(pedido?.numeroPedido || 'Venta Directa').replace('PED-', '')}</span></p>
-                  <p>
-                    <span className="font-semibold text-slate-600 dark:text-slate-400">Remisiones:</span>
-                    <span>
-                      {selectedFactura.remisionesNumeros
-                        ? selectedFactura.remisionesNumeros.replace(/REM-/g, '')
-                        : (remisionesRelacionadas.map(r => r.numeroRemision.replace('REM-', '')).join(', ') || 'N/A')}
-                    </span>
-                  </p>
-                </div>
               </div>
-            </div>
 
-            {/* Items Table */}
-            <div>
-              <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-2">Detalle de Factura</h4>
-              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                  <thead className="bg-slate-50 dark:bg-slate-700/50">
-                    <tr>
-                      <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
-                      <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase w-2/5 whitespace-nowrap">Producto</th>
-                      <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Cant.</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Precio Unit.</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Desc. %</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">IVA %</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Subtotal</th>
-                      <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Valor IVA</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
-                    {isLoadingDetails ? (
+              {/* Items Table */}
+              <div>
+                <h4 className="text-base font-semibold text-slate-800 dark:text-slate-100 mb-2">Detalle de Factura</h4>
+                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead className="bg-slate-50 dark:bg-slate-700/50">
                       <tr>
-                        <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
-                          <i className="fas fa-spinner fa-spin mr-2"></i> Cargando detalles...
-                        </td>
+                        <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
+                        <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase w-2/5 whitespace-nowrap">Producto</th>
+                        <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
+                        <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Cant.</th>
+                        <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Precio Unit.</th>
+                        <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Desc. %</th>
+                        <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">IVA %</th>
+                        <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Subtotal</th>
+                        <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Valor IVA</th>
                       </tr>
-                    ) : (selectedFacturaItems || []).length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
-                          No hay items para mostrar
-                        </td>
-                      </tr>
-                    ) : (selectedFacturaItems).map((item: DocumentItem) => {
-                      const producto = productos.find(p => p.id === item.productoId);
-                      // IMPORTANTE: Usar valores del backend directamente, NO recalcular
-                      // Prioridad 1: usar subtotal del backend (ya calculado desde BD)
-                      // Prioridad 2: calcular desde precio y cantidad si no viene subtotal
-                      const itemSubtotal = item.subtotal !== undefined && item.subtotal !== null
-                        ? item.subtotal
-                        : (item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100);
-                      // Prioridad 1: usar valorIva del backend (ya calculado desde BD)
-                      // Prioridad 2: calcular desde subtotal y ivaPorcentaje del backend
-                      // NO recalcular desde cero, usar valores del backend
-                      const itemIva = item.valorIva !== undefined && item.valorIva !== null
-                        ? item.valorIva
-                        : itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
-                      return (
-                        <tr key={item.productoId} className="text-sm">
-                          <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{producto?.referencia || 'N/A'}</td>
-                          <td className="px-4 py-2 whitespace-nowrap font-semibold">{item.descripcion}</td>
-                          <td className="px-4 py-2 whitespace-nowrap">{producto?.unidadMedida}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-right">{item.cantidad}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-right">{formatCurrency(item.precioUnitario)}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-right text-red-600">{item.descuentoPorcentaje.toFixed(2)}%</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-right">{item.ivaPorcentaje?.toFixed(2) || '0.00'}%</td>
-                          <td className="px-4 py-2 whitespace-nowrap font-semibold text-right">{formatCurrency(itemSubtotal)}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-right">{formatCurrency(itemIva)}</td>
+                    </thead>
+                    <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
+                      {isLoadingDetails ? (
+                        <tr>
+                          <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                            <i className="fas fa-spinner fa-spin mr-2"></i> Cargando detalles...
+                          </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Totals */}
-            <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
-              <div className="w-full max-w-sm space-y-2 text-slate-700 dark:text-slate-300">
-                <div className="flex justify-between">
-                  <span>Subtotal Bruto</span>
-                  <span>{formatCurrency(selectedFacturaTotals.subtotalBruto)}</span>
-                </div>
-                <div className="flex justify-between text-red-600 dark:text-red-500">
-                  <span>Descuento</span>
-                  <span>-{formatCurrency(selectedFacturaTotals.descuentoTotal)}</span>
-                </div>
-                <div className="flex justify-between font-semibold border-t border-slate-300 dark:border-slate-600 pt-2 mt-2">
-                  <span>Subtotal Neto</span>
-                  <span>{formatCurrency(selectedFacturaTotals.subtotalNeto)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>IVA ({(() => {
-                    // Calcular porcentaje de IVA promedio desde los items del backend
-                    if (selectedFactura.items && selectedFactura.items.length > 0 && selectedFacturaTotals.subtotalNeto > 0) {
-                      const ivaPorcentajePromedio = (selectedFacturaTotals.iva / selectedFacturaTotals.subtotalNeto) * 100;
-                      // Redondear a porcentajes estándar (19%, 8%, 5%, 0%)
-                      if (Math.abs(ivaPorcentajePromedio - 19) < 1) return '19';
-                      if (Math.abs(ivaPorcentajePromedio - 8) < 1) return '8';
-                      if (Math.abs(ivaPorcentajePromedio - 5) < 1) return '5';
-                      if (ivaPorcentajePromedio < 0.5) return '0';
-                      // Si no es estándar, mostrar con 2 decimales
-                      return ivaPorcentajePromedio.toFixed(2);
-                    }
-                    // Fallback: usar ivaPorcentaje del primer item del backend
-                    return selectedFactura.items?.[0]?.ivaPorcentaje?.toFixed(2) || '19';
-                  })()}%)</span>
-                  <span>{formatCurrency(selectedFacturaTotals.iva)}</span>
-                </div>
-                <div className="flex justify-between font-bold text-base border-t-2 border-slate-400 dark:border-slate-500 pt-2 mt-2 text-blue-600 dark:text-blue-400">
-                  <span>TOTAL</span>
-                  <span>{formatCurrency(selectedFacturaTotals.total)}</span>
+                      ) : (selectedFacturaItems || []).length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                            No hay items para mostrar
+                          </td>
+                        </tr>
+                      ) : (selectedFacturaItems).map((item: DocumentItem) => {
+                        const producto = productos.find(p => p.id === item.productoId);
+                        // IMPORTANTE: Usar valores del backend directamente, NO recalcular
+                        // Prioridad 1: usar subtotal del backend (ya calculado desde BD)
+                        // Prioridad 2: calcular desde precio y cantidad si no viene subtotal
+                        const itemSubtotal = item.subtotal !== undefined && item.subtotal !== null
+                          ? item.subtotal
+                          : (item.precioUnitario || 0) * (item.cantidad || 0) * (1 - (item.descuentoPorcentaje || 0) / 100);
+                        // Prioridad 1: usar valorIva del backend (ya calculado desde BD)
+                        // Prioridad 2: calcular desde subtotal y ivaPorcentaje del backend
+                        // NO recalcular desde cero, usar valores del backend
+                        const itemIva = item.valorIva !== undefined && item.valorIva !== null
+                          ? item.valorIva
+                          : itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
+                        return (
+                          <tr key={item.productoId} className="text-sm">
+                            <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{item.referencia || producto?.referencia || item.codProducto || 'N/A'}</td>
+                            <td className="px-4 py-2 whitespace-nowrap font-semibold">{item.descripcion}</td>
+                            <td className="px-4 py-2 whitespace-nowrap">{producto?.unidadMedida}</td>
+                            <td className="px-4 py-2 whitespace-nowrap text-right">{item.cantidad}</td>
+                            <td className="px-4 py-2 whitespace-nowrap text-right">{formatCurrency(item.precioUnitario)}</td>
+                            <td className="px-4 py-2 whitespace-nowrap text-right text-red-600">{item.descuentoPorcentaje.toFixed(2)}%</td>
+                            <td className="px-4 py-2 whitespace-nowrap text-right">{item.ivaPorcentaje?.toFixed(2) || '0.00'}%</td>
+                            <td className="px-4 py-2 whitespace-nowrap font-semibold text-right">{formatCurrency(itemSubtotal)}</td>
+                            <td className="px-4 py-2 whitespace-nowrap text-right">{formatCurrency(itemIva)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            </div>
 
-            {/* Actions */}
-            <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex flex-wrap justify-end gap-3">
-              {selectedFactura.estado === 'BORRADOR' ? (
-                <ProtectedComponent permission="facturacion:stamp">
-                  <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors">
-                    <i className="fas fa-stamp mr-2"></i>Autorizar y Timbrar Factura
-                  </button>
-                </ProtectedComponent>
-              ) : selectedFactura.estado === 'RECHAZADA' ? (
-                <>
-                  <ProtectedComponent permission="facturacion:create">
-                    <button
-                      onClick={handleRefacturar}
-                      disabled={isFacturando}
-                      className="px-4 py-2 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors disabled:bg-slate-400"
-                    >
-                      {isFacturando ? (
-                        <><i className="fas fa-spinner fa-spin mr-2"></i>Creando nueva factura...</>
-                      ) : (
-                        <><i className="fas fa-redo mr-2"></i>Volver a Facturar</>
-                      )}
+              {/* Totals */}
+              <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
+                <div className="w-full max-w-sm space-y-2 text-slate-700 dark:text-slate-300">
+                  <div className="flex justify-between">
+                    <span>Subtotal Bruto</span>
+                    <span>{formatCurrency(selectedFacturaTotals.subtotalBruto)}</span>
+                  </div>
+                  <div className="flex justify-between text-red-600 dark:text-red-500">
+                    <span>Descuento</span>
+                    <span>-{formatCurrency(selectedFacturaTotals.descuentoTotal)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold border-t border-slate-300 dark:border-slate-600 pt-2 mt-2">
+                    <span>Subtotal Neto</span>
+                    <span>{formatCurrency(selectedFacturaTotals.subtotalNeto)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>IVA ({(() => {
+                      // Calcular porcentaje de IVA promedio desde los items del backend
+                      if (selectedFactura.items && selectedFactura.items.length > 0 && selectedFacturaTotals.subtotalNeto > 0) {
+                        const ivaPorcentajePromedio = (selectedFacturaTotals.iva / selectedFacturaTotals.subtotalNeto) * 100;
+                        // Redondear a porcentajes estándar (19%, 8%, 5%, 0%)
+                        if (Math.abs(ivaPorcentajePromedio - 19) < 1) return '19';
+                        if (Math.abs(ivaPorcentajePromedio - 8) < 1) return '8';
+                        if (Math.abs(ivaPorcentajePromedio - 5) < 1) return '5';
+                        if (ivaPorcentajePromedio < 0.5) return '0';
+                        // Si no es estándar, mostrar con 2 decimales
+                        return ivaPorcentajePromedio.toFixed(2);
+                      }
+                      // Fallback: usar ivaPorcentaje del primer item del backend
+                      return selectedFactura.items?.[0]?.ivaPorcentaje?.toFixed(2) || '19';
+                    })()}%)</span>
+                    <span>{formatCurrency(selectedFacturaTotals.iva)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-base border-t-2 border-slate-400 dark:border-slate-500 pt-2 mt-2 text-blue-600 dark:text-blue-400">
+                    <span>TOTAL</span>
+                    <span>{formatCurrency(selectedFacturaTotals.total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex flex-wrap justify-end gap-3">
+                {selectedFactura.estado === 'BORRADOR' ? (
+                  <ProtectedComponent permission="facturacion:stamp">
+                    <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors">
+                      <i className="fas fa-stamp mr-2"></i>Autorizar y Timbrar Factura
                     </button>
                   </ProtectedComponent>
-                  {archivosAdjuntos.some(a => a.entidadId === selectedFactura.id && a.entidadTipo === 'FACTURA') ? (
-                    <button onClick={() => handleDescargarAdjunto(selectedFactura.id)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
-                      <i className="fas fa-paperclip mr-2"></i>Descargar PDF
-                    </button>
-                  ) : (
-                    <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
-                      <i className="fas fa-file-pdf mr-2"></i>Generar PDF
-                    </button>
-                  )}
-                  <button onClick={() => handleDownloadXML(selectedFactura)} className="px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg hover:bg-slate-700"><i className="fas fa-file-code mr-2"></i>Descargar XML</button>
-                </>
-              ) : (
-                <>
-                  {archivosAdjuntos.some(a => a.entidadId === selectedFactura.id && a.entidadTipo === 'FACTURA') ? (
-                    <button onClick={() => handleDescargarAdjunto(selectedFactura.id)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
-                      <i className="fas fa-paperclip mr-2"></i>Descargar PDF
-                    </button>
-                  ) : (
-                    <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
-                      <i className="fas fa-file-pdf mr-2"></i>Generar PDF
-                    </button>
-                  )}
-                  <button onClick={() => handleDownloadXML(selectedFactura)} className="px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg hover:bg-slate-700"><i className="fas fa-file-code mr-2"></i>Descargar XML</button>
-                  <button onClick={() => handleSendEmail(selectedFactura)} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700"><i className="fas fa-paper-plane mr-2"></i>Enviar Correo</button>
-                </>
-              )}
+                ) : selectedFactura.estado === 'RECHAZADA' ? (
+                  <>
+                    <ProtectedComponent permission="facturacion:create">
+                      <button
+                        onClick={handleRefacturar}
+                        disabled={isFacturando}
+                        className="px-4 py-2 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors disabled:bg-slate-400"
+                      >
+                        {isFacturando ? (
+                          <><i className="fas fa-spinner fa-spin mr-2"></i>Creando nueva factura...</>
+                        ) : (
+                          <><i className="fas fa-redo mr-2"></i>Volver a Facturar</>
+                        )}
+                      </button>
+                    </ProtectedComponent>
+                    {archivosAdjuntos.some(a => a.entidadId === selectedFactura.id && a.entidadTipo === 'FACTURA') ? (
+                      <button onClick={() => handleDescargarAdjunto(selectedFactura.id)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
+                        <i className="fas fa-paperclip mr-2"></i>Descargar PDF
+                      </button>
+                    ) : (
+                      <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
+                        <i className="fas fa-file-pdf mr-2"></i>Generar PDF
+                      </button>
+                    )}
+                    <button onClick={() => handleDownloadXML(selectedFactura)} className="px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg hover:bg-slate-700"><i className="fas fa-file-code mr-2"></i>Descargar XML</button>
+                  </>
+                ) : (
+                  <>
+                    {archivosAdjuntos.some(a => a.entidadId === selectedFactura.id && a.entidadTipo === 'FACTURA') ? (
+                      <button onClick={() => handleDescargarAdjunto(selectedFactura.id)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
+                        <i className="fas fa-paperclip mr-2"></i>Descargar PDF
+                      </button>
+                    ) : (
+                      <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
+                        <i className="fas fa-file-pdf mr-2"></i>Generar PDF
+                      </button>
+                    )}
+                    <button onClick={() => handleDownloadXML(selectedFactura)} className="px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg hover:bg-slate-700"><i className="fas fa-file-code mr-2"></i>Descargar XML</button>
+                    <button onClick={() => handleSendEmail(selectedFactura)} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700"><i className="fas fa-paper-plane mr-2"></i>Enviar Correo</button>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        </Modal>
-      )}
-      {facturaToPreview && (
-        <FacturaPreviewModal
-          factura={facturaToPreview}
-          onClose={() => setFacturaToPreview(null)}
-          onTimbrar={executeTimbrado}
-        />
-      )}
-      {facturaToEmail && clienteForEmail && (
-        <SendEmailModal
-          isOpen={!!facturaToEmail}
-          onClose={() => setFacturaToEmail(null)}
-          onSend={handleConfirmSendEmail}
-          to={clienteForEmail.email}
-          subject={`Factura ${facturaToEmail.numeroFactura} de ${datosEmpresa.nombre}`}
-          body={
-            `Estimado/a ${clienteForEmail.nombreCompleto},
+          </Modal>
+        )
+      }
+      {
+        facturaToPreview && (
+          <FacturaPreviewModal
+            factura={facturaToPreview}
+            onClose={() => setFacturaToPreview(null)}
+            onTimbrar={executeTimbrado}
+          />
+        )
+      }
+      {
+        facturaToEmail && clienteForEmail && (
+          <SendEmailModal
+            isOpen={!!facturaToEmail}
+            onClose={() => setFacturaToEmail(null)}
+            onSend={handleConfirmSendEmail}
+            to={clienteForEmail.email}
+            subject={`Factura ${facturaToEmail.numeroFactura} de ${datosEmpresa.nombre}`}
+            body={
+              `Estimado/a ${clienteForEmail.nombreCompleto},
 
 Nos complace adjuntar su factura electrónica N° ${facturaToEmail.numeroFactura} correspondiente a su reciente compra.
 El documento se encuentra adjunto para su revisión y registro. Si tiene alguna pregunta, no dude en contactarnos.
 
 Atentamente,
 El equipo de ${datosEmpresa.nombre}`
-          }
-        />
-      )}
-      {remisionToPreview && (
-        <RemisionPreviewModal
-          remision={remisionToPreview}
-          onClose={() => setRemisionToPreview(null)}
-        />
-      )}
+            }
+          />
+        )
+      }
+      {
+        remisionToPreview && (
+          <RemisionPreviewModal
+            remision={remisionToPreview}
+            onClose={() => setRemisionToPreview(null)}
+          />
+        )
+      }
 
       {/* Modal para JSON Preview */}
       <Modal
@@ -1753,7 +1793,8 @@ El equipo de ${datosEmpresa.nombre}`
           </div>
         </div>
       </Modal>
-    </PageContainer>
+
+    </PageContainer >
   );
 };
 

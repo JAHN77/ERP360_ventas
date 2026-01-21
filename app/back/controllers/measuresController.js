@@ -15,7 +15,7 @@ const measuresController = {
         FROM inv_medidas
         ORDER BY nommed
       `;
-      const result = await executeQuery(query);
+      const result = await executeQuery(query, req.db_name);
       res.json({ success: true, data: result });
     } catch (error) {
       console.error('Error fetching measures:', error);

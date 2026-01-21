@@ -227,6 +227,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarOpen, setIsSidebarOpen }) =>
                     >
                         <SubHeader label="Reportes" />
                         <NavItem label="Centro de Informes" active={page === 'reportes'} onClick={() => setPage('reportes')} indent />
+                        <NavItem label="Analítica" active={page === 'analytics'} onClick={() => setPage('analytics')} indent />
                     </NavGroup>
 
                     {/* Compras Group */}

@@ -16,7 +16,7 @@ const inventoryController = {
 
       // 1. Obtener codins del producto
       const prodQuery = `SELECT codins, nomins FROM ${TABLE_NAMES.productos} WHERE id = @id`;
-      const prodResult = await executeQueryWithParams(prodQuery, { id: parseInt(productoId) });
+      const prodResult = await executeQueryWithParams(prodQuery, { id: parseInt(productoId) }, req.db_name);
 
       if (prodResult.length === 0) {
         return res.status(404).json({ success: false, message: 'Producto no encontrado' });
@@ -42,7 +42,7 @@ const inventoryController = {
       const pageNum = Math.max(1, parseInt(page) || 1);
       const pageSizeNum = Math.min(200, Math.max(5, parseInt(pageSize) || 20));
       const offset = (pageNum - 1) * pageSizeNum;
-      
+
       params.offset = offset;
       params.pageSize = pageSizeNum;
 
@@ -79,8 +79,8 @@ const inventoryController = {
       `;
 
       const [movimientos, countResult] = await Promise.all([
-        executeQueryWithParams(query, params),
-        executeQueryWithParams(countQuery, params) // Reusing params is safe here
+        executeQueryWithParams(query, params, req.db_name),
+        executeQueryWithParams(countQuery, params, req.db_name) // Reusing params is safe here
       ]);
 
       const total = countResult[0]?.total || 0;
@@ -111,11 +111,11 @@ const inventoryController = {
     console.log('📦 [INVENTORY] createInventoryEntry called with body:', JSON.stringify(body));
 
     try {
-      const { 
-        productoId, cantidad, costoUnitario, 
+      const {
+        productoId, cantidad, costoUnitario,
         documentoRef, motivo, codalm = '001', codusu = 'SISTEMA',
-        codcon, 
-        numComprobante, numRemision, clienteId 
+        codcon,
+        numComprobante, numRemision, clienteId
       } = body;
 
       // Validación básica
@@ -126,7 +126,7 @@ const inventoryController = {
 
       const cantidadNum = parseFloat(cantidad);
       const costoNum = parseFloat(costoUnitario);
-      
+
       if (isNaN(cantidadNum) || cantidadNum <= 0) return res.status(400).json({ success: false, message: 'La cantidad debe ser mayor a 0' });
       if (isNaN(costoNum) || costoNum < 0) return res.status(400).json({ success: false, message: 'El costo debe ser mayor o igual a 0' });
 
@@ -136,8 +136,8 @@ const inventoryController = {
 
       if (codcon) {
         const conceptQuery = `SELECT tipcon FROM inv_conceptos WHERE codcon = @codcon`;
-        const conceptResult = await executeQueryWithParams(conceptQuery, { codcon });
-        
+        const conceptResult = await executeQueryWithParams(conceptQuery, { codcon }, req.db_name);
+
         if (conceptResult.length > 0) {
           const { tipcon } = conceptResult[0];
           isSalida = tipcon === 'S';
@@ -145,20 +145,20 @@ const inventoryController = {
         }
       }
 
-      const pool = await getConnection();
+      const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
       const tx = new sql.Transaction(pool);
       await tx.begin();
 
       try {
         const docInt = parseInt(String(documentoRef).replace(/\D/g, '')) || 0;
-        
+
         const commonParams = {
           transaction: tx,
           productoId,
           cantidad: cantidadNum,
           bodega: codalm,
           numeroDocumentoInt: docInt,
-          tipoMovimiento: isSalida ? 'SA' : 'EN', 
+          tipoMovimiento: isSalida ? 'SA' : 'EN',
           costo: costoNum,
           observaciones: motivo || (isSalida ? 'Salida manual' : 'Entrada manual'),
           codUsuario: codusu,
@@ -168,9 +168,9 @@ const inventoryController = {
         };
 
         if (isSalida) {
-             await InventoryService.registrarSalida(commonParams);
+          await InventoryService.registrarSalida(commonParams);
         } else {
-             await InventoryService.registrarEntrada(commonParams);
+          await InventoryService.registrarEntrada(commonParams);
         }
 
         await tx.commit();
@@ -209,14 +209,14 @@ const inventoryController = {
 
       if (tipo) {
         if (tipo === 'ENTRADA') {
-             // User requested only standard entries (EN) for the Inventory Entry section
-             // Expanded to include 'E' (Legacy) and 'I' (Initial Inventory) to ensure all inputs are visible
-             whereClause += ` AND k.tipkar IN ('EN', 'E', 'I')`; 
+          // User requested only standard entries (EN) for the Inventory Entry section
+          // Expanded to include 'E' (Legacy) and 'I' (Initial Inventory) to ensure all inputs are visible
+          whereClause += ` AND k.tipkar IN ('EN', 'E', 'I')`;
         } else if (tipo === 'SALIDA') {
-             whereClause += ` AND k.tipkar IN ('S', 'SA', 'SD')`;
+          whereClause += ` AND k.tipkar IN ('S', 'SA', 'SD')`;
         } else {
-             whereClause += ` AND k.tipkar = @tipo`;
-             params.tipo = tipo;
+          whereClause += ` AND k.tipkar = @tipo`;
+          params.tipo = tipo;
         }
       }
 
@@ -276,8 +276,8 @@ const inventoryController = {
       `;
 
       const [movimientos, countResult] = await Promise.all([
-        executeQueryWithParams(query, params),
-        executeQueryWithParams(countQuery, params)
+        executeQueryWithParams(query, params, req.db_name),
+        executeQueryWithParams(countQuery, params, req.db_name)
       ]);
 
       const total = countResult[0]?.total || 0;
@@ -310,7 +310,7 @@ const inventoryController = {
 
       // Obtener codins del producto primero
       const prodQuery = `SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @id`;
-      const prodResult = await executeQueryWithParams(prodQuery, { id: parseInt(productoId) });
+      const prodResult = await executeQueryWithParams(prodQuery, { id: parseInt(productoId) }, req.db_name);
 
       if (prodResult.length === 0) {
         return res.status(404).json({ success: false, message: 'Producto no encontrado' });
@@ -325,11 +325,11 @@ const inventoryController = {
         FROM inv_invent 
         WHERE codins = @codins AND codalm = @codalm
       `;
-      
-      const stockResult = await executeQueryWithParams(stockQuery, { 
-        codins, 
-        codalm: String(codalm).padStart(3, '0') 
-      });
+
+      const stockResult = await executeQueryWithParams(stockQuery, {
+        codins,
+        codalm: String(codalm).padStart(3, '0')
+      }, req.db_name);
 
       const stock = stockResult.length > 0 ? stockResult[0].stock : 0;
 

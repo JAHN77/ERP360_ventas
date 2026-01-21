@@ -63,7 +63,7 @@ export const rolesConfig: Record<Role, RoleConfig> = {
   },
   facturacion: {
     can: ['dashboard:view', 'facturacion:view', 'facturacion:create', 'facturacion:send', 'facturacion:stamp', 'clientes:view', 'clientes:create', 'clientes:edit', 'reportes:view'],
-    pages: ['dashboard', 'facturacion_electronica', 'nueva_factura', 'clientes', 'reportes', 'demas_informes'],
+    pages: ['dashboard', 'facturacion_electronica', 'nueva_factura', 'factura_directa', 'clientes', 'reportes', 'demas_informes'],
   },
   contabilidad: {
     can: ['dashboard:view', 'facturacion:view', 'facturacion:validate', 'notas_credito:view', 'devoluciones:view', 'reportes:view', 'facturacion:delete', 'devoluciones:delete'],
@@ -85,7 +85,7 @@ export const rolesConfig: Record<Role, RoleConfig> = {
       'cotizaciones', 'nueva_cotizacion', 'editar_cotizacion',
       'pedidos', 'nuevo_pedido',
       'remisiones', 'editar_remision',
-      'facturacion_electronica', 'nueva_factura',
+      'facturacion_electronica', 'nueva_factura', 'factura_directa',
       'devoluciones', 'notas_credito_debito',
       'reportes',
       'demas_informes', 'factura_profesional', 'activity_log',

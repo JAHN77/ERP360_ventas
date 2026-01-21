@@ -1,5 +1,5 @@
 const sql = require('mssql');
-const { getConnection } = require('./sqlServerClient.cjs');
+const { getConnectionForDb } = require('./sqlServerClient.cjs');
 
 /**
  * Servicio para integración con DIAN Facturación Electrónica
@@ -36,15 +36,15 @@ class DIANService {
   }
 
   /**
-   * Obtiene la resolución DIAN activa desde la base de datos (Base de datos: Prueba_ERP360)
+   * Obtiene la resolución DIAN activa desde la base de datos
+   * @param {string} dbName - Nombre de la base de datos del tenant
    * @returns {Promise<Object>} Resolución DIAN activa
    */
-  static async getDIANResolution() {
-    console.log('\n📊 Obteniendo resolución DIAN activa desde la base de datos...');
-    console.log('   Base de datos: Prueba_ERP360');
+  static async getDIANResolution(dbName = null) {
+    console.log(`\n📊 Obteniendo resolución DIAN activa desde la base de datos: ${dbName || 'DEFAULT'}...`);
 
     try {
-      const pool = await getConnection();
+      const pool = await getConnectionForDb(dbName);
       const request = pool.request();
 
       // Consultar desde Dian_Resoluciones_electronica (plural) - Tabla que existe en la BD
@@ -157,12 +157,13 @@ class DIANService {
   }
 
   /**
-   * Obtiene los datos de la empresa desde gen_empresa (Base de datos: Prueba_ERP360)
+   * Obtiene los datos de la empresa desde gen_empresa
+   * @param {string} dbName - Nombre de la base de datos del tenant
    * @returns {Promise<Object>} Datos de la empresa
    */
-  static async getCompanyData() {
+  static async getCompanyData(dbName = null) {
     try {
-      const pool = await getConnection();
+      const pool = await getConnectionForDb(dbName);
       const request = pool.request();
 
       console.log('🔍 Consultando gen_empresa para obtener datos de la empresa...');
@@ -243,15 +244,15 @@ class DIANService {
   }
 
   /**
-   * Obtiene los parámetros DIAN desde dian_parametros_fe (Base de datos: Prueba_ERP360)
+   * Obtiene los parámetros DIAN desde dian_parametros_fe
+   * @param {string} dbName - Nombre de la base de datos del tenant
    * @returns {Promise<Object>} Parámetros DIAN (URL, testSetID, etc.)
    */
-  static async getDIANParameters() {
-    console.log('\n📊 Obteniendo parámetros DIAN desde dian_parametros_fe...');
-    console.log('   Base de datos: Prueba_ERP360');
+  static async getDIANParameters(dbName = null) {
+    console.log(`\n📊 Obteniendo parámetros DIAN desde dian_parametros_fe en ${dbName || 'DEFAULT'}...`);
 
     try {
-      const pool = await getConnection();
+      const pool = await getConnectionForDb(dbName);
       const request = pool.request();
 
       console.log('🔍 Consultando dian_parametros_fe...');
@@ -272,16 +273,18 @@ class DIANService {
 
       const params = result.recordset[0];
       console.log('✅ Parámetros DIAN encontrados en dian_parametros_fe:');
-      console.log('   - url_base:', params.url_base || 'N/A');
-      console.log('   - testSetID:', params.testSetID || params.test_set_id || 'N/A');
+      console.log('   - url_base:', params.urlApi || params.url_base || 'N/A');
+      console.log('   - testSetID:', params.dianToken || params.testSetID || params.test_set_id || 'N/A');
       console.log('   - isPrueba:', params.isPrueba || params.is_prueba || 'N/A');
       console.log('   - sync:', params.sync || 'N/A');
+      console.log('   - token:', params.token ? 'PRESENTE' : 'N/A');
 
       return {
-        url_base: params.url_base || 'https://facturacionelectronica.mobilsaas.com',
-        testSetID: params.testSetID || params.test_set_id || '1',
+        url_base: params.urlApi || params.url_base || 'https://facturacionelectronica.mobilsaas.com',
+        testSetID: params.dianToken || params.testSetID || params.test_set_id || '1',
         isPrueba: params.isPrueba || params.is_prueba || false,
-        sync: params.sync || false
+        sync: params.sync || false,
+        token: params.token || null // Agregamos el token por si se necesita
       };
     } catch (error) {
       console.error('❌ [DIAN] Error obteniendo parámetros DIAN desde dian_parametros_fe:', error.message);
@@ -297,17 +300,17 @@ class DIANService {
   }
 
   /**
-   * Obtiene los datos completos de una factura con sus detalles (Base de datos: Prueba_ERP360)
+   * Obtiene los datos completos de una factura con sus detalles
    * @param {number} facturaId - ID de la factura
+   * @param {string} dbName - Nombre de la base de datos del tenant
    * @returns {Promise<Object>} Factura completa con detalles y cliente
    */
-  static async getFacturaCompleta(facturaId) {
-    console.log('\n📊 Obteniendo datos completos de la factura desde la base de datos...');
-    console.log('   Base de datos: Prueba_ERP360');
+  static async getFacturaCompleta(facturaId, dbName = null) {
+    console.log(`\n📊 Obteniendo datos completos de la factura desde la base de datos: ${dbName || 'DEFAULT'}`);
     console.log('   Factura ID:', facturaId);
 
     try {
-      const pool = await getConnection();
+      const pool = await getConnectionForDb(dbName);
 
       // Obtener factura desde ven_facturas
       console.log('\n🔍 Consultando ven_facturas para obtener encabezado de factura...');
@@ -512,9 +515,10 @@ class DIANService {
    * @param {Object} resolution - Resolución DIAN activa
    * @param {Object} config - Configuración (isPrueba, sync, etc.)
    * @param {Object} invoiceData - Datos adicionales opcionales (customer_document, customer_name, etc.)
+   * @param {string} dbName - Nombre de la base de datos del tenant
    * @returns {Promise<Object>} JSON en formato DIAN
    */
-  static async transformVenFacturaForDIAN(facturaData, resolution, config = {}, invoiceData = {}) {
+  static async transformVenFacturaForDIAN(facturaData, resolution, config = {}, invoiceData = {}, dbName = null) {
     console.log('\n' + '='.repeat(100));
     console.log('🔄 TRANSFORMANDO FACTURA PARA FACTURACIÓN ELECTRÓNICA DIAN');
     console.log('='.repeat(100));
@@ -530,9 +534,9 @@ class DIANService {
       ? new Date(venFactura.fecha_vencimiento).toISOString().split('T')[0]
       : issueDate;
 
-    // Obtener datos de la empresa dinámicamente desde gen_empresa (Base de datos: Prueba_ERP360)
+    // Obtener datos de la empresa dinámicamente desde gen_empresa
     console.log('\n📊 Obteniendo datos de la empresa desde gen_empresa...');
-    const companyData = await this.getCompanyData();
+    const companyData = await this.getCompanyData(dbName);
     console.log('✅ Datos de empresa obtenidos:', {
       nitemp: companyData.identification_number,
       razemp: companyData.name,
@@ -555,7 +559,7 @@ class DIANService {
 
       // Fallback: Calcular basado en el último número (Lógica Descendente)
       try {
-        const pool = await getConnection();
+        const pool = await getConnectionForDb(dbName);
         const request = pool.request();
 
         // Buscar el número MÍNIMO existente
@@ -656,20 +660,20 @@ class DIANService {
     // Lógica para determinar el método principal
     // Si hay tarjeta > 0
     if (valTarjeta > 0) {
-      paymentFormId = 1; 
+      paymentFormId = 1;
       paymentMethodId = 48; // Tarjeta crédito
       console.log('   ✅ Forma de pago: Tarjeta (Form ID: 1, Method ID: 48)');
-    } 
+    }
     // Si hay transferencia > 0
     else if (valTransferencia > 0) {
-      paymentFormId = 1; 
+      paymentFormId = 1;
       paymentMethodId = 47; // Transferencia Débito Bancaria
       console.log('   ✅ Forma de pago: Transferencia (Form ID: 1, Method ID: 47)');
-    } 
+    }
     // Si hay crédito > 0
     // IMPORTANTE: Solo marcar como crédito si valCredito > 0.
     // Si venFactura.credito venía como string "0" o similar, el parseFloat lo manejará.
-    else if (valCredito > 0.01) { 
+    else if (valCredito > 0.01) {
       paymentFormId = 2; // Crédito (DIAN ID 2)
       paymentMethodId = 30; // Instrumento no definido
       console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 30, Plazo: ${valPlazo} días)`);
@@ -722,9 +726,9 @@ class DIANService {
         if (detalleLineExtension > 0 && detalleIvaPercent > 0) {
           const recalculatedTax = this.roundCOP(detalleLineExtension * (detalleIvaPercent / 100));
           // Si la diferencia sugiere error de redondeo (ej. 23 vs 22.81), usamos el calculado
-          if (Math.abs(recalculatedTax - detalleTaxAmount) < 1) { 
-              console.log(`     ⚠️ Ajustando IVA línea por precisión: ${detalleTaxAmount} -> ${recalculatedTax}`);
-              detalleTaxAmount = recalculatedTax;
+          if (Math.abs(recalculatedTax - detalleTaxAmount) < 1) {
+            console.log(`     ⚠️ Ajustando IVA línea por precisión: ${detalleTaxAmount} -> ${recalculatedTax}`);
+            detalleTaxAmount = recalculatedTax;
           }
         }
 
@@ -770,14 +774,14 @@ class DIANService {
       // Ajustamos el TOTAL GLOBAL para coincidir con la suma precisa de las líneas.
       console.log(`   - IVA Total Original (BD): ${taxAmount}`);
       console.log(`   - Suma IVAs Líneas (Recalculado): ${sumaIvasLineas}`);
-      
+
       if (Math.abs(taxAmount - sumaIvasLineas) > 0.001) {
-          console.log(`   ⚠️ Diferencia en totales IVA detectada. Actualizando taxAmount global para coincidir con líneas precisas.`);
-          taxAmount = sumaIvasLineas;
-          // También actualizar el total con impuestos
-          totalAmount = this.roundCOP(lineExtensionAmount + taxAmount);
-          console.log(`   ✅ Nuevo taxAmount: ${taxAmount}`);
-          console.log(`   ✅ Nuevo totalAmount: ${totalAmount}`);
+        console.log(`   ⚠️ Diferencia en totales IVA detectada. Actualizando taxAmount global para coincidir con líneas precisas.`);
+        taxAmount = sumaIvasLineas;
+        // También actualizar el total con impuestos
+        totalAmount = this.roundCOP(lineExtensionAmount + taxAmount);
+        console.log(`   ✅ Nuevo taxAmount: ${taxAmount}`);
+        console.log(`   ✅ Nuevo totalAmount: ${totalAmount}`);
       }
 
       console.log(`   - Diferencia IVA Final: ${this.roundCOP(Math.abs(taxAmount - sumaIvasLineas))}`);
@@ -788,15 +792,15 @@ class DIANService {
       // Ajustar IVAs si hay diferencia (CRÍTICO: La DIAN rechaza si no coinciden exactamente)
       const diferenciaIva = this.roundCOP(taxAmount - sumaIvasLineas);
       // Solo ajustamos si AÚN hay diferencia (no debería haber si hicimos la corrección arriba)
-      if (Math.abs(diferenciaIva) > 0.001) { 
+      if (Math.abs(diferenciaIva) > 0.001) {
         console.log(`   ⚠️ ADVERTENCIA: Diferencia detectada en IVAs (${diferenciaIva}). Ajustando última línea...`);
         // ... Logica de ajuste de línea si fuera necesario (backup) ...
-         if (invoiceLines.length > 0) {
+        if (invoiceLines.length > 0) {
           const ultimaLinea = invoiceLines[invoiceLines.length - 1];
           const ivaAnterior = ultimaLinea.tax_totals[0].tax_amount || 0;
           const ivaAjustado = this.roundCOP(ivaAnterior + diferenciaIva);
           ultimaLinea.tax_totals[0].tax_amount = Number(ivaAjustado);
-         }
+        }
       }
 
       // Ajustar subtotales si hay diferencia
@@ -1167,12 +1171,12 @@ class DIANService {
     let customerDv = null;
 
     if (codterLimpio.includes('-')) {
-        const parts = codterLimpio.split('-');
-        codterLimpio = parts[0].trim();
-        // Intentar obtener DV explícito si es numérico
-        if (parts[1] && !isNaN(parseInt(parts[1]))) {
-            customerDv = parseInt(parts[1], 10);
-        }
+      const parts = codterLimpio.split('-');
+      codterLimpio = parts[0].trim();
+      // Intentar obtener DV explícito si es numérico
+      if (parts[1] && !isNaN(parseInt(parts[1]))) {
+        customerDv = parseInt(parts[1], 10);
+      }
     }
     // Remover cualquier carácter no numérico que pueda quedar
     codterLimpio = codterLimpio.replace(/[^\d]/g, '');
@@ -1180,7 +1184,7 @@ class DIANService {
 
     // Si no se extrajo DV explícito, calcularlo
     if (customerDv === null) {
-        customerDv = this.calculateDV(customerNit);
+      customerDv = this.calculateDV(customerNit);
     }
 
     // Construir JSON
@@ -1295,12 +1299,12 @@ class DIANService {
 
         // Lógica para determinar el método principal
         if (valTarjeta > 0) {
-          paymentFormId = 1; 
+          paymentFormId = 1;
           paymentMethodId = 48; // Tarjeta crédito
         } else if (valTransferencia > 0) {
-          paymentFormId = 1; 
+          paymentFormId = 1;
           paymentMethodId = 47; // Transferencia Débito Bancaria
-        } else if (valCredito > 0.01) { 
+        } else if (valCredito > 0.01) {
           paymentFormId = 2; // Crédito (DIAN ID 2)
           paymentMethodId = 30; // Instrumento no definido
         }
@@ -1308,9 +1312,9 @@ class DIANService {
         // Calcular fecha vencimiento si es crédito
         let paymentDueDate = issueDate;
         if (paymentFormId === 2 && valPlazo > 0) {
-            const dueDateObj = new Date(); // Fecha actual como base de emisión
-            dueDateObj.setDate(dueDateObj.getDate() + valPlazo);
-            paymentDueDate = dueDateObj.toISOString().split('T')[0];
+          const dueDateObj = new Date(); // Fecha actual como base de emisión
+          dueDateObj.setDate(dueDateObj.getDate() + valPlazo);
+          paymentDueDate = dueDateObj.toISOString().split('T')[0];
         }
 
         return [{
@@ -1435,7 +1439,7 @@ class DIANService {
           console.log('─'.repeat(100));
           console.log(responseText);
           console.log('─'.repeat(100));
-          
+
           throw new Error(`Respuesta de DIAN no es JSON válido: ${responseText.substring(0, 200)}`);
         }
       }

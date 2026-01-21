@@ -1,4 +1,4 @@
- const express = require('express');
+const express = require('express');
 const router = express.Router();
 const quoteController = require('../controllers/quoteController');
 
@@ -21,14 +21,16 @@ router.get('/', quoteController.getAllQuotes);
 // Decision: We will mount this router at /api and define full paths to be safe, OR mount at /api/cotizaciones and redirect/rewrite.
 // Easiest: Mount at /api and define explicit paths.
 
+const verifyToken = require('../middleware/authMiddleware');
+
 // Define routes relative to the mount point. 
 // If mounted at /api:
-router.get('/cotizaciones', quoteController.getAllQuotes);
-router.get('/cotizaciones-detalle', quoteController.getQuoteDetails);
-router.post('/cotizaciones', quoteController.createQuote);
-router.put('/cotizaciones/:id', quoteController.updateQuote);
-router.post('/cotizaciones/:id/send-email', quoteController.sendQuoteEmail);
-router.get('/cotizaciones/next-number', quoteController.getNextQuoteNumber);
+router.get('/cotizaciones', verifyToken, quoteController.getAllQuotes);
+router.get('/cotizaciones-detalle', verifyToken, quoteController.getQuoteDetails);
+router.post('/cotizaciones', verifyToken, quoteController.createQuote);
+router.put('/cotizaciones/:id', verifyToken, quoteController.updateQuote);
+router.post('/cotizaciones/:id/send-email', verifyToken, quoteController.sendQuoteEmail);
+router.get('/cotizaciones/next-number', verifyToken, quoteController.getNextQuoteNumber);
 
 module.exports = router;
 

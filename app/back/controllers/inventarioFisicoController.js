@@ -25,7 +25,7 @@ const getProductosParaConteo = async (req, res) => {
         console.log('--- GET /productos - Debug Info ---');
         console.log('Query Params:', { codalm, linea, filtro, idconteo });
 
-        const pool = await getConnection();
+        const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
         const request = pool.request();
         let query;
 
@@ -52,7 +52,7 @@ const getProductosParaConteo = async (req, res) => {
                 WHERE f.idconteo = @idconteo
             `;
             request.input('idconteo', sql.Int, parseInt(idconteo));
-            
+
             // Opcionalmente filtrar por codalm si se proporciona
             if (codalm) {
                 query = query.replace('WHERE f.idconteo = @idconteo', 'WHERE f.idconteo = @idconteo AND f.codalm = @codalm');
@@ -98,7 +98,7 @@ const getProductosParaConteo = async (req, res) => {
         query += ` ORDER BY ins.nomins`;
 
         const result = await request.query(query);
-        
+
         console.log(`Found ${result.recordset.length} records for codalm: '${codalm}'`);
         console.log('-----------------------------------');
 
@@ -127,8 +127,8 @@ const getConteos = async (req, res) => {
         console.log('🔵 [getConteos] Iniciando...');
         const { codalm } = req.query;
         console.log('🔵 [getConteos] codalm recibido:', codalm);
-        
-        const pool = await getConnection();
+
+        const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
         console.log('🔵 [getConteos] Conexión obtenida');
 
         let query = `
@@ -198,7 +198,7 @@ const createConteo = async (req, res) => {
             });
         }
 
-        const pool = await getConnection();
+        const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
         const fechaObj = new Date(fecha);
         const mes = fechaObj.getMonth() + 1;
         const año = fechaObj.getFullYear();
@@ -206,7 +206,7 @@ const createConteo = async (req, res) => {
         // Insertar cada producto en inv_invfisico
         for (const producto of productos) {
             const request = pool.request();
-            
+
             const diferencia = (producto.canfis || 0) - (producto.caninv || 0);
 
             await request
@@ -265,8 +265,8 @@ const updateConteoFisico = async (req, res) => {
             });
         }
 
-        const pool = await getConnection();
-        
+        const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
+
         // Actualizar cantidad física y recalcular diferencia
         await pool.request()
             .input('id', sql.Int, parseInt(id))
@@ -299,9 +299,9 @@ const updateConteoFisico = async (req, res) => {
  * @param {number} idconteo - ID del conteo a aplicar
  */
 const aplicarConteo = async (req, res) => {
-    const pool = await getConnection();
+    const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
     const transaction = new sql.Transaction(pool);
-    
+
     try {
         const { idconteo } = req.params;
 
@@ -329,7 +329,7 @@ const aplicarConteo = async (req, res) => {
         for (const producto of productos) {
             if (producto.diferencia !== 0) {
                 const requestUpdate = new sql.Request(transaction);
-                
+
                 // Actualizar cantidad en inv_invent
                 await requestUpdate
                     .input('codalm', sql.Char(3), producto.codalm)
@@ -345,7 +345,7 @@ const aplicarConteo = async (req, res) => {
                 const requestKardex = new sql.Request(transaction);
                 const tipoMovimiento = producto.diferencia > 0 ? 'EN' : 'SA'; // EN = Entrada, SA = Salida
                 const cantidadMovimiento = Math.abs(producto.diferencia);
-                
+
                 await requestKardex
                     .input('codins', sql.Char(8), producto.codins)
                     .input('codalm', sql.Char(3), producto.codalm)
@@ -394,8 +394,8 @@ const aplicarConteo = async (req, res) => {
  */
 const getSiguienteNumeroConteo = async (req, res) => {
     try {
-        const pool = await getConnection();
-        
+        const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
+
         const result = await pool.request().query(`
             SELECT ISNULL(MAX(idconteo), 0) + 1 as siguienteNumero
             FROM inv_invfisico

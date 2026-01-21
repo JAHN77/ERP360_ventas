@@ -19,7 +19,7 @@ const getUsers = async (req, res) => {
       FROM ${TABLE_NAMES.usuarios}
       ORDER BY nomusu ASC
     `;
-    const users = await executeQuery(query);
+    const users = await executeQuery(query, req.db_name);
     res.json({ success: true, data: users });
   } catch (error) {
     console.error('Error fetching users:', error);
@@ -30,7 +30,7 @@ const getUsers = async (req, res) => {
 // Create User
 const createUser = async (req, res) => {
   const { codusu, nomusu, password, tipousu, activo } = req.body;
-  
+
   if (!codusu || !nomusu || !password) {
     return res.status(400).json({ success: false, message: 'Faltan datos requeridos' });
   }
@@ -38,28 +38,28 @@ const createUser = async (req, res) => {
   try {
     // Check if exists
     const checkQuery = `SELECT id FROM ${TABLE_NAMES.usuarios} WHERE codusu = @codusu`;
-    const existing = await executeQueryWithParams(checkQuery, { codusu });
+    const existing = await executeQueryWithParams(checkQuery, { codusu }, req.db_name);
     if (existing.length > 0) {
-        return res.status(400).json({ success: false, message: 'El código de usuario ya existe' });
+      return res.status(400).json({ success: false, message: 'El código de usuario ya existe' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    
+
     // Attempting to provide default for 'clausu' if required by schema (legacy password)
     // Also ensuring other potentially required fields have defaults if possible, or ignoring if nullable
     const query = `
       INSERT INTO ${TABLE_NAMES.usuarios} (codusu, nomusu, password_web, tipousu, Activo, clausu)
       VALUES (@codusu, @nomusu, @hashedPassword, @tipousu, @activo, '')
     `;
-    
-    await executeQueryWithParams(query, { 
-        codusu, 
-        nomusu, 
-        hashedPassword, 
-        tipousu: tipousu !== undefined ? tipousu : 2, 
-        activo: activo !== undefined ? activo : 1 
-    });
-    
+
+    await executeQueryWithParams(query, {
+      codusu,
+      nomusu,
+      hashedPassword,
+      tipousu: tipousu !== undefined ? tipousu : 2,
+      activo: activo !== undefined ? activo : 1
+    }, req.db_name);
+
     res.json({ success: true, message: 'Usuario creado exitosamente' });
 
   } catch (error) {
@@ -79,24 +79,24 @@ const updateUser = async (req, res) => {
       UPDATE ${TABLE_NAMES.usuarios} 
       SET nomusu = @nomusu, tipousu = @tipousu, Activo = @activo
     `;
-    
+
     const params = { id, nomusu, tipousu, activo };
 
     if (password) {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        query += `, password_web = @hashedPassword`;
-        params.hashedPassword = hashedPassword;
+      const hashedPassword = await bcrypt.hash(password, 10);
+      query += `, password_web = @hashedPassword`;
+      params.hashedPassword = hashedPassword;
     }
 
     query += ` WHERE id = @id`;
 
-    await executeQueryWithParams(query, params);
-    
+    await executeQueryWithParams(query, params, req.db_name);
+
     res.json({ success: true, message: 'Usuario actualizado exitosamente' });
 
   } catch (error) {
-     console.error('Error updating user:', error);
-     res.status(500).json({ success: false, message: 'Error al actualizar usuario' });
+    console.error('Error updating user:', error);
+    res.status(500).json({ success: false, message: 'Error al actualizar usuario' });
   }
 };
 
@@ -106,16 +106,16 @@ const updateUser = async (req, res) => {
 // Safe bet: Update to Activo = 0 if delete is risky, but user said 'eliminar'.
 // I will implement DELETE as a setting Active = 0 for safety, unless they insist on DROP.
 const deleteUser = async (req, res) => {
-    const { id } = req.params;
-    try {
-        // Soft delete prefered
-        const query = `UPDATE ${TABLE_NAMES.usuarios} SET Activo = 0 WHERE id = @id`;
-        await executeQueryWithParams(query, { id });
-        res.json({ success: true, message: 'Usuario desactivado exitosamente (eliminado lógico)' });
-    } catch (error) {
-        console.error('Error deleting user:', error);
-        res.status(500).json({ success: false, message: 'Error al eliminar usuario' });
-    }
+  const { id } = req.params;
+  try {
+    // Soft delete prefered
+    const query = `UPDATE ${TABLE_NAMES.usuarios} SET Activo = 0 WHERE id = @id`;
+    await executeQueryWithParams(query, { id }, req.db_name);
+    res.json({ success: true, message: 'Usuario desactivado exitosamente (eliminado lógico)' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ success: false, message: 'Error al eliminar usuario' });
+  }
 };
 
 module.exports = {

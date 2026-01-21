@@ -19,6 +19,7 @@ export interface ApiResponse<T> {
     pageSize: number;
     total: number;
   };
+  isTest?: boolean;
 }
 
 class ApiClient {
@@ -28,11 +29,22 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
-  public async login(username: string, password: string): Promise<ApiResponse<any>> {
+  public async login(username: string, password: string, companyId?: number): Promise<ApiResponse<any>> {
     return this.request('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, companyId })
     });
+  }
+
+  public async switchCompany(companyId: number): Promise<ApiResponse<any>> {
+    return this.request('/auth/switch-company', {
+      method: 'POST',
+      body: JSON.stringify({ companyId })
+    });
+  }
+
+  public async getCompanies(): Promise<ApiResponse<any[]>> {
+    return this.request('/auth/companies');
   }
 
   public async sendCreditNoteEmail(id: number | string, to: string, body: string, pdfBase64?: string, customerName?: string) {
@@ -655,6 +667,53 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ mode }),
     });
+  }
+
+  async sendManualDianTest(payload: any) {
+    return this.request('/facturas/manual-test', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async generatePreviewPdf(payload: any) {
+    const url = `${this.baseUrl}/facturas/preview-pdf`;
+    const token = localStorage.getItem('token');
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, message: 'Error generando PDF', error: errorText };
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/pdf')) {
+      const blob = await response.blob();
+      const pdfUrl = URL.createObjectURL(blob);
+
+      // Intentar extraer el nombre del archivo del header Content-Disposition
+      const contentDisposition = response.headers.get('content-disposition');
+      let filename = null;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) {
+          filename = match[1];
+        }
+      }
+
+      return { success: true, data: { pdf_url: pdfUrl, filename } };
+    }
+
+    // Fallback JSON
+    return await response.json();
   }
 
   async createNotaCredito(payload: any) {

@@ -87,14 +87,14 @@ const productController = {
       if (sortColumn && sortDirection) {
         const direction = sortDirection === 'desc' ? 'DESC' : 'ASC';
         const validColumns = {
-            'nombre': 'ins.nomins',
-            'referencia': 'ins.referencia',
-            'ultimoCosto': 'COALESCE(ins.ultimo_costo, 0)', // Simplified sort logic
-            'stock': 'COALESCE(SUM(inv.caninv), 0)'
+          'nombre': 'ins.nomins',
+          'referencia': 'ins.referencia',
+          'ultimoCosto': 'COALESCE(ins.ultimo_costo, 0)', // Simplified sort logic
+          'stock': 'COALESCE(SUM(inv.caninv), 0)'
         };
 
         if (validColumns[sortColumn]) {
-             orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
+          orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
         }
       }
       query += ` ${orderByClause}`;
@@ -113,7 +113,7 @@ const productController = {
       }
 
       // Execution
-      const data = await executeQueryWithParams(query, queryParams);
+      const data = await executeQueryWithParams(query, queryParams, req.db_name);
 
       // Count Query for Pagination Metadata
       // OPTIMIZATION: Count distinct IDs only with same filter to be fast.
@@ -125,7 +125,7 @@ const productController = {
       if (searchTerm) {
         countQuery += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search OR ins.codins LIKE @search)`;
       }
-      const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {});
+      const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {}, req.db_name);
       const totalRecords = countResult[0]?.total || 0;
 
       res.json({
@@ -141,10 +141,10 @@ const productController = {
 
     } catch (error) {
       console.error('Error in getAllProducts:', error);
-      res.status(500).json({ 
-        success: false, 
-        message: 'Error al obtener productos', 
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener productos',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   },
@@ -158,7 +158,7 @@ const productController = {
       if (String(search).trim().length < 2) {
         return res.status(400).json({ success: false, message: 'Ingrese al menos 2 caracteres' });
       }
-  
+
       const query = `
         SELECT TOP (@limit)
           ins.id,
@@ -186,18 +186,18 @@ const productController = {
         GROUP BY ins.id, ins.codins, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva, dp.valins
         ORDER BY ins.nomins
       `;
-  
-      const data = await executeQueryWithParams(query, { 
-          like: `%${search}%`, 
-          limit: Math.min(parseInt(limit) || 20, 100),
-          codalm: codalm || null
-      });
-  
+
+      const data = await executeQueryWithParams(query, {
+        like: `%${search}%`,
+        limit: Math.min(parseInt(limit) || 20, 100),
+        codalm: codalm || null
+      }, req.db_name);
+
       res.json({ success: true, data });
-  
+
     } catch (error) {
-       console.error('Error in searchProducts:', error);
-       res.status(500).json({ success: false, message: 'Error en búsqueda de productos', error: error.message });
+      console.error('Error in searchProducts:', error);
+      res.status(500).json({ success: false, message: 'Error en búsqueda de productos', error: error.message });
     }
   },
   /**
@@ -206,7 +206,7 @@ const productController = {
   getProductStockDetails: async (req, res) => {
     try {
       const { id } = req.params;
-      
+
       const query = `
         SELECT 
             LTRIM(RTRIM(i.codalm)) as codalm,
@@ -218,12 +218,88 @@ const productController = {
         ORDER BY i.codalm
       `;
 
-      const data = await executeQueryWithParams(query, { id: parseInt(id, 10) });
+      const data = await executeQueryWithParams(query, { id: parseInt(id, 10) }, req.db_name);
 
       res.json({ success: true, data });
     } catch (error) {
       console.error('Error getting product stock details:', error);
       res.status(500).json({ success: false, message: 'Error obteniendo stock por bodega', error: error.message });
+    }
+  },
+
+  /**
+   * Update product details (specifically price for now)
+   */
+  updateProduct: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { precioBase, tasaIva } = req.body;
+
+      if (precioBase === undefined) {
+        return res.status(400).json({ success: false, message: 'El costo base es requerido' });
+      }
+
+      const idNum = parseInt(id, 10);
+      const baseNum = parseFloat(precioBase);
+      const ivaNum = parseFloat(tasaIva || 0);
+
+      // Calcular precio con IVA
+      const precioConIva = baseNum * (1 + (ivaNum / 100));
+
+      const { getConnectionForDb } = require('../services/sqlServerClient.cjs');
+      const sql = require('mssql');
+      const pool = await getConnectionForDb(req.db_name);
+      const transaction = new sql.Transaction(pool);
+
+      await transaction.begin();
+
+      try {
+        // 1. Obtener codins del producto
+        const reqCod = new sql.Request(transaction);
+        reqCod.input('id', sql.Int, idNum);
+        const prodRes = await reqCod.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @id`);
+
+        if (prodRes.recordset.length === 0) {
+          throw new Error('Producto no encontrado');
+        }
+        const codins = prodRes.recordset[0].codins;
+
+        // 2. Actualizar inv_insumos (ultimo_costo)
+        const reqInsumos = new sql.Request(transaction);
+        reqInsumos.input('id', sql.Int, idNum);
+        reqInsumos.input('precioBase', sql.Decimal(18, 2), baseNum);
+        await reqInsumos.query(`UPDATE ${TABLE_NAMES.productos} SET ultimo_costo = @precioBase WHERE id = @id`);
+
+        // 3. Actualizar inv_detaprecios (Tarifa 07)
+        const reqPrecios = new sql.Request(transaction);
+        reqPrecios.input('codins', sql.VarChar(8), codins);
+        reqPrecios.input('precioConIva', sql.Decimal(18, 2), precioConIva);
+
+        // Verificar si existe la tarifa 07
+        const checkTarifa = await reqPrecios.query(`SELECT 1 FROM inv_detaprecios WHERE codins = @codins AND Codtar = '07'`);
+
+        if (checkTarifa.recordset.length > 0) {
+          await reqPrecios.query(`UPDATE inv_detaprecios SET valins = @precioConIva WHERE codins = @codins AND Codtar = '07'`);
+        } else {
+          // Si no existe, se podría insertar, pero por ahora solo actualizamos si existe
+          console.warn(`Tarifa 07 no encontrada para el producto ${codins}`);
+        }
+
+        await transaction.commit();
+        res.json({ success: true, message: 'Producto actualizado correctamente' });
+
+      } catch (innerError) {
+        await transaction.rollback();
+        throw innerError;
+      }
+
+    } catch (error) {
+      console.error('Error in updateProduct:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al actualizar el producto',
+        error: error.message
+      });
     }
   }
 };

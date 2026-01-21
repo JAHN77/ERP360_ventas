@@ -32,15 +32,15 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
-  const { user, selectedCompany, switchCompany, logout, selectedSede, switchSede, isLoadingBodegas } = useAuth();
+  const { user, selectedCompany, switchCompany, logout, selectedSede, switchSede, isLoadingBodegas, bodegas } = useAuth();
   const { theme } = useTheme();
   const { setPage } = useNavigation();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [isCompanyDropdownOpen, setIsCompanyDropdownOpen] = useState(false);
   const [isSedePopoverOpen, setIsSedePopoverOpen] = useState(false);
-  const [bodegasDisponibles, setBodegasDisponibles] = useState<any[]>([]);
-  const [isLoadingBodegasLocal, setIsLoadingBodegasLocal] = useState(false);
+  // Removed local state for bodegas, using global state from AuthContext
   const bodegasDropdownRef = useRef<HTMLDivElement>(null);
   const bodegasPopoverRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -48,6 +48,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
   const userDropdownRef = useRef<HTMLDivElement>(null);
   const userPopoverRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const companyDropdownRef = useRef<HTMLDivElement>(null);
   const moreMenuPopoverRef = useRef<HTMLDivElement>(null);
 
   const { notifications, unreadCount, markAllAsRead, handleNotificationClick } = useNotifications();
@@ -68,6 +69,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
   useClickOutside(bodegasDropdownRef, () => setIsSedePopoverOpen(false));
   useClickOutside(notificationRef, () => setNotificationDropdownOpen(false));
   useClickOutside(userDropdownRef, () => setUserDropdownOpen(false));
+  useClickOutside(companyDropdownRef, () => setIsCompanyDropdownOpen(false));
   useClickOutside(moreMenuRef, () => setIsMoreMenuOpen(false));
 
   // Cerrar todos los dropdowns con Escape
@@ -75,6 +77,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
     setIsSedePopoverOpen(false);
     setIsMobileSearchOpen(false);
     setIsMoreMenuOpen(false);
+    setIsCompanyDropdownOpen(false);
     setUserDropdownOpen(false);
     setNotificationDropdownOpen(false);
     setIsResultsOpen(false);
@@ -166,11 +169,42 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
           <i className="fas fa-bars fa-lg"></i>
         </button>
 
-        {/* Company Name */}
+        {/* Company Name / Switcher */}
         {selectedCompany && (
-          <h1 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 ml-2 md:ml-0 mr-2 md:mr-4 hidden md:block truncate max-w-[120px] lg:max-w-[150px]" title={selectedCompany?.razonSocial || ''}>
-            {selectedCompany?.razonSocial || 'Sin empresa'}
-          </h1>
+          <div className="relative hidden md:block ml-2 md:ml-0 mr-2 md:mr-4" ref={companyDropdownRef}>
+            <button
+              onClick={() => setIsCompanyDropdownOpen(!isCompanyDropdownOpen)}
+              className="flex items-center gap-2 text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors max-w-[200px]"
+              title={selectedCompany?.razonSocial || ''}
+            >
+              <span className="truncate">{selectedCompany?.razonSocial || 'Sin empresa'}</span>
+              <i className={`fas fa-chevron-${isCompanyDropdownOpen ? 'up' : 'down'} text-xs text-slate-500`}></i>
+            </button>
+            {isCompanyDropdownOpen && (
+              <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50">
+                <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Cambiar Empresa</p>
+                </div>
+                <div className="max-h-60 overflow-y-auto">
+                  {(user?.empresas || []).map(empresa => (
+                    <button
+                      key={empresa.id}
+                      onClick={() => {
+                        setPage('dashboard', { companySlug: empresa.db_name });
+                        setIsCompanyDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-2 ${selectedCompany.id === empresa.id ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-200'
+                        }`}
+                    >
+                      <i className={`fas fa-building ${selectedCompany.id === empresa.id ? 'text-blue-500' : 'text-slate-400'}`}></i>
+                      <span className="truncate">{empresa.razonSocial}</span>
+                      {selectedCompany.id === empresa.id && <i className="fas fa-check ml-auto text-xs"></i>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* --- Global Search Bar --- */}
@@ -238,117 +272,24 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
             className={`inline-flex items-center gap-2 pl-3 pr-2 py-2 text-sm bg-white dark:bg-slate-800 border rounded-lg transition-all max-w-[200px] focus:outline-none ${isSedePopoverOpen
               ? 'border-blue-500 shadow-md bg-blue-50 dark:bg-blue-900/20'
               : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 hover:shadow-sm'
-              } ${isLoadingBodegasLocal ? 'opacity-50 cursor-wait' : ''}`}
-            onClick={async (e) => {
+              } ${isLoadingBodegas ? 'opacity-50 cursor-wait' : ''}`}
+            onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-
-              const willBeOpen = !isSedePopoverOpen;
-              setIsSedePopoverOpen(willBeOpen);
-
-              if (willBeOpen) {
-                setIsLoadingBodegasLocal(true);
-                setBodegasDisponibles([]);
-
-                try {
-                  let response;
-                  try {
-                    response = await fetchBodegas();
-                  } catch (fetchError) {
-                    logger.warn({ prefix: 'Header' }, 'Error de red al cargar bodegas:', fetchError);
-                    setBodegasDisponibles([]);
-                    setIsLoadingBodegasLocal(false);
-                    return;
-                  }
-
-                  if (!response || !response.success || !response.data || !Array.isArray(response.data) || response.data.length === 0) {
-                    logger.warn({ prefix: 'Header' }, 'No se pudieron cargar bodegas desde la BD');
-                    setBodegasDisponibles([]);
-                    setIsLoadingBodegasLocal(false);
-                    return;
-                  }
-
-                  const extractArrayData = (response: any): any[] => {
-                    if (!response.success) return [];
-                    const raw = response.data;
-                    if (Array.isArray(raw)) return raw;
-                    if (raw && typeof raw === 'object' && 'data' in raw && Array.isArray((raw as any).data)) {
-                      return (raw as any).data;
-                    }
-                    if (raw && typeof raw === 'object' && 'items' in raw && Array.isArray((raw as any).items)) {
-                      return (raw as any).items;
-                    }
-                    return [];
-                  };
-
-                  const bodegasData = extractArrayData(response);
-
-                  if (bodegasData.length > 0) {
-                    // El backend ahora devuelve: id (codalm), codigo (codalm), nombre (nomalm), direccion (diralm), ciudad (ciualm)
-                    const mappedBodegas = bodegasData.map((b: any, index: number) => {
-                      const nombreBodega = ((b.nombre || b.nomalm || '').trim() || `Bodega ${index + 1}`).replace(/MULTIACABADOS\s*-\s*/i, '');
-                      const codigoAlmacen = String(b.codigo || b.codalm || b.id || '').trim();
-
-                      // Convertir código a número para el ID si es posible
-                      let bodegaId: number;
-                      if (codigoAlmacen && /^\d+$/.test(codigoAlmacen)) {
-                        bodegaId = parseInt(codigoAlmacen, 10);
-                      } else {
-                        bodegaId = index + 1;
-                      }
-
-                      // Usar el código directamente de la BD (ya viene formateado)
-                      const bodegaCodigo = codigoAlmacen.padStart(3, '0');
-
-                      return {
-                        id: bodegaId,
-                        nombre: nombreBodega,
-                        codigo: bodegaCodigo,
-                        empresaId: selectedCompany?.id || 1,
-                        municipioId: 11001,
-                        direccion: (b.direccion || b.diralm || '').trim(),
-                        ciudad: (b.ciudad || b.ciualm || '').trim()
-                      };
-                    });
-
-                    // Ordenar bodegas por código (001, 002, 003, etc.)
-                    const bodegasOrdenadas = [...mappedBodegas].sort((a, b) => {
-                      const codigoA = String(a.codigo || '').padStart(3, '0');
-                      const codigoB = String(b.codigo || '').padStart(3, '0');
-                      return codigoA.localeCompare(codigoB);
-                    });
-
-                    logger.log({ prefix: 'Header', level: 'debug' }, 'Bodegas mapeadas y ordenadas por código:', bodegasOrdenadas.map(b => ({
-                      nombre: b.nombre,
-                      codigo: b.codigo,
-                      id: b.id
-                    })));
-                    setBodegasDisponibles(bodegasOrdenadas);
-                  } else {
-                    setBodegasDisponibles([]);
-                  }
-                } catch (error) {
-                  logger.error({ prefix: 'Header' }, 'Error cargando bodegas:', error);
-                  setBodegasDisponibles([]);
-                } finally {
-                  setIsLoadingBodegasLocal(false);
-                }
-              } else {
-                setBodegasDisponibles([]);
-              }
+              setIsSedePopoverOpen(!isSedePopoverOpen);
             }}
             aria-haspopup="listbox"
             aria-expanded={isSedePopoverOpen}
             title={selectedSede?.nombre || 'Seleccionar bodega'}
-            disabled={isLoadingBodegasLocal}
+            disabled={isLoadingBodegas}
           >
-            {isLoadingBodegasLocal ? (
+            {isLoadingBodegas ? (
               <i className="fas fa-spinner fa-spin text-xs text-slate-500 flex-shrink-0"></i>
             ) : (
               <i className="fas fa-warehouse text-xs text-slate-500 flex-shrink-0"></i>
             )}
             <span className="truncate max-w-[140px] text-slate-700 dark:text-slate-200 font-medium">
-              {isLoadingBodegasLocal ? 'Cargando...' : (
+              {isLoadingBodegas ? 'Cargando...' : (
                 selectedSede ? (
                   <>
                     {/* ✅ 100% DINÁMICO - Lee del estado selectedSede */}
@@ -378,26 +319,25 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
               </div>
 
               {/* Loading State */}
-              {isLoadingBodegasLocal && (
+              {isLoadingBodegas && (
                 <div className="px-3 py-4 text-center text-sm text-slate-500 dark:text-slate-400">
                   <i className="fas fa-spinner fa-spin mb-2"></i>
-                  <p>Cargando bodegas desde la API...</p>
+                  <p>Cargando bodegas...</p>
                 </div>
               )}
 
               {/* Empty State - Sin datos */}
-              {!isLoadingBodegasLocal && bodegasDisponibles.length === 0 && (
+              {!isLoadingBodegas && bodegas.length === 0 && (
                 <div className="px-3 py-4 text-center text-sm text-slate-500 dark:text-slate-400">
                   <i className="fas fa-exclamation-triangle mb-2"></i>
                   <p>No hay bodegas disponibles</p>
-                  <p className="text-xs mt-1">Verifica la conexión con la base de datos</p>
                 </div>
               )}
 
               {/* Lista de Bodegas - Solo mostrar si hay datos y no está cargando */}
-              {!isLoadingBodegasLocal && bodegasDisponibles.length > 0 && (
+              {!isLoadingBodegas && bodegas.length > 0 && (
                 <ul role="listbox" className="py-2 text-sm">
-                  {bodegasDisponibles.map((sede, index) => {
+                  {bodegas.map((sede, index) => {
                     // Verificar si esta bodega está seleccionada - USAR SOLO ID para evitar múltiples selecciones
                     // Primero intentar por ID (más confiable), luego por código si no hay ID
                     const isSelected = selectedSede?.id && sede.id
@@ -493,7 +433,14 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                 <div className="relative">
                   <select
                     value={selectedCompany?.id || ''}
-                    onChange={(e) => { switchCompany(Number(e.target.value)); setIsMoreMenuOpen(false); }}
+                    onChange={(e) => {
+                      const empId = Number(e.target.value);
+                      const emp = user?.empresas.find(comp => comp.id === empId);
+                      if (emp) {
+                        setPage('dashboard', { companySlug: emp.db_name });
+                      }
+                      setIsMoreMenuOpen(false);
+                    }}
                     className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {(user?.empresas || []).map(empresa => (

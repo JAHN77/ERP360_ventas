@@ -17,6 +17,7 @@ const { getConnection } = require('./services/sqlServerClient.cjs');
 const sql = require('mssql');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const DIANService = require('./services/dian-service.cjs');
+const verifyToken = require('./middleware/authMiddleware');
 
 
 // Cargar variables de entorno
@@ -86,6 +87,7 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Expose-Headers', 'Content-Disposition');
   next();
 });
 
@@ -146,11 +148,11 @@ const inventoryConceptsController = require('./controllers/inventoryConceptsCont
 
 // --- Inventory Concepts Routes ---
 console.log('Registering Inventory Concepts Routes...');
-app.get('/api/conceptos-inventario', inventoryConceptsController.getAllConcepts);
-app.get('/api/conceptos-inventario/:codcon', inventoryConceptsController.getConceptByCode);
-app.post('/api/conceptos-inventario', inventoryConceptsController.createConcept);
-app.put('/api/conceptos-inventario/:codcon', inventoryConceptsController.updateConcept);
-app.delete('/api/conceptos-inventario/:codcon', inventoryConceptsController.deleteConcept);
+app.get('/api/conceptos-inventario', verifyToken, inventoryConceptsController.getAllConcepts);
+app.get('/api/conceptos-inventario/:codcon', verifyToken, inventoryConceptsController.getConceptByCode);
+app.post('/api/conceptos-inventario', verifyToken, inventoryConceptsController.createConcept);
+app.put('/api/conceptos-inventario/:codcon', verifyToken, inventoryConceptsController.updateConcept);
+app.delete('/api/conceptos-inventario/:codcon', verifyToken, inventoryConceptsController.deleteConcept);
 
 
 // --- Purchase Order Routes ---
@@ -166,6 +168,10 @@ console.log('🔧 Registrando rutas en /api/inventario-fisico');
 app.use('/api/inventario-fisico', inventarioFisicoRoutes);
 console.log('✅ Rutas de inventario físico registradas');
 
+// --- Analytics Routes ---
+const analyticsRoutes = require('./routes/analyticsRoutes');
+app.use('/api/analytics', analyticsRoutes);
+
 // --- Email Routes ---
 const emailRoutes = require('./routes/emailRoutes');
 app.use('/api/email', emailRoutes);
@@ -173,7 +179,7 @@ app.use('/api/email', emailRoutes);
 const driveController = require('./controllers/driveController.js');
 
 // --- RUTAS DE DRIVE ---
-app.post('/api/drive/archive', driveController.archiveDocument);
+app.post('/api/drive/archive', verifyToken, driveController.archiveDocument);
 
 // --- Auth Routes ---
 const authRoutes = require('./routes/authRoutes');
@@ -216,7 +222,7 @@ app.get('/api/test-connection', async (req, res) => {
 });
 
 // Endpoint para proxy de Gemini
-app.post('/api/ai/generate', async (req, res) => {
+app.post('/api/ai/generate', verifyToken, async (req, res) => {
   try {
     const { type, payload = {} } = req.body || {};
 
@@ -276,16 +282,18 @@ app.post('/api/ai/generate', async (req, res) => {
   }
 });
 
+// Middleware moved to top
+
 // --- BUSQUEDAS (server-side) ---
-app.get('/api/buscar/clientes', clientController.searchClients);
+app.get('/api/buscar/clientes', verifyToken, clientController.searchClients);
 // Ruta alternativa para compatibilidad
-app.get('/api/clientes/search', clientController.searchClients);
+app.get('/api/clientes/search', verifyToken, clientController.searchClients);
 
 // BUSQUEDA PRODUCTOS
-app.get('/api/buscar/productos', productController.searchProducts);
+app.get('/api/buscar/productos', verifyToken, productController.searchProducts);
 
 
-app.get('/api/buscar/vendedores', async (req, res) => {
+app.get('/api/buscar/vendedores', verifyToken, async (req, res) => {
   try {
     const { search = '', limit = 20 } = req.query;
     if (String(search).trim().length < 2) {
@@ -312,7 +320,7 @@ app.get('/api/buscar/vendedores', async (req, res) => {
       WHERE Activo = 1
         AND (UPPER(LTRIM(RTRIM(nomven))) LIKE @likeUpper OR codven LIKE @like OR CAST(ideven AS VARCHAR(20)) LIKE @like)
       ORDER BY nomven`;
-    const data = await executeQueryWithParams(query, { likeUpper, like, limit: Number(limit) });
+    const data = await executeQueryWithParams(query, { likeUpper, like, limit: Number(limit) }, req.db_name);
 
     // Procesar los datos para extraer primer nombre y apellido del nombre completo
     const processedData = data.map((item) => {
@@ -348,7 +356,7 @@ app.use('/api', quoteRoutes); // Mounting at /api to support /api/cotizaciones a
 app.use('/api', orderRoutes); // Mounting at /api to support /api/pedidos and /api/pedidos-detalle
 app.use('/api', invoiceRoutes);
 app.use('/api', creditNoteRoutes);
-app.use('/api', remissionRoutes); 
+app.use('/api', remissionRoutes);
 app.use('/api/inventario', inventoryRoutes);
 app.use('/api/categorias', require('./routes/categoryRoutes')); // Registration of category routes
 app.use('/api/medidas', require('./routes/measureRoutes')); // Registration of measure routes

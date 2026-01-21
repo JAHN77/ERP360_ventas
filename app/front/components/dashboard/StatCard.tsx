@@ -4,11 +4,12 @@ import Card from '../ui/Card';
 interface StatCardProps {
   title: string;
   value: string;
+  subtitle?: string;
   icon: string;
   colorName: 'blue' | 'green' | 'orange' | 'violet';
 }
 
-const StatCard: React.FC<StatCardProps> = ({ title, value, icon, colorName }) => {
+const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, icon, colorName }) => {
   const colorClasses = {
     blue: {
       bg: 'bg-blue-100 dark:bg-blue-900/50',
@@ -39,6 +40,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, icon, colorName }) =>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase truncate">{title}</p>
           <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 truncate">{value}</p>
+          {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
         </div>
       </div>
     </Card>

@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
-// potentially add authMiddleware to check if admin
+const verifyToken = require('../middleware/authMiddleware');
 
-router.get('/', userController.getUsers);
-router.post('/', userController.createUser);
-router.put('/:id', userController.updateUser);
-router.delete('/:id', userController.deleteUser);
+router.get('/', verifyToken, userController.getUsers);
+router.post('/', verifyToken, userController.createUser);
+router.put('/:id', verifyToken, userController.updateUser);
+router.delete('/:id', verifyToken, userController.deleteUser);
 
 module.exports = router;

@@ -39,8 +39,8 @@ const purchaseOrderController = {
           AND (nomter LIKE @like OR codter LIKE @like)
         ORDER BY nomter`;
 
-      const data = await executeQueryWithParams(query, { like, limit: Number(limit) });
-      
+      const data = await executeQueryWithParams(query, { like, limit: Number(limit) }, req.db_name);
+
       const processedData = data.map(c => ({
         ...c,
         nombreCompleto: c.razonSocial || [c.primerNombre, c.segundoNombre, c.primerApellido, c.segundoApellido].filter(Boolean).join(' ').trim() || 'Sin Nombre'
@@ -99,7 +99,7 @@ const purchaseOrderController = {
         ORDER BY m.numcom DESC
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
       `;
-      
+
       console.log('🔍 [DEBUG] Executing Query on Table:', TABLE_NAMES.ordenes_compra);
       console.log('🔍 [DEBUG] Full Query:', query);
 
@@ -112,8 +112,8 @@ const purchaseOrderController = {
       `;
 
       const [orders, countResult] = await Promise.all([
-        executeQueryWithParams(query, queryParams),
-        executeQueryWithParams(countQuery, queryParams)
+        executeQueryWithParams(query, queryParams, req.db_name),
+        executeQueryWithParams(countQuery, queryParams, req.db_name)
       ]);
 
       res.json({
@@ -137,7 +137,7 @@ const purchaseOrderController = {
   getOrderById: async (req, res) => {
     try {
       const { id } = req.params;
-      
+
       const maeoQuery = `
         SELECT 
           m.*,
@@ -163,8 +163,8 @@ const purchaseOrderController = {
       `;
 
       const [maeoResult, itemsResult] = await Promise.all([
-        executeQueryWithParams(maeoQuery, { id }),
-        executeQueryWithParams(itemsQuery, { id })
+        executeQueryWithParams(maeoQuery, { id }, req.db_name),
+        executeQueryWithParams(itemsQuery, { id }, req.db_name)
       ]);
 
       if (maeoResult.length === 0) {
@@ -193,7 +193,7 @@ const purchaseOrderController = {
       const { codalm } = req.query; // Extract codalm from query string
 
       console.log('🔍 [DEBUG] Searching Order By Number:', number, 'in Warehouse:', codalm);
-      
+
       const maeoQuery = `
         SELECT 
           m.*,
@@ -209,11 +209,11 @@ const purchaseOrderController = {
       `;
 
       // Get the ID first to fetch items
-      const maeoResult = await executeQueryWithParams(maeoQuery, { 
+      const maeoResult = await executeQueryWithParams(maeoQuery, {
         number: String(number).trim(),
-        codalm 
-      });
-      
+        codalm
+      }, req.db_name);
+
       console.log('🔍 [DEBUG] Order Search Result Type:', typeof maeoResult);
       // Handle case where result might be single object or array
       const orderHeader = Array.isArray(maeoResult) ? maeoResult[0] : maeoResult;
@@ -237,7 +237,7 @@ const purchaseOrderController = {
         WHERE d.id_maecompra = @orderId
       `;
 
-      const itemsResult = await executeQueryWithParams(itemsQuery, { orderId });
+      const itemsResult = await executeQueryWithParams(itemsQuery, { orderId }, req.db_name);
       console.log('🔍 [DEBUG] Order Items Count:', itemsResult?.length);
 
       res.json({
@@ -258,13 +258,13 @@ const purchaseOrderController = {
    */
   createOrder: async (req, res) => {
     try {
-      const { 
-        codalm = '001', 
-        codter, 
-        feccom, 
+      const {
+        codalm = '001',
+        codter,
+        feccom,
         observaciones,
         items,
-        usuario, 
+        usuario,
         totals,
         numcom // Allow manual override if needed
       } = req.body;
@@ -282,7 +282,7 @@ const purchaseOrderController = {
           FROM ${TABLE_NAMES.ordenes_compra} 
           WHERE codalm = @codalm
         `;
-        const numResult = await executeQueryWithParams(numComQuery, { codalm });
+        const numResult = await executeQueryWithParams(numComQuery, { codalm }, req.db_name);
         finalNumCom = numResult[0].nextNum;
       }
 
@@ -292,12 +292,12 @@ const purchaseOrderController = {
         FROM ${TABLE_NAMES.ordenes_compra}
         WHERE numcom = @numcom AND codalm = @codalm
       `;
-      const [checkResult] = await executeQueryWithParams(maxCheckQuery, { numcom: finalNumCom, codalm });
-      
+      const [checkResult] = await executeQueryWithParams(maxCheckQuery, { numcom: finalNumCom, codalm }, req.db_name);
+
       if (checkResult && checkResult.count > 0) {
-        return res.status(400).json({ 
-          success: false, 
-          message: `El número de orden ${finalNumCom} ya existe en el almacén ${codalm}. Por favor verifique o intente nuevamente.` 
+        return res.status(400).json({
+          success: false,
+          message: `El número de orden ${finalNumCom} ya existe en el almacén ${codalm}. Por favor verifique o intente nuevamente.`
         });
       }
 
@@ -336,7 +336,7 @@ const purchaseOrderController = {
         valcom: totals.subtotal || 0,
         ivacom: totals.iva || 0,
         descom: totals.descuentos || req.body.valdescuentos || 0,
-        valfletes: req.body.valfletes || 0, 
+        valfletes: req.body.valfletes || 0,
         valret: req.body.valret || 0, // This is Total Retenciones (Source)
         valreteiva: retenciones.reteivaValor || 0,
         valreteica: retenciones.reteicaValor || 0,
@@ -346,7 +346,7 @@ const purchaseOrderController = {
         observaciones: observaciones || ''
       };
 
-      const maeoResult = await executeQueryWithParams(insertMaeoQuery, maeoParams);
+      const maeoResult = await executeQueryWithParams(insertMaeoQuery, maeoParams, req.db_name);
       const maeoId = maeoResult[0].id;
 
       // 3. Insert Items (com_ocompra)
@@ -380,26 +380,26 @@ const purchaseOrderController = {
              0, 0, 0 -- tasas det.
           )
         `;
-        
+
         await executeQueryWithParams(insertItemQuery, {
           id_maecompra: maeoId,
           codalm,
           numcom: nextNum,
           feccom: feccom ? new Date(feccom) : new Date(),
           codter,
-          codins: String(item.productoId), 
+          codins: String(item.productoId),
           cancom: itemQty,
           vuncom: itemPrice,
-          ivains: item.ivaPorcentaje || 0, 
-          ivacomItem: item.valorIva || 0, 
-          desins: itemDescPct, 
+          ivains: item.ivaPorcentaje || 0,
+          ivacomItem: item.valorIva || 0,
+          desins: itemDescPct,
           descomItem: req.body.descom || calcDescVal, // Use calc if not provided 
           codusu: usuario || 'SYSTEM'
-        });
+        }, req.db_name);
       }
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: 'Orden de compra creada exitosamente',
         data: { id: maeoId, numcom: nextNum }
       });

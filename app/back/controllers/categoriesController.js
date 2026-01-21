@@ -15,7 +15,7 @@ const categoriesController = {
         FROM inv_lineas 
         ORDER BY codline
       `;
-      const lines = await executeQuery(linesQuery);
+      const lines = await executeQuery(linesQuery, req.db_name);
 
       // Fetch Sublines
       const sublinesQuery = `
@@ -26,7 +26,7 @@ const categoriesController = {
         FROM inv_sublinea 
         ORDER BY codline, codsub
       `;
-      const sublines = await executeQuery(sublinesQuery);
+      const sublines = await executeQuery(sublinesQuery, req.db_name);
 
       // Merge manually to create a nested structure
       const result = lines.map(line => {
@@ -47,7 +47,7 @@ const categoriesController = {
   // GET /api/categorias/lineas
   getLines: async (req, res) => {
     try {
-      const result = await executeQuery('SELECT * FROM inv_lineas ORDER BY codline');
+      const result = await executeQuery('SELECT * FROM inv_lineas ORDER BY codline', req.db_name);
       res.json({ success: true, data: result });
     } catch (error) {
       res.status(500).json({ success: false, message: 'Error', error: error.message });
@@ -61,20 +61,20 @@ const categoriesController = {
       if (!codline || !nomline) {
         return res.status(400).json({ success: false, message: 'Código y nombre son requeridos' });
       }
-      
+
       const query = `
         INSERT INTO inv_lineas (codline, nomline, controla_servicios, tasamayor, estado)
         VALUES (@codline, @nomline, @controla_servicios, @tasamayor, @estado)
       `;
-      
+
       await executeQueryWithParams(query, {
         codline,
         nomline,
         controla_servicios: controla_servicios || 0,
         tasamayor: tasamayor || 0,
         estado: estado !== undefined ? estado : 1
-      });
-      
+      }, req.db_name);
+
       res.json({ success: true, message: 'Línea creada correctamente' });
     } catch (error) {
       console.error('Error creating line:', error);
@@ -86,7 +86,7 @@ const categoriesController = {
   updateLine: async (req, res) => {
     const { id } = req.params; // old codline
     const { codline, nomline, controla_servicios, tasamayor, estado } = req.body;
-    
+
     try {
       const query = `
         UPDATE inv_lineas 
@@ -97,7 +97,7 @@ const categoriesController = {
             ${codline !== id ? ', codline = @codline' : ''}
         WHERE codline = @id
       `;
-      
+
       const params = {
         id,
         nomline,
@@ -105,13 +105,13 @@ const categoriesController = {
         tasamayor: tasamayor || 0,
         estado: estado !== undefined ? estado : 1
       };
-      
+
       if (codline !== id) {
         params.codline = codline;
       }
-      
-      await executeQueryWithParams(query, params);
-      
+
+      await executeQueryWithParams(query, params, req.db_name);
+
       res.json({ success: true, message: 'Línea actualizada correctamente' });
     } catch (error) {
       console.error('Error updating line:', error);
@@ -126,8 +126,8 @@ const categoriesController = {
       // Check for related products or sublines before deleting might be good, 
       // but for now we'll rely on DB constraints or basic delete
       const query = 'DELETE FROM inv_lineas WHERE codline = @id';
-      await executeQueryWithParams(query, { id });
-      
+      await executeQueryWithParams(query, { id }, req.db_name);
+
       res.json({ success: true, message: 'Línea eliminada correctamente' });
     } catch (error) {
       console.error('Error deleting line:', error);
@@ -142,14 +142,14 @@ const categoriesController = {
       if (!codsub || !codline || !nomsub) {
         return res.status(400).json({ success: false, message: 'Código, línea y nombre son requeridos' });
       }
-      
+
       const query = `
         INSERT INTO inv_sublinea (codsub, codline, nomsub)
         VALUES (@codsub, @codline, @nomsub)
       `;
-      
-      await executeQueryWithParams(query, { codsub, codline, nomsub });
-      
+
+      await executeQueryWithParams(query, { codsub, codline, nomsub }, req.db_name);
+
       res.json({ success: true, message: 'Sublínea creada correctamente' });
     } catch (error) {
       console.error('Error creating subline:', error);
@@ -161,7 +161,7 @@ const categoriesController = {
   updateSubline: async (req, res) => {
     const { codline, codsub } = req.params;
     const { nomsub, newCodsub } = req.body; // allow changing codsub if needed
-    
+
     try {
       const query = `
         UPDATE inv_sublinea 
@@ -169,19 +169,19 @@ const categoriesController = {
             ${newCodsub && newCodsub !== codsub ? ', codsub = @newCodsub' : ''}
         WHERE codline = @codline AND codsub = @codsub
       `;
-      
+
       const params = {
         codline,
         codsub,
         nomsub
       };
-      
+
       if (newCodsub && newCodsub !== codsub) {
         params.newCodsub = newCodsub;
       }
-      
-      await executeQueryWithParams(query, params);
-      
+
+      await executeQueryWithParams(query, params, req.db_name);
+
       res.json({ success: true, message: 'Sublínea actualizada correctamente' });
     } catch (error) {
       console.error('Error updating subline:', error);
@@ -194,8 +194,8 @@ const categoriesController = {
     const { codline, codsub } = req.params;
     try {
       const query = 'DELETE FROM inv_sublinea WHERE codline = @codline AND codsub = @codsub';
-      await executeQueryWithParams(query, { codline, codsub });
-      
+      await executeQueryWithParams(query, { codline, codsub }, req.db_name);
+
       res.json({ success: true, message: 'Sublínea eliminada correctamente' });
     } catch (error) {
       console.error('Error deleting subline:', error);
@@ -213,7 +213,7 @@ const categoriesController = {
         FROM inv_lineas
         WHERE estado = 1
         ORDER BY nomline
-      `);
+      `, req.db_name);
       res.json({ success: true, data: result });
     } catch (error) {
       console.error('Error fetching categories:', error);

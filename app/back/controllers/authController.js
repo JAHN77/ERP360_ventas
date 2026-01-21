@@ -12,16 +12,38 @@ const authController = {
    */
   login: async (req, res) => {
     try {
-      const { username, password } = req.body;
+      const { username, password, companyId } = req.body;
 
       if (!username || !password) {
         return res.status(400).json({ success: false, message: 'Usuario y contraseña son requeridos' });
       }
 
-      // 1. Find user by codusu
-      // We limit to active users
-      console.log('Login attempt for:', username);
-      
+      console.log('Login attempt for:', username, 'Company ID:', companyId);
+
+      let targetDbName = process.env.DB_DATABASE; // Default to master/env DB if no companyId
+
+      // 1. Si hay companyId, buscar la configuración de la empresa en la BD Maestra
+      if (companyId) {
+        try {
+          const tenantQuery = `SELECT db_name FROM config_empresas WHERE id = @id AND activo = 1`;
+          // Usar executeQueryWithParams sin tercer argumento usa la BD por defecto (Maestra)
+          const tenants = await executeQueryWithParams(tenantQuery, { id: companyId });
+
+          if (tenants.length > 0) {
+            targetDbName = tenants[0].db_name;
+            console.log(`🏢 Empresa encontrada. Conectando a BD: ${targetDbName}`);
+          } else {
+            console.warn(`⚠️ Empresa con ID ${companyId} no encontrada o inactiva.`);
+            return res.status(400).json({ success: false, message: 'Empresa no válida o inactiva' });
+          }
+        } catch (err) {
+          console.error('❌ Error consultando config_empresas:', err);
+          // Fallback o error crítico dependiendo de la política
+          return res.status(500).json({ success: false, message: 'Error verificando empresa' });
+        }
+      }
+
+      // 2. Autenticar usuario en la base de datos objetivo (Tenant DB)
       const query = `
         SELECT 
           LTRIM(RTRIM(codusu)) as codusu, 
@@ -33,8 +55,9 @@ const authController = {
         FROM ${TABLE_NAMES.usuarios}
         WHERE LTRIM(RTRIM(codusu)) = @username AND Activo = 1
       `;
-      
-      const users = await executeQueryWithParams(query, { username });
+
+      // Pasar targetDbName como tercer argumento para usar la conexión correcta
+      const users = await executeQueryWithParams(query, { username }, targetDbName);
       console.log('Login: Users found:', users.length);
 
       if (users.length === 0) {
@@ -45,25 +68,21 @@ const authController = {
       const user = users[0];
       console.log('Login: User found:', user.codusu, 'Has password_web:', !!user.password_web);
 
-      // 2. Verify Password
-      // Check password_web first (Primary for web access)
+      // 3. Verify Password
       let isValid = false;
-
       if (user.password_web) {
         isValid = await bcrypt.compare(password, user.password_web);
         console.log('Login: Password verification result:', isValid);
       } else {
         console.log('Login: No password_web set');
-        isValid = false; 
+        isValid = false;
       }
 
       if (!isValid) {
         return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
       }
 
-      console.log('Login: Password verification result:', isValid);
-
-      // 3. Update Ultimo_Acceso if valid
+      // 4. Update Ultimo_Acceso if valid (en la BD del tenant)
       if (isValid) {
           try {
               const updateAccessQuery = `UPDATE ${TABLE_NAMES.usuarios} SET Ultimo_Acceso = GETDATE() WHERE codusu = @codusu`;
@@ -74,7 +93,7 @@ const authController = {
           }
       }
 
-      // Generate JWT
+      // 5. Generate JWT including db_name
       const token = jwt.sign(
         { 
           id: user.codusu, // Using codusu as ID since actual ID doesn't exist
@@ -144,30 +163,30 @@ const authController = {
         });
 
     } catch (error) {
-        console.error('Me error:', error);
-        res.status(500).json({ success: false, message: 'Error obteniendo datos del usuario' });
+      console.error('Me error:', error);
+      res.status(500).json({ success: false, message: 'Error obteniendo datos del usuario' });
     }
   },
-  
+
   /**
    * Update signature
    */
   updateSignature: async (req, res) => {
-      try {
-          let { firmaBase64 } = req.body;
-          const userId = req.user.id; // From middleware
-          
-          // Allow null or empty string to delete signature
-          if (firmaBase64 === undefined) {
-              return res.status(400).json({ success: false, message: 'Firma requerida' });
-          }
+    try {
+      let { firmaBase64 } = req.body;
+      const userId = req.user.id; // From middleware
 
-          // Convert empty string to null for DB
-          if (firmaBase64 === '') {
-              firmaBase64 = null;
-          }
-          
-          await executeQueryWithParams(`
+      // Allow null or empty string to delete signature
+      if (firmaBase64 === undefined) {
+        return res.status(400).json({ success: false, message: 'Firma requerida' });
+      }
+
+      // Convert empty string to null for DB
+      if (firmaBase64 === '') {
+        firmaBase64 = null;
+      }
+
+      await executeQueryWithParams(`
             UPDATE ${TABLE_NAMES.usuarios}
             SET firma = @firma
             WHERE codusu = @id
@@ -179,6 +198,61 @@ const authController = {
           console.error('Update signature error:', error);
           res.status(500).json({ success: false, message: 'Error actualizando firma' });
       }
+
+      const targetDbName = tenants[0].db_name;
+      console.log(`🏢 New Target DB: ${targetDbName}`);
+
+      // 2. Generate new token with new db_name
+      const token = jwt.sign(
+        {
+          id: userId,
+          codusu: req.user.codusu,
+          role: req.user.role,
+          db_name: targetDbName
+        },
+        process.env.JWT_SECRET || 'erp360_secret_key_development_only',
+        { expiresIn: '24h' }
+      );
+
+      res.json({
+        success: true,
+        data: {
+          token,
+          user: {
+            id: userId,
+            codusu: req.user.codusu,
+            role: req.user.role,
+            empresaDb: targetDbName
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Switch company error:', error);
+      res.status(500).json({ success: false, message: 'Error al cambiar de empresa' });
+    }
+  },
+
+  /**
+   * Get available companies for the user
+   */
+  getCompanies: async (req, res) => {
+    try {
+      // For now, return all active companies. 
+      // In a real multi-tenant system, we should filter by user access if there's a mapping table.
+      // Assuming 'admin' has access to all, or we just list all active tenants.
+
+      const query = `SELECT id, razon_social as razonSocial, nit, db_name FROM config_empresas WHERE activo = 1`;
+      const companies = await executeQueryWithParams(query, {}); // Uses master DB
+
+      res.json({
+        success: true,
+        data: companies
+      });
+    } catch (error) {
+      console.error('Get companies error:', error);
+      res.status(500).json({ success: false, message: 'Error obteniendo empresas' });
+    }
   }
 };
 

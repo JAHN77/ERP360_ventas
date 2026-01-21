@@ -5,12 +5,13 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl' | '7xl' | 'full';
+  maxWidth?: string; // Allow direct maxWidth override
   noPadding?: boolean;
   className?: string; // Permitir clases personalizadas
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 'lg', noPadding = false, className = '' }) => {
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 'lg', maxWidth, noPadding = false, className = '' }) => {
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -41,7 +42,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
   };
 
   // Fallback or custom size handling
-  const maxWidthClass = sizeClasses[size as keyof typeof sizeClasses] || sizeClasses['4xl'];
+  const maxWidthClass = maxWidth || sizeClasses[size as keyof typeof sizeClasses] || sizeClasses['4xl'];
 
   return (
     <div

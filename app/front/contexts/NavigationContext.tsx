@@ -1,6 +1,7 @@
 import React, { createContext, useState, ReactNode, useMemo, useCallback, useEffect } from 'react';
 import { NavigateFunction, Location } from 'react-router-dom';
 import { pageToRoute, routeToPage, getBasePath } from '../config/routes';
+import { useAuth } from '../hooks/useAuth';
 
 export type Page =
   'dashboard' |
@@ -11,7 +12,7 @@ export type Page =
   'pedidos' | 'nuevo_pedido' |
   'ordenes_compra' | 'nueva_orden_compra' |
   'remisiones' | 'editar_remision' |
-  'facturacion_electronica' | 'nueva_factura' |
+  'facturacion_electronica' | 'nueva_factura' | 'factura_directa' |
   'devoluciones' |
   'notas_credito_debito' |
   'demas_informes' |
@@ -21,7 +22,8 @@ export type Page =
   'inventory_concepts' |
   'conteo_fisico' |
   'usuarios' |
-  'perfil';
+  'perfil' |
+  'analytics';
 
 interface NavigationState {
   page: Page;
@@ -52,6 +54,7 @@ export const NavigationProvider = ({
   navigate: routerNavigate,
   location: routerLocation
 }: NavigationProviderProps) => {
+  const { selectedCompany } = useAuth();
   const [state, setState] = useState<NavigationState>({ page: 'dashboard', params: {} });
   const hasRouter = !!routerNavigate && !!routerLocation;
 
@@ -72,7 +75,13 @@ export const NavigationProvider = ({
   }, [hasRouter, routerLocation?.pathname]);
 
   const setPage = useCallback((page: Page, params: Record<string, any> = {}) => {
-    const route = pageToRoute(page, params);
+    // Inyectar automáticamente companySlug si no está presente
+    const finalParams = { ...params };
+    if (!finalParams.companySlug && selectedCompany?.db_name) {
+      finalParams.companySlug = selectedCompany.db_name;
+    }
+
+    const route = pageToRoute(page, finalParams);
 
     // Si hay router, actualizar URL
     if (hasRouter && routerNavigate) {
@@ -106,7 +115,7 @@ export const NavigationProvider = ({
   const value = useMemo(() => ({
     ...state,
     setPage,
-    navigate: handleNavigate
+    navigate: handleNavigate,
   }), [state, setPage, handleNavigate]);
 
   return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;

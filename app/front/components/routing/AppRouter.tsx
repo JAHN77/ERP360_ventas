@@ -1,8 +1,8 @@
 import React, { Suspense, lazy } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { hasPagePermission } from '../../config/rolesConfig';
-import { routeMap } from '../../config/routes';
+import { routeMap, pageToRoute } from '../../config/routes';
 import Spinner from '../Spinner';
 import AccessDeniedPage from '../../pages/AccessDeniedPage';
 import NotFoundPage from '../../pages/NotFoundPage';
@@ -19,6 +19,7 @@ const PedidosPage = lazy(() => import('../../pages/PedidosPage'));
 const RemisionesPage = lazy(() => import('../../pages/RemisionesPage'));
 const DevolucionesPage = lazy(() => import('../../pages/DevolucionesPage'));
 const NuevaFacturaPage = lazy(() => import('../../pages/NuevaFacturaPage'));
+const FacturaDirectaPage = lazy(() => import('../../pages/FacturaDirectaPage'));
 const FormClientePage = lazy(() => import('../../pages/FormClientePage'));
 const FormProductoPage = lazy(() => import('../../pages/FormProductoPage'));
 const NuevaCotizacionPage = lazy(() => import('../../pages/NuevaCotizacionPage'));
@@ -38,6 +39,7 @@ const NuevoConteoFisicoPage = lazy(() => import('../../pages/NuevoConteoFisicoPa
 const DetalleConteoFisicoPage = lazy(() => import('../../pages/DetalleConteoFisicoPage'));
 const UsersPage = lazy(() => import('../../pages/UsersPage'));
 const ProfilePage = lazy(() => import('../../pages/ProfilePage'));
+const AnalyticsPage = lazy(() => import('../../pages/AnalyticsPage'));
 
 /**
  * Componente de ruta protegida que verifica permisos
@@ -52,29 +54,52 @@ const ProtectedRoute: React.FC<{
     return <Navigate to="/" replace />;
   }
 
-  // Debugging TypeError
-  // console.log('ProtectedRoute check:', { userRole: user.rol, page });
-
   try {
     if (!hasPagePermission(user.rol, page as any)) {
       return <AccessDeniedPage />;
     }
   } catch (error) {
     console.error('Error in ProtectedRoute permission check:', error);
-    console.error('Values:', { userRole: user.rol, page, user });
-    return <AccessDeniedPage />; // Fail safe
+    return <AccessDeniedPage />;
   }
 
   return <>{children}</>;
 };
 
 /**
- * Router principal de la aplicación
- * Compatible con Single-SPA y funcionamiento standalone
+ * Router principal de la aplicación con soporte Multi-tenant
  */
 const AppRouter: React.FC = () => {
-  const { isAuthenticated, user, selectedSede, isLoadingBodegas, selectedCompany } = useAuth();
+  const { isAuthenticated, user, selectedSede, isLoadingBodegas, selectedCompany, switchCompany } = useAuth();
   const [showBodegaModal, setShowBodegaModal] = React.useState(false);
+  const [isSwitching, setIsSwitching] = React.useState(false);
+  const { companySlug } = useParams<{ companySlug: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Sincronizar contexto de empresa con el slug de la URL
+  React.useEffect(() => {
+    if (isAuthenticated && user && companySlug && selectedCompany) {
+      if (companySlug !== selectedCompany.db_name) {
+        const targetCompany = user.empresas.find(e => e.db_name === companySlug);
+        if (targetCompany) {
+          console.log(`[TenantGuard] URL slug (${companySlug}) mismatch with context (${selectedCompany.db_name}). Switching...`);
+          setIsSwitching(true);
+          // switchCompany is async
+          (async () => {
+            try {
+              await switchCompany(targetCompany.id);
+            } finally {
+              setIsSwitching(false);
+            }
+          })();
+        } else {
+          console.warn(`[TenantGuard] Company slug "${companySlug}" not found for user. Redirecting to current company.`);
+          navigate(`/${selectedCompany.db_name}${location.pathname.substring(companySlug.length + 1)}`, { replace: true });
+        }
+      }
+    }
+  }, [companySlug, selectedCompany, isAuthenticated, user, switchCompany, navigate, location.pathname]);
 
   // Mostrar modal de selección de bodega si es necesario
   React.useEffect(() => {
@@ -85,21 +110,34 @@ const AppRouter: React.FC = () => {
       selectedCompany &&
       !selectedSede &&
       selectedCompany.sedes &&
-      selectedCompany.sedes.length > 0
+      selectedCompany.sedes.length > 0 &&
+      !isSwitching
     ) {
       setShowBodegaModal(true);
     } else {
       setShowBodegaModal(false);
     }
-  }, [isAuthenticated, user, isLoadingBodegas, selectedCompany, selectedSede]);
+  }, [isAuthenticated, user, isLoadingBodegas, selectedCompany, selectedSede, isSwitching]);
 
-  // Si no está autenticado, redirigir al login (esto se maneja en App.tsx)
+  // Si no está autenticado, redirigir al login
   if (!isAuthenticated || !user) {
-    return null; // El login se maneja en App.tsx
+    return null;
+  }
+
+  // Estado de carga durante el cambio de empresa o carga de bodegas
+  if (isSwitching || (isLoadingBodegas && !selectedSede)) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
+        <Spinner size="lg" />
+        <p className="mt-4 text-slate-600 dark:text-slate-400 font-medium animate-pulse">
+          {isSwitching ? 'Cambiando de empresa...' : 'Cargando configuración...'}
+        </p>
+      </div>
+    );
   }
 
   // No mostrar el contenido principal hasta que se seleccione una bodega
-  if (!selectedSede && !isLoadingBodegas && selectedCompany?.sedes && selectedCompany.sedes.length > 0) {
+  if (!selectedSede && selectedCompany?.sedes && selectedCompany.sedes.length > 0) {
     return (
       <>
         <BodegaSelectorModal
@@ -118,6 +156,20 @@ const AppRouter: React.FC = () => {
         </div>
       }>
         <Routes>
+          {/* Redirección inicial a la empresa seleccionada */}
+          <Route
+            path="/"
+            element={
+              selectedCompany ? (
+                <Navigate to={`/${selectedCompany.db_name || 'default'}`} replace />
+              ) : (
+                <div className="flex items-center justify-center min-h-[400px]">
+                  <Spinner size="lg" />
+                </div>
+              )
+            }
+          />
+
           {/* Dashboard */}
           <Route
             path={routeMap.dashboard}
@@ -337,6 +389,14 @@ const AppRouter: React.FC = () => {
               </ProtectedRoute>
             }
           />
+          <Route
+            path={routeMap.factura_directa}
+            element={
+              <ProtectedRoute page="factura_directa">
+                <FacturaDirectaPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Devoluciones */}
           <Route
@@ -380,6 +440,16 @@ const AppRouter: React.FC = () => {
             element={
               <ProtectedRoute page="activity_log">
                 <ActivityLogPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Analytics */}
+          <Route
+            path={routeMap.analytics}
+            element={
+              <ProtectedRoute page="analytics">
+                <AnalyticsPage />
               </ProtectedRoute>
             }
           />
