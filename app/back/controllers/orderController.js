@@ -132,7 +132,7 @@ const getAllOrders = async (req, res) => {
             // Obtener items del pedido para calcular estado real
             const reqItemsPedido = new sql.Request(pool);
             reqItemsPedido.input('pedidoId', sql.Int, pedidoId);
-            const pedidoNumResult = await reqItemsPedido.query(`SELECT numero_pedido FROM ven_pedidos WHERE id = @pedidoId`);
+            const pedidoNumResult = await reqItemsPedido.query(`SELECT numero_pedido FROM ${TABLE_NAMES.pedidos} WHERE id = @pedidoId`);
             const numeroPedido = pedidoNumResult.recordset[0]?.numero_pedido;
 
             let numpedPedido = null;
@@ -152,13 +152,13 @@ const getAllOrders = async (req, res) => {
               reqItemsPedido2.input('numped', sql.Char(8), numpedPedido);
               itemsPedidoResult = await reqItemsPedido2.query(`
                 SELECT pd.codins, (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as producto_id, pd.canped as cantidad
-                FROM ven_detapedidos pd WHERE pd.numped = @numped
+                FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.numped = @numped
               `);
             } else {
               reqItemsPedido2.input('pedidoId', sql.Int, pedidoId);
               itemsPedidoResult = await reqItemsPedido2.query(`
                 SELECT pd.codins, (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as producto_id, pd.canped as cantidad
-                FROM ven_detapedidos pd WHERE pd.pedido_id = @pedidoId
+                FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = @pedidoId
               `);
             }
 
@@ -200,7 +200,7 @@ const getAllOrders = async (req, res) => {
               const estadoDbTruncado = String(estadoDb || 'B').substring(0, 1);
               reqUpdate.input('nuevoEstado', sql.Char(1), estadoDbTruncado);
 
-              await reqUpdate.query(`UPDATE ven_pedidos SET estado = @nuevoEstado WHERE id = @pedidoId`);
+              await reqUpdate.query(`UPDATE ${TABLE_NAMES.pedidos} SET estado = @nuevoEstado WHERE id = @pedidoId`);
               pedido.estado = estadoDbTruncado;
             }
           }
@@ -383,21 +383,44 @@ const createOrderInternal = async (tx, orderData) => {
     // Encontrado por ID
   }
 
-  const clienteData = clienteRes.recordset.length > 0 ? clienteRes.recordset[0] : (await new sql.Request(tx).query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = ${parseInt(clienteIdStr)}`)).recordset[0];
-  const codTerFinal = clienteData.codter;
+      // 1. Validar Cliente
+      const clienteIdStr = String(clienteId).trim();
+      const reqCliente = new sql.Request(tx);
+      let clienteQuery = `SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @codter`;
+      // Si es numérico, podría ser ID
+      if (!isNaN(parseInt(clienteIdStr)) && String(parseInt(clienteIdStr)) === clienteIdStr) {
+           // Intentar por ID también si fuese necesario, pero useremos codter normalmente
+           // Asumimos clienteId es codter
+      }
+      reqCliente.input('codter', sql.VarChar(20), clienteIdStr);
+      const clienteRes = await reqCliente.query(clienteQuery);
+      
+      if (clienteRes.recordset.length === 0) {
+        // Fallback: buscar por ID
+        const reqCliId = new sql.Request(tx);
+        reqCliId.input('id', sql.Int, parseInt(clienteIdStr));
+        const cliIdRes = await reqCliId.query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = @id`);
+        if (cliIdRes.recordset.length === 0) {
+             throw new Error('Cliente no encontrado');
+        }
+        // Encontrado por ID
+      }
+      
+      const clienteData = clienteRes.recordset.length > 0 ? clienteRes.recordset[0] : (await new sql.Request(tx).query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = ${parseInt(clienteIdStr)}`)).recordset[0];
+      const codTerFinal = clienteData.codter;
 
-  // 2. Validar Empresa/Almacén
-  let codAlmFinal = '001';
-  let empresaIdValid = 1;
-  // Lógica simplificada: usar '001' si no viene, o validar si viene.
-  if (empresaId) codAlmFinal = String(empresaId).trim();
+      // 2. Validar Empresa/Almacén
+      let codAlmFinal = '001';
+      let empresaIdValid = 1;
+      // Lógica simplificada: usar '001' si no viene, o validar si viene.
+      if (empresaId) codAlmFinal = String(empresaId).trim();
 
-  // 3. Generar/Validar Número
-  let numeroPedidoFinal = numeroPedido;
-  if (!numeroPedido || numeroPedido === 'AUTO') {
-    const reqUltimo = new sql.Request(tx);
-    const ultimoRes = await reqUltimo.query(`
-            SELECT TOP 1 numero_pedido FROM ven_pedidos 
+      // 3. Generar/Validar Número
+      let numeroPedidoFinal = numeroPedido;
+      if (!numeroPedido || numeroPedido === 'AUTO') {
+          const reqUltimo = new sql.Request(tx);
+          const ultimoRes = await reqUltimo.query(`
+            SELECT TOP 1 numero_pedido FROM ${TABLE_NAMES.pedidos} 
             WHERE numero_pedido NOT LIKE 'B-%' 
             ORDER BY id DESC
           `);
@@ -444,7 +467,11 @@ const createOrderInternal = async (tx, orderData) => {
       if (resVen.recordset.length > 0) {
         codVendedorFinal = resVen.recordset[0].codven;
       } else {
-        codVendedorFinal = vendedorIdStr;
+          // Validar existencia
+          const reqCheck = new sql.Request(tx);
+          reqCheck.input('num', sql.VarChar(50), numeroPedido);
+          const check = await reqCheck.query(`SELECT id FROM ${TABLE_NAMES.pedidos} WHERE numero_pedido = @num`);
+          if (check.recordset.length > 0) throw new Error('Número de pedido duplicado');
       }
     } else {
       codVendedorFinal = vendedorIdStr;
@@ -499,8 +526,8 @@ const createOrderInternal = async (tx, orderData) => {
   }
   reqHead.input('formapago', sql.NChar(4), formaPagoFinal);
 
-  const headQuery = `
-        INSERT INTO ven_pedidos (
+      const headQuery = `
+        INSERT INTO ${TABLE_NAMES.pedidos} (
           numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, empresa_id,
           cotizacion_id, subtotal, descuento_valor, descuento_porcentaje, iva_valor,
           iva_porcentaje, total, observaciones, estado, fec_creacion, fec_modificacion, formapago
@@ -512,53 +539,35 @@ const createOrderInternal = async (tx, orderData) => {
         SELECT SCOPE_IDENTITY() AS id;
       `;
 
-  const headRes = await reqHead.query(headQuery);
-  const pedidoId = headRes.recordset[0].id;
+          const cant = validateDecimal18_2(item.cantidad, 'cant');
+          const prec = validateDecimal18_2(item.precioUnitario, 'prec');
+          
+          // Calcular descuentos por item correctamente
+          let dctoVal = 0;
+          if (item.descuentoValor) {
+             dctoVal = validateDecimal18_2(item.descuentoValor, 'dctoVal');
+          } else if (item.descuentoPorcentaje) {
+             dctoVal = (cant * prec) * (parseFloat(item.descuentoPorcentaje)/100);
+          }
+          dctoVal = validateDecimal18_2(dctoVal, 'dcto');
 
-  // 6. Insertar Detalles
-  // Generar numped formato 8 char para detalles (legacy support)
-  // PED-00001 -> PED00001
-  const soloDigitos = String(numeroPedidoFinal).replace(/\D/g, '');
-  const numpedLegacy = soloDigitos ? soloDigitos.substring(0, 8).padStart(8, '0') : numeroPedidoFinal.substring(0, 8).padStart(8, '0');
+          const ivaVal = validateDecimal18_2(item.valorIva || 0, 'iva');
+          
+          reqDet.input('numped', sql.Char(8), numpedLegacy.substring(0, 8).padStart(8, '0'));
+          reqDet.input('codins', sql.Char(8), codIns.padStart(8, '0'));
+          reqDet.input('valins', sql.Decimal(18, 2), prec);
+          reqDet.input('canped', sql.Decimal(18, 2), cant);
+          reqDet.input('ivaped', sql.Decimal(18, 2), ivaVal);
+          reqDet.input('dctped', sql.Decimal(18, 2), dctoVal);
+          reqDet.input('estped', sql.Char(1), 'B');
+          reqDet.input('codalm', sql.Char(3), codAlmFinal.substring(0, 3).padStart(3, '0'));
+          reqDet.input('pedido_id', sql.Int, pedidoId);
+          reqDet.input('feccargo', sql.Date, fechaPedido || new Date());
 
-  for (const item of items) {
-    const reqDet = new sql.Request(tx);
-
-    let codIns = String(item.codProducto || '').substring(0, 8);
-    if (!codIns && item.productoId) {
-      const pRes = await new sql.Request(tx).query(`SELECT codins FROM inv_insumos WHERE id = ${item.productoId}`);
-      if (pRes.recordset.length) codIns = pRes.recordset[0].codins;
-    }
-
-    const cant = validateDecimal18_2(item.cantidad, 'cant');
-    const prec = validateDecimal18_2(item.precioUnitario, 'prec');
-
-    // Calcular descuentos por item correctamente
-    let dctoVal = 0;
-    if (item.descuentoValor) {
-      dctoVal = validateDecimal18_2(item.descuentoValor, 'dctoVal');
-    } else if (item.descuentoPorcentaje) {
-      dctoVal = (cant * prec) * (parseFloat(item.descuentoPorcentaje) / 100);
-    }
-    dctoVal = validateDecimal18_2(dctoVal, 'dcto');
-
-    const ivaVal = validateDecimal18_2(item.valorIva || 0, 'iva');
-
-    reqDet.input('numped', sql.Char(8), numpedLegacy.substring(0, 8).padStart(8, '0'));
-    reqDet.input('codins', sql.Char(8), codIns.padStart(8, '0'));
-    reqDet.input('valins', sql.Decimal(18, 2), prec);
-    reqDet.input('canped', sql.Decimal(18, 2), cant);
-    reqDet.input('ivaped', sql.Decimal(18, 2), ivaVal);
-    reqDet.input('dctped', sql.Decimal(18, 2), dctoVal);
-    reqDet.input('estped', sql.Char(1), 'B');
-    reqDet.input('codalm', sql.Char(3), codAlmFinal.substring(0, 3).padStart(3, '0'));
-    reqDet.input('pedido_id', sql.Int, pedidoId);
-    reqDet.input('feccargo', sql.Date, fechaPedido || new Date());
-
-    reqDet.input('codtec', sql.VarChar(20), ''); // Valor por defecto
-
-    await reqDet.query(`
-            INSERT INTO ven_detapedidos (
+          reqDet.input('codtec', sql.VarChar(20), ''); // Valor por defecto
+          
+          await reqDet.query(`
+            INSERT INTO ${TABLE_NAMES.pedidos_detalle} (
                numped, codins, valins, canped, ivaped, dctped, estped, codalm, pedido_id, feccargo, Fecsys, codtec
             ) VALUES (
                @numped, @codins, @valins, @canped, @ivaped, @dctped, @estped, @codalm, @pedido_id, @feccargo, GETDATE(), @codtec

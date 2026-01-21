@@ -500,11 +500,10 @@ const QUERIES = {
       COALESCE(rd.cantidad_enviada, 0) as cantidad,
       
       -- 1. PRECIO UNITARIO: Prioridad Pedido -> Catálogo
-      COALESCE(
+         COALESCE(
         (SELECT TOP 1 pd.valins 
-         FROM ven_detapedidos pd 
-         INNER JOIN ${TABLE_NAMES.pedidos} ped ON LTRIM(RTRIM(ped.numero_pedido)) = LTRIM(RTRIM(pd.numped))
-         WHERE ped.id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+         FROM ${TABLE_NAMES.pedidos_detalle} pd 
+         WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
         p.ultimo_costo, -- Fallback al costo/precio de lista si no hay precio en pedido
         0
       ) as precioUnitario,
@@ -513,10 +512,9 @@ const QUERIES = {
       CASE 
         WHEN COALESCE(rd.cantidad_enviada, 0) > 0 THEN
            COALESCE(
-             (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0)) * 100
-              FROM ven_detapedidos pd 
-              INNER JOIN ${TABLE_NAMES.pedidos} ped ON LTRIM(RTRIM(ped.numero_pedido)) = LTRIM(RTRIM(pd.numped))
-              WHERE ped.id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+            (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0)) * 100
+             FROM ${TABLE_NAMES.pedidos_detalle} pd 
+             WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
              0
            )
         ELSE 0
@@ -529,9 +527,7 @@ const QUERIES = {
       -- Subtotal
       (rd.cantidad_enviada * 
        COALESCE(
-        (SELECT TOP 1 pd.valins FROM ven_detapedidos pd 
-         INNER JOIN ${TABLE_NAMES.pedidos} ped ON LTRIM(RTRIM(ped.numero_pedido)) = LTRIM(RTRIM(pd.numped))
-         WHERE ped.id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+        (SELECT TOP 1 pd.valins FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
         p.ultimo_costo, 
         0
        ) 
@@ -549,18 +545,15 @@ const QUERIES = {
       -- Valor IVA (sobre el subtotal con descuento)
       ((rd.cantidad_enviada * 
         COALESCE(
-         (SELECT TOP 1 pd.valins FROM ven_detapedidos pd 
-          INNER JOIN ${TABLE_NAMES.pedidos} ped ON LTRIM(RTRIM(ped.numero_pedido)) = LTRIM(RTRIM(pd.numped))
-          WHERE ped.id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+         (SELECT TOP 1 pd.valins FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
          p.ultimo_costo, 
          0
         ) 
         * (1 - (
           COALESCE(
             (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0))
-             FROM ven_detapedidos pd 
-             INNER JOIN ${TABLE_NAMES.pedidos} ped ON LTRIM(RTRIM(ped.numero_pedido)) = LTRIM(RTRIM(pd.numped))
-             WHERE ped.id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+             FROM ${TABLE_NAMES.pedidos_detalle} pd 
+             WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
             0
           )
         ))
@@ -569,18 +562,15 @@ const QUERIES = {
       -- Total
       ((rd.cantidad_enviada * 
         COALESCE(
-         (SELECT TOP 1 pd.valins FROM ven_detapedidos pd 
-          INNER JOIN ${TABLE_NAMES.pedidos} ped ON LTRIM(RTRIM(ped.numero_pedido)) = LTRIM(RTRIM(pd.numped))
-          WHERE ped.id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+         (SELECT TOP 1 pd.valins FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
          p.ultimo_costo, 
          0
         ) 
         * (1 - (
           COALESCE(
             (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0))
-             FROM ven_detapedidos pd 
-             INNER JOIN ${TABLE_NAMES.pedidos} ped ON LTRIM(RTRIM(ped.numero_pedido)) = LTRIM(RTRIM(pd.numped))
-             WHERE ped.id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+             FROM ${TABLE_NAMES.pedidos_detalle} pd 
+             WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
             0
           )
         ))

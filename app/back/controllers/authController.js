@@ -46,7 +46,6 @@ const authController = {
       // 2. Autenticar usuario en la base de datos objetivo (Tenant DB)
       const query = `
         SELECT 
-          id, 
           LTRIM(RTRIM(codusu)) as codusu, 
           LTRIM(RTRIM(nomusu)) as nomusu, 
           password_web,
@@ -85,21 +84,21 @@ const authController = {
 
       // 4. Update Ultimo_Acceso if valid (en la BD del tenant)
       if (isValid) {
-        try {
-          const updateAccessQuery = `UPDATE ${TABLE_NAMES.usuarios} SET Ultimo_Acceso = GETDATE() WHERE id = @id`;
-          await executeQueryWithParams(updateAccessQuery, { id: user.id }, targetDbName);
-        } catch (accessErr) {
-          console.error('Error updating Last Access Date:', accessErr);
-        }
+          try {
+              const updateAccessQuery = `UPDATE ${TABLE_NAMES.usuarios} SET Ultimo_Acceso = GETDATE() WHERE codusu = @codusu`;
+              await executeQueryWithParams(updateAccessQuery, { codusu: user.codusu });
+          } catch (accessErr) {
+              console.error('Error updating Last Access Date:', accessErr);
+              // Non-blocking error
+          }
       }
 
       // 5. Generate JWT including db_name
       const token = jwt.sign(
-        {
-          id: user.id,
-          codusu: user.codusu,
-          role: user.tipousu === 1 ? 'admin' : 'vendedor',
-          db_name: targetDbName // IMPORTANT: Include DB name in token for subsequent requests
+        { 
+          id: user.codusu, // Using codusu as ID since actual ID doesn't exist
+          codusu: user.codusu, 
+          role: user.tipousu === 1 ? 'admin' : 'vendedor' 
         },
         process.env.JWT_SECRET || 'erp360_secret_key_development_only',
         { expiresIn: '24h' }
@@ -108,15 +107,14 @@ const authController = {
       res.json({
         success: true,
         data: {
-          token,
-          user: {
-            id: user.id,
-            codusu: user.codusu,
-            nomusu: user.nomusu,
-            role: user.tipousu === 1 ? 'admin' : 'vendedor',
-            firma: user.firma,
-            empresaDb: targetDbName
-          }
+            token,
+            user: {
+                id: user.codusu,
+                codusu: user.codusu,
+                nomusu: user.nomusu,
+                role: user.tipousu === 1 ? 'admin' : 'vendedor',
+                firma: user.firma
+            }
         }
       });
 
@@ -131,39 +129,38 @@ const authController = {
    */
   me: async (req, res) => {
     try {
-      // Middleware should have already attached user to req
-      if (!req.user) {
-        return res.status(401).json({ success: false, message: 'No autenticado' });
-      }
-
-      // Fetch fresh data incl signature
-      const query = `
-            SELECT id, LTRIM(RTRIM(codusu)) as codusu, LTRIM(RTRIM(nomusu)) as nomusu, tipousu, firma
-            FROM ${TABLE_NAMES.usuarios}
-            WHERE id = @id
-        `;
-      // Use the database from the token (req.db_name)
-      const users = await executeQueryWithParams(query, { id: req.user.id }, req.db_name);
-
-      if (users.length === 0) {
-        return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
-      }
-
-      const user = users[0];
-
-      res.json({
-        success: true,
-        data: {
-          user: {
-            id: user.id,
-            codusu: user.codusu,
-            nomusu: user.nomusu,
-            role: user.tipousu === 1 ? 'admin' : 'vendedor',
-            firma: user.firma || null,
-            empresaDb: req.db_name // CRITICAL: Return current DB context
-          }
+        // Middleware should have already attached user to req
+        if (!req.user) {
+            return res.status(401).json({ success: false, message: 'No autenticado' });
         }
-      });
+        
+        // Fetch fresh data incl signature
+        const query = `
+            SELECT LTRIM(RTRIM(codusu)) as codusu, LTRIM(RTRIM(nomusu)) as nomusu, tipousu, firma
+            FROM ${TABLE_NAMES.usuarios}
+            WHERE codusu = @id
+        `;
+        // req.user.id is actually codusu now
+        const users = await executeQueryWithParams(query, { id: req.user.id });
+        
+        if (users.length === 0) {
+             return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+        }
+        
+        const user = users[0];
+        
+        res.json({
+            success: true,
+            data: {
+                user: {
+                    id: user.codusu,
+                    codusu: user.codusu,
+                    nomusu: user.nomusu,
+                    role: user.tipousu === 1 ? 'admin' : 'vendedor',
+                    firma: user.firma || null
+                }
+            }
+        });
 
     } catch (error) {
       console.error('Me error:', error);
@@ -192,36 +189,14 @@ const authController = {
       await executeQueryWithParams(`
             UPDATE ${TABLE_NAMES.usuarios}
             SET firma = @firma
-            WHERE id = @id
-          `, { firma: firmaBase64, id: userId }, req.db_name);
-
-      res.json({ success: true, message: 'Firma actualizada exitosamente' });
-
-    } catch (error) {
-      console.error('Update signature error:', error);
-      res.status(500).json({ success: false, message: 'Error actualizando firma' });
-    }
-  },
-  /**
-   * Switch Company (Generate new token for target DB)
-   */
-  switchCompany: async (req, res) => {
-    try {
-      const { companyId } = req.body;
-      const userId = req.user.id;
-
-      if (!companyId) {
-        return res.status(400).json({ success: false, message: 'Company ID is required' });
-      }
-
-      console.log(`🔄 Switching company for user ${req.user.codusu} to Company ID: ${companyId}`);
-
-      // 1. Get target DB name from Master DB
-      const tenantQuery = `SELECT db_name FROM config_empresas WHERE id = @id AND activo = 1`;
-      const tenants = await executeQueryWithParams(tenantQuery, { id: companyId });
-
-      if (tenants.length === 0) {
-        return res.status(404).json({ success: false, message: 'Empresa no encontrada o inactiva' });
+            WHERE codusu = @id
+          `, { firma: firmaBase64, id: userId });
+          
+          res.json({ success: true, message: 'Firma actualizada exitosamente' });
+          
+      } catch (error) {
+          console.error('Update signature error:', error);
+          res.status(500).json({ success: false, message: 'Error actualizando firma' });
       }
 
       const targetDbName = tenants[0].db_name;
