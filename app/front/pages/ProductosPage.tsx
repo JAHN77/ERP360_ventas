@@ -41,6 +41,11 @@ const ProductosPage: React.FC = () => {
   const [tempPrice, setTempPrice] = useState<string>('');
   const [isUpdatingPrice, setIsUpdatingPrice] = useState(false);
 
+  /* -----------------------------------------------------------------------------------------------
+   * ESTADO DE UI
+   * -----------------------------------------------------------------------------------------------*/
+  const [activeTab, setActiveTab] = useState<'productos' | 'servicios'>('productos');
+
   // Cargar categorías una sola vez
   useEffect(() => {
     (async () => {
@@ -49,55 +54,78 @@ const ProductosPage: React.FC = () => {
     })();
   }, []);
 
-  // Cargar productos con paginación (con debounce para búsqueda)
+  // Cargar productos o servicios con paginación
   useEffect(() => {
-    const loadProductos = async () => {
+    const loadData = async () => {
       setIsLoading(true);
       try {
-        const prodRes = await apiClient.getProductos(
-          undefined,
-          currentPage,
-          pageSize,
-          searchTerm || undefined,
-          sortConfig?.key as string,
-          sortConfig?.direction
-        );
-        if (prodRes.success) {
-          let productosData = (prodRes.data as any[]) as InvProducto[];
+        let response;
 
-          // Aplicar filtro de categoría en el cliente
-          if (categoryFilter !== 'Todos') {
-            productosData = productosData.filter(p => p.idCategoria === parseInt(categoryFilter));
+        if (activeTab === 'productos') {
+          response = await apiClient.getProductos(
+            undefined, // codalm
+            currentPage,
+            pageSize,
+            searchTerm || undefined,
+            sortConfig?.key as string,
+            sortConfig?.direction
+          );
+        } else {
+          // Cargar Servicios
+          response = await apiClient.getServices(
+            currentPage,
+            pageSize,
+            searchTerm || undefined,
+            sortConfig?.key as string,
+            sortConfig?.direction
+          );
+        }
+
+        if (response.success) {
+          let dataList = (response.data as any[]) as InvProducto[];
+
+          // Aplicar filtro de categoría en el cliente (SOLO PARA PRODUCTOS)
+          if (activeTab === 'productos' && categoryFilter !== 'Todos') {
+            dataList = dataList.filter(p => p.idCategoria === parseInt(categoryFilter));
           }
 
-          setProductos(productosData);
+          setProductos(dataList);
 
-          // Usar información de paginación del servidor
-          if ((prodRes as any).pagination) {
-            // Nota: El total puede no ser exacto si se aplica filtro de categoría en el cliente
-            // Para mejor precisión, considera mover el filtro de categoría al servidor
-            setTotalItems((prodRes as any).pagination.total);
-            setTotalPages((prodRes as any).pagination.totalPages);
+          // Paginación
+          if ((response as any).pagination) {
+            setTotalItems((response as any).pagination.total);
+            setTotalPages((response as any).pagination.totalPages);
           }
+        } else {
+          console.error('Error loading data:', response.message);
+          setProductos([]); // Limpiar si hay error para evitar confusión
         }
       } catch (error) {
-        console.error('Error cargando productos:', error);
+        console.error('Error cargando datos:', error);
+        setProductos([]);
       } finally {
         setIsLoading(false);
       }
     };
 
-    // Debounce para búsqueda: esperar 500ms después de que el usuario deje de escribir
     const timeoutId = setTimeout(() => {
-      loadProductos();
-    }, searchTerm ? 500 : 0); // Si hay búsqueda, esperar; si no, cargar inmediatamente
+      loadData();
+    }, searchTerm ? 500 : 0);
 
     return () => clearTimeout(timeoutId);
-  }, [currentPage, pageSize, searchTerm, categoryFilter, sortConfig]);
+  }, [currentPage, pageSize, searchTerm, categoryFilter, sortConfig, activeTab]);
 
   const handleOpenModal = (producto: InvProducto) => {
     setSelectedProducto(producto);
     setIsModalOpen(true);
+  };
+
+  // Resetear paginación al cambiar de tab
+  const handleTabChange = (tab: 'productos' | 'servicios') => {
+    setActiveTab(tab);
+    setCurrentPage(1);
+    setSearchTerm(''); // Opcional: limpiar búsqueda al cambiar tab
+    setCategoryFilter('Todos');
   };
 
   useEffect(() => {
@@ -135,6 +163,7 @@ const ProductosPage: React.FC = () => {
         <div className="flex flex-col">
           <span className="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[250px]" title={item.nombre}>{item.nombre}</span>
           <span className="text-xs text-slate-500 dark:text-slate-400">{(item as any).descripcion || ''}</span>
+          {activeTab === 'servicios' && <span className="text-[10px] text-blue-500 font-semibold bg-blue-50 dark:bg-blue-900/20 px-1 rounded w-fit mt-0.5">SERVICIO</span>}
         </div>
       )
     },
@@ -196,6 +225,12 @@ const ProductosPage: React.FC = () => {
       accessor: 'stock',
       cell: (item) => {
         const stock = (item as any).stock ?? 0;
+
+        // Servicios siempre tienen stock infinito/ficticio
+        if (activeTab === 'servicios') {
+          return <span className="text-xs text-slate-400 px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-full">N/A</span>;
+        }
+
         const isLow = stock < 10;
         return (
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isLow
@@ -255,7 +290,7 @@ const ProductosPage: React.FC = () => {
         );
       }
     },
-  ], [setPage, editingPriceId, tempPrice, isUpdatingPrice]);
+  ], [setPage, editingPriceId, tempPrice, isUpdatingPrice, activeTab]);
 
   const handlePriceUpdate = async (item: InvProducto) => {
     const newBaseCost = parseFloat(tempPrice);
@@ -325,28 +360,51 @@ const ProductosPage: React.FC = () => {
       direction = 'desc';
     }
     setSortConfig({ key, direction });
-    // TODO: Implementar ordenamiento en el servidor si es necesario
   };
 
-  const additionalFilters = null;
+  const additionalFilters = activeTab === 'productos' ? null : null; // Podríamos habilitar filtros diferentes
 
   return (
     <PageContainer>
       <SectionHeader
-        title="Gestión de Productos"
-        subtitle="Administra el catálogo de productos y su inventario."
+        title="Gestión de Productos y Servicios"
+        subtitle="Administra el catálogo de productos, servicios y control de inventario."
       />
+
+      {/* Tabs Navigation */}
+      <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6 w-full">
+        <button
+          onClick={() => handleTabChange('productos')}
+          className={`py-2 px-6 font-medium text-sm transition-colors border-b-2 ${activeTab === 'productos'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'
+            }`}
+        >
+          <i className="fas fa-box-open mr-2"></i>
+          Productos
+        </button>
+        <button
+          onClick={() => handleTabChange('servicios')}
+          className={`py-2 px-6 font-medium text-sm transition-colors border-b-2 ${activeTab === 'servicios'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'
+            }`}
+        >
+          <i className="fas fa-concierge-bell mr-2"></i>
+          Servicios
+        </button>
+      </div>
 
       <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
-            createActionLabel="Nuevo Producto"
-            onCreateAction={() => setPage('nuevo_producto')}
+            createActionLabel={activeTab === 'productos' ? "Nuevo Producto" : "Nuevo Servicio"}
+            onCreateAction={() => setPage(activeTab === 'productos' ? 'nuevo_producto' : 'nuevo_servicio')}
             additionalFilters={additionalFilters}
             onCustomizeColumns={() => setIsColumnModalOpen(true)}
-            placeholder="Buscar producto, referencia..."
+            placeholder={`Buscar ${activeTab === 'productos' ? 'producto' : 'servicio'}, referencia...`}
           />
         </div>
 
@@ -354,7 +412,7 @@ const ProductosPage: React.FC = () => {
           {isLoading ? (
             <div className="p-12 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center gap-3">
               <i className="fas fa-spinner fa-spin text-3xl text-blue-500"></i>
-              <span className="font-medium">Cargando productos...</span>
+              <span className="font-medium">Cargando {activeTab}...</span>
             </div>
           ) : (
             <Table
@@ -363,6 +421,7 @@ const ProductosPage: React.FC = () => {
               onSort={requestSort}
               sortConfig={sortConfig}
               highlightRowId={params?.highlightId ?? params?.focusId}
+              emptyMessage={activeTab === 'productos' ? "No se encontraron productos." : "No se encontraron servicios."}
             />
           )}
         </CardContent>
@@ -401,7 +460,7 @@ const ProductosPage: React.FC = () => {
         <Modal
           isOpen={isModalOpen}
           onClose={handleCloseModal}
-          title={`Detalle del Producto: ${selectedProducto.nombre}`}
+          title={`Detalle del ${activeTab === 'productos' ? 'Producto' : 'Servicio'}: ${selectedProducto.nombre}`}
           size="4xl"
         >
           <ProductDetails producto={selectedProducto} />

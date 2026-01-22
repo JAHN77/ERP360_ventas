@@ -46,7 +46,7 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                             </Text>
                             <View style={{ marginTop: 3, marginBottom: 2 }}>
                                 <Text style={pdfStyles.companyAddress}>
-                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{empresa.direccion}
+                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{(empresa.direccion || '').replace(/^(Dirección|irección)\s*[:=]\s*/i, '')}
                                 </Text>
                                 <Text style={pdfStyles.companyDetails}>{empresa.ciudad}</Text>
                             </View>
@@ -73,25 +73,25 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                         <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0ea5e9' }]}>CLIENTE</Text>
                         <View style={pdfStyles.cardContent}>
                             <Text style={pdfStyles.clientName}>{cliente.nombreCompleto}</Text>
-                            <View style={{ flexDirection: 'row', marginTop: 3, marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>NIT/CC:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.tipoDocumentoId} {cliente.numeroDocumento}</Text>
+                            <View style={[pdfStyles.clientRow, { marginTop: 3 }]}>
+                                <Text style={pdfStyles.clientLabel}>NIT/CC:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.tipoDocumentoId} {cliente.numeroDocumento}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row', marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Dirección:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.direccion}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Dirección:</Text>
+                                <Text style={pdfStyles.clientValue} numberOfLines={1}>{(cliente.direccion || '').replace(/\s+/g, ' ').trim()}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row', marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Ciudad:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.ciudadId}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Ciudad:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.ciudadId}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row', marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Teléfono:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.telefono}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Teléfono:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.telefono}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row' }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Email:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.email}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Email:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.email}</Text>
                             </View>
                         </View>
                     </View>
@@ -119,9 +119,31 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                 </View>
 
                 <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}>
-                    <View style={pdfStyles.tableHeader}><Text style={[pdfStyles.tableHeaderText, { width: '10%' }]}>Referencia</Text><Text style={[pdfStyles.tableHeaderText, { width: '31%' }]}>Descripción</Text><Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Unidad</Text><Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Cant.</Text>{preferences.showPrices ? (<><Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text><Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Desc.</Text><Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text><Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Total</Text></>) : null}</View>
+                    <View style={pdfStyles.tableHeader}>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '12%', paddingLeft: 4 }]}>Referencia</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '35%', paddingHorizontal: 4 }]}>Descripción</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Unidad</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Cant.</Text>
+                        {preferences.showPrices ? (<>
+                            <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text>
+                            <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Desc.</Text>
+                            <Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text>
+                            <Text style={[pdfStyles.tableHeaderText, { width: '15%', textAlign: 'right', paddingRight: 4 }]}>Total</Text>
+                        </>) : null}
+                    </View>
                     {cotizacion.items.map((item, idx) => (
-                        <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}><Text style={[pdfStyles.tableCellText, { width: '10%', fontSize: 8 }]}>{(item as any).referencia || (item as any).codProducto || 'N/A'}</Text><Text style={[pdfStyles.tableCellText, { width: '31%', fontSize: 8 }]}>{item.descripcion}</Text><Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>{(item as any).unidadMedida || 'UND'}</Text><Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>{preferences.showPrices ? (<><Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrency(item.precioUnitario)}</Text><Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2, textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>{(item.descuentoPorcentaje || 0).toFixed(2)}%</Text><Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>{(item.ivaPorcentaje || 0).toFixed(0)}%</Text><Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>{formatCurrency(item.layout ? item.total : item.total)}</Text></>) : null}</View>
+                        <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
+                            <Text style={[pdfStyles.tableCellText, { width: '12%', fontSize: 8, paddingLeft: 4 }]}>{(item as any).referencia || (item as any).codProducto || 'N/A'}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '35%', fontSize: 8, paddingHorizontal: 4 }]}>{item.descripcion}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>{(item as any).unidadMedida || 'UND'}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'center', fontSize: 8 }]}>{item.cantidad}</Text>
+                            {preferences.showPrices ? (<>
+                                <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrency(item.precioUnitario)}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2, textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>{(item.descuentoPorcentaje || 0).toFixed(2)}%</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>{(item.ivaPorcentaje || 0).toFixed(0)}%</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '15%', textAlign: 'right', fontSize: 8, fontWeight: 'bold', paddingRight: 4 }]}>{formatCurrency(item.total)}</Text>
+                            </>) : null}
+                        </View>
                     ))}
                 </View>
 

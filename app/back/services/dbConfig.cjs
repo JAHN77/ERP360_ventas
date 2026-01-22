@@ -27,6 +27,7 @@ const DB_CONFIG = {
 const TABLE_NAMES = {
   clientes: 'con_terceros',
   productos: 'inv_insumos',
+  servicios: 'ven_servicios',
   facturas: 'ven_facturas',
   facturas_detalle: 'ven_detafact',
   cotizaciones: 'ven_cotizacion',

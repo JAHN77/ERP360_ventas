@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+// Restart trigger: Fix 404 services
 const cors = require('cors');
 const dotenv = require('dotenv');
 const os = require('os');
@@ -291,6 +292,8 @@ app.get('/api/clientes/search', verifyToken, clientController.searchClients);
 
 // BUSQUEDA PRODUCTOS
 app.get('/api/buscar/productos', verifyToken, productController.searchProducts);
+// BUSQUEDA SERVICIOS
+app.get('/api/buscar/servicios', verifyToken, productController.searchServices);
 
 
 app.get('/api/buscar/vendedores', verifyToken, async (req, res) => {

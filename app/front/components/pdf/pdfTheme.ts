@@ -4,9 +4,11 @@ export const pdfStyles = StyleSheet.create({
     page: {
         padding: 40,
         fontFamily: 'Helvetica',
-        fontSize: 10,
+        fontSize: 9, // Reduced base font size from 10 to 9
         color: '#334155', // slate-700
         backgroundColor: '#FFFFFF',
+        lineHeight: 1.4, // Improved line spacing
+        letterSpacing: 0.2, // Improved letter spacing
     },
     header: {
         flexDirection: 'row',
@@ -36,7 +38,7 @@ export const pdfStyles = StyleSheet.create({
         marginLeft: 10,
     },
     companyName: {
-        fontSize: 16,
+        fontSize: 14, // Reduced from 16 to prevent overlapping
         fontWeight: 'extrabold',
         textTransform: 'uppercase',
         color: '#1e293b', // slate-800
@@ -119,10 +121,26 @@ export const pdfStyles = StyleSheet.create({
         marginTop: 15,
     },
     clientName: {
-        fontSize: 10,
+        fontSize: 8, // Further reduced from 9 to save space
         fontWeight: 'bold',
         color: '#1e3a8a', // Nisa Blue
         marginBottom: 2,
+    },
+    // New optimized styles for Client Info Card
+    clientRow: {
+        flexDirection: 'row',
+        marginBottom: 1,
+    },
+    clientLabel: {
+        fontSize: 7, // Smaller font for labels
+        fontWeight: 'bold',
+        color: '#64748b',
+        width: 45, // Reduced width (was 55 inline) to give more space to values
+    },
+    clientValue: {
+        fontSize: 7, // Smaller font for values
+        color: '#334155',
+        flex: 1, // Takes remaining space
     },
     infoRow: {
         flexDirection: 'row',

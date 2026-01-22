@@ -27,6 +27,7 @@ export const routeMap: Record<Page, string> = {
   // Productos
   productos: '/:companySlug/productos',
   nuevo_producto: '/:companySlug/productos/nuevo',
+  nuevo_servicio: '/:companySlug/servicios/nuevo',
   editar_producto: '/:companySlug/productos/editar/:id',
   entrada_inventario: '/:companySlug/productos/inventario',
   inventory_concepts: '/:companySlug/inventarios/conceptos',

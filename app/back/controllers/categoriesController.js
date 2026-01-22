@@ -10,8 +10,7 @@ const categoriesController = {
           codline, 
           RTRIM(nomline) as nomline, 
           controla_servicios, 
-          tasamayor, 
-          estado 
+          tasamayor
         FROM inv_lineas 
         ORDER BY codline
       `;
@@ -211,7 +210,6 @@ const categoriesController = {
           codline as [codigo],
           RTRIM(nomline) as [nombre]
         FROM inv_lineas
-        WHERE estado = 1
         ORDER BY nomline
       `, req.db_name);
       res.json({ success: true, data: result });

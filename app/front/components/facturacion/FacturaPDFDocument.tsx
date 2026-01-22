@@ -57,7 +57,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                             </Text>
                             <View style={{ marginTop: 3, marginBottom: 2 }}>
                                 <Text style={pdfStyles.companyAddress}>
-                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{empresa.direccion}
+                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{(empresa.direccion || '').replace(/^(Dirección|irección)\s*[:=]\s*/i, '')}
                                 </Text>
                                 <Text style={pdfStyles.companyDetails}>{empresa.ciudad}</Text>
                             </View>
@@ -84,25 +84,25 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                         <Text style={[pdfStyles.cardLabel, { backgroundColor: '#dc2626' }]}>CLIENTE</Text>
                         <View style={pdfStyles.cardContent}>
                             <Text style={pdfStyles.clientName}>{cliente.nombreCompleto}</Text>
-                            <View style={{ flexDirection: 'row', marginTop: 3, marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>NIT/CC:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.tipoDocumentoId} {cliente.numeroDocumento}</Text>
+                            <View style={[pdfStyles.clientRow, { marginTop: 3 }]}>
+                                <Text style={pdfStyles.clientLabel}>NIT/CC:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.tipoDocumentoId} {cliente.numeroDocumento}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row', marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Dirección:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.direccion}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Dirección:</Text>
+                                <Text style={pdfStyles.clientValue} numberOfLines={1}>{(cliente.direccion || '').replace(/\s+/g, ' ').trim()}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row', marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Ciudad:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.ciudadId}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Ciudad:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.ciudadId}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row', marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Teléfono:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.telefono}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Teléfono:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.telefono}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row' }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Email:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.email}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Email:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.email}</Text>
                             </View>
                         </View>
                     </View>
@@ -112,30 +112,45 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                         <View style={pdfStyles.cardContent}>
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>Fecha:</Text>
-                                <Text style={pdfStyles.infoValue}>{factura.fechaFactura}</Text>
+                                <Text style={pdfStyles.infoValue}>{new Date(factura.fechaFactura).toLocaleDateString('es-CO')}</Text>
                             </View>
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>Vence:</Text>
-                                <Text style={pdfStyles.infoValue}>{factura.fechaVencimiento || 'N/A'}</Text>
+                                <Text style={pdfStyles.infoValue}>{factura.fechaVencimiento ? new Date(factura.fechaVencimiento).toLocaleDateString('es-CO') : 'N/A'}</Text>
                             </View>
-
+                            <View style={pdfStyles.infoRow}>
+                                <Text style={pdfStyles.infoLabel}>Vendedor:</Text>
+                                <Text style={pdfStyles.infoValue}>{vendedor?.nombreCompleto || 'N/A'}</Text>
+                            </View>
+                            {Number(cliente.plazo) > 0 && (
+                                <View style={pdfStyles.infoRow}>
+                                    <Text style={pdfStyles.infoLabel}>Plazo:</Text>
+                                    <Text style={pdfStyles.infoValue}>{cliente.plazo} Días</Text>
+                                </View>
+                            )}
                             <View style={pdfStyles.infoRow}>
                                 <Text style={pdfStyles.infoLabel}>F. Pago:</Text>
                                 <Text style={pdfStyles.infoValue}>{factura.formaPago || 'Contado'}</Text>
                             </View>
+                            {factura.remisionesNumeros && (
+                                <View style={pdfStyles.infoRow}>
+                                    <Text style={pdfStyles.infoLabel}>Remisión:</Text>
+                                    <Text style={pdfStyles.infoValue}>{factura.remisionesNumeros}</Text>
+                                </View>
+                            )}
                         </View>
                     </View>
                 </View>
 
                 <View style={[pdfStyles.tableContainer, { marginBottom: 10 }]}>
                     <View style={pdfStyles.tableHeader}>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '10%' }]}>Ref.</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '37%' }]}>Descripción</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Cant.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '12%', paddingLeft: 4 }]}>Ref.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '35%', paddingHorizontal: 4 }]}>Descripción</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Cant.</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Dcto.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Dcto.</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '17%', textAlign: 'right' }]}>Neto</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '15%', textAlign: 'right', paddingRight: 4 }]}>Neto</Text>
                     </View>
                     {(factura.items || []).map((item, index) => {
                         const product = productos.find(p => p.id === item.productoId);
@@ -144,19 +159,19 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
 
                         return (
                             <View key={index} style={[pdfStyles.tableRow, { backgroundColor: index % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
-                                <Text style={[pdfStyles.tableCellText, { width: '10%', fontSize: 8 }]}>{referencia}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '37%', fontSize: 8 }]}>{item.descripcion}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '12%', fontSize: 8, paddingLeft: 4 }]}>{referencia}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '35%', fontSize: 8, paddingHorizontal: 4 }]}>{item.descripcion}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'center', fontSize: 8 }]}>{item.cantidad}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>
                                     {safePreferences.showPrices ? formatCurrencySafe(item.precioUnitario) : '***'}
                                 </Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>
+                                <Text style={[pdfStyles.tableCellText, { width: '10%', textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>
                                     {(item.descuentoPorcentaje || 0) > 0 ? `${(item.descuentoPorcentaje || 0).toFixed(0)}%` : '-'}
                                 </Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '7%', textAlign: 'right', fontSize: 8, color: '#64748b' }]}>
                                     {(item.ivaPorcentaje || 0).toFixed(0)}%
                                 </Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '17%', textAlign: 'right', fontSize: 8, fontWeight: 'bold' }]}>
+                                <Text style={[pdfStyles.tableCellText, { width: '15%', textAlign: 'right', fontSize: 8, fontWeight: 'bold', paddingRight: 4 }]}>
                                     {safePreferences.showPrices ? formatCurrencySafe(itemTotal) : '***'}
                                 </Text>
                             </View>

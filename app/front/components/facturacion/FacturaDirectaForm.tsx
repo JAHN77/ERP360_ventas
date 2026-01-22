@@ -5,7 +5,7 @@ import { isWithinRange, isPositiveInteger } from '../../utils/validation';
 import { useData } from '../../hooks/useData';
 import { useAuth } from '../../hooks/useAuth';
 import { useNotifications } from '../../hooks/useNotifications';
-import { apiSearchClientes, apiSearchVendedores, apiSearchProductos, apiGetClienteById, apiClient } from '../../services/apiClient';
+import { apiSearchClientes, apiSearchVendedores, apiSearchProductos, apiSearchServices, apiGetClienteById, apiClient } from '../../services/apiClient';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
@@ -87,6 +87,17 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
     const [observacionesInternas, setObservacionesInternas] = useState('');
     const [notaPago, setNotaPago] = useState('');
 
+    const calculatedTotal = useMemo(() => {
+        const q = Number(currentQuantity) || 0;
+        const p = Number(currentUnitPrice) || 0;
+        const d = Number(currentDiscount) || 0;
+        const i = Number(currentIva) || 0;
+
+        const subtotal = (p * q) * (1 - (d / 100));
+        const valorIva = subtotal * (i / 100);
+        return subtotal + valorIva;
+    }, [currentQuantity, currentUnitPrice, currentDiscount, currentIva]);
+
     const clienteRef = useRef<HTMLDivElement>(null);
     const vendedorRef = useRef<HTMLDivElement>(null);
     const productRef = useRef<HTMLDivElement>(null);
@@ -145,15 +156,17 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             const q = productSearchTerm.trim();
             if (q.length >= 2) {
                 try {
-                    const resp = await apiSearchProductos(q, 20);
+                    // Usar apiSearchServices en lugar de apiSearchProductos para Factura Directa (servicios)
+                    const resp = await apiSearchServices(q, 20);
                     if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
                         const mapped = dataArray.map(p => ({
                             ...p,
-                            nombre: p.nombre || p.nomins || '',
-                            ultimoCosto: p.ultimoCosto || p.valins || 0,
-                            tasaIva: p.tasaIva || ((p as any).aplicaIva ? 19 : 0),
-                            aplicaIva: (p.tasaIva > 0) || (p as any).aplicaIva || false
+                            // El backend ya mapea nomser -> nombre, codser -> codigo, valser -> ultimoCosto
+                            // Aseguramos que los valores sean numéricos
+                            ultimoCosto: Number(p.ultimoCosto) || 0,
+                            tasaIva: Number(p.tasaIva) || 0,
+                            aplicaIva: (Number(p.tasaIva) > 0)
                         }));
                         setProductResults(mapped as Producto[]);
                     }
@@ -183,7 +196,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                 identification_number: nit,
                 name: c.razonSocial || c.nombreCompleto || '',
                 address: c.direccion || '',
-                phone: c.celular || c.telefono || '',
+                phone: (c as any).celter || c.celular || (c as any).telter || c.telefono || '',
                 email: c.email || '',
                 dv: dv
             }
@@ -466,7 +479,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-3 uppercase tracking-wider">Añadir Productos</h3>
                 <div ref={productRef} className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
-                    <div className="lg:col-span-4 relative">
+                    <div className="lg:col-span-2 relative">
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Producto</label>
                         <input
                             type="text"
@@ -510,10 +523,10 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                     <div className="lg:col-span-1">
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1 text-center">% Iva</label>
                         <input
-                            type="text"
-                            readOnly
+                            type="number"
                             value={currentIva}
-                            className="w-full px-3 py-2 text-sm bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md text-center text-slate-500 outline-none"
+                            onChange={(e) => setCurrentIva(e.target.value)}
+                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
                         />
                     </div>
                     <div className="lg:col-span-1">
@@ -523,6 +536,15 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                             value={currentDiscount}
                             onChange={(e) => setCurrentDiscount(e.target.value)}
                             className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                    </div>
+                    <div className="lg:col-span-2">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1 text-center">Total</label>
+                        <input
+                            type="text"
+                            readOnly
+                            value={formatCurrency(calculatedTotal)}
+                            className="w-full px-3 py-2 text-sm bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md text-center text-slate-700 font-bold outline-none"
                         />
                     </div>
                     <div className="lg:col-span-2">

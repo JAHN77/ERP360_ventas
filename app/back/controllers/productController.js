@@ -13,12 +13,10 @@ const productController = {
       const { codalm, page = '1', pageSize = '50', search, sortColumn, sortDirection } = req.query;
       const codalmFormatted = codalm ? String(codalm).padStart(3, '0') : null;
 
-      // Validate and Parse Pagination
       const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
       const pageSizeNum = Math.min(10000, Math.max(10, parseInt(String(pageSize), 10) || 50));
       const offset = (pageNum - 1) * pageSizeNum;
 
-      // Validate Search Term
       let searchTerm = null;
       if (search) {
         const rawSearch = Array.isArray(search) ? String(search[0]) : typeof search === 'object' ? String(Object.values(search)[0]) : String(search);
@@ -28,9 +26,9 @@ const productController = {
         }
       }
 
-      // Base Query - Optimized: Explicit columns, filtered joins
-      // REFACTOR NOTE: Moved from QUERIES.GET_PRODUCTOS to here for modularity.
-      // OPTIMIZATION: Used CTE or direct logic? Keeping simple SELECT for readability but ensuring Indices.
+      // Query optimizada SIN GROUP BY masivo
+      // Usamos subconsultas para stock y medidas/precios si es necesario, aunque los joins 1:1 de medidas y precios suelen ser seguros sin group by si la relación es correcta.
+      // Asumimos inv_invent puede tener múltiples registros (bodegas), por eso el stock requiere SUM en subconsulta.
       let query = `
         SELECT 
             ins.id,
@@ -39,70 +37,59 @@ const productController = {
             ins.codigo_linea           AS codigoLinea,
             ins.codigo_sublinea        AS codigoSublinea,
             ins.Codigo_Medida          AS idMedida,
-            -- Prioritize undins (Exact DB value) as requested by user, then fallback to Measure Name
             COALESCE(ins.undins, m.nommed, '') AS unidadMedida,
             ins.tasa_iva               AS tasaIva,
-            -- Precio base SIN IVA (Tarifa 07)
             COALESCE(
-                CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(10,2)),
+                CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(18,2)),
                 ins.ultimo_costo
-            ) AS ultimoCosto,
-            ins.ultimo_costo           AS ultimoCostoCompra, -- Raw cost for Inventory Entry
+            )                          AS ultimoCosto,
+            ins.ultimo_costo           AS ultimoCostoCompra,
             ins.costo_promedio         AS costoPromedio,
             ins.referencia,
             ins.karins                 AS controlaExistencia,
-            -- Stock total (suma de bodegas filtrada)
-            COALESCE(SUM(inv.caninv), 0) AS stock,
+            COALESCE(
+              (SELECT SUM(inv.caninv) FROM inv_invent inv WHERE inv.codins = ins.codins AND (@codalm IS NULL OR inv.codalm = @codalm)),
+              0
+            ) AS stock,
             ins.activo,
             ins.precio_publico         AS precioPublico,
             ins.precio_mayorista       AS precioMayorista,
-            -- Precio visualización CON IVA
             dp.valins                  AS precioConIva
         FROM ${TABLE_NAMES.productos} ins
-        LEFT JOIN inv_invent inv ON inv.codins = ins.codins
-            AND (@codalm IS NULL OR inv.codalm = @codalm)
         LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
         LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
         WHERE ins.activo = 1
       `;
-
-      // Apply Search Filter
+      
       if (searchTerm) {
-        // PERFORMANCE: Use LIKE with parameters.
-        // RECOMMENDATION: Create Index on (nomins) and (referencia) for better performance.
         query += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search OR ins.codins LIKE @search)`;
       }
 
-      // Group By - Required for aggregation (SUM(stock))
-      query += `
-        GROUP BY 
-            ins.id, ins.codins, ins.nomins, ins.codigo_linea, ins.codigo_sublinea, 
-            ins.Codigo_Medida, ins.undins, m.nommed, ins.tasa_iva, ins.ultimo_costo, 
-            ins.costo_promedio, ins.referencia, ins.karins, ins.activo, 
-            ins.precio_publico, ins.precio_mayorista, dp.valins
-      `;
-
-      // Dynamic Sorting
-      let orderByClause = 'ORDER BY ins.nomins ASC'; // Default
+      // NO GROUP BY needed now
+      
+      let orderByClause = 'ORDER BY ins.nomins ASC';
       if (sortColumn && sortDirection) {
         const direction = sortDirection === 'desc' ? 'DESC' : 'ASC';
         const validColumns = {
           'nombre': 'ins.nomins',
           'referencia': 'ins.referencia',
-          'ultimoCosto': 'COALESCE(ins.ultimo_costo, 0)', // Simplified sort logic
-          'stock': 'COALESCE(SUM(inv.caninv), 0)'
+          'ultimoCosto': 'ins.ultimoCosto', // Basic sort, computed sort is tricky without alias support in all SQL versions
+          'stock': 'stock' // This might fail if alias not supported in ORDER BY in older SQL
         };
-
-        if (validColumns[sortColumn]) {
-          orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
+        
+        if (sortColumn === 'stock') {
+             // Sort by subquery directly for safety
+             orderByClause = `ORDER BY COALESCE((SELECT SUM(inv.caninv) FROM inv_invent inv WHERE inv.codins = ins.codins AND (@codalm IS NULL OR inv.codalm = @codalm)), 0) ${direction}`;
+        } else if (sortColumn === 'ultimoCosto') {
+             orderByClause = `ORDER BY COALESCE(CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(18,2)), ins.ultimo_costo) ${direction}`;
+        } else if (validColumns[sortColumn]) {
+             orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
         }
       }
       query += ` ${orderByClause}`;
 
-      // Pagination
       query += ` OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`;
 
-      // Build Parameters
       const queryParams = {
         codalm: codalmFormatted,
         offset,
@@ -112,19 +99,17 @@ const productController = {
         queryParams.search = `%${searchTerm}%`;
       }
 
-      // Execution
       const data = await executeQueryWithParams(query, queryParams, req.db_name);
 
-      // Count Query for Pagination Metadata
-      // OPTIMIZATION: Count distinct IDs only with same filter to be fast.
       let countQuery = `
-        SELECT COUNT(DISTINCT ins.id) as total
+        SELECT COUNT(*) as total
         FROM ${TABLE_NAMES.productos} ins
         WHERE ins.activo = 1
       `;
       if (searchTerm) {
         countQuery += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search OR ins.codins LIKE @search)`;
       }
+
       const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {}, req.db_name);
       const totalRecords = countResult[0]?.total || 0;
 
@@ -150,8 +135,106 @@ const productController = {
   },
 
   /**
-   * Search products (Autocomplete/Quick search)
+   * Get all services with pagination
    */
+  getAllServices: async (req, res) => {
+    try {
+      const { page = '1', pageSize = '50', search, sortColumn, sortDirection } = req.query;
+
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const pageSizeNum = Math.min(10000, Math.max(10, parseInt(String(pageSize), 10) || 50));
+      const offset = (pageNum - 1) * pageSizeNum;
+
+      let searchTerm = null;
+      if (search) {
+        const rawSearch = Array.isArray(search) ? String(search[0]) : typeof search === 'object' ? String(Object.values(search)[0]) : String(search);
+        const trimmed = rawSearch.trim();
+        if (trimmed && trimmed !== '[object Object]') {
+          searchTerm = trimmed;
+        }
+      }
+
+      // No GROUP BY needed for Services usually, unless duplicate codser exist
+      let query = `
+        SELECT 
+            -- Generar ID ficticio para el frontend
+            CAST((ROW_NUMBER() OVER (ORDER BY s.codser)) + 2000000 AS bigint) AS id,
+            LTRIM(RTRIM(s.codser))                     AS codigo, 
+            LTRIM(RTRIM(s.nomser))                     AS nombre,
+            s.CODSUBLINEA                              AS codigoSublinea,
+            'UND'                                      AS unidadMedida,
+            CAST(s.ivaser AS decimal(18,2))            AS tasaIva,
+            CAST(s.valser AS decimal(18,2))            AS ultimoCosto,
+            LTRIM(RTRIM(COALESCE(s.REFSER, '')))       AS referencia,
+            CAST(9999 AS decimal(18,2))                AS stock,
+            CAST(s.valser AS decimal(18,2))            AS precioPublico,
+            CAST((s.valser * (1 + (s.ivaser / 100.0))) AS decimal(18,2)) AS precioConIva,
+            1                                          AS activo
+        FROM ${TABLE_NAMES.servicios} s
+        WHERE 1=1
+      `;
+      
+      if (searchTerm) {
+        query += ` AND (s.nomser LIKE @search OR s.REFSER LIKE @search OR s.codser LIKE @search)`;
+      }
+
+      let orderByClause = 'ORDER BY s.nomser ASC';
+      if (sortColumn && sortDirection) {
+        const direction = sortDirection === 'desc' ? 'DESC' : 'ASC';
+        const validColumns = {
+          'nombre': 's.nomser',
+          'referencia': 's.REFSER',
+          'ultimoCosto': 's.valser'
+        };
+        if (validColumns[sortColumn]) {
+          orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
+        }
+      }
+      query += ` ${orderByClause}`;
+
+      query += ` OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`;
+
+      const queryParams = {
+        offset,
+        pageSize: pageSizeNum
+      };
+      if (searchTerm) {
+        queryParams.search = `%${searchTerm}%`;
+      }
+
+      const data = await executeQueryWithParams(query, queryParams, req.db_name);
+
+      let countQuery = `
+        SELECT COUNT(*) as total
+        FROM ${TABLE_NAMES.servicios} s
+        WHERE 1=1
+      `;
+      if (searchTerm) {
+        countQuery += ` AND (s.nomser LIKE @search OR s.REFSER LIKE @search OR s.codser LIKE @search)`;
+      }
+
+      const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {}, req.db_name);
+      const totalRecords = countResult[0]?.total || 0;
+
+      res.json({
+        success: true,
+        data,
+        pagination: {
+          page: pageNum,
+          pageSize: pageSizeNum,
+          total: totalRecords,
+          totalPages: Math.ceil(totalRecords / pageSizeNum)
+        }
+      });
+    } catch (error) {
+      console.error('Error in getAllServices:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener servicios',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  },
   searchProducts: async (req, res) => {
     try {
       const { search = '', limit = 20, codalm = null } = req.query;
@@ -198,6 +281,57 @@ const productController = {
     } catch (error) {
       console.error('Error in searchProducts:', error);
       res.status(500).json({ success: false, message: 'Error en búsqueda de productos', error: error.message });
+    }
+  },
+  /**
+   * Search services (ven_servicios)
+   */
+  searchServices: async (req, res) => {
+    try {
+      const { search = '', limit = 20 } = req.query;
+      if (String(search).trim().length < 2) {
+        return res.status(400).json({ success: false, message: 'Ingrese al menos 2 caracteres' });
+      }
+
+      const query = `
+        SELECT TOP (@limit)
+          LTRIM(RTRIM(ins.codser)) AS codins,      -- Mapeado a 'codins' para compatibilidad frontend
+          LTRIM(RTRIM(ins.codser)) AS codigo,
+          LTRIM(RTRIM(ins.nomser)) AS nombre,
+          LTRIM(RTRIM(COALESCE(ins.REFSER, ''))) AS referencia,
+          ins.valser AS ultimoCosto,
+          ins.valser AS precioBase,
+          ins.ivaser AS tasaIva,
+          ins.Codigo_medida AS unidadMedidaCodigo,
+          -- Fallback a 'UND' si no hay join, aunque idealmente deberia hacer join con medidas si es necesario
+          'UND' AS unidadMedidaNombre, 
+          'UND' AS unidadMedida,
+          -- Precio con IVA calculado (aunque valser parece ser precio base)
+          (ins.valser * (1 + (ins.ivaser / 100.0))) AS precioConIva,
+          -- Control de existencia (servicios no suelen tener stock, pero retornamos 9999 para que no bloquee)
+          9999 AS stock
+        FROM ven_servicios ins
+        WHERE (ins.nomser LIKE @like OR ins.codser LIKE @like OR ins.REFSER LIKE @like)
+        ORDER BY ins.nomser
+      `;
+
+      const data = await executeQueryWithParams(query, {
+        like: `%${search}%`,
+        limit: Math.min(parseInt(limit) || 20, 100)
+      }, req.db_name);
+
+      // Mapeo adicional si es necesario para asegurar compatibilidad total
+      const mappedData = data.map(item => ({
+        ...item,
+        id: item.codigo, // Usar codigo como ID ya que no tenemos ID numérico garantizado
+        isService: true
+      }));
+
+      res.json({ success: true, data: mappedData });
+
+    } catch (error) {
+      console.error('Error in searchServices:', error);
+      res.status(500).json({ success: false, message: 'Error en búsqueda de servicios', error: error.message });
     }
   },
   /**

@@ -292,6 +292,18 @@ class ApiClient {
     return this.request(`/productos${params}`);
   }
 
+  async getServices(page?: number, pageSize?: number, search?: string, sortColumn?: string, sortDirection?: 'asc' | 'desc') {
+    const queryParams = new URLSearchParams();
+    queryParams.append('page', String(page || 1));
+    queryParams.append('pageSize', String(pageSize || 50));
+    if (search) queryParams.append('search', search);
+    if (sortColumn) queryParams.append('sortColumn', sortColumn);
+    if (sortDirection) queryParams.append('sortDirection', sortDirection);
+
+    const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request(`/productos/services${params}`);
+  }
+
   async createProducto(payload: any) {
     return this.request('/productos', {
       method: 'POST',
@@ -544,6 +556,16 @@ class ApiClient {
     const params = new URLSearchParams({ search: trimmedSearch, limit: String(limit) });
     if (codalm) params.append('codalm', codalm);
     return this.request(`/buscar/productos?${params.toString()}`);
+  }
+
+  async searchServices(search: string, limit = 20) {
+    const trimmedSearch = String(search || '').trim();
+    if (trimmedSearch.length < 2) {
+      return { success: false, message: 'Ingrese al menos 2 caracteres', data: [] };
+    }
+    const params = new URLSearchParams({ search: trimmedSearch, limit: String(limit) });
+    // Usar la nueva ruta de servicios
+    return this.request(`/buscar/servicios?${params.toString()}`);
   }
 
   async getProductStock(id: number | string) {
@@ -873,6 +895,7 @@ export const apiSearchProveedores = (search: string, limit?: number) => apiClien
 export const apiSearchClientes = (q: string, limit?: number) => apiClient.searchClientes(q, limit);
 export const apiSearchVendedores = (q: string, limit?: number) => apiClient.searchVendedores(q, limit);
 export const apiSearchProductos = (q: string, limit?: number, codalm?: string) => apiClient.searchProductos(q, limit, codalm);
+export const apiSearchServices = (q: string, limit?: number) => apiClient.searchServices(q, limit);
 export const apiCreateCotizacion = (payload: any) => apiClient.createCotizacion(payload);
 export const apiUpdateCotizacion = (id: string | number, payload: any) => apiClient.updateCotizacion(id, payload);
 export const apiSendCotizacionEmail = (id: string | number, payload: { firmaVendedor?: string | null; destinatario?: string; asunto?: string; mensaje?: string; pdfBase64?: string }) => apiClient.sendCotizacionEmail(id, payload);

@@ -1670,7 +1670,7 @@ const FacturasPage: React.FC = () => {
               <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex flex-wrap justify-end gap-3">
                 {selectedFactura.estado === 'BORRADOR' ? (
                   <ProtectedComponent permission="facturacion:stamp">
-                    <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors">
+                    <button onClick={() => setFacturaToPreview({ ...selectedFactura, items: selectedFacturaItems })} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors">
                       <i className="fas fa-stamp mr-2"></i>Autorizar y Timbrar Factura
                     </button>
                   </ProtectedComponent>
@@ -1694,7 +1694,7 @@ const FacturasPage: React.FC = () => {
                         <i className="fas fa-paperclip mr-2"></i>Descargar PDF
                       </button>
                     ) : (
-                      <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
+                      <button onClick={() => setFacturaToPreview({ ...selectedFactura, items: selectedFacturaItems })} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
                         <i className="fas fa-file-pdf mr-2"></i>Generar PDF
                       </button>
                     )}
@@ -1707,7 +1707,7 @@ const FacturasPage: React.FC = () => {
                         <i className="fas fa-paperclip mr-2"></i>Descargar PDF
                       </button>
                     ) : (
-                      <button onClick={() => setFacturaToPreview(selectedFactura)} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
+                      <button onClick={() => setFacturaToPreview({ ...selectedFactura, items: selectedFacturaItems })} className="px-4 py-2 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-700">
                         <i className="fas fa-file-pdf mr-2"></i>Generar PDF
                       </button>
                     )}

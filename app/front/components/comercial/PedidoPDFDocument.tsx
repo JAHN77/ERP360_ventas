@@ -46,7 +46,7 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                             </Text>
                             <View style={{ marginTop: 3, marginBottom: 2 }}>
                                 <Text style={pdfStyles.companyAddress}>
-                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{empresa.direccion}
+                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{(empresa.direccion || '').replace(/^(Dirección|irección)\s*[:=]\s*/i, '')}
                                 </Text>
                                 <Text style={pdfStyles.companyDetails}>{empresa.ciudad}</Text>
                             </View>
@@ -73,17 +73,17 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                         <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0ea5e9' }]}>DIRECCIÓN DE ENTREGA</Text>
                         <View style={pdfStyles.cardContent}>
                             <Text style={pdfStyles.clientName}>{cliente.nombreCompleto}</Text>
-                            <View style={{ flexDirection: 'row', marginTop: 3, marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Dirección:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.direccion}</Text>
+                            <View style={[pdfStyles.clientRow, { marginTop: 3 }]}>
+                                <Text style={pdfStyles.clientLabel}>Dirección:</Text>
+                                <Text style={pdfStyles.clientValue} numberOfLines={1}>{(cliente.direccion || '').replace(/\s+/g, ' ').trim()}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row', marginBottom: 1.5 }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Ciudad:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.ciudadId}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Ciudad:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.ciudadId}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row' }}>
-                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#64748b', width: 55 }}>Teléfono:</Text>
-                                <Text style={{ fontSize: 9, color: '#334155', flex: 1 }}>{cliente.telefono}</Text>
+                            <View style={pdfStyles.clientRow}>
+                                <Text style={pdfStyles.clientLabel}>Teléfono:</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.telefono}</Text>
                             </View>
                         </View>
                     </View>

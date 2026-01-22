@@ -472,14 +472,16 @@ const creditNoteController = {
           facturaRequest.input('facturaId', sql.Int, facturaIdNum);
           const facturaResult = await facturaRequest.query(`
             SELECT 
-              id,
+              id AS id,
               numfact AS numeroFactura,
               codter AS clienteId,
               valvta AS subtotal,
               netfac AS total,
               CUFE,
               estado_envio,
-              estfac AS estado
+              estfac AS estado,
+              codalm,
+              tipfac AS tipoFactura
             FROM ven_facturas
             WHERE id = @facturaId
           `);
@@ -506,14 +508,16 @@ const creditNoteController = {
           facturaNumeroRequest.input('numeroFactura', sql.VarChar(50), facturaNumero);
           const facturaResult = await facturaNumeroRequest.query(`
             SELECT 
-              id,
+              id AS id,
               numfact AS numeroFactura,
               codter AS clienteId,
               valvta AS subtotal,
               netfac AS total,
               CUFE,
               estado_envio,
-              estfac AS estado
+              estfac AS estado,
+              codalm,
+              tipfac AS tipoFactura
             FROM ven_facturas
             WHERE numfact = @numeroFactura
           `);
@@ -968,18 +972,28 @@ const creditNoteController = {
           insertDetalleRequest.input('unddev', sql.VarChar(3), String(unidadMedida).substring(0, 3));
           insertDetalleRequest.input('id_nota', sql.Int, nuevaNotaId);
 
-          await insertDetalleRequest.query(`
-            INSERT INTO Ven_Devolucion (
-              Codalm, Numdev, Numfac, Codins, Costo, Venta, Iva, Fecdev,
-              comprobante, Estreg, Codusu, Fecsys, PC, QTYDEV, TIPFAC,
-              desins, unddev, id_nota
-            )
-            VALUES (
-              @Codalm, @Numdev, @Numfac, @Codins, @Costo, @Venta, @Iva, @Fecdev,
-              @comprobante, @Estreg, @Codusu, GETDATE(), @PC, @QTYDEV, @TIPFAC,
-              @desins, @unddev, @id_nota
-            );
-          `);
+          try {
+            await insertDetalleRequest.query(`
+              INSERT INTO Ven_Devolucion (
+                Codalm, Numdev, Numfac, Codins, Costo, Venta, Iva, Fecdev,
+                comprobante, Estreg, Codusu, Fecsys, PC, QTYDEV, TIPFAC,
+                desins, unddev, id_nota
+              )
+              VALUES (
+                @Codalm, @Numdev, @Numfac, @Codins, @Costo, @Venta, @Iva, @Fecdev,
+                @comprobante, @Estreg, @Codusu, GETDATE(), @PC, @QTYDEV, @TIPFAC,
+                @desins, @unddev, @id_nota
+              );
+            `);
+          } catch (insertErr) {
+            console.error('❌ Error insertando detalle Ven_Devolucion:', {
+               msg: insertErr.message,
+               code: insertErr.code,
+               producto: detalle.productoId,
+               notaId: nuevaNotaId
+            });
+            throw insertErr; // Re-throw to trigger rollback
+          }
 
           // KARDEX: Registrar Entrada (Devolución)
           await InventoryService.registrarEntrada({

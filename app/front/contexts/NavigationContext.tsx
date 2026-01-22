@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 export type Page =
   'dashboard' |
   'clientes' | 'nuevo_cliente' | 'editar_cliente' |
-  'productos' | 'nuevo_producto' | 'editar_producto' | 'entrada_inventario' |
+  'productos' | 'nuevo_producto' | 'editar_producto' | 'entrada_inventario' | 'nuevo_servicio' |
   'categorias' | 'categoria_detalle' |
   'cotizaciones' | 'nueva_cotizacion' | 'editar_cotizacion' |
   'pedidos' | 'nuevo_pedido' |

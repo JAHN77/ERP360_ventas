@@ -58,13 +58,13 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
     addressText: {
-        fontSize: 9,
+        fontSize: 8, // Reduced from 9
         fontWeight: 'bold',
         color: '#1e293b',
         marginBottom: 1,
     },
     subText: {
-        fontSize: 8,
+        fontSize: 7, // Reduced from 8
         color: '#475569',
         marginBottom: 1,
     },
@@ -196,7 +196,7 @@ const OrdenCompraPDFDocument: React.FC<OrdenCompraPDFProps> = ({ data, empresa }
                             </Text>
                             <View style={{ marginTop: 3, marginBottom: 2 }}>
                                 <Text style={pdfStyles.companyAddress}>
-                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{empresa?.direccion || ''}
+                                    <Text style={pdfStyles.companyDetailLabel}>Dirección: </Text>{(empresa?.direccion || '').replace(/^(Dirección|irección)\s*[:=]\s*/i, '')}
                                 </Text>
                                 <Text style={pdfStyles.companyDetails}>{empresa?.ciudad || ''}</Text>
                             </View>
