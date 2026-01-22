@@ -25,11 +25,33 @@ const NotaCreditoPreviewModal: React.FC<NotaCreditoPreviewModalProps> = ({ notaC
 
     const relatedData = useMemo(() => {
         if (!notaCredito) return null;
-        const notaFacturaId = notaCredito.facturaId ?? (notaCredito as any).factura_id;
-        const factura = allFacturas.find(f => {
-            const facturaId = f?.id ?? (f as any)?.factura_id;
-            return String(facturaId ?? '').trim() === String(notaFacturaId ?? '').trim();
+
+        let factura = allFacturas.find(f => {
+            const fId = f?.id ?? (f as any)?.factura_id;
+            const targetId = notaCredito.facturaId ?? (notaCredito as any).factura_id;
+            return String(fId ?? '').trim() === String(targetId ?? '').trim();
         });
+
+        if (!factura) {
+            // Fallback para evitar crash si no se encuentra la factura
+            const defaultId = notaCredito.facturaId ?? (notaCredito as any).factura_id ?? 0;
+            factura = {
+                id: defaultId,
+                numeroFactura: 'Referencia No Disponible',
+                fechaFactura: new Date().toISOString(),
+                items: [],
+                total: 0,
+                subtotal: 0,
+                ivaValor: 0,
+                descuentoValor: 0,
+                clienteId: Number(notaCredito.clienteId),
+                estado: 'ACEPTADA',
+                empresaId: 1,
+                codalm: '001',
+                tipoFactura: 'FV'
+            } as any;
+        }
+
         const cliente = findClienteByIdentifier(
             clientes,
             notaCredito.clienteId ?? (notaCredito as any).cliente_id ?? (notaCredito as any).nitCliente

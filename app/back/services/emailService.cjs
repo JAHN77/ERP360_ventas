@@ -260,7 +260,7 @@ const sendDocumentEmail = async ({
         let logoCid = null;
 
         // 1. Adjuntar Logo (CID)
-        const logoPath = path.join(process.cwd(), 'public/assets/images.png');
+        const logoPath = path.join(process.cwd(), 'public/assets/grupoNisa.jpg');
         try {
             if (require('fs').existsSync(logoPath)) {
                 attachments.push({

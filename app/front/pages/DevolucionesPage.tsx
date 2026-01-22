@@ -1371,7 +1371,7 @@ const DevolucionesPage: React.FC = () => {
                                                                 <tr key={item.productoId}>
                                                                     <td className="px-4 py-3 align-top">
                                                                         <p className="font-semibold text-slate-800 dark:text-slate-200">{item.descripcion}</p>
-                                                                        <p className="text-xs text-slate-500 dark:text-slate-400">Cód: {product?.referencia || 'N/A'}</p>
+                                                                        <p className="text-xs text-slate-500 dark:text-slate-400">Cód: {product?.referencia || product?.codigo || item.codProducto || item.productoId || 'N/A'}</p>
                                                                     </td>
                                                                     <td className="px-4 py-3 text-right align-top">{item.cantidad.toFixed(2)}</td>
                                                                     <td className="px-4 py-3 text-right align-top text-orange-600">{yaDevueltos.toFixed(2)}</td>

@@ -335,7 +335,7 @@ const creditNoteController = {
           const detallesQuery = `
             SELECT 
               g.id AS notaId,
-              d.Codins AS productoId,
+              LTRIM(RTRIM(d.Codins)) AS productoId,
               d.QTYDEV AS cantidad,
               d.Venta AS precioUnitario,
               d.desins AS descuentoPorcentaje,
@@ -343,13 +343,20 @@ const creditNoteController = {
               ROUND((d.QTYDEV * d.Venta), 0) AS subtotal,
               ROUND((d.QTYDEV * d.Venta * (d.Iva/100)), 0) AS valorIva,
               ROUND(((d.QTYDEV * d.Venta) + (d.QTYDEV * d.Venta * (d.Iva/100))), 0) AS total,
-              LTRIM(RTRIM(COALESCE(i.nomins, ''))) as descripcion
+              LTRIM(RTRIM(COALESCE(i.nomins, ''))) as descripcion,
+              d.id_nota,
+              d.Numdev,
+              g.consecutivo
             FROM gen_movimiento_notas g
-            INNER JOIN Ven_Devolucion d ON d.id_nota = g.id OR d.Numdev = g.consecutivo
+            INNER JOIN Ven_Devolucion d ON (d.id_nota = g.id OR (g.consecutivo IS NOT NULL AND d.Numdev = g.consecutivo))
             LEFT JOIN inv_insumos i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.Codins))
             WHERE g.id IN (${placeholders})
           `;
+          
+          console.log('🔍 Executing detallesQuery for credit notes...');
           const detallesResult = await request.query(detallesQuery);
+          console.log(`✅ Detalles found: ${detallesResult.recordset.length}`);
+
           detalleMap = (detallesResult.recordset || []).reduce((acc, detalle) => {
             const key = detalle.notaId;
             if (!acc.has(key)) {

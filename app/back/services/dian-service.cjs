@@ -131,12 +131,12 @@ class DIANService {
       }
 
       const resolution = {
-        id: 58,
+        id: 62,
         consecutivo: 'SETP',
         rango_inicial: 90000,
         rango_final: 99000,
-        codigo: 58,
-        id_api: 58,
+        codigo: 62,
+        id_api: 62,
         activa: true
       };
 
