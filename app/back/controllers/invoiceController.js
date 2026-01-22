@@ -1429,7 +1429,49 @@ const invoiceController = {
       // Obtener parámetros DIAN
       const dianParams = await DIANService.getDIANParameters(db_name);
 
-      // Logo injection removed as per user request
+      // Inyectar Logo de Nisa
+      try {
+        const logoPath = path.join(__dirname, '../public/assets/grupoNisa.jpg');
+        if (fs.existsSync(logoPath)) {
+            const bitmap = fs.readFileSync(logoPath);
+            // Generar ambos formatos por compatibilidad
+            const rawBase64 = bitmap.toString('base64');
+            const dataUriBase64 = `data:image/jpeg;base64,${rawBase64}`;
+            
+            console.log(`✅ Logo cargado desde ${logoPath}. Inyectando en payload...`);
+
+            if (!invoiceJson.company) invoiceJson.company = {};
+
+            // ESTRATEGIA MULTI-CAMPO: Inyectar en todas las variaciones posibles
+            // API FacturaTech / UBL standards variados
+            
+            // 1. Data URI (Formato Web/HTML)
+            invoiceJson.logo = dataUriBase64;
+            invoiceJson.company.logo = dataUriBase64;
+            
+            // 2. RAW Base64 (Formato Binary/UBL) - Algunos endpoints fallan si ven "data:image..."
+            // Probamos campos alternativos comunes
+            invoiceJson.graphic_image = rawBase64;
+            invoiceJson.company.graphic_image = rawBase64;
+            invoiceJson.company.media = rawBase64; 
+            
+            // 3. Campos específicos de proveedores colombianos conocidos
+            invoiceJson.company.logo_url = dataUriBase64; // A veces aceptan datauri aquí
+            invoiceJson.company.logo_base64 = rawBase64;
+
+            // Datos adicionales de la empresa por si faltan
+            if (!invoiceJson.company.name) invoiceJson.company.name = "GRUPO EMPRESARIAL NISA SAS";
+            if (!invoiceJson.company.nit) invoiceJson.company.identification_number = 900097288;
+            if (!invoiceJson.company.address) invoiceJson.company.address = "Via 40 No. 73-290 Oficina 310 CC MIX";
+            if (!invoiceJson.company.city) invoiceJson.company.municipality = "Barranquilla";
+            if (!invoiceJson.company.phone) invoiceJson.company.phone = "3023099064";
+            if (!invoiceJson.company.email) invoiceJson.company.email = "grupoempresarialnisa@gmail.com";
+        } else {
+             console.warn(`⚠️ Logo no encontrado en ruta: ${logoPath}`);
+        }
+      } catch (err) {
+        console.warn('⚠️ Error inyectando logo para PDF:', err.message);
+      }
 
       // Llamar a la API externa para generar el PDF
       const url = `${dianParams.url_base}/api/ubl2.1/invoice/pdf/generate`;

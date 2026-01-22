@@ -43,143 +43,161 @@ const FacturaDirectaPage: React.FC = () => {
         fetchNextNumber();
     }, []);
 
+    const createInvoicePayload = (formData: any) => {
+        const totals = formData.items.reduce((acc: any, item: any) => {
+            const subtotal = item.precioUnitario * item.cantidad;
+            const discount = subtotal * (item.descuentoPorcentaje / 100);
+            const taxBase = subtotal - discount;
+            const taxAmount = taxBase * (item.ivaPorcentaje / 100);
+            return {
+                lineExtensionAmount: acc.lineExtensionAmount + subtotal,
+                taxAmount: acc.taxAmount + taxAmount,
+                payableAmount: acc.payableAmount + (taxBase + taxAmount)
+            };
+        }, { lineExtensionAmount: 0, taxAmount: 0, payableAmount: 0 });
+
+        const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
+
+        return {
+            number: parseInt(formData.number) || 0,
+            legal_monetary_totals: {
+                tax_inclusive_amount: round(totals.payableAmount),
+                line_extension_amount: round(totals.lineExtensionAmount),
+                charge_total_amount: 0,
+                tax_exclusive_amount: round(totals.lineExtensionAmount),
+                payable_amount: round(totals.payableAmount),
+                allowance_total_amount: 0
+            },
+            identification_number: 900097288,
+            payment_forms: [
+                {
+                    payment_method_id: parseInt(formData.paymentMethodId),
+                    duration_measure: "0",
+                    payment_due_date: formData.dueDate,
+                    payment_form_id: 1
+                }
+            ],
+            tax_totals: [
+                {
+                    tax_amount: round(totals.taxAmount),
+                    taxable_amount: round(totals.lineExtensionAmount),
+                    percent: 19, // Asumiendo IVA general 19%, idealmente debería ser dinámico o sumado por tasas
+                    tax_id: 1
+                }
+            ],
+            resolution_id: 62,
+            sync: true,
+            type_document_id: 1,
+            invoice_lines: formData.items.map((item: any) => {
+                const lineExtension = round(item.precioUnitario * item.cantidad);
+                const taxAmt = round(lineExtension * (item.ivaPorcentaje / 100));
+                return {
+                    base_quantity: item.cantidad,
+                    invoiced_quantity: item.cantidad,
+                    code: item.codProducto || '001',
+                    tax_totals: [
+                        {
+                            tax_amount: taxAmt,
+                            taxable_amount: lineExtension,
+                            percent: item.ivaPorcentaje,
+                            tax_id: 1
+                        }
+                    ],
+                    free_of_charge_indicator: false,
+                    line_extension_amount: lineExtension,
+                    type_item_identification_id: 3,
+                    price_amount: item.precioUnitario,
+                    description: item.descripcion,
+                    unit_measure_id: 70
+                };
+            }),
+            customer: {
+                identification_number: parseInt(formData.customer.identification_number),
+                name: formData.customer.name?.trim(),
+                phone: formData.customer.phone?.trim(),
+                address: formData.customer.address?.trim(),
+                email: (formData.customer.email && formData.customer.email.includes('@')) ? formData.customer.email.trim() : 'noemail@facturacion.com',
+                merchant_registration: "No tiene",
+                type_document_id: formData.customer.type_document_id || "31",
+                type_organization_id: 2,
+                type_liability_id: parseInt(formData.customer.type_liability_id) || 1,
+                municipality_id: formData.customer.id_location || "08001",
+                id_location: formData.customer.id_location || "08001",
+                type_regime_id: parseInt(formData.customer.type_regime_id) || 1,
+                dv: formData.customer.dv,
+                tax_detail_id: 1
+            }
+        };
+    };
+
+    const handlePreview = async (formData: any) => {
+        setIsGeneratingPdf(true);
+        try {
+            const payload = createInvoicePayload(formData);
+            const response = await apiClient.generatePreviewPdf(payload);
+
+            if (response.success) {
+                const { pdf_url: url, filename } = response.data;
+                if (url) {
+                    setPdfPreviewUrl(url);
+                    setPdfFilename(filename || `Factura_${formData.number}.pdf`);
+                    setIsPreviewModalOpen(true);
+                    addNotification({ message: 'Vista previa lista.', type: 'success' });
+                } else {
+                    throw new Error('No se recibió URL ni datos del PDF');
+                }
+            } else {
+                throw new Error(response.message || 'Error generando PDF');
+            }
+        } catch (error: any) {
+            console.error('Error generando vista previa:', error);
+            addNotification({ message: `Error generando vista previa: ${error.message}`, type: 'error' });
+        } finally {
+            setIsGeneratingPdf(false);
+        }
+    };
+
+    const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+    const [pendingPayload, setPendingPayload] = useState<any>(null);
+    const [pendingFormData, setPendingFormData] = useState<any>(null);
+
     const handleSubmit = async (formData: any) => {
         try {
-            addNotification({ message: 'Iniciando proceso de facturación...', type: 'info' });
+            const payload = createInvoicePayload(formData);
 
-            // 1. Preparar Payload para DIAN
-            const totals = formData.items.reduce((acc: any, item: any) => {
-                const subtotal = item.precioUnitario * item.cantidad;
-                const discount = subtotal * (item.descuentoPorcentaje / 100);
-                const taxBase = subtotal - discount;
-                const taxAmount = taxBase * (item.ivaPorcentaje / 100);
-                return {
-                    lineExtensionAmount: acc.lineExtensionAmount + subtotal,
-                    taxAmount: acc.taxAmount + taxAmount,
-                    payableAmount: acc.payableAmount + (taxBase + taxAmount)
-                };
-            }, { lineExtensionAmount: 0, taxAmount: 0, payableAmount: 0 });
-
-            const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
-
-            const payload = {
-                number: parseInt(formData.number) || 0,
-                legal_monetary_totals: {
-                    tax_inclusive_amount: round(totals.payableAmount),
-                    line_extension_amount: round(totals.lineExtensionAmount),
-                    charge_total_amount: 0,
-                    tax_exclusive_amount: round(totals.lineExtensionAmount),
-                    payable_amount: round(totals.payableAmount),
-                    allowance_total_amount: 0
-                },
-                identification_number: 900097288, // Orquidea NIT fijo según ManualInvoiceModal
-                payment_forms: [
-                    {
-                        payment_method_id: parseInt(formData.paymentMethodId),
-                        duration_measure: "0",
-                        payment_due_date: formData.dueDate,
-                        payment_form_id: 1
-                    }
-                ],
-                tax_totals: [
-                    {
-                        tax_amount: round(totals.taxAmount),
-                        taxable_amount: round(totals.lineExtensionAmount),
-                        percent: 19,
-                        tax_id: 1
-                    }
-                ],
-                resolution_id: 62,
-                sync: true,
-                type_document_id: 1,
-                invoice_lines: formData.items.map((item: any) => {
-                    const lineExtension = round(item.precioUnitario * item.cantidad);
-                    const taxAmt = round(lineExtension * (item.ivaPorcentaje / 100));
-                    return {
-                        base_quantity: item.cantidad,
-                        invoiced_quantity: item.cantidad,
-                        code: item.codProducto || '001',
-                        tax_totals: [
-                            {
-                                tax_amount: taxAmt,
-                                taxable_amount: lineExtension,
-                                percent: item.ivaPorcentaje,
-                                tax_id: 1
-                            }
-                        ],
-                        free_of_charge_indicator: false,
-                        line_extension_amount: lineExtension,
-                        type_item_identification_id: 3,
-                        price_amount: item.precioUnitario,
-                        description: item.descripcion,
-                        unit_measure_id: 70 // Mantener 70 por ahora, cambiar a 642 si falla
-                    };
-                }),
-                customer: {
-                    identification_number: parseInt(formData.customer.identification_number), // Asegurar número
-                    name: formData.customer.name?.trim(),
-                    phone: formData.customer.phone?.trim(),
-                    address: formData.customer.address?.trim(),
-                    email: formData.customer.email?.trim(),
-                    merchant_registration: "No tiene",
-                    type_document_id: formData.customer.type_document_id || "31", // String, key correcta
-                    type_organization_id: 2,
-                    type_liability_id: parseInt(formData.customer.type_liability_id) || 1,
-                    municipality_id: formData.customer.id_location || "08001",
-                    id_location: formData.customer.id_location || "08001",
-                    type_regime_id: parseInt(formData.customer.type_regime_id) || 1,
-                    dv: formData.customer.dv,
-                    tax_detail_id: 1
-                }
-            };
-
-            // Si es Orquidea o está en modo prueba, usar flujo con previsualización
+            // Si es Orquidea o está en modo prueba
             if (selectedCompany?.razonSocial?.toLowerCase().includes('orquidea') || isTestMode) {
-                setIsGeneratingPdf(true);
-                try {
-                    // Generar y Previsualizar PDF
-                    const response = await apiClient.generatePreviewPdf(payload);
-                    if (response.success) {
-                        const { pdf_url: url, filename } = response.data;
-                        if (url) {
-                            setPdfPreviewUrl(url);
-                            setPdfFilename(filename || `Factura_${formData.number}.pdf`);
-                            setIsPreviewModalOpen(true);
-                            addNotification({ message: 'Vista previa lista.', type: 'success' });
-                        } else {
-                            throw new Error('No se recibió URL ni datos del PDF');
-                        }
-                    } else {
-                        throw new Error(response.message || 'Error generando PDF');
-                    }
-                } catch (error: any) {
-                    console.error('Error en flujo (PDF):', error);
-                    addNotification({ message: `Error generando PDF: ${error.message}`, type: 'error' });
-                } finally {
-                    setIsGeneratingPdf(false);
-                }
-
-                // Lógica Condicional según Modo Prueba
                 if (isTestMode) {
-                    // MODO PRUEBA: Mostrar JSON y NO guardar
+                    // MODO PRUEBA
                     setJsonContent(JSON.stringify(payload, null, 2));
                     setJsonModalOpen(true);
-                    addNotification({ message: 'Modo Prueba: Factura NO enviada a DIAN ni guardada.', type: 'warning' });
+                    addNotification({ message: 'Modo Prueba: Factura NO enviada a DIAN.', type: 'warning' });
                     return;
                 } else {
-                    // MODO PRODUCCIÓN: Guardar y Enviar a DIAN
-                    addNotification({ message: 'Procediendo con envío a DIAN y guardado...', type: 'info' });
-                    await proceedWithInvoice(payload, formData);
+                    // MODO PRODUCCIÓN: Pedir confirmación antes de enviar
+                    setPendingPayload(payload);
+                    setPendingFormData(formData);
+                    setConfirmModalOpen(true);
                     return;
                 }
             } else {
-                // Para otras empresas, proceder directamente (flujo estándar)
-                await proceedWithInvoice(payload, formData);
+                // Otras empresas: también pedimos confirmación por seguridad
+                setPendingPayload(payload);
+                setPendingFormData(formData);
+                setConfirmModalOpen(true);
             }
 
         } catch (error: any) {
             console.error('Error en proceso de facturación:', error);
             addNotification({ message: `Error: ${error.message}`, type: 'error' });
+        }
+    };
+
+    const handleConfirmSend = async () => {
+        setConfirmModalOpen(false);
+        if (pendingPayload && pendingFormData) {
+            addNotification({ message: 'Enviando a la DIAN...', type: 'info' });
+            await proceedWithInvoice(pendingPayload, pendingFormData);
         }
     };
 
@@ -194,6 +212,23 @@ const FacturaDirectaPage: React.FC = () => {
             const cufe = (dianResponse as any).dianResult?.cufe || (dianResponse as any).dianResult?.uuid || 'CUFE_PENDIENTE';
             addNotification({ message: 'Factura aceptada por la DIAN', type: 'success' });
 
+            // Descargar PDF automáticamente si la DIAN lo devuelve
+            const pdfUrl = (dianResponse as any).dianResult?.pdf_url;
+            if (pdfUrl) {
+                try {
+                    addNotification({ message: 'Descargando documento ofical...', type: 'info' });
+                    const link = document.createElement('a');
+                    link.href = pdfUrl;
+                    link.setAttribute('download', `Factura_${formData.number}.pdf`);
+                    link.setAttribute('target', '_blank');
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                } catch (e) {
+                    console.error("Error auto-descargando PDF", e);
+                }
+            }
+
             // 3. Guardar en DB
             const isOrquidea = selectedCompany?.db_name === 'orquidea';
             const now = new Date();
@@ -205,19 +240,20 @@ const FacturaDirectaPage: React.FC = () => {
             const codterFormatted = `${formData.customer.identification_number}-${formData.customer.dv}`;
 
             let sqlQuery = '';
-            if (isOrquidea) {
-                const totals = formData.items.reduce((acc: any, item: any) => {
-                    const subtotal = item.precioUnitario * item.cantidad;
-                    const discount = subtotal * (item.descuentoPorcentaje / 100);
-                    const taxBase = subtotal - discount;
-                    const taxAmount = taxBase * (item.ivaPorcentaje / 100);
-                    return {
-                        lineExtensionAmount: acc.lineExtensionAmount + subtotal,
-                        taxAmount: acc.taxAmount + taxAmount,
-                        payableAmount: acc.payableAmount + (taxBase + taxAmount)
-                    };
-                }, { lineExtensionAmount: 0, taxAmount: 0, payableAmount: 0 });
+            // Recalcular montos planos para SQL (podríamos sacar esto del payload pero ya está formateado diferente)
+            const totals = formData.items.reduce((acc: any, item: any) => {
+                const subtotal = item.precioUnitario * item.cantidad;
+                const discount = subtotal * (item.descuentoPorcentaje / 100);
+                const taxBase = subtotal - discount;
+                const taxAmount = taxBase * (item.ivaPorcentaje / 100);
+                return {
+                    lineExtensionAmount: acc.lineExtensionAmount + subtotal,
+                    taxAmount: acc.taxAmount + taxAmount,
+                    payableAmount: acc.payableAmount + (taxBase + taxAmount)
+                };
+            }, { lineExtensionAmount: 0, taxAmount: 0, payableAmount: 0 });
 
+            if (isOrquidea) {
                 sqlQuery = `
     DECLARE @NewId INT;
     INSERT INTO ven_facturas (
@@ -298,11 +334,48 @@ const FacturaDirectaPage: React.FC = () => {
                 <CardContent>
                     <FacturaDirectaForm
                         onSubmit={handleSubmit}
+                        onPreview={handlePreview}
                         nextInvoiceNumber={nextNumber}
                         onCancel={() => setPage('facturacion_electronica')}
                     />
                 </CardContent>
             </Card>
+
+            {/* Modal de Confirmación DIAN */}
+            <Modal
+                isOpen={confirmModalOpen}
+                onClose={() => setConfirmModalOpen(false)}
+                title="Confirmar Envío DIAN"
+                size="md"
+            >
+                <div className="p-6">
+                    <div className="flex items-center justify-center mb-4 text-amber-500">
+                        <i className="fas fa-exclamation-triangle text-5xl"></i>
+                    </div>
+                    <h3 className="text-center text-lg font-bold text-slate-800 dark:text-white mb-2">
+                        ¿Estás seguro de enviar esta factura a la DIAN?
+                    </h3>
+                    <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-6">
+                        Esta acción generará un documento oficial con validez fiscal.
+                        Asegúrate de que todos los datos sean correctos.
+                    </p>
+
+                    <div className="flex justify-center gap-4">
+                        <button
+                            onClick={() => setConfirmModalOpen(false)}
+                            className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 font-medium transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={handleConfirmSend}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors shadow-lg shadow-blue-500/30"
+                        >
+                            Sí, Enviar Factura
+                        </button>
+                    </div>
+                </div>
+            </Modal>
 
             {/* Modal para ver JSON en Modo Prueba */}
             <Modal

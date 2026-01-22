@@ -31,6 +31,8 @@ interface FacturaDirectaFormData {
         id_location: string;
     };
     items: DocumentItem[];
+    observacionesInternas?: string;
+    notaPago?: string;
 }
 
 interface FacturaDirectaFormProps {
@@ -38,9 +40,10 @@ interface FacturaDirectaFormProps {
     onCancel: () => void;
     onDirtyChange?: (isDirty: boolean) => void;
     nextInvoiceNumber?: string;
+    onPreview?: (data: FacturaDirectaFormData) => void;
 }
 
-const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCancel, onDirtyChange, nextInvoiceNumber }) => {
+const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCancel, onDirtyChange, nextInvoiceNumber, onPreview }) => {
     const { clientes, vendedores, productos, datosEmpresa } = useData();
     const { selectedSede, selectedCompany } = useAuth();
     const { addNotification } = useNotifications();
@@ -221,12 +224,29 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
     };
 
     const handleAddItem = () => {
-        if (!selectedProduct || !isPositiveInteger(currentQuantity)) return;
+        if (!selectedProduct) return;
 
         const quantityNum = Number(currentQuantity);
         const discountNum = Number(currentDiscount);
-        const price = Number(currentUnitPrice) || 0;
-        const ivaPorcentaje = Number(currentIva) || 0;
+        const price = Number(currentUnitPrice);
+        const ivaPorcentaje = Number(currentIva);
+
+        if (quantityNum <= 0) {
+            addNotification({ message: 'La cantidad debe ser mayor a 0', type: 'warning' });
+            return;
+        }
+        if (price <= 0) {
+            addNotification({ message: 'El precio debe ser mayor a 0', type: 'warning' });
+            return;
+        }
+        if (ivaPorcentaje < 0) {
+            addNotification({ message: 'El IVA no puede ser negativo', type: 'warning' });
+            return;
+        }
+        if (discountNum < 0) {
+            addNotification({ message: 'El descuento no puede ser negativo', type: 'warning' });
+            return;
+        }
 
         const subtotal = (price * quantityNum) * (1 - (discountNum / 100));
         const valorIva = subtotal * (ivaPorcentaje / 100);
@@ -248,6 +268,10 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
         setFormData(prev => ({ ...prev, items: [...prev.items, newItem] }));
         setSelectedProduct(null);
         setProductSearchTerm('');
+        setCurrentQuantity(1);
+        setCurrentUnitPrice(0);
+        setCurrentIva(0);
+        setCurrentDiscount(0);
     };
 
     const handleRemoveItem = (index: number) => {
@@ -267,6 +291,10 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
         e.preventDefault();
         if (formData.items.length === 0) {
             addNotification({ message: 'Debe añadir al menos un producto', type: 'warning' });
+            return;
+        }
+        if (!formData.customer.email || !formData.customer.email.includes('@')) {
+            addNotification({ message: 'El cliente debe tener un correo electrónico válido', type: 'error' });
             return;
         }
         setIsSubmitting(true);
@@ -321,8 +349,14 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         value={clienteSearch}
                         onChange={(e) => { setClienteSearch(e.target.value); setIsClienteOpen(true); }}
                         placeholder="Buscar cliente..."
-                        className="w-full px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                        className={`w-full px-3 py-1.5 text-sm border rounded-md focus:ring-2 outline-none ${formData.customer.identification_number && (!formData.customer.email || !formData.customer.email.includes('@'))
+                            ? 'bg-red-50 border-red-300 focus:ring-red-500 text-red-700'
+                            : 'bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 focus:ring-blue-500'
+                            }`}
                     />
+                    {formData.customer.identification_number && (!formData.customer.email || !formData.customer.email.includes('@')) && (
+                        <p className="text-[10px] text-red-500 mt-0.5">⚠️ El cliente seleccionado no tiene email válido</p>
+                    )}
                     {isClienteOpen && clienteResults.length > 0 && (
                         <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
                             {clienteResults.map(c => (
@@ -409,6 +443,11 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                                             ].filter(Boolean).join(' | ')}
                                         </span>
                                     )}
+                                    {/* Mostrar email explícitamente para validación visual */}
+                                    <span className={(!selectedCliente.email || !selectedCliente.email.includes('@')) ? 'text-red-500 font-bold' : ''}>
+                                        <i className={`fas ${(!selectedCliente.email || !selectedCliente.email.includes('@')) ? 'fa-exclamation-circle' : 'fa-envelope'} mr-1`}></i>
+                                        {selectedCliente.email || '🚫 Sin Email'}
+                                    </span>
                                 </div>
                             </div>
                         </Card>
@@ -506,6 +545,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1 text-center">Cant.</label>
                         <input
                             type="number"
+                            min="1"
                             value={currentQuantity}
                             onChange={(e) => setCurrentQuantity(e.target.value)}
                             className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
@@ -515,6 +555,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1 text-right">Vr. Unit.</label>
                         <input
                             type="number"
+                            min="0"
                             value={currentUnitPrice}
                             onChange={(e) => setCurrentUnitPrice(e.target.value)}
                             className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-right focus:ring-2 focus:ring-blue-500 outline-none"
@@ -524,6 +565,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1 text-center">% Iva</label>
                         <input
                             type="number"
+                            min="0"
                             value={currentIva}
                             onChange={(e) => setCurrentIva(e.target.value)}
                             className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
@@ -533,6 +575,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1 text-center">% Desc.</label>
                         <input
                             type="number"
+                            min="0"
                             value={currentDiscount}
                             onChange={(e) => setCurrentDiscount(e.target.value)}
                             className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
@@ -638,10 +681,34 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                 >
                     Cancelar
                 </button>
+
+                {onPreview && (
+                    <button
+                        type="button"
+                        onClick={() => onPreview({ ...formData, observacionesInternas, notaPago })}
+                        disabled={formData.items.length === 0 || !formData.customer.identification_number || !formData.customer.email || !formData.customer.email.includes('@')}
+                        title={
+                            formData.items.length === 0 ? "Añade productos primero" :
+                                !formData.customer.identification_number ? "Selecciona un cliente" :
+                                    (!formData.customer.email || !formData.customer.email.includes('@')) ? "El cliente debe tener un email válido" :
+                                        ""
+                        }
+                        className="px-6 py-2 border-2 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-bold rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <i className="fas fa-eye"></i> Previsualizar
+                    </button>
+                )}
+
                 <button
                     type="submit"
-                    disabled={isSubmitting}
-                    className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-lg shadow-blue-500/30 flex items-center gap-2"
+                    disabled={isSubmitting || formData.items.length === 0 || !formData.customer.identification_number || !formData.customer.email || !formData.customer.email.includes('@')}
+                    title={
+                        formData.items.length === 0 ? "Añade productos primero" :
+                            !formData.customer.identification_number ? "Selecciona un cliente" :
+                                (!formData.customer.email || !formData.customer.email.includes('@')) ? "El cliente debe tener un email válido" :
+                                    ""
+                    }
+                    className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-lg shadow-blue-500/30 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {isSubmitting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
                     Guardar y Timbrar Factura

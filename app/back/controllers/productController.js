@@ -37,7 +37,17 @@ const productController = {
             ins.codigo_linea           AS codigoLinea,
             ins.codigo_sublinea        AS codigoSublinea,
             ins.Codigo_Medida          AS idMedida,
-            COALESCE(ins.undins, m.nommed, '') AS unidadMedida,
+            COALESCE(
+                CASE 
+                    WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '001' THEN 'HORA'
+                    WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '002' THEN 'DIA'
+                    WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '003' THEN 'UNIDAD'
+                    ELSE NULL 
+                END,
+                m.nommed, 
+                ins.undins, 
+                ''
+            ) AS unidadMedida,
             ins.tasa_iva               AS tasaIva,
             COALESCE(
                 CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(18,2)),
@@ -56,7 +66,7 @@ const productController = {
             ins.precio_mayorista       AS precioMayorista,
             dp.valins                  AS precioConIva
         FROM ${TABLE_NAMES.productos} ins
-        LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
+        LEFT JOIN inv_medidas m ON LTRIM(RTRIM(m.codmed)) = LTRIM(RTRIM(ins.Codigo_Medida))
         LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
         WHERE ins.activo = 1
       `;
@@ -162,7 +172,15 @@ const productController = {
             LTRIM(RTRIM(s.codser))                     AS codigo, 
             LTRIM(RTRIM(s.nomser))                     AS nombre,
             s.CODSUBLINEA                              AS codigoSublinea,
-            'UND'                                      AS unidadMedida,
+            COALESCE(
+              CASE 
+                  WHEN LTRIM(RTRIM(s.Codigo_medida)) = '001' THEN 'HORA'
+                  WHEN LTRIM(RTRIM(s.Codigo_medida)) = '002' THEN 'DIA'
+                  WHEN LTRIM(RTRIM(s.Codigo_medida)) = '003' THEN 'UNIDAD'
+                  ELSE NULL 
+              END,
+              'UND'
+            ) AS unidadMedida,
             CAST(s.ivaser AS decimal(18,2))            AS tasaIva,
             CAST(s.valser AS decimal(18,2))            AS ultimoCosto,
             LTRIM(RTRIM(COALESCE(s.REFSER, '')))       AS referencia,
@@ -257,13 +275,23 @@ const productController = {
           COALESCE(SUM(inv.caninv), 0) AS stock,
           ins.undins AS unidadMedidaCodigo,
           m.nommed AS unidadMedidaNombre,
-          -- Prioritize undins (Exact DB value) as requested by user, then fallback to Measure Name
-          COALESCE(ins.undins, m.nommed, '') AS unidadMedida,
+          -- Prioritize code checks (001,002,003), then Measure Name, then internal code
+          COALESCE(
+            CASE 
+                WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '001' THEN 'HORA'
+                WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '002' THEN 'DIA'
+                WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '003' THEN 'UNIDAD'
+                ELSE NULL 
+            END,
+            m.nommed, 
+            ins.undins, 
+            ''
+          ) AS unidadMedida,
           ins.tasa_iva AS tasaIva,
           dp.valins AS precioConIva
         FROM ${TABLE_NAMES.productos} ins
         LEFT JOIN inv_invent inv ON inv.codins = ins.codins AND (@codalm IS NULL OR inv.codalm = @codalm)
-        LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
+        LEFT JOIN inv_medidas m ON LTRIM(RTRIM(m.codmed)) = LTRIM(RTRIM(ins.Codigo_Medida))
         LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
         WHERE ins.activo = 1 AND (ins.nomins LIKE @like OR ins.referencia LIKE @like OR ins.codins LIKE @like)
         GROUP BY ins.id, ins.codins, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva, dp.valins
@@ -303,9 +331,24 @@ const productController = {
           ins.valser AS precioBase,
           ins.ivaser AS tasaIva,
           ins.Codigo_medida AS unidadMedidaCodigo,
-          -- Fallback a 'UND' si no hay join, aunque idealmente deberia hacer join con medidas si es necesario
-          'UND' AS unidadMedidaNombre, 
-          'UND' AS unidadMedida,
+          COALESCE(
+              CASE 
+                  WHEN LTRIM(RTRIM(ins.Codigo_medida)) = '001' THEN 'HORA'
+                  WHEN LTRIM(RTRIM(ins.Codigo_medida)) = '002' THEN 'DIA'
+                  WHEN LTRIM(RTRIM(ins.Codigo_medida)) = '003' THEN 'UNIDAD'
+                  ELSE NULL 
+              END,
+              'UND'
+          ) AS unidadMedidaNombre, 
+          COALESCE(
+              CASE 
+                  WHEN LTRIM(RTRIM(ins.Codigo_medida)) = '001' THEN 'HORA'
+                  WHEN LTRIM(RTRIM(ins.Codigo_medida)) = '002' THEN 'DIA'
+                  WHEN LTRIM(RTRIM(ins.Codigo_medida)) = '003' THEN 'UNIDAD'
+                  ELSE NULL 
+              END,
+              'UND'
+          ) AS unidadMedida,
           -- Precio con IVA calculado (aunque valser parece ser precio base)
           (ins.valser * (1 + (ins.ivaser / 100.0))) AS precioConIva,
           -- Control de existencia (servicios no suelen tener stock, pero retornamos 9999 para que no bloquee)
