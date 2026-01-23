@@ -94,7 +94,7 @@ const FacturaDirectaPage: React.FC = () => {
                 return {
                     base_quantity: item.cantidad,
                     invoiced_quantity: item.cantidad,
-                    code: item.codProducto || '001',
+                    code: item.referencia || item.codProducto || '001',
                     tax_totals: [
                         {
                             tax_amount: taxAmt,

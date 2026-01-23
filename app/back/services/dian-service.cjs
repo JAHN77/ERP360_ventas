@@ -344,9 +344,10 @@ class DIANService {
 
       // Intentar con id_factura primero, luego con campos legacy
       let detallesResult = await reqDetalles.query(`
-        SELECT *
-        FROM ven_detafact
-        WHERE id_factura = @facturaId
+        SELECT d.*, i.referencia
+        FROM ven_detafact d
+        LEFT JOIN inv_insumos i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.codins))
+        WHERE d.id_factura = @facturaId
       `);
 
       console.log(`   Detalles encontrados con id_factura: ${detallesResult.recordset.length}`);
@@ -360,11 +361,12 @@ class DIANService {
         reqDetallesLegacy.input('codalm', sql.Char(3), factura.codalm || '001');
 
         detallesResult = await reqDetallesLegacy.query(`
-          SELECT *
-          FROM ven_detafact
-          WHERE numfac = @numfac
-            AND (tipfact = @tipfact OR tipfact IS NULL)
-            AND codalm = @codalm
+          SELECT d.*, i.referencia
+          FROM ven_detafact d
+          LEFT JOIN inv_insumos i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.codins))
+          WHERE d.numfac = @numfac
+            AND (d.tipfact = @tipfact OR d.tipfact IS NULL)
+            AND d.codalm = @codalm
         `);
         console.log(`   Detalles encontrados con campos legacy: ${detallesResult.recordset.length}`);
       }
@@ -744,7 +746,8 @@ class DIANService {
           line_extension_amount: Number(detalleLineExtension), // Total de la línea sin impuestos (número)
           description: String(detalle.observa || detalle.descripcion || "VENTA DE PRODUCTOS Y SERVICIOS").trim(), // observa desde ven_detafact (string)
           price_amount: Number(detallePrice), // Precio unitario (valins) (número)
-          code: String(detalle.codins || detalle.codProducto || (index + 1)).trim(), // codins desde ven_detafact (string)
+          // PRIORIDAD: referencia > codins > index
+          code: String(detalle.referencia || detalle.codins || detalle.codProducto || (index + 1)).trim(),
           type_item_identification_id: Number(4), // 4 = Código estándar interno (DIAN) (número)
           base_quantity: Number(detalleQuantity), // Cantidad base (generalmente igual a invoiced_quantity) (número)
           free_of_charge_indicator: Boolean(false), // Si es una línea gratuita (boolean)

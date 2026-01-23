@@ -262,7 +262,8 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             subtotal: subtotal,
             valorIva: valorIva,
             total: total,
-            codProducto: selectedProduct.codigo || (selectedProduct as any).codins || 'N/A'
+            codProducto: selectedProduct.codigo || (selectedProduct as any).codins || 'N/A',
+            referencia: selectedProduct.referencia || ''
         };
 
         setFormData(prev => ({ ...prev, items: [...prev.items, newItem] }));
@@ -628,7 +629,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         ) : (
                             formData.items.map((item, idx) => (
                                 <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                    <td className="px-4 py-3 font-mono text-xs">{item.codProducto || 'N/A'}</td>
+                                    <td className="px-4 py-3 font-mono text-xs">{item.referencia || item.codProducto || 'N/A'}</td>
                                     <td className="px-4 py-3 font-medium">{item.descripcion}</td>
                                     <td className="px-4 py-3 text-center font-bold">{item.cantidad}</td>
                                     <td className="px-4 py-3 text-right">{formatCurrency(item.precioUnitario)}</td>

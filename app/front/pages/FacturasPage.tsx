@@ -661,7 +661,8 @@ const FacturasPage: React.FC = () => {
           subtotal: Number(d.subtotal || 0),
           valorIva: Number(d.valorIva || d.ivains || 0),
           total: Number(d.total || 0),
-          codProducto: d.codProducto || d.codins || ''
+          codProducto: d.codProducto || d.codins || '',
+          referencia: d.referencia || ''
         }));
         setSelectedFacturaItems(items);
       } else {
