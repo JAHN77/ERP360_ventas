@@ -621,7 +621,7 @@ const creditNoteController = {
             const reqProducto = createRequest();
             reqProducto.input('productoId', sql.Int, normalizado.productoId);
             const productoResult = await reqProducto.query(`
-              SELECT TOP 1 id, codins 
+              SELECT TOP 1 id, codins, referencia 
               FROM inv_insumos
               WHERE id = @productoId
             `);
@@ -636,7 +636,8 @@ const creditNoteController = {
 
             productosCache.set(normalizado.productoId, {
               id: productoResult.recordset[0].id,
-              codins: productoResult.recordset[0].codins ? String(productoResult.recordset[0].codins).trim().toLowerCase() : null
+              codins: productoResult.recordset[0].codins ? String(productoResult.recordset[0].codins).trim().toLowerCase() : null,
+              referencia: productoResult.recordset[0].referencia ? String(productoResult.recordset[0].referencia).trim() : null
             });
           }
 
@@ -669,7 +670,11 @@ const creditNoteController = {
           }
 
           devolucionesActuales.set(keyDetalle, cantidadDevueltaActual + normalizado.cantidad);
-          detallesNormalizados.push({ ...normalizado, matchKey: keyDetalle });
+          detallesNormalizados.push({ 
+            ...normalizado, 
+            matchKey: keyDetalle, 
+            referencia: productoInfo.referencia 
+          });
         }
 
         const subtotalTotal = detallesNormalizados.reduce((acc, item) => acc + item.subtotal, 0);
@@ -694,15 +699,34 @@ const creditNoteController = {
           } else {
             // Calcular consecutivo numérico simulado para que el JSON no tenga number: null
             const consecutivoRequest = createRequest();
-            const minConsecutivoResult = await consecutivoRequest.query(`
-                    SELECT MIN(consecutivo) as minConsecutivo 
+            // Modified to exclude the erroneous record 51 so we resume from 6
+            // Also consolidated variable usage to avoid redeclaration error
+
+            // Modified to exclude the erroneous record 51 so we resume from 6
+            const maxNumResult = await consecutivoRequest.query(`
+                    SELECT MAX(consecutivo) as maxNum 
                     FROM gen_movimiento_notas 
-                    WHERE consecutivo <= 100000 AND consecutivo > 90000
+                    WHERE consecutivo < 100000 AND consecutivo <> 51
                 `);
 
-            nextNum = 100000;
-            if (minConsecutivoResult.recordset.length > 0 && minConsecutivoResult.recordset[0].minConsecutivo) {
-              nextNum = minConsecutivoResult.recordset[0].minConsecutivo - 1;
+            const maxNum = maxNumResult.recordset[0]?.maxNum;
+            if (maxNum) {
+              nextNum = Number(maxNum) + 1;
+            } else {
+              nextNum = 1;
+            }
+
+            // Check if calculated number exists (handling the skip from 50 -> 52 over 51)
+            let exists = true;
+            while(exists) {
+               const checkReq = createRequest();
+               checkReq.input('checkNum', sql.Int, nextNum);
+               const checkRes = await checkReq.query('SELECT 1 FROM gen_movimiento_notas WHERE consecutivo = @checkNum');
+               if(checkRes.recordset.length > 0) {
+                 nextNum++;
+               } else {
+                 exists = false;
+               }
             }
             console.log(`🧪 Consecutivo simulado para prueba: ${nextNum}`);
           }
@@ -872,23 +896,42 @@ const creditNoteController = {
             console.log('🔢 Usando consecutivo proporcionado (Retry):', nextConsecutivo);
           } else {
             const consecutivoRequest = new sql.Request(tx);
-            const minConsecutivoResult = await consecutivoRequest.query(`
-                  SELECT MIN(consecutivo) as minConsecutivo 
+            // Get MAX consecutivo from gen_movimiento_notas directly to ensure continuity
+            // Filtering < 100000 to avoid test numbers if any, AND excluding 51
+            const maxNumResult = await consecutivoRequest.query(`
+                  SELECT MAX(consecutivo) as maxNum 
                   FROM gen_movimiento_notas 
-                  WHERE consecutivo <= 100000 AND consecutivo > 90000
+                  WHERE consecutivo < 100000 AND consecutivo <> 51
                 `);
 
-            const minConsecutivo = minConsecutivoResult.recordset[0]?.minConsecutivo;
-            if (minConsecutivo) {
-              nextConsecutivo = minConsecutivo - 1;
+            const maxNum = maxNumResult.recordset[0]?.maxNum;
+            if (maxNum) {
+              nextConsecutivo = Number(maxNum) + 1;
             } else {
-              nextConsecutivo = 100000;
+              nextConsecutivo = 1;
             }
-            console.log('🔢 Consecutivo generado:', nextConsecutivo);
+
+            // Loop to skip existing numbers (e.g. skip 51 when we reach 50)
+            let exists = true;
+            while(exists) {
+               const checkReq = new sql.Request(tx);
+               checkReq.input('checkNum', sql.Int, nextConsecutivo);
+               const checkRes = await checkReq.query('SELECT 1 FROM gen_movimiento_notas WHERE consecutivo = @checkNum');
+               if(checkRes.recordset.length > 0) {
+                 nextConsecutivo++;
+               } else {
+                 exists = false;
+               }
+            }
+
+            console.log('🔢 Consecutivo generado desde gen_movimiento_notas (skip 51):', nextConsecutivo);
           }
 
           const year = fechaNota.getFullYear();
-          comprobante = `${year}-${nextConsecutivo}`;
+          const month = String(fechaNota.getMonth() + 1).padStart(2, '0');
+          const paddedNum = String(nextConsecutivo).padStart(4, '0');
+          // Format based on successful examples: YYYY-MM-XXXX (e.g., 2025-09-0005)
+          comprobante = `${year}-${month}-${paddedNum}`;
 
           const insertNotaRequest = new sql.Request(tx);
           insertNotaRequest.input('id_factura', sql.BigInt, factura.id);
@@ -1159,19 +1202,33 @@ const creditNoteController = {
       const pool = await getConnection();
 
       const consecutivoRequest = new sql.Request(pool);
-      const minConsecutivoResult = await consecutivoRequest.query(`
-        SELECT MIN(consecutivo) as minConsecutivo 
+      // Modified to use MAX(Numdev) from Ven_Devolucion logic but excluding 51
+      const maxNumResult = await consecutivoRequest.query(`
+        SELECT MAX(consecutivo) as maxNum 
         FROM gen_movimiento_notas 
-        WHERE consecutivo <= 100000 AND consecutivo > 90000
+        WHERE consecutivo < 100000 AND consecutivo <> 51
       `);
 
       let nextConsecutivo;
-      const minConsecutivo = minConsecutivoResult.recordset[0]?.minConsecutivo;
+      const maxNum = maxNumResult.recordset[0]?.maxNum;
 
-      if (minConsecutivo) {
-        nextConsecutivo = minConsecutivo - 1;
+      if (maxNum) {
+        nextConsecutivo = Number(maxNum) + 1;
       } else {
-        nextConsecutivo = 100000;
+        nextConsecutivo = 1;
+      }
+
+      // Check existence loop
+      let exists = true;
+      while(exists) {
+          const checkReq = new sql.Request(pool);
+          checkReq.input('checkNum', sql.Int, nextConsecutivo);
+          const checkRes = await checkReq.query('SELECT 1 FROM gen_movimiento_notas WHERE consecutivo = @checkNum');
+          if(checkRes.recordset.length > 0) {
+            nextConsecutivo++;
+          } else {
+            exists = false;
+          }
       }
 
       const nextNumber = String(nextConsecutivo);

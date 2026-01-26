@@ -1063,12 +1063,12 @@ class DIANService {
     // Por ahora hardcoded como se sugiere en la guía, pero idealmente vendría de BD
     // Se busca por id=99 o prefijo='NC'
     return {
-      id: 99,
+      id: 67,
       consecutivo: '8',
       rango_inicial: 1,
       rango_final: 99999,
-      codigo: 99,
-      id_api: 99,
+      codigo: 67,
+      id_api: 67,
       activa: true,
       type_document_id: 5 // Nota Crédito
     };
@@ -1136,7 +1136,7 @@ class DIANService {
         discount: 0,
         free_of_charge_indicator: false,
         description: detalle.descripcion || correctionDescription,
-        code: String(detalle.producto_id || detalle.productoId),
+        code: String(detalle.referencia || detalle.producto_id || detalle.productoId),
         type_item_identification_id: 4,
         price_amount: precio,
         base_quantity: cantidad,
@@ -1196,7 +1196,7 @@ class DIANService {
       type_document_id: 5, // Nota Crédito
       identification_number: companyNit,
       dv: companyDv,
-      resolution_id: 8, // ID de resolución
+      resolution_id: 67, // ID de resolución
       sync: true,
 
       date: issueDate,
