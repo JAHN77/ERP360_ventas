@@ -86,7 +86,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                             <Text style={pdfStyles.clientName}>{cliente.nombreCompleto}</Text>
                             <View style={[pdfStyles.clientRow, { marginTop: 3 }]}>
                                 <Text style={pdfStyles.clientLabel}>NIT/CC:</Text>
-                                <Text style={pdfStyles.clientValue}>{cliente.tipoDocumentoId} {cliente.numeroDocumento}</Text>
+                                <Text style={pdfStyles.clientValue}>{cliente.numeroDocumento || cliente.nit || cliente.identification_number}</Text>
                             </View>
                             <View style={pdfStyles.clientRow}>
                                 <Text style={pdfStyles.clientLabel}>Dirección:</Text>
@@ -154,7 +154,8 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                     </View>
                     {(factura.items || []).map((item, index) => {
                         const product = productos.find(p => p.id === item.productoId);
-                        const referencia = item.referencia || product?.referencia || item.codProducto || 'N/A';
+                        // Prioritize codProducto as reference
+                        const referencia = item.codProducto || item.referencia || product?.referencia || 'N/A';
                         const itemTotal = Number(item.total) || 0; // Use local const for clarity
 
                         return (

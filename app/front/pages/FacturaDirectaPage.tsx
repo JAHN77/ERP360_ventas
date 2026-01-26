@@ -229,18 +229,11 @@ const FacturaDirectaPage: React.FC = () => {
                 }
             }
 
-            // 3. Guardar en DB
-            const isOrquidea = selectedCompany?.db_name === 'orquidea';
-            const now = new Date();
-            const formatDateTime = (date: Date) => {
-                const pad = (n: number) => n.toString().padStart(2, '0');
-                return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.000`;
-            };
+            // 3. Guardar en DB usando el endpoint estándar (Funciona para todas las empresas)
 
             const codterFormatted = `${formData.customer.identification_number}-${formData.customer.dv}`;
 
-            let sqlQuery = '';
-            // Recalcular montos planos para SQL (podríamos sacar esto del payload pero ya está formateado diferente)
+            // Recalcular totales para el cuerpo de la factura
             const totals = formData.items.reduce((acc: any, item: any) => {
                 const subtotal = item.precioUnitario * item.cantidad;
                 const discount = subtotal * (item.descuentoPorcentaje / 100);
@@ -253,38 +246,74 @@ const FacturaDirectaPage: React.FC = () => {
                 };
             }, { lineExtensionAmount: 0, taxAmount: 0, payableAmount: 0 });
 
-            if (isOrquidea) {
-                sqlQuery = `
-    DECLARE @NewId INT;
-    INSERT INTO ven_facturas (
-        codalm, numfact, tipfac, codter, doccoc, fecfac, venfac, codven, 
-        valvta, valiva, valotr, valant, valdev, abofac, valdcto, valret, valrica, valriva, 
-        netfac, valcosto, codcue, efectivo, cheques, credito, tarjetacr, TarjetaDB, Transferencia, 
-        valpagado, resolucion_dian, Observa, TARIFA_CREE, RETECREE, codusu, fecsys, estfac, 
-        VALDOMICILIO, CUFE, estado_envio, IdCaja, afecta_inventario
-    ) VALUES (
-        '001', '${formData.number}', 'FV', '${codterFormatted}', '${formData.number}', '${formData.date} 00:00:00.000', '${formData.dueDate} 00:00:00.000', '${formData.seller || '001'}',
-        ${totals.lineExtensionAmount.toFixed(2)}, ${totals.taxAmount.toFixed(2)}, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
-        ${totals.payableAmount.toFixed(2)}, 0.00, '13050501', ${formData.paymentMethodId === '10' ? totals.payableAmount.toFixed(2) : '0.00'}, 0.00, ${formData.paymentMethodId === '30' ? totals.payableAmount.toFixed(2) : '0.00'}, 0.00, 0.00, ${formData.paymentMethodId === '31' ? totals.payableAmount.toFixed(2) : '0.00'},
-        ${totals.payableAmount.toFixed(2)}, '02', 'Factura Directa', 0.0000, 0, 'ADMIN', '${formatDateTime(now)}', '1',
-        0.00, '${cufe}', 1, 1, 1
-    );
-    SET @NewId = SCOPE_IDENTITY();
-    `;
-                const detailsSql = formData.items.map((item: any) => `
-    INSERT INTO ven_detafact (
-        codalm, numfac, tipfact, codins, observa, qtyins, valins, PRECIOUND, PRECIO_LISTA, ivains, valdescuento, id_factura
-    ) VALUES (
-        '001', '${formData.number}', 'FV', '${item.codProducto || '001'}', '${item.descripcion.substring(0, 50)}',
-        ${item.cantidad}, ${item.precioUnitario.toFixed(2)}, ${item.precioUnitario.toFixed(2)}, ${item.precioUnitario.toFixed(2)},
-        ${item.valorIva.toFixed(2)}, ${(item.precioUnitario * item.cantidad * (item.descuentoPorcentaje / 100)).toFixed(2)}, @NewId
-    );`).join('');
-                sqlQuery += detailsSql;
+            // Mapear datos del formulario al formato esperado por createInvoice del backend
+            const backendItems = formData.items.map((item: any) => {
+                const subtotalItem = item.precioUnitario * item.cantidad;
+                const ivaItem = subtotalItem * (item.ivaPorcentaje / 100);
+                return {
+                    codProducto: item.codProducto || item.referencia || '001',
+                    productoId: item.productoId,
+                    cantidad: item.cantidad,
+                    precioUnitario: item.precioUnitario,
+                    ivaPorcentaje: item.ivaPorcentaje,
+                    valorIva: ivaItem,
+                    subtotal: subtotalItem,
+                    total: subtotalItem + ivaItem,
+                    descripcion: item.descripcion || '',
+                    referencia: item.referencia || ''
+                };
+            });
+
+            // Determinar valores de pago según el método seleccionado
+            let valEfectivo = 0;
+            let valCredito = 0;
+            let valTransferencia = 0;
+            let formaPagoBackend = '01'; // Default Contado
+
+            // Mapeo basado en lógica anterior: 10=Efectivo, 30=Crédito, 31=Transferencia
+            if (formData.paymentMethodId === '10') {
+                valEfectivo = totals.payableAmount;
+                formaPagoBackend = '01';
+            } else if (formData.paymentMethodId === '30') {
+                valCredito = totals.payableAmount;
+                formaPagoBackend = '02';
+            } else if (formData.paymentMethodId === '31') {
+                valTransferencia = totals.payableAmount;
+                formaPagoBackend = '01';
+            } else {
+                // Default fallback
+                valEfectivo = totals.payableAmount;
             }
 
-            const saveResponse = await apiClient.executeQuery(sqlQuery);
+            const invoiceBody = {
+                numeroFactura: formData.number,
+                fechaFactura: formData.date,
+                fechaVencimiento: formData.dueDate,
+                clienteId: codterFormatted, // Se envía con DV (e.g. 900123456-1) para coincidir con BD
+                vendedorId: formData.seller || '001', // Código del vendedor seleccionado
+                subtotal: totals.lineExtensionAmount,
+                ivaValor: totals.taxAmount,
+                total: totals.payableAmount,
+                observaciones: 'Factura Directa',
+                estado: 'APROBADA', // Ya fue enviada a DIAN
+                // empresaId: selectedCompany?.id, // SE COMENTA PARA QUE EL BACKEND TOME EL ALMACÉN 001 POR DEFECTO
+                codalm: '001', // Almacén principal
+                items: backendItems,
+                formaPago: formaPagoBackend,
+                efectivo: valEfectivo,
+                credito: valCredito,
+                transferencia: valTransferencia,
+                cufe: cufe,
+                resolucionDian: '01', // Corregido a '01' según solicitud
+                estadoEnvio: true // Marcar como enviada
+            };
+
+            console.log('Enviando a guardar BD:', invoiceBody);
+            const saveResponse = await apiClient.createFactura(invoiceBody);
+
             if (!saveResponse.success) {
-                throw new Error('Error guardando en base de datos: ' + saveResponse.message);
+                console.error("Error guardando factura:", saveResponse);
+                throw new Error(saveResponse.message || 'Error guardando en base de datos');
             }
 
             addNotification({ message: 'Factura guardada exitosamente', type: 'success' });

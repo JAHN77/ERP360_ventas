@@ -532,7 +532,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                             <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
                                 {productResults.map(p => (
                                     <div key={p.id} onClick={() => handleProductSelect(p)} className="px-3 py-2 hover:bg-blue-500 hover:text-white cursor-pointer text-sm">
-                                        {p.codigo} - {p.nombre}
+                                        {p.referencia || p.codigo} - {p.nombre}
                                     </div>
                                 ))}
                             </div>

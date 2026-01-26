@@ -686,7 +686,8 @@ const invoiceController = {
         const tipfacFinal = String(body.tipoFactura || 'FV').trim().substring(0, 2).padEnd(2, ' ');
         const codterFinal = String(clienteIdStr || '').trim().substring(0, 15);
 
-        let doccocFinal = body.documentoContable || `${new Date().getFullYear()}-${numfactFinal}`;
+        // CORRECCIÓN: doccoc debe ser igual al número de factura sin el año
+        let doccocFinal = numfactFinal; 
         doccocFinal = String(doccocFinal).trim().substring(0, 12).padEnd(12, ' ');
 
         req1.input('numfact', sql.VarChar(15), numfactFinal);
@@ -705,49 +706,24 @@ const invoiceController = {
 
         // Lógica para obtener el vendedor (codven)
         let codvenFinal = null;
-        // vendedorIdFinal already declared above (line 459), so just reset/assign
         vendedorIdFinal = null;
 
         console.log('Procesando vendedor para factura:', {
-          vendedorIdBody: body.vendedorId,
-          clienteIdBody: body.clienteId
+          vendedorIdBody: body.vendedorId
         });
 
         if (body.vendedorId) {
-          const vendedorIdStr = String(body.vendedorId);
-          const isNumeric = /^\d+$/.test(vendedorIdStr);
-          const idevenNum = isNumeric ? parseInt(vendedorIdStr) : 0;
-
-          console.log('Buscando vendedor:', { vendedorIdStr, isNumeric, idevenNum });
-
-          const reqVendedor = new sql.Request(tx);
-          let vendedorQuery;
-          if (isNumeric) {
-            reqVendedor.input('ideven', sql.Int, idevenNum);
-            // Intentar buscar por ID primero
-            vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple FROM ven_vendedor WHERE ideven = @ideven`;
-          } else {
-            reqVendedor.input('codven', sql.VarChar(20), vendedorIdStr);
-            // Intentar buscar por código
-            vendedorQuery = `SELECT CAST(ideven AS VARCHAR(20)) as codi_emple FROM ven_vendedor WHERE codven = @codven`;
-          }
-
-          try {
-            const vendedorResult = await reqVendedor.query(vendedorQuery);
-            if (vendedorResult.recordset.length > 0) {
-              vendedorIdFinal = vendedorResult.recordset[0].codi_emple;
-              console.log('✅ Vendedor encontrado en BD:', vendedorIdFinal);
-            } else {
-              console.warn('⚠️ Vendedor NO encontrado en BD con criterio:', vendedorIdStr);
-            }
-          } catch (errVen) {
-            console.error('❌ Error consultando vendedor:', errVen);
-          }
-        } else {
-          console.log('ℹ️ No se recibió vendedorId en el request body');
+             // Asignamos directamente si viene en el cuerpo
+             vendedorIdFinal = String(body.vendedorId).trim();
         }
 
-        codvenFinal = vendedorIdFinal ? String(vendedorIdFinal).trim().substring(0, 3).padEnd(3, ' ') : null;
+        codvenFinal = vendedorIdFinal ? String(vendedorIdFinal).trim().substring(0, 3) : null;
+        
+        // Si hay valor, hacemos padEnd, si es null se queda null (aunque DB suele requerir valor, asumimos null es '   ')
+        if(codvenFinal) {
+            codvenFinal = codvenFinal.padEnd(3, ' ');
+        }
+        
         console.log('Valor final para codven:', codvenFinal);
 
         req1.input('codven', sql.Char(3), codvenFinal);
@@ -875,8 +851,27 @@ const invoiceController = {
 
           if (productoResult.recordset.length === 0) throw new Error(`Item ${idx}: Producto no encontrado`);
 
-          // Usar el código enviado por el frontend si existe (para respetar referencias/códigos específicos), sino el de la BD
-          const codins = String(it.codProducto || productoResult.recordset[0].codins || '').trim().substring(0, 8).padStart(8, '0');
+          // Usar el código de la BD como fuente de verdad si existe, fallback al del frontend
+          // IMPORTANTE: Priorizar DB para mantener integridad con inv_insumos
+          // Ademas, en DB Nisa los codigos suelen ser varchar, no forzar padStart a menos que sea numerico puro pequeño? 
+          // Mejor usar raw DB value trim
+          let dbCodins = productoResult.recordset[0].codins;
+          if (dbCodins) dbCodins = String(dbCodins).trim(); 
+          
+          let frontendCodins = String(it.codProducto || '').trim();
+          
+          // Si tenemos codigo en BD, lo usamos.
+          let codins = (dbCodins || frontendCodins).substring(0, 8);
+          
+          // Mantener lógica de pad solo si era la logica original estricta, pero parece que "S-SER..." no necesita pad de ceros si ya es largo
+          // Si es numérico puro y corto, quizás sí? "S-SER003" no es numerico.
+          // La logica anterior .padStart(8, '0') forzaba "3" a "00000003". 
+          // Si el codigo DB es "S-SER003", padStart(8, '0') lo deja igual.
+          // Lo dejamos limpio
+          if (codins.length < 8 && /^\d+$/.test(codins)) {
+             codins = codins.padStart(8, '0');
+          }
+
           const nomins = String(productoResult.recordset[0].nomins || '').trim();
           const tasaIvaProducto = Number(productoResult.recordset[0].tasa_iva || 0);
 
@@ -908,7 +903,8 @@ const invoiceController = {
 
           reqDet.input('codalm', sql.Char(3), codalmFinal);
           reqDet.input('tipfact', sql.Char(2), tipfacFinal);
-          reqDet.input('numfac', sql.Char(12), numfactFinal.substring(0, 12).padEnd(12, ' '));
+          // CORRECCIÓN: Usar VarChar y sin padding para coincidir con header y evitar "12          "
+          reqDet.input('numfac', sql.VarChar(15), numfactFinal); 
           reqDet.input('codins', sql.VarChar(8), codins);
           reqDet.input('qtyins', sql.Decimal(18, 2), qtyinsFinal);
           reqDet.input('valins', sql.Decimal(18, 2), valinsFinal);

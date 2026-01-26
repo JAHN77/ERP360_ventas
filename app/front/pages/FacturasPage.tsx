@@ -1477,9 +1477,9 @@ const FacturasPage: React.FC = () => {
                 <div>
                   <h4 className="font-semibold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">Facturado a</h4>
                   <p className="font-bold text-slate-800 dark:text-slate-100">{cliente.nombreCompleto}</p>
-                  <p className="text-slate-600 dark:text-slate-300">{cliente.tipoDocumentoId}: {cliente.numeroDocumento}</p>
-                  <p className="text-slate-600 dark:text-slate-300 mt-1">{cliente.telefono}</p>
-                  <p className="text-slate-600 dark:text-slate-300">{cliente.email}</p>
+                  <p className="text-slate-600 dark:text-slate-300"><span className="font-semibold">NIT:</span> {cliente.numeroDocumento}</p>
+                  <p className="text-slate-600 dark:text-slate-300 mt-1"><span className="font-semibold">Teléfono:</span> {cliente.telefono}</p>
+                  <p className="text-slate-600 dark:text-slate-300"><span className="font-semibold">Email:</span> {cliente.email}</p>
                 </div>
                 <div className="text-right">
                   <StatusBadge status={selectedFactura.cufe ? 'ACEPTADA' : selectedFactura.estado as any} />
