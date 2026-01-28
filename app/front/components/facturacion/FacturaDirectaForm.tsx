@@ -8,8 +8,10 @@ import { useNotifications } from '../../hooks/useNotifications';
 import { apiSearchClientes, apiSearchVendedores, apiSearchProductos, apiSearchServices, apiGetClienteById, apiClient } from '../../services/apiClient';
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
+
+const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
 
 interface FacturaDirectaFormData {
     number: string;
@@ -89,17 +91,28 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [observacionesInternas, setObservacionesInternas] = useState('');
     const [notaPago, setNotaPago] = useState('');
+    const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null);
+    const [rowResults, setRowResults] = useState<Producto[]>([]);
+    const tableRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (tableRef.current && !tableRef.current.contains(event.target as Node)) {
+                setActiveSearchIdx(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const calculatedTotal = useMemo(() => {
         const q = Number(currentQuantity) || 0;
         const p = Number(currentUnitPrice) || 0;
         const d = Number(currentDiscount) || 0;
-        const i = Number(currentIva) || 0;
 
         const subtotal = (p * q) * (1 - (d / 100));
-        const valorIva = subtotal * (i / 100);
-        return subtotal + valorIva;
-    }, [currentQuantity, currentUnitPrice, currentDiscount, currentIva]);
+        return round(subtotal);
+    }, [currentQuantity, currentUnitPrice, currentDiscount]);
 
     const clienteRef = useRef<HTMLDivElement>(null);
     const vendedorRef = useRef<HTMLDivElement>(null);
@@ -159,14 +172,11 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             const q = productSearchTerm.trim();
             if (q.length >= 2) {
                 try {
-                    // Usar apiSearchServices en lugar de apiSearchProductos para Factura Directa (servicios)
                     const resp = await apiSearchServices(q, 20);
                     if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
                         const mapped = dataArray.map(p => ({
                             ...p,
-                            // El backend ya mapea nomser -> nombre, codser -> codigo, valser -> ultimoCosto
-                            // Aseguramos que los valores sean numéricos
                             ultimoCosto: Number(p.ultimoCosto) || 0,
                             tasaIva: Number(p.tasaIva) || 0,
                             aplicaIva: (Number(p.tasaIva) > 0)
@@ -178,6 +188,55 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
         }, 300);
         return () => clearTimeout(handler);
     }, [productSearchTerm]);
+
+    const handleRowProductSearch = async (idx: number, query: string) => {
+        handleUpdateItem(idx, 'descripcion', query);
+        setActiveSearchIdx(idx);
+        if (query.length < 2) {
+            setRowResults([]);
+            return;
+        }
+        try {
+            const resp = await apiSearchServices(query, 10);
+            if (resp.success && resp.data) {
+                const mapped = (resp.data as any[]).map(p => ({
+                    ...p,
+                    ultimoCosto: Number(p.ultimoCosto) || 0,
+                    tasaIva: Number(p.tasaIva) || 0,
+                    aplicaIva: (Number(p.tasaIva) > 0)
+                }));
+                setRowResults(mapped as Producto[]);
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    const handleRowProductSelect = (idx: number, p: Producto) => {
+        const newItems = [...formData.items];
+        const currentQty = newItems[idx].cantidad;
+
+        newItems[idx] = {
+            ...newItems[idx],
+            productoId: p.id,
+            descripcion: p.nombre,
+            codProducto: p.codigo || (p as any).codins || 'N/A',
+            referencia: p.referencia || '',
+            precioUnitario: p.ultimoCosto || 0,
+            ivaPorcentaje: p.tasaIva || 0,
+            unidadMedida: p.unidadMedida || 'UND',
+            unidadMedidaCodigo: (p as any).unidadMedidaCodigo || ''
+        };
+
+        // Recalcular con la cantidad actual
+        const item = newItems[idx];
+        const subtotal = (item.precioUnitario * currentQty) * (1 - (item.descuentoPorcentaje / 100));
+        item.subtotal = round(subtotal);
+        item.valorIva = round(subtotal * (item.ivaPorcentaje / 100));
+        item.total = round(subtotal);
+
+        setFormData(prev => ({ ...prev, items: newItems }));
+        setActiveSearchIdx(null);
+        setRowResults([]);
+    };
 
     const pickCliente = async (c: Cliente) => {
         setClienteSearch(c.nombreCompleto || c.razonSocial || '');
@@ -250,7 +309,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
 
         const subtotal = (price * quantityNum) * (1 - (discountNum / 100));
         const valorIva = subtotal * (ivaPorcentaje / 100);
-        const total = subtotal + valorIva;
+        const total = subtotal;
 
         const newItem: DocumentItem = {
             productoId: selectedProduct.id,
@@ -259,11 +318,13 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             precioUnitario: price,
             ivaPorcentaje: ivaPorcentaje,
             descuentoPorcentaje: discountNum,
-            subtotal: subtotal,
-            valorIva: valorIva,
-            total: total,
+            subtotal: round(subtotal),
+            valorIva: round(valorIva),
+            total: round(total),
             codProducto: selectedProduct.codigo || (selectedProduct as any).codins || 'N/A',
-            referencia: selectedProduct.referencia || ''
+            referencia: selectedProduct.referencia || '',
+            unidadMedidaCodigo: (selectedProduct as any).unidadMedidaCodigo || '',
+            unidadMedida: selectedProduct.unidadMedida || 'UND'
         };
 
         setFormData(prev => ({ ...prev, items: [...prev.items, newItem] }));
@@ -279,13 +340,42 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
         setFormData(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
     };
 
+    const handleUpdateItem = (index: number, field: keyof DocumentItem, value: any) => {
+        const newItems = [...formData.items];
+        const item = { ...newItems[index], [field]: value };
+
+        // Recalcular subtotal, IVA y total de la línea
+        const q = Number(item.cantidad) || 0;
+        const p = Number(item.precioUnitario) || 0;
+        const d = Number(item.descuentoPorcentaje) || 0;
+        const i = Number(item.ivaPorcentaje) || 0;
+
+        item.subtotal = round((p * q) * (1 - (d / 100)));
+        item.valorIva = round(item.subtotal * (i / 100));
+        item.total = round(item.subtotal); // Sin IVA
+
+        newItems[index] = item;
+        setFormData(prev => ({ ...prev, items: newItems }));
+    };
+
     const totals = useMemo(() => {
-        return formData.items.reduce((acc, item) => ({
-            subtotalBruto: acc.subtotalBruto + (item.precioUnitario * item.cantidad),
-            descuentoTotal: acc.descuentoTotal + ((item.precioUnitario * item.cantidad) * (item.descuentoPorcentaje / 100)),
-            iva: acc.iva + item.valorIva,
-            total: acc.total + item.total
-        }), { subtotalBruto: 0, descuentoTotal: 0, iva: 0, total: 0 });
+        const result = formData.items.reduce((acc, item) => {
+            const lineSubtotal = (item.precioUnitario * item.cantidad);
+            const lineDiscount = lineSubtotal * (item.descuentoPorcentaje / 100);
+
+            return {
+                subtotalBruto: acc.subtotalBruto + lineSubtotal,
+                descuentoTotal: acc.descuentoTotal + lineDiscount,
+                iva: acc.iva + (item.valorIva || 0)
+            };
+        }, { subtotalBruto: 0, descuentoTotal: 0, iva: 0 });
+
+        return {
+            subtotalBruto: round(result.subtotalBruto),
+            descuentoTotal: round(result.descuentoTotal),
+            iva: round(result.iva),
+            total: round((result.subtotalBruto - result.descuentoTotal) + result.iva)
+        };
     }, [formData.items]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -393,7 +483,14 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                     <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Forma Pago</label>
                     <select
                         value={formData.paymentFormId}
-                        onChange={(e) => setFormData({ ...formData, paymentFormId: e.target.value })}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setFormData(prev => ({
+                                ...prev,
+                                paymentFormId: val,
+                                paymentMethodId: val === '2' ? '30' : prev.paymentMethodId
+                            }));
+                        }}
                         className="w-full px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
                     >
                         <option value="1">Contado</option>
@@ -408,9 +505,14 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         onChange={(e) => setFormData({ ...formData, paymentMethodId: e.target.value })}
                         className="w-full px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
                     >
-                        <option value="10">Efectivo</option>
-                        <option value="31">Transferencia</option>
-                        <option value="30">Crédito</option>
+                        {formData.paymentFormId === '1' ? (
+                            <>
+                                <option value="10">Efectivo</option>
+                                <option value="31">Transferencia</option>
+                            </>
+                        ) : (
+                            <option value="30">Crédito</option>
+                        )}
                     </select>
                 </div>
             </div>
@@ -518,15 +620,15 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             {/* Add Products Section */}
             <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-3 uppercase tracking-wider">Añadir Productos</h3>
-                <div ref={productRef} className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+                <div ref={productRef} className="grid grid-cols-1 lg:grid-cols-12 gap-2 items-end">
                     <div className="lg:col-span-2 relative">
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Producto</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Producto / Servicio</label>
                         <input
                             type="text"
                             value={productSearchTerm}
                             onChange={(e) => { setProductSearchTerm(e.target.value); setIsProductDropdownOpen(true); }}
                             placeholder="Buscar por nombre..."
-                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                         />
                         {isProductDropdownOpen && productResults.length > 0 && (
                             <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
@@ -540,7 +642,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                     </div>
                     <div className="lg:col-span-1">
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1 text-center">Unidad</label>
-                        <input type="text" readOnly value={selectedProduct?.unidadMedida || 'UNIDAD'} className="w-full px-3 py-2 text-sm bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md text-center text-slate-500" />
+                        <input type="text" readOnly value={selectedProduct?.unidadMedida || 'UNIDAD'} className="w-full px-3 py-2 text-sm bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md text-center text-slate-500 font-medium cursor-not-allowed" />
                     </div>
                     <div className="lg:col-span-1">
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1 text-center">Cant.</label>
@@ -549,7 +651,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                             min="1"
                             value={currentQuantity}
                             onChange={(e) => setCurrentQuantity(e.target.value)}
-                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
+                            className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none font-bold"
                         />
                     </div>
                     <div className="lg:col-span-2">
@@ -559,7 +661,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                             min="0"
                             value={currentUnitPrice}
                             onChange={(e) => setCurrentUnitPrice(e.target.value)}
-                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-right focus:ring-2 focus:ring-blue-500 outline-none"
+                            className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-right focus:ring-2 focus:ring-blue-500 outline-none"
                         />
                     </div>
                     <div className="lg:col-span-1">
@@ -569,7 +671,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                             min="0"
                             value={currentIva}
                             onChange={(e) => setCurrentIva(e.target.value)}
-                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
+                            className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
                         />
                     </div>
                     <div className="lg:col-span-1">
@@ -579,7 +681,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                             min="0"
                             value={currentDiscount}
                             onChange={(e) => setCurrentDiscount(e.target.value)}
-                            className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
+                            className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-center focus:ring-2 focus:ring-blue-500 outline-none"
                         />
                     </div>
                     <div className="lg:col-span-2">
@@ -596,7 +698,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                             type="button"
                             onClick={handleAddItem}
                             disabled={!selectedProduct}
-                            className="w-full py-2 bg-slate-500 hover:bg-slate-600 text-white font-bold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                         >
                             + Añadir
                         </button>
@@ -605,12 +707,13 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             </div>
 
             {/* Items Table */}
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div ref={tableRef} className="rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-6">
                 <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 uppercase text-xs">
                         <tr>
                             <th className="px-4 py-3">Referencia</th>
-                            <th className="px-4 py-3">Producto</th>
+                            <th className="px-4 py-3">Producto / Servicio</th>
+                            <th className="px-4 py-3 text-center">Unidad</th>
                             <th className="px-4 py-3 text-center">Cant.</th>
                             <th className="px-4 py-3 text-right">Precio</th>
                             <th className="px-4 py-3 text-center">Desc %</th>
@@ -630,11 +733,59 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                             formData.items.map((item, idx) => (
                                 <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                                     <td className="px-4 py-3 font-mono text-xs">{item.referencia || item.codProducto || 'N/A'}</td>
-                                    <td className="px-4 py-3 font-medium">{item.descripcion}</td>
-                                    <td className="px-4 py-3 text-center font-bold">{item.cantidad}</td>
-                                    <td className="px-4 py-3 text-right">{formatCurrency(item.precioUnitario)}</td>
-                                    <td className="px-4 py-3 text-center">{item.descuentoPorcentaje}%</td>
-                                    <td className="px-4 py-3 text-center">{item.ivaPorcentaje}%</td>
+                                    <td className="px-4 py-3 relative">
+                                        <input
+                                            type="text"
+                                            value={item.descripcion}
+                                            onChange={(e) => handleRowProductSearch(idx, e.target.value)}
+                                            onFocus={() => setActiveSearchIdx(idx)}
+                                            placeholder="Buscar servicio..."
+                                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none transition-all"
+                                        />
+                                        {activeSearchIdx === idx && rowResults.length > 0 && (
+                                            <div className="absolute z-[100] left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded shadow-xl max-h-48 overflow-y-auto">
+                                                {rowResults.map(p => (
+                                                    <div key={p.id} onClick={() => handleRowProductSelect(idx, p)} className="px-3 py-2 hover:bg-blue-500 hover:text-white cursor-pointer text-xs border-b last:border-0 border-slate-100 dark:border-slate-700">
+                                                        <div className="font-bold">{p.nombre}</div>
+                                                        <div className="opacity-70 text-[10px]">{p.referencia || p.codigo} - {formatCurrency(p.ultimoCosto)}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-[10px] text-slate-500 font-mono uppercase">{item.unidadMedida || 'UND'}</td>
+                                    <td className="px-4 py-3 text-center">
+                                        <input
+                                            type="number"
+                                            value={item.cantidad}
+                                            onChange={(e) => handleUpdateItem(idx, 'cantidad', e.target.value)}
+                                            className="w-20 text-center bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-1 py-1 text-sm font-bold focus:border-blue-500 outline-none"
+                                        />
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                        <input
+                                            type="number"
+                                            value={item.precioUnitario}
+                                            onChange={(e) => handleUpdateItem(idx, 'precioUnitario', e.target.value)}
+                                            className="w-28 text-right bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none"
+                                        />
+                                    </td>
+                                    <td className="px-4 py-3 text-center">
+                                        <input
+                                            type="number"
+                                            value={item.descuentoPorcentaje}
+                                            onChange={(e) => handleUpdateItem(idx, 'descuentoPorcentaje', e.target.value)}
+                                            className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-1 py-1 text-sm focus:border-blue-500 outline-none"
+                                        />
+                                    </td>
+                                    <td className="px-4 py-3 text-center">
+                                        <input
+                                            type="number"
+                                            value={item.ivaPorcentaje}
+                                            onChange={(e) => handleUpdateItem(idx, 'ivaPorcentaje', e.target.value)}
+                                            className="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-1 py-1 text-sm focus:border-blue-500 outline-none"
+                                        />
+                                    </td>
                                     <td className="px-4 py-3 text-right font-bold">{formatCurrency(item.total)}</td>
                                     <td className="px-4 py-3 text-center">
                                         <button type="button" onClick={() => handleRemoveItem(idx)} className="text-red-500 hover:text-red-700">

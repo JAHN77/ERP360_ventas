@@ -73,8 +73,8 @@ const clientController = {
         searchTerm = String(search).trim();
       }
 
-      // Base Conditon (Active Terceros + Email Required)
-      let whereClause = "WHERE t.activo = 1 AND t.EMAIL IS NOT NULL AND LTRIM(RTRIM(t.EMAIL)) <> ''";
+      // Base Conditon (Active Terceros)
+      let whereClause = "WHERE t.activo = 1";
 
       console.log('🔍 [DEBUG] getAllClients - Params:', { page, pageSize, search, sortBy, sortOrder, isProveedor, tipoPersonaId, diasCredito });
 

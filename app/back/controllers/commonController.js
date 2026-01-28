@@ -118,10 +118,11 @@ const getBodegas = async (req, res) => {
       activo: b.activo === 1 || b.activo === true
     }));
 
-    res.set({
-      'Cache-Control': 'public, max-age=300, must-revalidate',
-      'ETag': `"${Date.now()}-${bodegasMapeadas.length}"`
-    });
+    // Cache headers removed to prevent stale data when switching companies
+    // res.set({
+    //   'Cache-Control': 'public, max-age=300, must-revalidate',
+    //   'ETag': `"${Date.now()}-${bodegasMapeadas.length}"`
+    // });
     res.json({ success: true, data: bodegasMapeadas });
   } catch (error) {
     console.error('Error fetching bodegas:', error);

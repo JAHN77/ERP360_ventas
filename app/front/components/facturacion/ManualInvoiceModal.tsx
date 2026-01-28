@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Modal from '../ui/Modal';
 import { useData } from '../../hooks/useData';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -36,6 +36,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
             id_location: '08001', // Barranquilla default
             dv: ''
         },
+        notes: '',
         lines: [] as any[]
     });
 
@@ -43,6 +44,19 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
     const [localClientes, setLocalClientes] = useState<any[]>([]);
     const [localProductos, setLocalProductos] = useState<any[]>([]);
     const [localVendedores, setLocalVendedores] = useState<any[]>([]);
+    const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null);
+    const [rowResults, setRowResults] = useState<any[]>([]);
+    const tableRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (tableRef.current && !tableRef.current.contains(event.target as Node)) {
+                setActiveSearchIdx(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     // Initialize number when modal opens or nextInvoiceNumber changes
     useEffect(() => {
@@ -170,9 +184,9 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
                 code: prod.codigo || '',
                 description: prod.nombre || '',
                 price_amount: price,
-                unit_measure_id: prod.unidadMedida || '70',
-                unit_display: 'UNIDAD', // Could map ID to name if available
-                tax_percent: prod.impuesto || 19, // Assuming 'impuesto' field exists or default 19
+                unit_measure_id: prod.unidadMedidaCodigo || '003', // Use numeric code
+                unit_display: prod.unidadMedidaNombre || 'UNIDAD',
+                tax_percent: prod.impuesto || 19,
                 discount_percent: 0
             }));
         }
@@ -204,24 +218,64 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
         }));
     };
 
+    const handleUpdateLine = (index: number, field: string, value: any) => {
+        const newLines = [...formData.lines];
+        newLines[index] = { ...newLines[index], [field]: value };
+        setFormData(prev => ({ ...prev, lines: newLines }));
+    };
+
+    const handleRowProductSearch = async (idx: number, query: string) => {
+        handleUpdateLine(idx, 'description', query);
+        setActiveSearchIdx(idx);
+        if (query.length < 2) {
+            setRowResults([]);
+            return;
+        }
+        try {
+            const resp = await apiClient.searchServices(query, 10);
+            if (resp.success && resp.data) {
+                setRowResults(resp.data as any[]);
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    const handleRowProductSelect = (idx: number, p: any) => {
+        const newLines = [...formData.lines];
+        newLines[idx] = {
+            ...newLines[idx],
+            code: p.codigo || p.codins || 'N/A',
+            description: p.nombre || p.nomser || '',
+            price_amount: Number(p.ultimoCosto || p.valser || 0),
+            unit_measure_id: p.unidadMedidaCodigo || '003',
+            unit_display: p.unidadMedidaNombre || 'UNIDAD',
+            tax_percent: Number(p.tasaIva || 19)
+        };
+        setFormData(prev => ({ ...prev, lines: newLines }));
+        setActiveSearchIdx(null);
+        setRowResults([]);
+    };
+
     const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
 
     const calculateTotals = () => {
-        return formData.lines.reduce((acc, line) => {
+        const result = formData.lines.reduce((acc, line) => {
             const subtotal = line.price_amount * line.quantity;
             const discountAmount = subtotal * (line.discount_percent / 100);
             const taxBase = subtotal - discountAmount;
             const taxAmount = taxBase * (line.tax_percent / 100);
-            const totalLine = taxBase + taxAmount;
 
             return {
                 lineExtensionAmount: round(acc.lineExtensionAmount + subtotal), // Gross subtotal
                 discountAmount: round(acc.discountAmount + discountAmount),
                 taxBase: round(acc.taxBase + taxBase),
-                taxAmount: round(acc.taxAmount + taxAmount),
-                payableAmount: round(acc.payableAmount + totalLine)
+                taxAmount: round(acc.taxAmount + taxAmount)
             };
-        }, { lineExtensionAmount: 0, discountAmount: 0, taxBase: 0, taxAmount: 0, payableAmount: 0 });
+        }, { lineExtensionAmount: 0, discountAmount: 0, taxBase: 0, taxAmount: 0 });
+
+        return {
+            ...result,
+            payableAmount: round(result.taxBase + result.taxAmount)
+        };
     };
 
     const totals = calculateTotals();
@@ -236,50 +290,71 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
                 tax_inclusive_amount: totals.payableAmount,
                 line_extension_amount: totals.lineExtensionAmount,
                 charge_total_amount: 0,
-                tax_exclusive_amount: totals.lineExtensionAmount,
+                tax_exclusive_amount: totals.taxBase,
                 payable_amount: totals.payableAmount,
-                allowance_total_amount: 0
+                allowance_total_amount: totals.discountAmount
             },
             identification_number: 901994818, // Fixed Orquidea NIT
             payment_forms: [
                 {
-                    payment_method_id: parseInt(formData.paymentMethodId),
+                    payment_method_id: formData.paymentFormId === '2' ? 44 : parseInt(formData.paymentMethodId),
                     duration_measure: "0",
                     payment_due_date: formData.dueDate,
-                    payment_form_id: 1 // Always 1 (Contado) as requested
+                    payment_form_id: parseInt(formData.paymentFormId) || 1
                 }
             ],
             tax_totals: [
                 {
                     tax_amount: totals.taxAmount,
-                    taxable_amount: totals.lineExtensionAmount,
+                    taxable_amount: totals.taxBase,
                     percent: 19,
                     tax_id: 1
                 }
             ],
             resolution_id: 101,
             sync: true,
+            notes: formData.notes || "sin ob",
             type_document_id: 1,
             invoice_lines: formData.lines.map(line => {
-                const lineExtension = round(line.price_amount * line.quantity);
-                const taxAmt = round(lineExtension * (line.tax_percent / 100));
+                const lineGross = line.price_amount * line.quantity;
+                const lineDiscount = lineGross * (line.discount_percent / 100);
+                const lineNet = lineGross - lineDiscount;
+                const taxAmt = lineNet * (line.tax_percent / 100);
+
                 return {
                     base_quantity: line.quantity,
                     code: line.code,
                     tax_totals: [
                         {
-                            tax_amount: taxAmt,
-                            taxable_amount: lineExtension,
+                            tax_amount: round(taxAmt),
+                            taxable_amount: round(lineNet),
                             percent: line.tax_percent,
                             tax_id: 1
                         }
                     ],
                     free_of_charge_indicator: false,
-                    line_extension_amount: lineExtension,
-                    type_item_identification_id: 3,
-                    unit_measure_id: parseInt(line.unit_measure_id) || 642, // Default to 642 as per model
+                    line_extension_amount: round(lineNet),
+                    allowance_charges: line.discount_percent > 0 ? [{
+                        charge_indicator: false,
+                        allowance_charge_reason: "Descuento comercial",
+                        amount: round(lineDiscount),
+                        base_amount: round(lineGross)
+                    }] : undefined,
+                    type_item_identification_id: 4,
+                    unit_measure_id: (() => {
+                        const code = String(line.unit_measure_id || '').trim();
+                        if (code === '001') return 730; // HORA
+                        if (code === '002') return 606; // DIA
+                        return 70; // UNIDAD / Default
+                    })(),
+                    unit_measure: (() => {
+                        const code = String(line.unit_measure_id || '').trim();
+                        if (code === '001') return 'hora';
+                        if (code === '002') return 'día';
+                        return 'unidad';
+                    })(),
                     description: line.description,
-                    price_amount: line.price_amount,
+                    price_amount: round(line.price_amount),
                     invoiced_quantity: line.quantity
                 };
             }),
@@ -370,50 +445,65 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
                     tax_inclusive_amount: totals.payableAmount,
                     line_extension_amount: totals.lineExtensionAmount,
                     charge_total_amount: 0,
-                    tax_exclusive_amount: totals.lineExtensionAmount,
+                    tax_exclusive_amount: totals.taxBase,
                     payable_amount: totals.payableAmount,
-                    allowance_total_amount: 0
+                    allowance_total_amount: totals.discountAmount
                 },
                 identification_number: 901994818, // Fixed Orquidea NIT
                 payment_forms: [
                     {
-                        payment_method_id: parseInt(formData.paymentMethodId),
+                        payment_method_id: formData.paymentFormId === '2' ? 44 : parseInt(formData.paymentMethodId),
                         duration_measure: "0",
                         payment_due_date: formData.dueDate,
-                        payment_form_id: 1 // Always 1 (Contado)
+                        payment_form_id: parseInt(formData.paymentFormId) || 1
                     }
                 ],
                 tax_totals: [
                     {
                         tax_amount: totals.taxAmount,
-                        taxable_amount: totals.lineExtensionAmount,
+                        taxable_amount: totals.taxBase,
                         percent: 19,
                         tax_id: 1
                     }
                 ],
                 resolution_id: 101,
                 sync: true,
+                notes: formData.notes || "sin ob",
                 type_document_id: 1,
                 invoice_lines: formData.lines.map(line => {
-                    const lineExtension = round(line.price_amount * line.quantity);
-                    const taxAmt = round(lineExtension * (line.tax_percent / 100));
+                    const lineGross = line.price_amount * line.quantity;
+                    const lineDiscount = lineGross * (line.discount_percent / 100);
+                    const lineNet = lineGross - lineDiscount;
+                    const taxAmt = lineNet * (line.tax_percent / 100);
+
                     return {
                         base_quantity: line.quantity,
                         code: line.code,
                         tax_totals: [
                             {
-                                tax_amount: taxAmt,
-                                taxable_amount: lineExtension,
+                                tax_amount: round(taxAmt),
+                                taxable_amount: round(lineNet),
                                 percent: line.tax_percent,
                                 tax_id: 1
                             }
                         ],
                         free_of_charge_indicator: false,
-                        line_extension_amount: lineExtension,
-                        type_item_identification_id: 3,
-                        unit_measure_id: parseInt(line.unit_measure_id) || 642,
+                        line_extension_amount: round(lineNet),
+                        allowance_charges: line.discount_percent > 0 ? [{
+                            charge_indicator: false,
+                            allowance_charge_reason: "Descuento",
+                            amount: round(lineDiscount),
+                            base_amount: round(lineGross)
+                        }] : undefined,
+                        type_item_identification_id: 4,
+                        unit_measure_id: (() => {
+                            const code = String(line.unit_measure_id || '').trim();
+                            if (code === '001') return 730; // HORA
+                            if (code === '002') return 606; // DIA
+                            return 70; // UNIDAD / Default
+                        })(),
                         description: line.description,
-                        price_amount: line.price_amount,
+                        price_amount: round(line.price_amount),
                         invoiced_quantity: line.quantity
                     };
                 }),
@@ -508,10 +598,10 @@ BEGIN
     SET @NewId = SCOPE_IDENTITY();
 END`;
                 const detailsSql = formData.lines.map(line => {
-                    const subtotalLine = round(line.price_amount * line.quantity);
-                    const discountAmount = round(subtotalLine * (line.discount_percent / 100));
+                    const subtotalLine = line.price_amount * line.quantity;
+                    const discountAmount = subtotalLine * (line.discount_percent / 100);
                     const taxBase = subtotalLine - discountAmount;
-                    const ivaLine = round(taxBase * (line.tax_percent / 100));
+                    const ivaLine = taxBase * (line.tax_percent / 100);
 
                     return `INSERT INTO ven_detafact (
     codalm, numfac, tipfact, codins, observa,
@@ -537,7 +627,7 @@ END`;
     'A', 1, '${cufe}'
 );`;
                 const detailsSql = formData.lines.map(line => {
-                    const total = round(line.price_amount * line.quantity);
+                    const total = line.price_amount * line.quantity;
                     return `INSERT INTO ven_detafact (
     factura_numero, producto_codigo, descripcion,
     cantidad, precio_unitario, total_linea
@@ -575,7 +665,7 @@ END`;
                 {/* Header Section */}
                 <div className="bg-slate-50 dark:bg-slate-700/30 p-6 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 dark:border-slate-600 pb-2">Información General</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Número Factura</label>
                             <input
@@ -595,18 +685,21 @@ END`;
                             <input type="date" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Vendedor</label>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Forma de Pago</label>
                             <select
                                 className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none"
-                                value={formData.seller}
-                                onChange={e => setFormData({ ...formData, seller: e.target.value })}
+                                value={formData.paymentFormId}
+                                onChange={e => {
+                                    const val = e.target.value;
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        paymentFormId: val,
+                                        paymentMethodId: val === '2' ? '30' : prev.paymentMethodId
+                                    }));
+                                }}
                             >
-                                <option value="">-- SELECCIONAR VENDEDOR --</option>
-                                {activeVendedores.map(v => (
-                                    <option key={v.id} value={v.id}>
-                                        {v.nombre || v.nombreCompleto || v.nomven || v.codigo || v.codigoVendedor || v.id}
-                                    </option>
-                                ))}
+                                <option value="1">Contado</option>
+                                <option value="2">Crédito</option>
                             </select>
                         </div>
                         <div>
@@ -616,10 +709,39 @@ END`;
                                 value={formData.paymentMethodId}
                                 onChange={e => setFormData({ ...formData, paymentMethodId: e.target.value })}
                             >
-                                <option value="10">Efectivo</option>
-                                <option value="31">Transferencia Débito</option>
-                                <option value="30">Crédito</option>
+                                {formData.paymentFormId === '1' ? (
+                                    <>
+                                        <option value="10">Efectivo</option>
+                                        <option value="31">Transferencia Débito</option>
+                                    </>
+                                ) : (
+                                    <option value="30">Crédito</option>
+                                )}
                             </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Vendedor</label>
+                            <select
+                                className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none"
+                                value={formData.seller}
+                                onChange={e => setFormData({ ...formData, seller: e.target.value })}
+                            >
+                                <option value="">-- SELEC. VENDEDOR --</option>
+                                {activeVendedores.map(v => (
+                                    <option key={v.id} value={v.id}>
+                                        {v.nombre || v.nombreCompleto || v.nomven || v.codigo || v.codigoVendedor || v.id}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="md:col-span-6">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Observaciones / Notas (Saldrán en la factura)</label>
+                            <textarea
+                                className="w-full h-16 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm resize-none"
+                                value={formData.notes}
+                                onChange={e => setFormData({ ...formData, notes: e.target.value })}
+                                placeholder="Escriba aquí notas u observaciones que deban aparecer en el documento impreso..."
+                            />
                         </div>
                     </div>
                 </div>
@@ -670,9 +792,9 @@ END`;
                         <div className="grid grid-cols-12 gap-4 items-end">
                             {/* Producto - Takes more space */}
                             <div className="col-span-12 md:col-span-6 lg:col-span-4 xl:col-span-3">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Producto</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Producto / Servicio</label>
                                 <select
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none"
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm appearance-none"
                                     value={selectedProductId}
                                     onChange={handleProductSelect}
                                 >
@@ -688,7 +810,7 @@ END`;
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Unidad</label>
                                 <input
                                     type="text"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-not-allowed text-center"
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-not-allowed text-center font-medium"
                                     value={newLine.unit_display || 'UNIDAD'}
                                     readOnly
                                 />
@@ -699,7 +821,7 @@ END`;
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Cantidad</label>
                                 <input
                                     type="number"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-center font-bold"
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-center font-bold"
                                     value={newLine.quantity}
                                     onChange={e => setNewLine({ ...newLine, quantity: Number(e.target.value) })}
                                 />
@@ -710,7 +832,7 @@ END`;
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Vr. Unit.</label>
                                 <input
                                     type="number"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-right"
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-right font-medium"
                                     value={newLine.price_amount}
                                     onChange={e => setNewLine({ ...newLine, price_amount: Number(e.target.value) })}
                                 />
@@ -721,7 +843,7 @@ END`;
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">% Iva</label>
                                 <input
                                     type="number"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-center"
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-center font-medium"
                                     value={newLine.tax_percent}
                                     onChange={e => setNewLine({ ...newLine, tax_percent: Number(e.target.value) })}
                                 />
@@ -732,7 +854,7 @@ END`;
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">% Descto</label>
                                 <input
                                     type="number"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-center"
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-center font-medium"
                                     value={newLine.discount_percent}
                                     onChange={e => setNewLine({ ...newLine, discount_percent: Number(e.target.value) })}
                                 />
@@ -740,9 +862,9 @@ END`;
 
                             {/* Totales */}
                             <div className="col-span-12 md:col-span-3 lg:col-span-2 xl:col-span-2">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Totales</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Subtotal</label>
                                 <div className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 flex items-center justify-end font-bold text-slate-700 dark:text-slate-200">
-                                    ${((newLine.price_amount * newLine.quantity) * (1 - newLine.discount_percent / 100) * (1 + newLine.tax_percent / 100)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                    ${((newLine.price_amount * newLine.quantity) * (1 - newLine.discount_percent / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </div>
                             </div>
 
@@ -754,7 +876,7 @@ END`;
                                         e.preventDefault();
                                         addLine();
                                     }}
-                                    className={`w-full h-10 rounded-lg transition-all shadow-sm flex items-center justify-center font-bold text-sm ${!newLine.description ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-500 hover:bg-slate-600 text-white hover:shadow-md'}`}
+                                    className={`w-full h-10 rounded-lg transition-all shadow-sm flex items-center justify-center font-bold text-sm transform active:scale-95 ${!newLine.description ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-500 hover:bg-slate-600 text-white'}`}
                                     disabled={!newLine.description}
                                 >
                                     + Añadir
@@ -764,7 +886,7 @@ END`;
                     </div>
 
                     {/* Items Table */}
-                    <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+                    <div ref={tableRef} className="rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-6">
                         <table className="w-full text-sm border-collapse bg-white dark:bg-slate-800">
                             <thead>
                                 <tr className="bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs tracking-wider">
@@ -791,36 +913,73 @@ END`;
                                     </tr>
                                 ) : (
                                     formData.lines.map((line, idx) => {
-                                        const subtotal = line.price_amount * line.quantity;
-                                        const discountAmount = subtotal * (line.discount_percent / 100);
-                                        const taxBase = subtotal - discountAmount;
-                                        const taxAmount = taxBase * (line.tax_percent / 100);
-                                        const totalLine = taxBase + taxAmount;
+                                        const lineSubtotal = line.price_amount * line.quantity;
+                                        const lineDiscount = lineSubtotal * (line.discount_percent / 100);
+                                        const totalLine = lineSubtotal - lineDiscount; // NEW: Excludes IVA in table
 
                                         return (
                                             <tr key={idx} className="border-b border-slate-100 dark:border-slate-700 hover:bg-blue-50/50 dark:hover:bg-slate-700/30 transition-colors last:border-0">
-                                                <td className="p-3 font-mono text-slate-600 dark:text-slate-400 text-xs">{line.code}</td>
-                                                <td className="p-3 font-medium text-slate-800 dark:text-slate-200">{line.description}</td>
+                                                <td className="p-3 font-mono text-slate-500 dark:text-slate-400 text-[10px]">{line.code}</td>
+                                                <td className="p-3 relative">
+                                                    <input
+                                                        type="text"
+                                                        value={line.description}
+                                                        onChange={e => handleRowProductSearch(idx, e.target.value)}
+                                                        onFocus={() => setActiveSearchIdx(idx)}
+                                                        placeholder="Buscar servicio..."
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-sm focus:border-blue-500 outline-none transition-all"
+                                                    />
+                                                    {activeSearchIdx === idx && rowResults.length > 0 && (
+                                                        <div className="absolute z-[100] left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded shadow-xl max-h-48 overflow-y-auto">
+                                                            {rowResults.map(p => (
+                                                                <div key={p.id} onClick={() => handleRowProductSelect(idx, p)} className="px-3 py-2.5 hover:bg-blue-500 hover:text-white cursor-pointer text-xs border-b last:border-0 border-slate-200 dark:border-slate-700">
+                                                                    <div className="font-bold">{p.nombre || p.nomser}</div>
+                                                                    <div className="opacity-70 text-[10px]">{p.referencia || p.codigo || p.codser} - ${Number(p.ultimoCosto || p.valser || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </td>
                                                 <td className="p-3 text-center">
-                                                    <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs px-2 py-1 rounded font-medium">
+                                                    <span className="bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-[10px] px-2 py-1 rounded-full font-bold">
                                                         {line.unit_display || 'UNIDAD'}
                                                     </span>
                                                 </td>
-                                                <td className="p-3 text-center font-bold text-slate-700 dark:text-slate-300">{line.quantity}</td>
-                                                <td className="p-3 text-right text-slate-600 dark:text-slate-400">${line.price_amount.toLocaleString()}</td>
-                                                <td className="p-3 text-center text-slate-500">
-                                                    {line.discount_percent > 0 ? (
-                                                        <span className="text-orange-600 font-bold bg-orange-50 px-2 py-0.5 rounded text-xs">
-                                                            {line.discount_percent}%
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-slate-300">0%</span>
-                                                    )}
-                                                </td>
-                                                <td className="p-3 text-center text-slate-500">{line.tax_percent}%</td>
-                                                <td className="p-3 text-right font-bold text-blue-600 dark:text-blue-400">${totalLine.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                                                 <td className="p-3 text-center">
-                                                    <button onClick={() => removeLine(idx)} className="text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20" title="Eliminar Item">
+                                                    <input
+                                                        type="number"
+                                                        value={line.quantity}
+                                                        onChange={e => handleUpdateLine(idx, 'quantity', Number(e.target.value))}
+                                                        className="w-20 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1 py-1 text-sm font-bold focus:border-blue-500 outline-none"
+                                                    />
+                                                </td>
+                                                <td className="p-3 text-right">
+                                                    <input
+                                                        type="number"
+                                                        value={line.price_amount}
+                                                        onChange={e => handleUpdateLine(idx, 'price_amount', Number(e.target.value))}
+                                                        className="w-28 text-right bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none"
+                                                    />
+                                                </td>
+                                                <td className="p-3 text-center">
+                                                    <input
+                                                        type="number"
+                                                        value={line.discount_percent}
+                                                        onChange={e => handleUpdateLine(idx, 'discount_percent', Number(e.target.value))}
+                                                        className="w-16 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1 py-1 text-sm focus:border-blue-500 outline-none"
+                                                    />
+                                                </td>
+                                                <td className="p-3 text-center">
+                                                    <input
+                                                        type="number"
+                                                        value={line.tax_percent}
+                                                        onChange={e => handleUpdateLine(idx, 'tax_percent', Number(e.target.value))}
+                                                        className="w-16 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1 py-1 text-sm focus:border-blue-500 outline-none"
+                                                    />
+                                                </td>
+                                                <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-100">${totalLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="p-3 text-center border-b border-slate-100 dark:border-slate-700">
+                                                    <button onClick={() => removeLine(idx)} className="text-slate-400 hover:text-red-500 transition-colors p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20" title="Eliminar Item">
                                                         <i className="fas fa-trash-alt"></i>
                                                     </button>
                                                 </td>
@@ -832,29 +991,29 @@ END`;
                             <tfoot>
                                 <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-slate-600 dark:text-slate-300 border-t border-slate-200 dark:border-slate-600">
                                     <td colSpan={7} className="p-3 text-right">Subtotal Bruto:</td>
-                                    <td className="p-3 text-right font-bold">${totals.lineExtensionAmount.toLocaleString()}</td>
+                                    <td className="p-3 text-right font-bold">${totals.lineExtensionAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td></td>
                                 </tr>
                                 {totals.discountAmount > 0 && (
                                     <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-orange-600 dark:text-orange-400">
                                         <td colSpan={7} className="p-3 text-right">Descuento:</td>
-                                        <td className="p-3 text-right font-bold">-${totals.discountAmount.toLocaleString()}</td>
+                                        <td className="p-3 text-right font-bold">-${totals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                         <td></td>
                                     </tr>
                                 )}
                                 <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-slate-600 dark:text-slate-300">
                                     <td colSpan={7} className="p-3 text-right">Subtotal Neto:</td>
-                                    <td className="p-3 text-right font-bold">${totals.taxBase.toLocaleString()}</td>
+                                    <td className="p-3 text-right font-bold">${totals.taxBase.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td></td>
                                 </tr>
                                 <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-slate-600 dark:text-slate-300">
                                     <td colSpan={7} className="p-3 text-right">IVA (19%):</td>
-                                    <td className="p-3 text-right font-bold">${totals.taxAmount.toLocaleString()}</td>
+                                    <td className="p-3 text-right font-bold">${totals.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td></td>
                                 </tr>
                                 <tr className="bg-blue-50 dark:bg-blue-900/30 font-bold text-lg text-blue-700 dark:text-blue-300 border-t-2 border-blue-100 dark:border-blue-800">
                                     <td colSpan={7} className="p-3 text-right">Total a Pagar:</td>
-                                    <td className="p-3 text-right">${totals.payableAmount.toLocaleString()}</td>
+                                    <td className="p-3 text-right font-bold text-blue-600 dark:text-blue-400">${totals.payableAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td></td>
                                 </tr>
                             </tfoot>

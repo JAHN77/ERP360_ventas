@@ -687,7 +687,7 @@ const invoiceController = {
         const codterFinal = String(clienteIdStr || '').trim().substring(0, 15);
 
         // CORRECCIÓN: doccoc debe ser igual al número de factura sin el año
-        let doccocFinal = numfactFinal; 
+        let doccocFinal = numfactFinal;
         doccocFinal = String(doccocFinal).trim().substring(0, 12).padEnd(12, ' ');
 
         req1.input('numfact', sql.VarChar(15), numfactFinal);
@@ -713,17 +713,17 @@ const invoiceController = {
         });
 
         if (body.vendedorId) {
-             // Asignamos directamente si viene en el cuerpo
-             vendedorIdFinal = String(body.vendedorId).trim();
+          // Asignamos directamente si viene en el cuerpo
+          vendedorIdFinal = String(body.vendedorId).trim();
         }
 
         codvenFinal = vendedorIdFinal ? String(vendedorIdFinal).trim().substring(0, 3) : null;
-        
+
         // Si hay valor, hacemos padEnd, si es null se queda null (aunque DB suele requerir valor, asumimos null es '   ')
-        if(codvenFinal) {
-            codvenFinal = codvenFinal.padEnd(3, ' ');
+        if (codvenFinal) {
+          codvenFinal = codvenFinal.padEnd(3, ' ');
         }
-        
+
         console.log('Valor final para codven:', codvenFinal);
 
         req1.input('codven', sql.Char(3), codvenFinal);
@@ -856,20 +856,20 @@ const invoiceController = {
           // Ademas, en DB Nisa los codigos suelen ser varchar, no forzar padStart a menos que sea numerico puro pequeño? 
           // Mejor usar raw DB value trim
           let dbCodins = productoResult.recordset[0].codins;
-          if (dbCodins) dbCodins = String(dbCodins).trim(); 
-          
+          if (dbCodins) dbCodins = String(dbCodins).trim();
+
           let frontendCodins = String(it.codProducto || '').trim();
-          
+
           // Si tenemos codigo en BD, lo usamos.
           let codins = (dbCodins || frontendCodins).substring(0, 8);
-          
+
           // Mantener lógica de pad solo si era la logica original estricta, pero parece que "S-SER..." no necesita pad de ceros si ya es largo
           // Si es numérico puro y corto, quizás sí? "S-SER003" no es numerico.
           // La logica anterior .padStart(8, '0') forzaba "3" a "00000003". 
           // Si el codigo DB es "S-SER003", padStart(8, '0') lo deja igual.
           // Lo dejamos limpio
           if (codins.length < 8 && /^\d+$/.test(codins)) {
-             codins = codins.padStart(8, '0');
+            codins = codins.padStart(8, '0');
           }
 
           const nomins = String(productoResult.recordset[0].nomins || '').trim();
@@ -904,7 +904,7 @@ const invoiceController = {
           reqDet.input('codalm', sql.Char(3), codalmFinal);
           reqDet.input('tipfact', sql.Char(2), tipfacFinal);
           // CORRECCIÓN: Usar VarChar y sin padding para coincidir con header y evitar "12          "
-          reqDet.input('numfac', sql.VarChar(15), numfactFinal); 
+          reqDet.input('numfac', sql.VarChar(15), numfactFinal);
           reqDet.input('codins', sql.VarChar(8), codins);
           reqDet.input('qtyins', sql.Decimal(18, 2), qtyinsFinal);
           reqDet.input('valins', sql.Decimal(18, 2), valinsFinal);
@@ -918,14 +918,17 @@ const invoiceController = {
           reqDet.input('QTYVTA', sql.Decimal(18, 2), qtyinsFinal);
           reqDet.input('PRECIO_LISTA', sql.Decimal(18, 2), valinsFinal);
           reqDet.input('id_factura', sql.Int, newId);
+          // NEW: Insert UNDVTA
+          const undVtaVal = String(it.unidadMedidaCodigo || it.unitMeasureCode || it.codigoMedida || '003').trim().substring(0, 3);
+          reqDet.input('UNDVTA', sql.VarChar(3), undVtaVal);
 
           await reqDet.query(`
             INSERT INTO ${TABLE_NAMES.facturas_detalle} (
               codalm, tipfact, numfac, codins, qtyins, valins, ivains, desins, valdescuento, cosins,
-              observa, estfac, PRECIOUND, QTYVTA, PRECIO_LISTA, id_factura
+              observa, estfac, PRECIOUND, QTYVTA, PRECIO_LISTA, id_factura, UNDVTA
             ) VALUES (
               @codalm, @tipfact, @numfac, @codins, @qtyins, @valins, @ivains, @desins, @valdescuento, @cosins,
-              @observa, @estfac, @PRECIOUND, @QTYVTA, @PRECIO_LISTA, @id_factura
+              @observa, @estfac, @PRECIOUND, @QTYVTA, @PRECIO_LISTA, @id_factura, @UNDVTA
             );`);
 
           // KARDEX: Registrar Salida por Factura
@@ -1386,7 +1389,17 @@ const invoiceController = {
   manualDianTest: async (req, res) => {
     try {
       const invoiceJson = req.body;
-      console.log('Recibido JSON manual para prueba DIAN');
+      console.log('Recibido JSON manual para prueba DIAN. Validando unidades...');
+
+      // Validar y corregir unidades/identificación si es necesario
+      if (invoiceJson.invoice_lines && Array.isArray(invoiceJson.invoice_lines)) {
+        invoiceJson.invoice_lines.forEach((line, idx) => {
+          const unitRes = DIANService.resolveUnitMeasureId(line, idx + 1);
+          line.unit_measure_id = unitRes.id;
+          line.unit_measure = unitRes.name;
+          line.type_item_identification_id = 4;
+        });
+      }
 
       // Obtener parámetros DIAN actuales
       const dianParams = await DIANService.getDIANParameters(req.db_name);
@@ -1429,44 +1442,63 @@ const invoiceController = {
       try {
         const logoPath = path.join(__dirname, '../public/assets/grupoNisa.jpg');
         if (fs.existsSync(logoPath)) {
-            const bitmap = fs.readFileSync(logoPath);
-            // Generar ambos formatos por compatibilidad
-            const rawBase64 = bitmap.toString('base64');
-            const dataUriBase64 = `data:image/jpeg;base64,${rawBase64}`;
-            
-            console.log(`✅ Logo cargado desde ${logoPath}. Inyectando en payload...`);
+          const bitmap = fs.readFileSync(logoPath);
+          // Generar ambos formatos por compatibilidad
+          const rawBase64 = bitmap.toString('base64');
+          const dataUriBase64 = `data:image/jpeg;base64,${rawBase64}`;
 
-            if (!invoiceJson.company) invoiceJson.company = {};
+          console.log(`✅ Logo cargado desde ${logoPath}. Inyectando en payload...`);
 
-            // ESTRATEGIA MULTI-CAMPO: Inyectar en todas las variaciones posibles
-            // API FacturaTech / UBL standards variados
-            
-            // 1. Data URI (Formato Web/HTML)
-            invoiceJson.logo = dataUriBase64;
-            invoiceJson.company.logo = dataUriBase64;
-            
-            // 2. RAW Base64 (Formato Binary/UBL) - Algunos endpoints fallan si ven "data:image..."
-            // Probamos campos alternativos comunes
-            invoiceJson.graphic_image = rawBase64;
-            invoiceJson.company.graphic_image = rawBase64;
-            invoiceJson.company.media = rawBase64; 
-            
-            // 3. Campos específicos de proveedores colombianos conocidos
-            invoiceJson.company.logo_url = dataUriBase64; // A veces aceptan datauri aquí
-            invoiceJson.company.logo_base64 = rawBase64;
+          if (!invoiceJson.company) invoiceJson.company = {};
 
-            // Datos adicionales de la empresa por si faltan
-            if (!invoiceJson.company.name) invoiceJson.company.name = "GRUPO EMPRESARIAL NISA SAS";
-            if (!invoiceJson.company.nit) invoiceJson.company.identification_number = 900097288;
-            if (!invoiceJson.company.address) invoiceJson.company.address = "Via 40 No. 73-290 Oficina 310 CC MIX";
-            if (!invoiceJson.company.city) invoiceJson.company.municipality = "Barranquilla";
-            if (!invoiceJson.company.phone) invoiceJson.company.phone = "3023099064";
-            if (!invoiceJson.company.email) invoiceJson.company.email = "grupoempresarialnisa@gmail.com";
+          // ESTRATEGIA MULTI-CAMPO: Inyectar en todas las variaciones posibles
+          // API FacturaTech / UBL standards variados
+
+          // 1. Data URI (Formato Web/HTML)
+          invoiceJson.logo = dataUriBase64;
+          invoiceJson.company.logo = dataUriBase64;
+
+          // 2. RAW Base64 (Formato Binary/UBL) - Algunos endpoints fallan si ven "data:image..."
+          // Probamos campos alternativos comunes
+          invoiceJson.graphic_image = rawBase64;
+          invoiceJson.company.graphic_image = rawBase64;
+          invoiceJson.company.media = rawBase64;
+
+          // 3. Campos específicos de proveedores colombianos conocidos
+          invoiceJson.company.logo_url = dataUriBase64; // A veces aceptan datauri aquí
+          invoiceJson.company.logo_base64 = rawBase64;
+
+          // Datos adicionales de la empresa por si faltan
+          if (!invoiceJson.company.name) invoiceJson.company.name = "GRUPO EMPRESARIAL NISA SAS";
+          if (!invoiceJson.company.nit) invoiceJson.company.identification_number = 900097288;
+          if (!invoiceJson.company.address) invoiceJson.company.address = "Via 40 No. 73-290 Oficina 310 CC MIX";
+          if (!invoiceJson.company.city) invoiceJson.company.municipality = "Barranquilla";
+          if (!invoiceJson.company.phone) invoiceJson.company.phone = "3023099064";
+          if (!invoiceJson.company.email) invoiceJson.company.email = "grupoempresarialnisa@gmail.com";
         } else {
-             console.warn(`⚠️ Logo no encontrado en ruta: ${logoPath}`);
+          console.warn(`⚠️ Logo no encontrado en ruta: ${logoPath}`);
         }
       } catch (err) {
         console.warn('⚠️ Error inyectando logo para PDF:', err.message);
+      }
+
+      // MODIFICACIÓN: Validar y loguear unidades de medida para el preview
+      if (invoiceJson.invoice_lines && Array.isArray(invoiceJson.invoice_lines)) {
+        console.log(`\n📊 [PREVIEW UNIT VALIDATION] Procesando ${invoiceJson.invoice_lines.length} líneas...`);
+        invoiceJson.invoice_lines.forEach((line, idx) => {
+          // Si el frontend envía unidadMedidaCodigo o similar, resolveUnitMeasureId lo capturará
+          const unitMeasure = DIANService.resolveUnitMeasureId(line, idx + 1);
+
+          // CRÍTICO: Sobrescribir el ID y el Nombre de la línea para garantizar que lo que se previsualiza
+          // es lo que DIANService considera correcto.
+          console.log(`   - Line ${idx + 1}: unit_measure_id anterior: ${line.unit_measure_id} => nuevo: ${unitMeasure.id} (${unitMeasure.name})`);
+          line.unit_measure_id = unitMeasure.id;
+          line.unit_measure = unitMeasure.name;
+
+          // También unificar type_item_identification_id a 4
+          line.type_item_identification_id = 4;
+        });
+        console.log(`📊 [PREVIEW UNIT VALIDATION] Finalizado.\n`);
       }
 
       // Llamar a la API externa para generar el PDF

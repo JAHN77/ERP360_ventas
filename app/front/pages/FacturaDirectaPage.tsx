@@ -44,19 +44,27 @@ const FacturaDirectaPage: React.FC = () => {
     }, []);
 
     const createInvoicePayload = (formData: any) => {
-        const totals = formData.items.reduce((acc: any, item: any) => {
-            const subtotal = item.precioUnitario * item.cantidad;
-            const discount = subtotal * (item.descuentoPorcentaje / 100);
-            const taxBase = subtotal - discount;
-            const taxAmount = taxBase * (item.ivaPorcentaje / 100);
-            return {
-                lineExtensionAmount: acc.lineExtensionAmount + subtotal,
-                taxAmount: acc.taxAmount + taxAmount,
-                payableAmount: acc.payableAmount + (taxBase + taxAmount)
-            };
-        }, { lineExtensionAmount: 0, taxAmount: 0, payableAmount: 0 });
-
         const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
+
+        const totals = formData.items.reduce((acc: any, item: any) => {
+            const price = Number(item.precioUnitario) || 0;
+            const qty = Number(item.cantidad) || 0;
+            const discPercent = Number(item.descuentoPorcentaje) || 0;
+            const taxPercent = Number(item.ivaPorcentaje) || 0;
+
+            const lineGross = price * qty;
+            const lineDiscount = lineGross * (discPercent / 100);
+            const lineNet = lineGross - lineDiscount;
+            const lineTax = lineNet * (taxPercent / 100);
+
+            return {
+                lineExtensionAmount: acc.lineExtensionAmount + lineNet,
+                allowanceTotalAmount: acc.allowanceTotalAmount + lineDiscount,
+                taxExclusiveAmount: acc.taxExclusiveAmount + lineNet,
+                taxAmount: acc.taxAmount + lineTax,
+                payableAmount: acc.payableAmount + lineNet + lineTax
+            };
+        }, { lineExtensionAmount: 0, allowanceTotalAmount: 0, taxExclusiveAmount: 0, taxAmount: 0, payableAmount: 0 });
 
         return {
             number: parseInt(formData.number) || 0,
@@ -64,51 +72,77 @@ const FacturaDirectaPage: React.FC = () => {
                 tax_inclusive_amount: round(totals.payableAmount),
                 line_extension_amount: round(totals.lineExtensionAmount),
                 charge_total_amount: 0,
-                tax_exclusive_amount: round(totals.lineExtensionAmount),
+                tax_exclusive_amount: round(totals.taxExclusiveAmount),
                 payable_amount: round(totals.payableAmount),
-                allowance_total_amount: 0
+                allowance_total_amount: round(totals.allowanceTotalAmount)
             },
             identification_number: 900097288,
             payment_forms: [
                 {
-                    payment_method_id: parseInt(formData.paymentMethodId),
+                    payment_method_id: formData.paymentFormId === '2' ? 44 : parseInt(formData.paymentMethodId),
                     duration_measure: "0",
                     payment_due_date: formData.dueDate,
-                    payment_form_id: 1
+                    payment_form_id: parseInt(formData.paymentFormId) || 1
                 }
             ],
             tax_totals: [
                 {
                     tax_amount: round(totals.taxAmount),
-                    taxable_amount: round(totals.lineExtensionAmount),
-                    percent: 19, // Asumiendo IVA general 19%, idealmente debería ser dinámico o sumado por tasas
+                    taxable_amount: round(totals.taxExclusiveAmount),
+                    percent: 19,
                     tax_id: 1
                 }
             ],
             resolution_id: 62,
             sync: true,
+            notes: formData.observacionesInternas || "sin ob",
             type_document_id: 1,
             invoice_lines: formData.items.map((item: any) => {
-                const lineExtension = round(item.precioUnitario * item.cantidad);
-                const taxAmt = round(lineExtension * (item.ivaPorcentaje / 100));
+                const price = Number(item.precioUnitario) || 0;
+                const qty = Number(item.cantidad) || 0;
+                const discPercent = Number(item.descuentoPorcentaje) || 0;
+                const taxPercent = Number(item.ivaPorcentaje) || 0;
+
+                const lineGross = price * qty;
+                const lineDiscount = lineGross * (discPercent / 100);
+                const lineNet = lineGross - lineDiscount;
+                const taxAmt = lineNet * (taxPercent / 100);
+
                 return {
-                    base_quantity: item.cantidad,
-                    invoiced_quantity: item.cantidad,
+                    base_quantity: qty,
+                    invoiced_quantity: qty,
                     code: item.referencia || item.codProducto || '001',
                     tax_totals: [
                         {
-                            tax_amount: taxAmt,
-                            taxable_amount: lineExtension,
-                            percent: item.ivaPorcentaje,
+                            tax_amount: round(taxAmt),
+                            taxable_amount: round(lineNet),
+                            percent: taxPercent,
                             tax_id: 1
                         }
                     ],
                     free_of_charge_indicator: false,
-                    line_extension_amount: lineExtension,
-                    type_item_identification_id: 3,
-                    price_amount: item.precioUnitario,
+                    line_extension_amount: round(lineNet),
+                    allowance_charges: discPercent > 0 ? [{
+                        charge_indicator: false,
+                        allowance_charge_reason: "Descuento",
+                        amount: round(lineDiscount),
+                        base_amount: round(lineGross)
+                    }] : undefined,
+                    type_item_identification_id: 4,
+                    price_amount: round(price),
                     description: item.descripcion,
-                    unit_measure_id: 70
+                    unit_measure_id: (() => {
+                        const code = String(item.unit_measure_id || item.unidadMedidaCodigo || '').trim();
+                        if (code === '001') return 730; // HORA
+                        if (code === '002') return 606; // DIA
+                        return 70; // UNIDAD / Default
+                    })(),
+                    unit_measure: (() => {
+                        const code = String(item.unit_measure_id || item.unidadMedidaCodigo || '').trim();
+                        if (code === '001') return 'hora';
+                        if (code === '002') return 'dia';
+                        return 'unidad';
+                    })()
                 };
             }),
             customer: {

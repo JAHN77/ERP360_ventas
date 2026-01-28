@@ -4,7 +4,10 @@
     "private": true,
     "scripts": {
         "start": "node api/index.js",
-        "build": "cd app/front && npm install && npm run build"
+        "build": "cd app/front && npm install && npm run build",
+        "dev": "npm run dev:back & npm run dev:front",
+        "dev:back": "npm run dev --prefix app/back",
+        "dev:front": "npm run dev --prefix app/front"
     },
     "dependencies": {
         "@google/generative-ai": "^0.24.1",

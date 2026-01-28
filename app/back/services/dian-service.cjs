@@ -344,11 +344,11 @@ class DIANService {
 
       // Intentar con id_factura primero, luego con campos legacy
       let detallesResult = await reqDetalles.query(`
-        SELECT d.*, i.referencia
-        FROM ven_detafact d
-        LEFT JOIN inv_insumos i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.codins))
-        WHERE d.id_factura = @facturaId
-      `);
+          SELECT d.*, i.referencia, i.undins, i.nomins
+          FROM ven_detafact d
+          LEFT JOIN inv_insumos i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.codins))
+          WHERE d.id_factura = @facturaId
+        `);
 
       console.log(`   Detalles encontrados con id_factura: ${detallesResult.recordset.length}`);
 
@@ -361,7 +361,7 @@ class DIANService {
         reqDetallesLegacy.input('codalm', sql.Char(3), factura.codalm || '001');
 
         detallesResult = await reqDetallesLegacy.query(`
-          SELECT d.*, i.referencia
+          SELECT d.*, i.referencia, i.undins, i.nomins
           FROM ven_detafact d
           LEFT JOIN inv_insumos i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.codins))
           WHERE d.numfac = @numfac
@@ -740,11 +740,15 @@ class DIANService {
           detalleTaxId = 1; // IVA
         }
 
+        // Determinar unidad de medida DIAN
+        const unitMeasure = this.resolveUnitMeasureId(detalle, index + 1);
+
         const linea = {
-          unit_measure_id: Number(70), // Hardcodeado temporalmente - se obtendrá desde MySQL electronica (número)
+          unit_measure_id: Number(unitMeasure.id),
+          unit_measure: String(unitMeasure.name),
           invoiced_quantity: Number(detalleQuantity), // qtyins desde ven_detafact (número)
           line_extension_amount: Number(detalleLineExtension), // Total de la línea sin impuestos (número)
-          description: String(detalle.observa || detalle.descripcion || "VENTA DE PRODUCTOS Y SERVICIOS").trim(), // observa desde ven_detafact (string)
+          description: String(detalle.observa || detalle.nomins || detalle.descripcion || "VENTA DE PRODUCTOS Y SERVICIOS").trim(), // observa desde ven_detafact (string)
           price_amount: Number(detallePrice), // Precio unitario (valins) (número)
           // PRIORIDAD: referencia > codins > index
           code: String(detalle.referencia || detalle.codins || detalle.codProducto || (index + 1)).trim(),
@@ -1130,7 +1134,12 @@ class DIANService {
       const ivaPercent = parseFloat(detalle.iva_porcentaje || detalle.ivaPorcentaje);
 
       return {
-        unit_measure_id: 70, // Unidad estándar
+        unit_measure_id: (() => {
+          const undDb = String(detalle.undins || detalle.unidadMedida || 'UND').trim().toUpperCase();
+          if (undDb === 'DIA' || undDb === 'DÍA') return 606;
+          if (undDb === 'HORA') return 730;
+          return 70;
+        })(),
         invoiced_quantity: cantidad,
         line_extension_amount: subtotal,
         discount: 0,
@@ -1536,6 +1545,44 @@ class DIANService {
     } else {
       return 11 - remainder;
     }
+  }
+  /**
+   * Resuelve el ID y nombre de unidad de medida DIAN basado en los datos del detalle
+   * @param {Object} detalle - Objeto con datos del producto/servicio
+   * @param {number} index - Índice para logging
+   * @returns {Object} { id: number, name: string }
+   */
+  static resolveUnitMeasureId(detalle, index = 0) {
+    let unitMeasureId = 70; // Default: Unidad (70)
+    let unitMeasureName = 'unidad';
+
+    // Prioridad: UNDVTA/codmed (ven_detafact) > undins (inv_insumos) > Default
+    const undVtaVal = String(detalle.UNDVTA || detalle.undvta || detalle.codmed || detalle.unidadMedidaCodigo || '').trim();
+    const undVtaNum = parseInt(undVtaVal, 10);
+    const undDb = String(detalle.undins || detalle.unidadMedida || '').trim().toUpperCase();
+
+    // Lógica corregida para soportar "002", "2", "DIA"
+    if (undVtaNum === 2 || undVtaVal === '002' || undDb === 'DIA' || undDb === 'DÍA') {
+      unitMeasureId = 606; // DIA
+      unitMeasureName = 'día';
+    } else if (undVtaNum === 1 || undVtaVal === '001' || undDb === 'HORA') {
+      unitMeasureId = 730; // HORA
+      unitMeasureName = 'hora';
+    } else if (undVtaNum === 3 || undVtaVal === '003' || undDb === 'UNIDAD' || undDb === 'UND') {
+      unitMeasureId = 70; // UNIDAD
+      unitMeasureName = 'unidad';
+    } else {
+      // Fallback: Si el id ya venía desde el frontend (como en preview manual)
+      if (detalle.unit_measure_id === 606) { unitMeasureId = 606; unitMeasureName = 'día'; }
+      else if (detalle.unit_measure_id === 730) { unitMeasureId = 730; unitMeasureName = 'hora'; }
+      else { unitMeasureId = 70; unitMeasureName = 'unidad'; }
+    }
+
+    console.log(`🔍 [DEBUG UNIT] Item: ${index} | Cod: ${detalle.codins || detalle.code || 'N/A'}`);
+    console.log(`   - Data: UNDVTA='${undVtaVal}'(num:${undVtaNum}) | undDb='${undDb}' | input_id=${detalle.unit_measure_id}`);
+    console.log(`   ✅ Resultado: ID=${unitMeasureId} | Name='${unitMeasureName}'`);
+
+    return { id: unitMeasureId, name: unitMeasureName };
   }
 }
 

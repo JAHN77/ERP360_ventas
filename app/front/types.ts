@@ -213,6 +213,7 @@ export interface DocumentoDetalle {
   qtycot?: number; // Cantidad cotizada
   fletes?: number; // Valor de fletes prorrateado o asignado
   referencia?: string; // Referencia del producto (externa/fabricante)
+  unidadMedidaCodigo?: string; // NEW: Código de medida (001, 002, 003)
 }
 export type DocumentItem = DocumentoDetalle;
 
