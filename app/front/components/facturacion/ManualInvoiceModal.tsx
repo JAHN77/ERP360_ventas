@@ -20,7 +20,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
         date: new Date().toISOString().split('T')[0],
         dueDate: new Date().toISOString().split('T')[0],
         paymentFormId: '1', // 1=Contado, 2=Credito
-        paymentMethodId: '10', // 10=Efectivo default
+        paymentMethodId: '9', // 9=Efectivo default (actualizado)
         seller: '',
         orderNumber: '',
         customer: {
@@ -388,9 +388,9 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
         };
 
         const total = totals.payableAmount;
-        const efectivo = formData.paymentMethodId === '10' ? total : 0;
-        const credito = formData.paymentMethodId === '30' ? total : 0;
-        const transferencia = formData.paymentMethodId === '31' ? total : 0; // Transferencia Débito
+        const efectivo = formData.paymentMethodId === '9' ? total : 0;
+        const credito = formData.paymentMethodId === '44' ? total : 0;
+        const transferencia = formData.paymentMethodId === '30' ? total : 0; // Transferencia Débito
 
         // Construct INSERT based on user's schema
         const headerSql = `INSERT INTO ven_facturas (
@@ -546,9 +546,9 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
             };
 
             const total = totals.payableAmount;
-            const efectivo = formData.paymentMethodId === '10' ? total : 0;
-            const credito = formData.paymentMethodId === '30' ? total : 0;
-            const transferencia = formData.paymentMethodId === '31' ? total : 0;
+            const efectivo = formData.paymentMethodId === '9' ? total : 0;
+            const credito = formData.paymentMethodId === '44' ? total : 0;
+            const transferencia = formData.paymentMethodId === '30' ? total : 0;
 
             if (isOrquidea) {
                 const codterFormatted = `${formData.customer.identification_number}-${formData.customer.dv}`;
@@ -694,7 +694,7 @@ END`;
                                     setFormData(prev => ({
                                         ...prev,
                                         paymentFormId: val,
-                                        paymentMethodId: val === '2' ? '30' : prev.paymentMethodId
+                                        paymentMethodId: val === '2' ? '44' : prev.paymentMethodId
                                     }));
                                 }}
                             >
@@ -711,11 +711,11 @@ END`;
                             >
                                 {formData.paymentFormId === '1' ? (
                                     <>
-                                        <option value="10">Efectivo</option>
-                                        <option value="31">Transferencia Débito</option>
+                                        <option value="9">Efectivo</option>
+                                        <option value="30">Transferencia Débito</option>
                                     </>
                                 ) : (
-                                    <option value="30">Crédito</option>
+                                    <option value="44">Crédito</option>
                                 )}
                             </select>
                         </div>

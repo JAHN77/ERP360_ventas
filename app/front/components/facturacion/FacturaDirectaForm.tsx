@@ -55,7 +55,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
         date: new Date().toISOString().split('T')[0],
         dueDate: new Date().toISOString().split('T')[0],
         paymentFormId: '1',
-        paymentMethodId: '10',
+        paymentMethodId: '9',
         seller: '',
         customer: {
             identification_number: '',
@@ -142,7 +142,10 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                 try {
                     const resp = await apiSearchClientes(q, 20);
                     if (resp.success && resp.data) {
-                        setClienteResults(resp.data as Cliente[]);
+                        const allClients = resp.data as Cliente[];
+                        // Filter out clients without valid email
+                        const validClients = allClients.filter(c => c.email && c.email.includes('@'));
+                        setClienteResults(validClients);
                     }
                 } catch (e) { console.error(e); }
             }
@@ -485,11 +488,27 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         value={formData.paymentFormId}
                         onChange={(e) => {
                             const val = e.target.value;
-                            setFormData(prev => ({
-                                ...prev,
-                                paymentFormId: val,
-                                paymentMethodId: val === '2' ? '30' : prev.paymentMethodId
-                            }));
+                            setFormData(prev => {
+                                let newMethodId = prev.paymentMethodId;
+
+                                if (val === '2') {
+                                    // Cambiando a Crédito: Forzar 44
+                                    newMethodId = '44';
+                                } else if (val === '1') {
+                                    // Cambiando a Contado
+                                    // Si estaba en 44 (Crédito), restaurar a 9 (Efectivo) por defecto
+                                    if (prev.paymentMethodId === '44') {
+                                        newMethodId = '9';
+                                    }
+                                    // Si estaba en 9 o 30, se mantiene
+                                }
+
+                                return {
+                                    ...prev,
+                                    paymentFormId: val,
+                                    paymentMethodId: newMethodId
+                                };
+                            });
                         }}
                         className="w-full px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
                     >
@@ -507,11 +526,11 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                     >
                         {formData.paymentFormId === '1' ? (
                             <>
-                                <option value="10">Efectivo</option>
-                                <option value="31">Transferencia</option>
+                                <option value="9">Efectivo</option>
+                                <option value="30">Transferencia</option>
                             </>
                         ) : (
-                            <option value="30">Crédito</option>
+                            <option value="44">Crédito</option>
                         )}
                     </select>
                 </div>

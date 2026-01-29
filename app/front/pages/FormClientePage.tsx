@@ -7,6 +7,8 @@ import ClienteForm from '../components/clientes/ClienteForm';
 import Modal from '../components/ui/Modal';
 import { useData } from '../hooks/useData';
 
+import { apiClient } from '../services/apiClient';
+
 const FormClientePage: React.FC = () => {
   const { page, params, setPage } = useNavigation();
   const { addNotification } = useNotifications();
@@ -15,30 +17,57 @@ const FormClientePage: React.FC = () => {
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [isCancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [isFormDirty, setFormDirty] = useState(false);
+  const [isLoadingFetch, setIsLoadingFetch] = useState(false);
 
   const isEditing = page === 'editar_cliente';
 
   useEffect(() => {
-    if (isEditing && params.id) {
-      const fetchedCliente = clientes.find(c => String(c.id) === String(params.id));
-      if (fetchedCliente) {
-        setCliente(fetchedCliente);
-      } else {
-        addNotification({ type: 'error', message: 'Cliente no encontrado' });
-        setPage('clientes');
-      }
-    }
-  }, [isEditing, params.id, setPage, clientes]);
+    const fetchClientData = async () => {
+      if (isEditing && params.id) {
+        // 1. Try to find in global context first (fastest)
+        const contextClient = clientes.find(c => String(c.id) === String(params.id));
+        if (contextClient) {
+          setCliente(contextClient);
+          return;
+        }
 
-  const handleSubmit = (data: Omit<Cliente, 'id' | 'condicionPago' | 'activo' | 'createdAt' | 'nombreCompleto'>) => {
-    if (isEditing && cliente) {
-      actualizarCliente(cliente.id, data);
-      addNotification({ type: 'success', message: 'Cliente actualizado con éxito' });
-    } else {
-      crearCliente(data);
-      addNotification({ type: 'success', message: 'Cliente creado con éxito' });
+        // 2. If not found (e.g. new client, or context stale), fetch from API
+        setIsLoadingFetch(true);
+        try {
+          const res = await apiClient.getClienteById(params.id);
+          if (res.success && res.data) {
+            setCliente(res.data as Cliente);
+          } else {
+            addNotification({ type: 'error', message: 'Cliente no encontrado en base de datos' });
+            setPage('clientes');
+          }
+        } catch (error) {
+          console.error('Error fetching client:', error);
+          addNotification({ type: 'error', message: 'Error al cargar datos del cliente' });
+          setPage('clientes');
+        } finally {
+          setIsLoadingFetch(false);
+        }
+      }
+    };
+
+    fetchClientData();
+  }, [isEditing, params.id, clientes, setPage]);
+
+  const handleSubmit = async (data: Omit<Cliente, 'id' | 'condicionPago' | 'activo' | 'createdAt' | 'nombreCompleto'>) => {
+    try {
+      if (isEditing && cliente) {
+        await actualizarCliente(cliente.id, data);
+        addNotification({ type: 'success', message: 'Cliente actualizado con éxito' });
+      } else {
+        await crearCliente(data);
+        addNotification({ type: 'success', message: 'Cliente creado con éxito' });
+      }
+      setPage('clientes');
+    } catch (error) {
+      console.error(error);
+      addNotification({ type: 'error', message: 'Error al guardar el cliente' });
     }
-    setPage('clientes');
   };
 
   const handleCancel = () => {
@@ -54,7 +83,7 @@ const FormClientePage: React.FC = () => {
     setPage('clientes');
   };
 
-  if (isEditing && !isMainDataLoaded) {
+  if (isEditing && (!isMainDataLoaded && !cliente || isLoadingFetch)) {
     return <div className="flex justify-center items-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div></div>;
   }
 

@@ -95,7 +95,8 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
     cupoCredito: 0,
     diasCredito: 0,
     formaPago: '0',
-    tipoPersonaId: 'tp1' // UI Helper
+    tipoPersonaId: 'tp1', // UI Helper
+    actividadSearchTerm: '' // Unified search term for CIIU
   });
 
   // Actividad Search State
@@ -213,10 +214,18 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
   // --- ACTIVITY SEARCH ---
   useEffect(() => {
     const searchActividad = async () => {
-      if (formData.codacteconomica.length >= 2) {
+      const term = formData.actividadSearchTerm || '';
+
+      // Stop searching if the current term matches Code + Name of selected item
+      if (formData.codacteconomica && formData.actividadNombre && term === `${formData.codacteconomica} - ${formData.actividadNombre}`) {
+        setShowActividadResult(false);
+        return;
+      }
+
+      if (term.length >= 2) {
         setSearchingActividad(true);
         try {
-          const res = await fetch(`http://localhost:3001/api/clientes/actividades-ciiu?search=${encodeURIComponent(formData.codacteconomica)}&limit=5`);
+          const res = await fetch(`http://localhost:3001/api/clientes/actividades-ciiu?search=${encodeURIComponent(term)}&limit=10`);
           const json = await res.json();
           if (json.success && json.data.length > 0) {
             setActividadesFound(json.data);
@@ -235,13 +244,14 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
     };
     const timeoutId = setTimeout(searchActividad, 400);
     return () => clearTimeout(timeoutId);
-  }, [formData.codacteconomica]);
+  }, [formData.actividadSearchTerm, formData.codacteconomica, formData.actividadNombre]);
 
   const selectActividad = (act: any) => {
     setFormData(prev => ({
       ...prev,
       codacteconomica: act.codigo,
-      actividadNombre: act.nombre
+      actividadNombre: act.nombre,
+      actividadSearchTerm: `${act.codigo} - ${act.nombre}`
     }));
     setShowActividadResult(false);
   };
@@ -312,28 +322,6 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
     // Construct Payload compatible with Client Interface
     const isNit = formData.tipoDocumentoId === '31';
 
-    // Find City Name to save in 'ciudad' column (User requirement: Save Name, not Code)
-    // CRITICAL: We must ensure we NEVER save a numeric code in the Name column.
-
-    // 1. Try finding by City ID (trimmed)
-    const normalizedCityId = String(formData.ciudadId || '').trim();
-    let cityObj = ciudades.find(c => String(c.codigo).trim() === normalizedCityId);
-
-    // 2. If not found by City ID, try finding by Postal Code
-    if (!cityObj && formData.codigoPostal) {
-      const normalizedPostal = String(formData.codigoPostal).trim();
-      cityObj = ciudades.find(c => String(c.codigo).trim() === normalizedPostal);
-    }
-
-    // 3. Determine Name. If still not found, default to empty string instead of ID to prevent "08080" issue.
-    // However, if the user explicitly typed a legit name in input (if it was an input), we'd keep it. 
-    // But here it is a Select. So if ID fails match, we have no Name.
-    let cityName = cityObj ? cityObj.nombre : '';
-
-    // Final Safety Check: If name looks like a number, blank it out
-    if (/^\d+$/.test(cityName)) {
-      cityName = '';
-    }
 
     // Logic for payload
     const payload = {
@@ -484,46 +472,48 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
         </div>
 
         {/* --- ACTIVIDAD ECONÓMICA AUTOCOMPLETE --- */}
-        <div className="col-span-12 md:col-span-6 relative z-20">
+        <div className="col-span-12 md:col-span-12 relative z-20">
           <Label>Actividad Económica (CIIU)</Label>
-          <div className="flex gap-2 group">
-            <div className="w-24 relative">
-              <Input
-                name="codacteconomica"
-                value={formData.codacteconomica}
-                onChange={handleChange}
-                placeholder="Código"
-                className="text-center font-bold text-blue-700"
-                autoComplete="off"
-              />
-              {searchingActividad && <div className="absolute right-2 top-2.5 text-xs text-slate-400"><i className="fas fa-spinner fa-spin"></i></div>}
-            </div>
-            <div className="flex-1 relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <i className="fas fa-briefcase text-slate-400"></i>
+          <div className="relative">
+            <Input
+              name="actividadSearchTerm" // We use a transient field for the input
+              value={formData.actividadNombre && formData.codacteconomica ? `${formData.codacteconomica} - ${formData.actividadNombre}` : (formData.actividadSearchTerm || formData.codacteconomica)}
+              onChange={(e) => {
+                // When typing, we clear the specific selection temporarily and update search term
+                setFormData(prev => ({
+                  ...prev,
+                  actividadSearchTerm: e.target.value,
+                  // If user clears input, clear underlying data
+                  ...(e.target.value === '' ? { codacteconomica: '', actividadNombre: '' } : {})
+                }));
+              }}
+              placeholder="Buscar por código (ej. 7490) o descripción..."
+              icon="fa-briefcase"
+              autoComplete="off"
+              className={formData.codacteconomica ? 'font-bold text-blue-700' : ''}
+              onFocus={(e) => {
+                // On focus, if there is a value, user might want to edit or clear. 
+                // If it looks like "CODE - NAME", maybe select all? 
+                // For now standard behavior.
+              }}
+            />
+            {searchingActividad && <div className="absolute right-3 top-2.5 text-xs text-slate-400"><i className="fas fa-spinner fa-spin"></i></div>}
+
+            {/* Dropdown Results */}
+            {showActividadResult && actividadesFound.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 shadow-xl rounded-lg max-h-56 overflow-y-auto z-50">
+                {actividadesFound.map((act) => (
+                  <div
+                    key={act.codigo}
+                    onClick={() => selectActividad(act)}
+                    className="px-4 py-3 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-slate-100 dark:border-slate-700 last:border-0 flex items-center gap-3"
+                  >
+                    <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded text-xs min-w-[50px] text-center">{act.codigo}</span>
+                    <span className="text-slate-700 dark:text-slate-300 text-sm">{act.nombre}</span>
+                  </div>
+                ))}
               </div>
-              <input
-                readOnly
-                value={formData.actividadNombre || ''}
-                placeholder="Descripción de la actividad..."
-                className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none cursor-default"
-              />
-              {/* Dropdown Results */}
-              {showActividadResult && actividadesFound.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 shadow-xl rounded-lg max-h-56 overflow-y-auto z-50">
-                  {actividadesFound.map((act) => (
-                    <div
-                      key={act.codigo}
-                      onClick={() => selectActividad(act)}
-                      className="px-4 py-3 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-slate-100 dark:border-slate-700 last:border-0 flex items-center gap-3"
-                    >
-                      <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded text-xs">{act.codigo}</span>
-                      <span className="text-slate-700 dark:text-slate-300 text-sm">{act.nombre}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
 

@@ -12,7 +12,7 @@ import {
     fetchCotizaciones, fetchCotizacionesDetalle, fetchPedidos, fetchPedidosDetalle,
     fetchRemisiones, fetchRemisionesDetalle, fetchNotasCredito, fetchMedidas, fetchCategorias,
     testApiConnection, fetchVendedores, apiCreateCliente, fetchBodegas, apiCreateNotaCredito,
-    apiRegisterInventoryEntry, fetchCiudades, fetchEmpresa, BACKEND_URL
+    apiRegisterInventoryEntry, fetchCiudades, fetchDepartamentos, fetchEmpresa, BACKEND_URL
 } from '../services/apiClient';
 import { generarRemisionPDFenBlob, generarFacturaPDFenBlob } from '../utils/pdfGenerator';
 import { defaultPreferences } from '../hooks/useDocumentPreferences';
@@ -116,7 +116,7 @@ interface DataContextType {
     aprobarRemision: (id: string) => Promise<Remision | undefined>;
     crearRemision: ((data: Remision) => Promise<Remision>) & ((pedido: Pedido, items: Array<{ productoId: number; cantidad: number }>, logisticData?: any) => Promise<{ nuevaRemision: Remision; mensaje: string }>);
     crearFactura: (data: Factura) => Promise<Factura>;
-    crearNotaCredito: (factura: Factura, items: DocumentItem[], motivo: string, tipoNota?: 'DEVOLUCION' | 'ANULACION') => Promise<NotaCredito>;
+    crearNotaCredito: (factura: Factura, items: DocumentItem[], motivo: string, tipoNota?: 'DEVOLUCION' | 'ANULACION', testMode?: boolean, numero?: string) => Promise<NotaCredito>;
     crearFacturaDesdeRemisiones: (remisionIds: string[]) => Promise<{ nuevaFactura: Factura } | null>;
     timbrarFactura: (facturaId: string, mode?: 'test' | 'production') => Promise<Factura | undefined>;
     refreshFacturasYRemisiones: () => Promise<void>;
@@ -248,14 +248,18 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     // Continuar sin lanzar error
                 }
 
-                // Cargar medidas y categorías en paralelo (después de bodegas)
-                const [medidasResponse, categoriasResponse] = await Promise.all([
+                // Cargar medidas, categorías y departamentos en paralelo
+                const [medidasResponse, categoriasResponse, departamentosResponse] = await Promise.all([
                     fetchMedidas().catch(err => {
                         logger.warn({ prefix: 'DataContext' }, 'Error cargando medidas:', err);
                         return { success: false, data: [] };
                     }),
                     fetchCategorias().catch(err => {
                         logger.warn({ prefix: 'DataContext' }, 'Error cargando categorías:', err);
+                        return { success: false, data: [] };
+                    }),
+                    fetchDepartamentos().catch(err => {
+                        logger.warn({ prefix: 'DataContext' }, 'Error cargando departamentos:', err);
                         return { success: false, data: [] };
                     })
                 ]);
@@ -276,8 +280,15 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     }
                 }
 
+                // Procesar departamentos
+                if (departamentosResponse && departamentosResponse.success) {
+                    const depsData = extractArrayData(departamentosResponse);
+                    if (depsData.length > 0) {
+                        setDepartamentos(depsData);
+                    }
+                }
+
                 // Load mock data for other catalogs (temporary)
-                setDepartamentos([]);
                 // setCiudades([]); // Replaced by actual fetching below
                 setTiposDocumento(mockTiposDocumento);
                 setTiposPersona(mockTiposPersona);

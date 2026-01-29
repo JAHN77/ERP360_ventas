@@ -304,14 +304,14 @@ const FacturaDirectaPage: React.FC = () => {
             let valTransferencia = 0;
             let formaPagoBackend = '01'; // Default Contado
 
-            // Mapeo basado en lógica anterior: 10=Efectivo, 30=Crédito, 31=Transferencia
-            if (formData.paymentMethodId === '10') {
+            // Mapeo basado en nueva solicitud: 9=Efectivo, 44=Crédito, 30=Transferencia
+            if (formData.paymentMethodId === '9') {
                 valEfectivo = totals.payableAmount;
                 formaPagoBackend = '01';
-            } else if (formData.paymentMethodId === '30') {
+            } else if (formData.paymentMethodId === '44') {
                 valCredito = totals.payableAmount;
                 formaPagoBackend = '02';
-            } else if (formData.paymentMethodId === '31') {
+            } else if (formData.paymentMethodId === '30') {
                 valTransferencia = totals.payableAmount;
                 formaPagoBackend = '01';
             } else {

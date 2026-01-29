@@ -357,7 +357,7 @@ const ClientesPage: React.FC = () => {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSuccess={() => {
-          // Data refresh is handled inside the modal
+          loadClients();
         }}
       />
 

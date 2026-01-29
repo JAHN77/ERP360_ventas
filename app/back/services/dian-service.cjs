@@ -657,7 +657,7 @@ class DIANService {
     console.log('   - plazo:', valPlazo);
 
     let paymentFormId = 1; // 1 = Contado (Defecto)
-    let paymentMethodId = 10; // 10 = Efectivo (Defecto)
+    let paymentMethodId = 9; // 9 = Efectivo (Actualizado)
 
     // Lógica para determinar el método principal
     // Si hay tarjeta > 0
@@ -669,18 +669,18 @@ class DIANService {
     // Si hay transferencia > 0
     else if (valTransferencia > 0) {
       paymentFormId = 1;
-      paymentMethodId = 47; // Transferencia Débito Bancaria
-      console.log('   ✅ Forma de pago: Transferencia (Form ID: 1, Method ID: 47)');
+      paymentMethodId = 30; // Transferencia Débito Bancaria (Actualizado)
+      console.log('   ✅ Forma de pago: Transferencia (Form ID: 1, Method ID: 30)');
     }
     // Si hay crédito > 0
     // IMPORTANTE: Solo marcar como crédito si valCredito > 0.
     // Si venFactura.credito venía como string "0" o similar, el parseFloat lo manejará.
     else if (valCredito > 0.01) {
       paymentFormId = 2; // Crédito (DIAN ID 2)
-      paymentMethodId = 30; // Instrumento no definido
-      console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 30, Plazo: ${valPlazo} días)`);
+      paymentMethodId = 44; // Instrumento no definido (Actualizado)
+      console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 44, Plazo: ${valPlazo} días)`);
     } else {
-      console.log('   ✅ Forma de pago: Efectivo (Form ID: 1, Method ID: 10)');
+      console.log('   ✅ Forma de pago: Efectivo (Form ID: 1, Method ID: 9)');
     }
 
     // Construir líneas de factura desde ven_detafact (Base de datos: Prueba_ERP360)
@@ -1307,7 +1307,7 @@ class DIANService {
         const valPlazo = parseInt(facturaOriginal.plazo || 0, 10);
 
         let paymentFormId = 1; // 1 = Contado (Defecto)
-        let paymentMethodId = 10; // 10 = Efectivo (Defecto)
+        let paymentMethodId = 9; // 9 = Efectivo (Actualizado)
 
         // Lógica para determinar el método principal
         if (valTarjeta > 0) {
@@ -1315,10 +1315,10 @@ class DIANService {
           paymentMethodId = 48; // Tarjeta crédito
         } else if (valTransferencia > 0) {
           paymentFormId = 1;
-          paymentMethodId = 47; // Transferencia Débito Bancaria
+          paymentMethodId = 30; // Transferencia Débito Bancaria (Actualizado)
         } else if (valCredito > 0.01) {
           paymentFormId = 2; // Crédito (DIAN ID 2)
-          paymentMethodId = 30; // Instrumento no definido
+          paymentMethodId = 44; // Instrumento no definido (Actualizado)
         }
 
         // Calcular fecha vencimiento si es crédito

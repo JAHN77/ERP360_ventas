@@ -10,7 +10,7 @@ export interface Departamento {
 
 export interface Ciudad {
   id: string; // uuid
-  departamento_id: string;
+  departamentoId: string;
   codigo: string;
   nombre: string;
 }
@@ -449,7 +449,7 @@ export interface ActivityLog {
 
 // --- PREFERENCIAS DE DOCUMENTOS ---
 export type SignatureType = 'physical' | 'digital' | 'none';
-export type DetailLevel = 'full' | 'summary';
+export type DetailLevel = 'full' | 'summary' | 'detailed';
 
 export interface DocumentPreferences {
   showPrices: boolean;

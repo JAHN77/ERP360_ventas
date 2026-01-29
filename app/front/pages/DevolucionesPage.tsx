@@ -691,7 +691,7 @@ const DevolucionesPage: React.FC = () => {
                     : devolucionItems[0].motivoSeleccion || 'Devolución general')
                 : 'Devolución general';
 
-            const result = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal, tipoNota, true, retryNotaNumero || undefined);
+            const result: any = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal, tipoNota, true);
 
             if (result && result.isTest) {
                 setTestJsonResult(result.data);
@@ -742,7 +742,7 @@ const DevolucionesPage: React.FC = () => {
                     : devolucionItems[0].motivoSeleccion || 'Devolución general')
                 : 'Devolución general';
 
-            const nuevaNota = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal, tipoNota, false, retryNotaNumero || undefined);
+            const nuevaNota = await crearNotaCredito(selectedFactura, itemsParaNota, motivoPrincipal, tipoNota, false);
 
             if (!nuevaNota) {
                 throw new Error('No se recibió respuesta del servidor al crear la nota de crédito');
@@ -1202,56 +1202,70 @@ const DevolucionesPage: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Toggle para Tipo de Nota (Devolución vs Anulación) */}
-                            <div className="mt-6 flex items-center space-x-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tipo de Operación</span>
-                                    <span className="text-xs text-slate-500 dark:text-slate-400">Seleccione si es una devolución parcial o anulación total</span>
+                            {/* Controls Section: Tipo de Operación & Devolución Total */}
+                            <div className="mt-8 flex flex-col lg:flex-row gap-6">
+                                {/* Segmented Control: Tipo de Operación */}
+                                <div className="flex-1 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center">
+                                    <div className="mb-3">
+                                        <span className="block text-sm font-semibold text-slate-800 dark:text-slate-200">Tipo de Operación</span>
+                                        <span className="text-xs text-slate-500 dark:text-slate-400">¿Qué acción desea realizar?</span>
+                                    </div>
+                                    <div className="bg-slate-200 dark:bg-slate-900/50 p-1 rounded-lg flex relative">
+                                        <button
+                                            onClick={() => setTipoNota('DEVOLUCION')}
+                                            disabled={isFormDisabled}
+                                            className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all duration-200 focus:outline-none ${tipoNota === 'DEVOLUCION'
+                                                ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-black/5'
+                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                                                }`}
+                                        >
+                                            Devolución
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setTipoNota('ANULACION');
+                                                if (!isTotalDevolucion) handleTotalDevolucionToggle(true);
+                                            }}
+                                            disabled={isFormDisabled}
+                                            className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all duration-200 focus:outline-none ${tipoNota === 'ANULACION'
+                                                ? 'bg-white dark:bg-slate-800 text-red-600 dark:text-red-400 shadow-sm ring-1 ring-black/5'
+                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                                                }`}
+                                        >
+                                            Anulación
+                                        </button>
+                                    </div>
                                 </div>
 
-                                <div className="flex items-center bg-white dark:bg-slate-900 rounded-lg p-1 border border-slate-200 dark:border-slate-700">
-                                    <button
-                                        onClick={() => setTipoNota('DEVOLUCION')}
-                                        disabled={isFormDisabled}
-                                        className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${tipoNota === 'DEVOLUCION'
-                                            ? 'bg-blue-500 text-white shadow-sm'
-                                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                            }`}
-                                    >
-                                        Devolución
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            setTipoNota('ANULACION');
-                                            // Si es anulación, activar devolución total automáticamente
-                                            if (!isTotalDevolucion) {
-                                                handleTotalDevolucionToggle(true);
-                                            }
-                                        }}
-                                        disabled={isFormDisabled}
-                                        className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${tipoNota === 'ANULACION'
-                                            ? 'bg-red-500 text-white shadow-sm'
-                                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                            }`}
-                                    >
-                                        Anulación
-                                    </button>
-                                </div>
-
-                                <div className="flex-1 border-l border-slate-200 dark:border-slate-700 pl-6">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Devolución Total</span>
-                                            <span className="text-xs text-slate-500 dark:text-slate-400">Marcar todos los items para devolver</span>
+                                {/* Segmented Control: Devolución Total/Parcial */}
+                                <div className="flex-1 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center">
+                                    <div className="mb-3 flex justify-between items-end">
+                                        <div>
+                                            <span className="block text-sm font-semibold text-slate-800 dark:text-slate-200">Alcance de la Devolución</span>
+                                            <span className="text-xs text-slate-500 dark:text-slate-400">Seleccione los items a procesar</span>
                                         </div>
-                                        <ToggleSwitch
-                                            id="devolucion-total-toggle"
-                                            checked={isTotalDevolucion}
-                                            onChange={handleTotalDevolucionToggle}
-                                            labelLeft="Parcial"
-                                            labelRight="Total"
-                                            disabled={!selectedFactura || isFormDisabled || tipoNota === 'ANULACION'} // Deshabilitar si es anulación (siempre es total)
-                                        />
+                                    </div>
+                                    <div className="bg-slate-200 dark:bg-slate-900/50 p-1 rounded-lg flex relative">
+                                        <button
+                                            onClick={() => handleTotalDevolucionToggle(false)}
+                                            disabled={!selectedFactura || isFormDisabled || tipoNota === 'ANULACION'}
+                                            className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all duration-200 focus:outline-none ${!isTotalDevolucion
+                                                ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm ring-1 ring-black/5'
+                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-50'
+                                                }`}
+                                        >
+                                            Parcial
+                                        </button>
+                                        <button
+                                            onClick={() => handleTotalDevolucionToggle(true)}
+                                            disabled={!selectedFactura || isFormDisabled || tipoNota === 'ANULACION'}
+                                            className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all duration-200 focus:outline-none ${isTotalDevolucion
+                                                ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm ring-1 ring-black/5'
+                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-50'
+                                                }`}
+                                        >
+                                            Total
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -1280,60 +1294,82 @@ const DevolucionesPage: React.FC = () => {
                                 <section className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
                                     <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">2. Detalles y Cantidades a Devolver</h2>
 
-                                    <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 mb-6">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                    <div className="p-6 bg-gradient-to-br from-white to-slate-50 dark:from-slate-800 dark:to-slate-800/80 rounded-xl shadow border border-slate-200 dark:border-slate-700 mb-8 relative overflow-hidden">
+                                        {/* Decorative Element */}
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 relative z-10">
                                             {/* Cliente Info */}
-                                            <div className="space-y-1">
-                                                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente</p>
-                                                <p className="font-bold text-slate-800 dark:text-slate-100 truncate" title={selectedCliente?.nombreCompleto}>
-                                                    {selectedCliente?.nombreCompleto}
-                                                </p>
-                                                <p className="text-sm text-slate-500 dark:text-slate-400 font-mono">
-                                                    NIT: {selectedCliente?.numeroDocumento}
-                                                </p>
+                                            <div className="space-y-2">
+                                                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                                                    <i className="fas fa-user-circle text-blue-500"></i>
+                                                    <p className="text-xs font-bold uppercase tracking-wider">Cliente</p>
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold text-slate-800 dark:text-slate-100 truncate text-base" title={selectedCliente?.nombreCompleto}>
+                                                        {selectedCliente?.nombreCompleto}
+                                                    </p>
+                                                    <p className="text-sm text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                                                        NIT: {selectedCliente?.numeroDocumento}
+                                                    </p>
+                                                </div>
                                             </div>
 
                                             {/* Factura Info */}
-                                            <div className="space-y-1">
-                                                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Factura</p>
-                                                <p className="font-bold text-blue-600 dark:text-blue-400 text-lg">
-                                                    {selectedFactura.numeroFactura}
-                                                </p>
-                                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                                    {new Date(selectedFactura.fechaFactura).toLocaleDateString()}
-                                                </p>
+                                            <div className="space-y-2">
+                                                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                                                    <i className="fas fa-file-invoice text-blue-500"></i>
+                                                    <p className="text-xs font-bold uppercase tracking-wider">Factura</p>
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold text-blue-600 dark:text-blue-400 text-lg tracking-tight">
+                                                        {selectedFactura.numeroFactura}
+                                                    </p>
+                                                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                                                        {new Date(selectedFactura.fechaFactura).toLocaleDateString()}
+                                                    </p>
+                                                </div>
                                             </div>
 
                                             {/* Valores */}
-                                            <div className="space-y-1">
-                                                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Valor Total</p>
-                                                <p className="font-bold text-slate-800 dark:text-slate-100 text-lg">
-                                                    {formatCurrency(selectedFactura.total)}
-                                                </p>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs text-slate-500">Saldo:</span>
-                                                    <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                            <div className="space-y-2">
+                                                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                                                    <i className="fas fa-coins text-emerald-500"></i>
+                                                    <p className="text-xs font-bold uppercase tracking-wider">Valor Original</p>
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold text-slate-800 dark:text-slate-100 text-lg tracking-tight">
                                                         {formatCurrency(selectedFactura.total)}
-                                                    </span>
+                                                    </p>
+                                                    <div className="flex items-center gap-2 mt-1 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-md w-fit">
+                                                        <span className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">Saldo Actual:</span>
+                                                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                                                            {formatCurrency(selectedFactura.total)}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
 
                                             {/* Configuración DIAN */}
-                                            <div className="flex flex-col justify-center">
-                                                <label htmlFor="transmision-dian" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
-                                                    Transmisión DIAN
-                                                </label>
-                                                <ToggleSwitch
-                                                    id="transmision-dian"
-                                                    checked={transmisionDian}
-                                                    onChange={setTransmisionDian}
-                                                    disabled={isFormDisabled}
-                                                    labelLeft="Sin Ref."
-                                                    labelRight="Con Ref."
-                                                    size="compact"
-                                                    width="equal"
-                                                    className="w-full"
-                                                />
+                                            <div className="flex flex-col justify-center space-y-2">
+                                                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 mb-1">
+                                                    <i className="fas fa-network-wired text-purple-500"></i>
+                                                    <p className="text-xs font-bold uppercase tracking-wider">Opción DIAN</p>
+                                                </div>
+                                                <div className="bg-white dark:bg-slate-900 rounded-lg p-1 border border-slate-200 dark:border-slate-700 flex">
+                                                    <button
+                                                        onClick={() => setTransmisionDian(false)}
+                                                        className={`flex-1 py-1 px-2 text-xs font-medium rounded-md transition-colors ${!transmisionDian ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
+                                                    >
+                                                        Sin Ref.
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setTransmisionDian(true)}
+                                                        className={`flex-1 py-1 px-2 text-xs font-medium rounded-md transition-colors ${transmisionDian ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' : 'text-slate-500 hover:text-slate-700'}`}
+                                                    >
+                                                        Con Ref.
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1502,17 +1538,38 @@ const DevolucionesPage: React.FC = () => {
                                                                 </thead>
                                                                 <tbody className="bg-white dark:bg-slate-800/50 divide-y divide-slate-200 dark:divide-slate-700">
                                                                     {devolucionItems.map(item => {
-                                                                        const product = productos.find(p => p.id === item.productoId)!;
-                                                                        const costoUnitario = product.ultimoCosto || 0;
+                                                                        const product = productos.find(p => p.id === item.productoId);
+                                                                        // Safety check: handle cases where product might not be found in the current context
+                                                                        const costoUnitario = product?.ultimoCosto || 0;
                                                                         const costoTotal = costoUnitario * item.cantidadDevuelta;
+
                                                                         return (
                                                                             <tr key={item.productoId}>
-                                                                                <td className="px-4 py-2">{product.referencia}</td>
-                                                                                <td className="px-4 py-2">{product.nombre}</td>
-                                                                                <td className="px-4 py-2">{item.cantidadDevuelta.toFixed(2)}</td>
-                                                                                <td className="px-4 py-2"><StatusBadge status={"Entrada"} /></td>
-                                                                                <td className="px-4 py-2 text-right">{formatCurrency(costoUnitario)}</td>
-                                                                                <td className="px-4 py-2 text-right">{formatCurrency(costoTotal)}</td>
+                                                                                <td className="px-4 py-2 text-slate-700 dark:text-slate-300">
+                                                                                    {product?.referencia || item.productoId}
+                                                                                </td>
+                                                                                <td className="px-4 py-2">
+                                                                                    <div className="font-medium text-slate-800 dark:text-slate-200">
+                                                                                        {product?.nombre || `Producto #${item.productoId}`}
+                                                                                    </div>
+                                                                                    {!product && (
+                                                                                        <span className="text-xs text-amber-500 italic">
+                                                                                            (Producto no encontrado en catálogo)
+                                                                                        </span>
+                                                                                    )}
+                                                                                </td>
+                                                                                <td className="px-4 py-2 text-slate-700 dark:text-slate-300">
+                                                                                    {item.cantidadDevuelta.toFixed(2)}
+                                                                                </td>
+                                                                                <td className="px-4 py-2">
+                                                                                    <StatusBadge status={"Entrada"} />
+                                                                                </td>
+                                                                                <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">
+                                                                                    {formatCurrency(costoUnitario)}
+                                                                                </td>
+                                                                                <td className="px-4 py-2 text-right font-medium text-slate-800 dark:text-slate-200">
+                                                                                    {formatCurrency(costoTotal)}
+                                                                                </td>
                                                                             </tr>
                                                                         );
                                                                     })}
@@ -1531,18 +1588,58 @@ const DevolucionesPage: React.FC = () => {
                                         </div>
                                     )}
 
-                                    <div className="mt-8 flex items-center justify-end space-x-4">
-                                        <ProtectedComponent permission='devoluciones:manage'>
-                                            <button onClick={handleGenerateEmail} disabled={!savedNota} className="px-4 py-2 border border-sky-500 rounded-lg text-sm font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 disabled:cursor-not-allowed">✨ Redactar Correo</button>
-                                        </ProtectedComponent>
-                                        <button disabled={!savedNota} onClick={() => handleOpenPrintModal(savedNota!)} className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"><i className="fas fa-print mr-2"></i>Imprimir</button>
-                                        <button onClick={handleTestJson} disabled={devolucionItems.length === 0 || isFormDisabled} className="px-4 py-2 border border-purple-500 rounded-lg text-sm font-semibold text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 disabled:cursor-not-allowed"><i className="fas fa-code mr-2"></i>Prueba JSON</button>
-                                        <button onClick={resetForm} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500">Limpiar</button>
-                                        <ProtectedComponent permission='devoluciones:create'>
-                                            <button onClick={handleSave} disabled={devolucionItems.length === 0 || isFormDisabled} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed">
-                                                {isSaving ? <><i className="fas fa-spinner fa-spin mr-2"></i>Guardando...</> : <><i className="fas fa-save mr-2"></i>Guardar</>}
+                                    <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3 w-full md:w-auto">
+                                            <button
+                                                onClick={resetForm}
+                                                className="px-5 py-2.5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors w-full md:w-auto focus:ring-2 focus:ring-slate-200"
+                                            >
+                                                Limpiar Formulario
                                             </button>
-                                        </ProtectedComponent>
+                                        </div>
+
+                                        <div className="flex items-center gap-3 w-full md:w-auto flex-wrap justify-end">
+                                            <button
+                                                onClick={handleTestJson}
+                                                disabled={devolucionItems.length === 0 || isFormDisabled}
+                                                className="px-4 py-2.5 text-purple-600 dark:text-purple-400 font-medium rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                title="Ver JSON que se enviará a la DIAN"
+                                            >
+                                                <i className="fas fa-code mr-2"></i>Prueba JSON
+                                            </button>
+
+                                            <ProtectedComponent permission='devoluciones:manage'>
+                                                <button
+                                                    onClick={handleGenerateEmail}
+                                                    disabled={!savedNota}
+                                                    className="px-4 py-2.5 text-sky-600 dark:text-sky-400 font-medium rounded-xl hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    <i className="fas fa-magic mr-2"></i>Redactar Correo
+                                                </button>
+                                            </ProtectedComponent>
+
+                                            <button
+                                                disabled={!savedNota}
+                                                onClick={() => handleOpenPrintModal(savedNota!)}
+                                                className="px-5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                                            >
+                                                <i className="fas fa-print mr-2"></i>Imprimir
+                                            </button>
+
+                                            <ProtectedComponent permission='devoluciones:create'>
+                                                <button
+                                                    onClick={handleSave}
+                                                    disabled={devolucionItems.length === 0 || isFormDisabled}
+                                                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:shadow-none disabled:cursor-not-allowed transition-all transform active:scale-95"
+                                                >
+                                                    {isSaving ? (
+                                                        <><i className="fas fa-spinner fa-spin mr-2"></i>Procesando...</>
+                                                    ) : (
+                                                        <><i className="fas fa-save mr-2"></i>Generar Nota Crédito</>
+                                                    )}
+                                                </button>
+                                            </ProtectedComponent>
+                                        </div>
                                     </div>
                                 </section>
                             </>
@@ -1621,6 +1718,16 @@ const DevolucionesPage: React.FC = () => {
                                             <span className="text-red-600 font-bold">Rechazado</span>
                                         }
                                     </div>
+                                    <div className="col-span-1 sm:col-span-2 mt-1">
+                                        <p className="font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center gap-1">
+                                            <i className="fas fa-barcode text-slate-400"></i> CUFE / UID:
+                                        </p>
+                                        <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded-md border border-slate-200 dark:border-slate-700">
+                                            <p className="font-mono text-xs break-all text-slate-600 dark:text-slate-300 select-all leading-relaxed">
+                                                {selectedNotaParaVer.cufe || 'N/A'}
+                                            </p>
+                                        </div>
+                                    </div>
                                     <div><p className="font-semibold text-slate-600 dark:text-slate-400">Total Nota Crédito:</p><p className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(selectedNotaParaVer.total)}</p></div>
                                     <div className="col-span-1 sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Motivo:</p><p>{selectedNotaParaVer.motivo}</p></div>
                                 </div>
@@ -1642,7 +1749,7 @@ const DevolucionesPage: React.FC = () => {
                                                         <td className="px-4 py-2">
                                                             <div>
                                                                 <p className="font-medium text-slate-800 dark:text-slate-200">{item.descripcion || 'Producto sin nombre'}</p>
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400">Cód: {item.codProducto || item.productoId || 'N/A'}</p>
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400 uppercase">Cód: {item.codProducto || item.productoId || 'N/A'}</p>
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-2 text-right whitespace-nowrap">{item.cantidad || 0}</td>
@@ -1695,6 +1802,7 @@ const DevolucionesPage: React.FC = () => {
                                     logoExt: datosEmpresa.logoExt || `${BACKEND_URL}/assets/images.png`
                                 }}
                                 productos={productos}
+                                preferences={{ showPrices: true, signatureType: 'digital', detailLevel: 'detailed' }}
                             />
                         </DocumentPreviewModal>
                     );

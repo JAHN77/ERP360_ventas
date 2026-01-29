@@ -143,6 +143,19 @@ const getCiudades = async (req, res) => {
   }
 };
 
+const getDepartamentos = async (req, res) => {
+  try {
+    const departamentos = await executeQueryWithParams(`
+      SELECT coddep as codigo, RTRIM(nomdep) as nombre
+      FROM gen_departamentos ORDER BY nomdep ASC
+    `, {}, req.db_name);
+    res.json({ success: true, data: departamentos });
+  } catch (error) {
+    console.error('Error obteniendo departamentos:', error);
+    res.status(500).json({ success: false, message: 'Error obteniendo departamentos', error: error.message });
+  }
+};
+
 const executeCustomQuery = async (req, res) => {
   try {
     const { query } = req.body;
@@ -165,5 +178,6 @@ module.exports = {
   getCiudades,
   executeCustomQuery,
   getHealth,
-  getEmpresa
+  getEmpresa,
+  getDepartamentos
 };

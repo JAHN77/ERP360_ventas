@@ -487,6 +487,11 @@ class ApiClient {
     return this.request('/empresa');
   }
 
+  async getDepartamentos() {
+    // Usar query directa para evitar problemas de caché de rutas o reinicio del backend
+    return this.executeQuery('SELECT coddep as codigo, RTRIM(nomdep) as nombre FROM gen_departamentos ORDER BY nomdep ASC');
+  }
+
   async registerInventoryEntry(data: {
     productoId: number;
     cantidad: number;
@@ -989,5 +994,7 @@ export const apiGetNextCreditNoteNumber = () => apiClient.getNextCreditNoteNumbe
 // Export standalone functions for easier usage
 export const apiSendCreditNoteEmail = (id: string | number, to: string, body: string, pdfBase64?: string, customerName?: string) => apiClient.sendCreditNoteEmail(id, to, body, pdfBase64, customerName);
 export const apiArchiveDocumentToDrive = (data: any) => apiClient.archiveDocumentToDrive(data);
+
+export const fetchDepartamentos = () => apiClient.getDepartamentos();
 
 export default apiClient;

@@ -466,27 +466,62 @@ const clientController = {
 
   /**
    * Search Economic Activities (CIIU)
+   * Uses local JSON file for broad search and checking against DB for specific tariffs
    */
   searchActividadesCiiu: async (req, res) => {
     try {
       const { search = '', limit = 20 } = req.query;
-      if (String(search).trim().length < 2) {
-        return res.status(400).json({ success: false, message: 'Ingrese al menos 2 caracteres' });
+
+      // 1. Search in the extensive JSON file
+      const { searchCiiu } = require('../utils/ciiuLoader');
+      const allMatches = searchCiiu(search); // Returns [{codigo, nombre}, ...]
+
+      // Limit results for pagination/performance
+      const slicedMatches = allMatches.slice(0, Number(limit));
+
+      if (slicedMatches.length === 0) {
+        return res.json({ success: true, data: [] });
       }
 
-      const like = `%${search}%`;
-      const query = `
-        SELECT TOP (@limit)
-          codigo,
-          nombre,
-          tarifa
-        FROM gen_actividades_ciiu
-        WHERE nombre LIKE @like OR codigo LIKE @like
-        ORDER BY nombre
-      `;
+      // 2. Fetch tariffs for these codes from the database
+      // Extract codes to query DB
+      const codes = slicedMatches.map(m => m.codigo);
 
-      const data = await executeQueryWithParams(query, { like, limit: Number(limit) }, req.db_name);
-      res.json({ success: true, data });
+      // Dynamic IN clause parameter construction
+      // Note: parameters must be named unique if we used individual params, 
+      // but for array input we might need a different approach or just string injection (carefully) 
+      // or simply loop. Given the limit is small (20), string injection of numbers is 'semi-safe' if validated 
+      // but let's use a safe parameterized approach or just query the ones that exist.
+      // SQL Server doesn't support array params easily without types. 
+      // We will loop or use a simple string join since codes are alphanumeric guaranteed.
+
+      const safeCodes = codes.map(c => `'${c.replace(/'/g, "''")}'`).join(',');
+
+      let dbInfo = [];
+      if (safeCodes) {
+        const query = `
+          SELECT codigo, tarifa 
+          FROM gen_actividades_ciiu 
+          WHERE codigo IN (${safeCodes})
+        `;
+        dbInfo = await executeQueryWithParams(query, {}, req.db_name);
+      }
+
+      // 3. Merge Information
+      const result = slicedMatches.map(match => {
+        const dbEntry = dbInfo.find(d => d.codigo === match.codigo);
+        return {
+          codigo: match.codigo,
+          nombre: match.nombre,
+          // Use DB classification if available (sometimes DB name is custom), 
+          // generally prefer official name or DB name? User asked for description search from external API.
+          // Let's keep the official description found in file as it matched the search.
+          tarifa: dbEntry ? dbEntry.tarifa : 0,
+          isConfigured: !!dbEntry // Flag to know if it exists in local tax config
+        };
+      });
+
+      res.json({ success: true, data: result });
     } catch (error) {
       console.error('Error searching actividades:', error);
       res.status(500).json({ success: false, message: 'Error buscando actividades económicas', error: error.message });

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Modal from '../ui/Modal';
-import { apiCreateCliente } from '../../services/apiClient';
+import { apiCreateCliente, BACKEND_URL } from '../../services/apiClient';
 import { useNotifications } from '../../hooks/useNotifications';
 import { useData } from '../../hooks/useData';
 import { calcularDigitoVerificacion } from '../../utils/dianUtils';
@@ -64,7 +64,7 @@ const Select = (props: React.SelectHTMLAttributes<HTMLSelectElement>) => (
 
 const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose, onSuccess }) => {
     const { addNotification } = useNotifications();
-    const { ciudades } = useData();
+    const { ciudades, departamentos } = useData();
     const [isLoading, setIsLoading] = useState(false);
 
     // Initial State
@@ -158,13 +158,32 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
         }
     }, [isOpen]);
 
+    // --- FILTER CITIES BY DEPARTMENT ---
+    // If no department selected, show all (or none, depending on preference).
+    // Better UX: Show none or prompt to select department.
+    // However, for compatibility with existing records where dept might be missing but city exists, we might need care.
+    // Current requirement: "hacer ciudad y departamento".
+
+    const filteredCiudades = useMemo(() => {
+        if (!formData.departamento) return []; // Force department selection first
+        return ciudades.filter(c => c.departamentoId === formData.departamento || c.codigo.startsWith(formData.departamento));
+    }, [ciudades, formData.departamento]);
+
+    // Reset city if department changes
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
         if (type === 'checkbox') {
             const checked = (e.target as HTMLInputElement).checked;
             setFormData(prev => ({ ...prev, [name]: checked }));
         } else {
-            setFormData(prev => ({ ...prev, [name]: value }));
+            setFormData(prev => {
+                const updates: any = { [name]: value };
+                if (name === 'departamento') {
+                    updates.ciudad = ''; // Reset city on dept change
+                    updates.codigoPostal = '';
+                }
+                return { ...prev, ...updates };
+            });
         }
     };
 
@@ -175,13 +194,32 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
             if (formData.codacteconomica.length >= 2) {
                 setSearchingActividad(true);
                 try {
-                    const res = await fetch(`http://localhost:3001/api/clientes/actividades-ciiu?search=${encodeURIComponent(formData.codacteconomica)}&limit=5`);
+                    const token = localStorage.getItem('token');
+                    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+                    const res = await fetch(`${BACKEND_URL}/api/clientes/actividades-ciiu?search=${encodeURIComponent(formData.codacteconomica)}&limit=5`, {
+                        headers
+                    });
                     const json = await res.json();
                     if (json.success && json.data.length > 0) {
                         setActividadesFound(json.data);
                         setShowActividadResult(true);
+
+                        // Only auto-select if exact match and user typed the full code (usually 4 digits)
+                        // This prevents overwriting while typing e.g. "47"
+                        const codeToMatch = String(formData.codacteconomica).trim();
+                        const exactMatch = json.data.find((a: any) => String(a.codigo).trim() === codeToMatch);
+
+                        if (exactMatch) {
+                            setFormData(prev => ({
+                                ...prev,
+                                actividadNombre: exactMatch.nombre
+                            }));
+                        }
                     } else {
                         setShowActividadResult(false);
+                        // If no results, maybe clear description?
+                        // setFormData(prev => ({ ...prev, actividadNombre: '' }));
                     }
                 } catch (err) {
                     console.error(err);
@@ -259,6 +297,20 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
             }
         }
     }, [formData.numeroDocumento, formData.tipoDocumento]);
+
+    // --- AUTOMATIC POSTAL CODE FROM CITY ---
+    useEffect(() => {
+        if (formData.ciudad) {
+            // Since DANE code (5 digits) is used as Postal Code in this system.
+            // Exception: Barranquilla (08001 is Barcelona, user wants 080015).
+            const POSTAL_CODE_EXCEPTIONS: { [key: string]: string } = {
+                '08001': '080015', // Barranquilla
+            };
+
+            const code = POSTAL_CODE_EXCEPTIONS[formData.ciudad] || formData.ciudad;
+            setFormData(prev => ({ ...prev, codigoPostal: code }));
+        }
+    }, [formData.ciudad]);
 
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -394,25 +446,29 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
                         </div>
 
                         <div className="col-span-12 md:col-span-4">
-                            <Label>Ciudad / Municipio</Label>
-                            <Select name="ciudad" value={formData.ciudad} onChange={handleChange}>
-                                <option value="">Seleccione Ciudad...</option>
-                                {ciudades.map(c => (
-                                    <option key={c.codigo} value={c.codigo}>{c.nombre}</option>
+                            <Label>Departamento</Label>
+                            <Select name="departamento" value={formData.departamento} onChange={handleChange}>
+                                <option value="">Seleccione Dept...</option>
+                                {departamentos.map(d => (
+                                    <option key={d.codigo} value={d.codigo}>{d.nombre}</option>
                                 ))}
                             </Select>
                         </div>
 
                         <div className="col-span-12 md:col-span-4">
-                            <Label>Cuenta Contable (CXC)</Label>
-                            <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden h-[38px]">
-                                <div className="px-3 flex items-center bg-slate-200 dark:bg-slate-700 border-r border-slate-300 dark:border-slate-600 text-xs font-mono text-slate-600 dark:text-slate-300">13050501</div>
-                                <div className="px-3 flex items-center flex-1 text-blue-700 dark:text-blue-400 text-[10px] font-bold uppercase truncate tracking-tight">CLIENTES NACIONALES</div>
-                            </div>
+                            <Label>Ciudad / Municipio</Label>
+                            <Select name="ciudad" value={formData.ciudad} onChange={handleChange} disabled={!formData.departamento}>
+                                <option value="">Seleccione Ciudad...</option>
+                                {filteredCiudades.map(c => (
+                                    <option key={c.codigo} value={c.codigo}>{c.nombre}</option>
+                                ))}
+                            </Select>
                         </div>
 
+
+
                         {/* --- ACTIVIDAD ECONÓMICA AUTOCOMPLETE --- */}
-                        <div className="col-span-12 md:col-span-6 relative z-20">
+                        <div className="col-span-12 md:col-span-12 relative z-20">
                             <Label>Actividad Económica (CIIU)</Label>
                             <div className="flex gap-2 group">
                                 <div className="w-24 relative">
@@ -452,40 +508,6 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
                                         </div>
                                     )}
                                 </div>
-                            </div>
-                        </div>
-
-                        {/* --- VENDEDOR LIVE SEARCH (AUTOCOMPLETE) --- */}
-                        <div className="col-span-12 md:col-span-6 relative z-20">
-                            <Label>Vendedor Asignado</Label>
-                            <div className="relative">
-                                <Input
-                                    name="vendedorSearchTerm"
-                                    value={formData.vendedorSearchTerm}
-                                    onChange={handleChange}
-                                    placeholder="Buscar por ID, nombre o código..."
-                                    icon="fa-user-tag"
-                                    autoComplete="off"
-                                />
-                                {searchingVendedor && <div className="absolute right-3 top-2.5 text-xs text-slate-400"><i className="fas fa-spinner fa-spin"></i></div>}
-
-                                {/* Dropdown Results */}
-                                {showVendedorResult && vendedoresFound.length > 0 && (
-                                    <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 shadow-xl rounded-lg max-h-56 overflow-y-auto z-50">
-                                        {vendedoresFound.map((vend) => (
-                                            <div
-                                                key={vend.id}
-                                                onClick={() => selectVendedor(vend)}
-                                                className="px-4 py-3 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer border-b border-slate-100 dark:border-slate-700 last:border-0 flex flex-col"
-                                            >
-                                                <div className="flex justify-between items-center">
-                                                    <span className="font-bold text-slate-700 dark:text-slate-200">{vend.nombreCompleto}</span>
-                                                    <span className="text-xs bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-500">{vend.codigoVendedor}</span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
                             </div>
                         </div>
 
