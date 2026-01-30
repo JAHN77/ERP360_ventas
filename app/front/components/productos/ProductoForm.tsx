@@ -7,17 +7,18 @@ interface ProductoFormProps {
   onSubmit: (data: Omit<InvProducto, 'id'>) => void;
   onCancel: () => void;
   onDirtyChange?: (isDirty: boolean) => void;
+  isService?: boolean;
 }
 
-const getInitialFormState = (data?: InvProducto | null): Omit<InvProducto, 'id'> => ({
+const getInitialFormState = (data?: InvProducto | null, isService?: boolean): Omit<InvProducto, 'id'> => ({
   nombre: data?.nombre || '',
   descripcion: data?.descripcion || '',
   idCategoria: data?.idCategoria || 1, // Default a categoría 1
   idSublineas: data?.idSublineas || 1,
-  idTipoProducto: data?.idTipoProducto || 1,
+  idTipoProducto: data?.idTipoProducto || (isService ? 2 : 1), // 2 for Services, 1 for Products
   precio: data?.precio || 0,
   ultimoCosto: data?.ultimoCosto || 0,
-  controlaExistencia: data?.controlaExistencia || 0,
+  controlaExistencia: isService ? 0 : (data?.controlaExistencia || 0),
   unidadMedida: data?.unidadMedida || 'Unidad',
   aplicaIva: data?.aplicaIva ?? true,
   // FIX: Add missing properties to satisfy Omit<InvProducto, 'id'> type
@@ -29,7 +30,7 @@ const getInitialFormState = (data?: InvProducto | null): Omit<InvProducto, 'id'>
   tasaIva: data?.tasaIva ?? (data?.aplicaIva ? 19 : 0),
   costoPromedio: data?.costoPromedio || 0,
   referencia: data?.referencia,
-  karins: data?.karins ?? false,
+  karins: isService ? false : (data?.karins ?? false),
   activo: data?.activo ?? true,
   idMedida: data?.idMedida,
   idMarca: data?.idMarca,
@@ -39,21 +40,21 @@ interface Errors {
   [key: string]: string;
 }
 
-const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCancel, onDirtyChange }) => {
-  const [formData, setFormData] = useState<Omit<InvProducto, 'id'>>(getInitialFormState(initialData));
+const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCancel, onDirtyChange, isService = false }) => {
+  const [formData, setFormData] = useState<Omit<InvProducto, 'id'>>(getInitialFormState(initialData, isService));
   const [errors, setErrors] = useState<Errors>({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const validate = useCallback(() => {
     const newErrors: Errors = {};
 
-    if (!isNotEmpty(formData.nombre)) newErrors.nombre = 'El nombre del producto es obligatorio.';
+    if (!isNotEmpty(formData.nombre)) newErrors.nombre = `El nombre del ${isService ? 'servicio' : 'producto'} es obligatorio.`;
     if (!isPositiveNumber(formData.precio)) newErrors.precio = 'El precio debe ser un número mayor a cero.';
-    if (!isNonNegativeInteger(formData.controlaExistencia)) newErrors.controlaExistencia = 'El stock debe ser un número entero no negativo.';
+    if (!isService && !isNonNegativeInteger(formData.controlaExistencia)) newErrors.controlaExistencia = 'El stock debe ser un número entero no negativo.';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [formData]);
+  }, [formData, isService]);
 
   useEffect(() => {
     if (hasSubmitted) {
@@ -62,17 +63,17 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
   }, [formData, hasSubmitted, validate]);
 
   useEffect(() => {
-    setFormData(getInitialFormState(initialData));
+    setFormData(getInitialFormState(initialData, isService));
     setHasSubmitted(false);
     setErrors({});
-  }, [initialData]);
+  }, [initialData, isService]);
 
   useEffect(() => {
     if (onDirtyChange) {
-      const isDirty = JSON.stringify(formData) !== JSON.stringify(getInitialFormState(initialData));
+      const isDirty = JSON.stringify(formData) !== JSON.stringify(getInitialFormState(initialData, isService));
       onDirtyChange(isDirty);
     }
-  }, [formData, initialData, onDirtyChange]);
+  }, [formData, initialData, onDirtyChange, isService]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const target = e.target;
@@ -80,7 +81,7 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
     const value = type === 'checkbox' ? (target as HTMLInputElement).checked : target.value;
 
     if (name === 'precio' || name === 'ultimoCosto' || name === 'controlaExistencia') {
-      const numericValue = value.replace(/[^0-9]/g, '');
+      const numericValue = String(value).replace(/[^0-9]/g, '');
       const num = numericValue === '' ? 0 : parseInt(numericValue, 10);
       if (name === 'precio') {
         setFormData(prev => ({ ...prev, precio: num, ultimoCosto: num }));
@@ -101,13 +102,13 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
         ...formData,
         nomins: formData.nombre,
         tasaIva: formData.aplicaIva ? 19 : 0,
-        karins: !!formData.controlaExistencia && formData.controlaExistencia > 0,
+        karins: isService ? false : (!!formData.controlaExistencia && formData.controlaExistencia > 0),
         precio: Number(formData.precio),
-        controlaExistencia: Number(formData.controlaExistencia),
+        controlaExistencia: isService ? 0 : Number(formData.controlaExistencia),
         ultimoCosto: Number(formData.ultimoCosto),
         idCategoria: Number(formData.idCategoria),
         idSublineas: Number(formData.idSublineas),
-        idTipoProducto: Number(formData.idTipoProducto),
+        idTipoProducto: isService ? 2 : Number(formData.idTipoProducto), // Ensure 2 for Service
       });
     }
   };
@@ -141,20 +142,20 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
       <div className="bg-white dark:bg-slate-800/50 p-6 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
         <div className="flex items-center gap-2 mb-6 border-b border-slate-100 dark:border-slate-700 pb-3">
           <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-            <i className="fas fa-info text-blue-600 dark:text-blue-400 text-sm"></i>
+            <i className={`fas ${isService ? 'fa-concierge-bell' : 'fa-info'} text-blue-600 dark:text-blue-400 text-sm`}></i>
           </div>
           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Información General</h3>
         </div>
 
         <div className="mb-6">
-          <InputWrapper label="Nombre del Producto" icon="fa-box">
+          <InputWrapper label={`Nombre del ${isService ? 'Servicio' : 'Producto'}`} icon={isService ? "fa-concierge-bell" : "fa-box"}>
             <input
               type="text"
               name="nombre"
               value={formData.nombre}
               onChange={handleChange}
               className={getInputClassesLocal('nombre')}
-              placeholder="Ej. Laptop HP Pavilion 15"
+              placeholder={isService ? "Ej. Mantenimiento Preventivo" : "Ej. Laptop HP Pavilion 15"}
             />
           </InputWrapper>
         </div>
@@ -183,10 +184,12 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
           <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
             <i className="fas fa-dollar-sign text-green-600 dark:text-green-400 text-sm"></i>
           </div>
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Inventario y Precios</h3>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">
+            {isService ? 'Precios y Facturación' : 'Inventario y Precios'}
+          </h3>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className={`grid grid-cols-1 ${isService ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-6`}>
           <InputWrapper label="Precio de Venta" icon="fa-tag">
             <input
               type="text"
@@ -200,18 +203,20 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
             />
           </InputWrapper>
 
-          <InputWrapper label="Stock Inicial" icon="fa-boxes">
-            <input
-              type="text"
-              pattern="[0-9]*"
-              inputMode="numeric"
-              name="controlaExistencia"
-              value={formData.controlaExistencia}
-              onChange={handleChange}
-              className={getInputClassesLocal('controlaExistencia')}
-              placeholder="0"
-            />
-          </InputWrapper>
+          {!isService && (
+            <InputWrapper label="Stock Inicial" icon="fa-boxes">
+              <input
+                type="text"
+                pattern="[0-9]*"
+                inputMode="numeric"
+                name="controlaExistencia"
+                value={formData.controlaExistencia}
+                onChange={handleChange}
+                className={getInputClassesLocal('controlaExistencia')}
+                placeholder="0"
+              />
+            </InputWrapper>
+          )}
 
           <InputWrapper label="Unidad de Medida" icon="fa-ruler">
             <select
@@ -221,9 +226,11 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
               className={`${getInputClassesLocal('unidadMedida')} appearance-none`}
             >
               <option>Unidad</option>
-              <option>Kg</option>
-              <option>Litro</option>
-              <option>Metro</option>
+              {isService && <option>Hora</option>}
+              {isService && <option>Día</option>}
+              {!isService && <option>Kg</option>}
+              {!isService && <option>Litro</option>}
+              {!isService && <option>Metro</option>}
             </select>
             <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
               <i className="fas fa-chevron-down text-xs"></i>
@@ -277,7 +284,7 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
           className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-bold rounded-xl hover:from-blue-700 hover:to-blue-600 focus:ring-4 focus:ring-blue-500/30 transition-all duration-200 shadow-lg shadow-blue-500/30 flex items-center transform active:scale-95"
         >
           <i className="fas fa-save mr-2"></i>
-          Guardar Producto
+          {isService ? 'Guardar Servicio' : 'Guardar Producto'}
         </button>
       </div>
     </form>

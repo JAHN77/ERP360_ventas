@@ -380,7 +380,7 @@ const DashboardPage: React.FC = () => {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-5 md:gap-6">
         <StatCard title="Ventas del Mes" value={formatCurrency(stats.ventasDelMes)} icon="fa-chart-line" colorName="blue" />
         <StatCard title="Pedidos Pendientes" value={stats.pedidosPendientes.toString()} icon="fa-shopping-cart" colorName="orange" />
         <StatCard title="Clientes Nuevos (30d)" value={stats.clientesNuevos.toString()} icon="fa-user-plus" colorName="green" />
@@ -389,7 +389,7 @@ const DashboardPage: React.FC = () => {
       </div>
 
       {/* Main Masonry Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 grid-flow-row-dense">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 md:gap-6 grid-flow-row-dense">
         {widgets.tasks && <TasksWidget />}
         {widgets.inventoryAlerts && <InventoryAlertsWidget />}
         {widgets.actions && <ActionsWidget />}

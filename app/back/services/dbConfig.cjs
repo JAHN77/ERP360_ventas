@@ -224,28 +224,42 @@ const QUERIES = {
     SELECT 
       fd.ID as id,
       fd.id_factura as facturaId,
-      -- Obtener producto_id y tasa_iva desde inv_insumos usando codins
+      -- Obtener producto_id: Primero en inv_insumos, luego generar ID para servicios (2000000 + codigo)
       COALESCE(
         (SELECT TOP 1 id FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
-        NULL
+        CASE WHEN ISNUMERIC(fd.codins) = 1 THEN 2000000 + CAST(fd.codins AS BIGINT) ELSE NULL END
       ) as productoId,
+      
+      -- Tasa IVA: Insumos -> Servicios -> 0
       COALESCE(
         (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+        (SELECT TOP 1 ivaser FROM ven_servicios WHERE LTRIM(RTRIM(codser)) = LTRIM(RTRIM(fd.codins))),
         0
       ) as tasaIvaProducto,
+      
       fd.qtyins as cantidad,
       fd.valins as precioUnitario,
       fd.desins as descuentoPorcentaje,
-      -- Usar tasa_iva del producto, o calcular desde ivains si no está disponible
+      
+      -- IVA %: Insumos -> Servicios -> Calculado -> 0
       COALESCE(
         (SELECT TOP 1 tasa_iva FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+        (SELECT TOP 1 ivaser FROM ven_servicios WHERE LTRIM(RTRIM(codser)) = LTRIM(RTRIM(fd.codins))),
         CASE 
           WHEN fd.valins > 0 AND fd.qtyins > 0 THEN 
             (fd.ivains / ((fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0))) * 100
           ELSE 0
         END
       ) as ivaPorcentaje,
-      fd.observa as descripcion,
+      
+      -- Descripcion: Observa -> Insumos -> Servicios -> ''
+      COALESCE(
+         NULLIF(fd.observa, ''), 
+         (SELECT TOP 1 nomins FROM inv_insumos WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(fd.codins))),
+         (SELECT TOP 1 nomser FROM ven_servicios WHERE LTRIM(RTRIM(codser)) = LTRIM(RTRIM(fd.codins))),
+         ''
+      ) as descripcion,
+      
       -- Calcular subtotal: (valins * qtyins) - valdescuento
       (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) as subtotal,
       fd.ivains as valorIva,

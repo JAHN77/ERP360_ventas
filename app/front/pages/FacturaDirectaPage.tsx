@@ -8,6 +8,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { apiClient } from '../services/apiClient';
+import DIANSuccessModal from '../components/common/DIANSuccessModal';
 
 const FacturaDirectaPage: React.FC = () => {
     const { setPage } = useNavigation();
@@ -25,6 +26,11 @@ const FacturaDirectaPage: React.FC = () => {
     const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string>('');
     const [pdfFilename, setPdfFilename] = useState<string>('');
+
+    // Estado para Modal de Éxito DIAN
+    const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+    const [successCufe, setSuccessCufe] = useState('');
+    const [successDocumentNumber, setSuccessDocumentNumber] = useState('');
 
     useEffect(() => {
         const fetchNextNumber = async () => {
@@ -45,6 +51,21 @@ const FacturaDirectaPage: React.FC = () => {
 
     const createInvoicePayload = (formData: any) => {
         const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
+
+        // Función para calcular el dígito de verificación
+        const calculateDV = (nit: number): number => {
+            const primes = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71];
+            const nitStr = String(nit);
+            let sum = 0;
+
+            for (let i = 0; i < nitStr.length; i++) {
+                const digit = parseInt(nitStr[nitStr.length - 1 - i]);
+                sum += digit * primes[i];
+            }
+
+            const remainder = sum % 11;
+            return remainder > 1 ? 11 - remainder : remainder;
+        };
 
         const totals = formData.items.reduce((acc: any, item: any) => {
             const price = Number(item.precioUnitario) || 0;
@@ -68,6 +89,7 @@ const FacturaDirectaPage: React.FC = () => {
 
         return {
             number: parseInt(formData.number) || 0,
+            exact_decimals: true,
             legal_monetary_totals: {
                 tax_inclusive_amount: round(totals.payableAmount),
                 line_extension_amount: round(totals.lineExtensionAmount),
@@ -158,7 +180,7 @@ const FacturaDirectaPage: React.FC = () => {
                 municipality_id: formData.customer.id_location || "08001",
                 id_location: formData.customer.id_location || "08001",
                 type_regime_id: parseInt(formData.customer.type_regime_id) || 1,
-                dv: formData.customer.dv,
+                dv: formData.customer.dv || (formData.customer.type_document_id === "31" ? calculateDV(parseInt(formData.customer.identification_number)) : ""),
                 tax_detail_id: 1
             }
         };
@@ -203,9 +225,15 @@ const FacturaDirectaPage: React.FC = () => {
             if (selectedCompany?.razonSocial?.toLowerCase().includes('orquidea') || isTestMode) {
                 if (isTestMode) {
                     // MODO PRUEBA
-                    setJsonContent(JSON.stringify(payload, null, 2));
-                    setJsonModalOpen(true);
-                    addNotification({ message: 'Modo Prueba: Factura NO enviada a DIAN.', type: 'warning' });
+                    // setJsonContent(JSON.stringify(payload, null, 2));
+                    // setJsonModalOpen(true);
+                    // addNotification({ message: 'Modo Prueba: Factura NO enviada a DIAN.', type: 'warning' });
+                    // return;
+
+                    // AHORA: Modo Prueba = Guardar en DB sin DIAN
+                    setPendingPayload(payload);
+                    setPendingFormData(formData);
+                    setConfirmModalOpen(true);
                     return;
                 } else {
                     // MODO PRODUCCIÓN: Pedir confirmación antes de enviar
@@ -215,10 +243,19 @@ const FacturaDirectaPage: React.FC = () => {
                     return;
                 }
             } else {
-                // Otras empresas: también pedimos confirmación por seguridad
-                setPendingPayload(payload);
-                setPendingFormData(formData);
-                setConfirmModalOpen(true);
+                // Otras empresas
+                if (isTestMode) {
+                    // MODO PRUEBA: Confirmar antes de guardar LOCALMENTE
+                    setPendingPayload(payload);
+                    setPendingFormData(formData);
+                    setConfirmModalOpen(true);
+                    return;
+                } else {
+                    // MODO PRODUCCIÓN: Pedir confirmación antes de enviar DIAN + DB
+                    setPendingPayload(payload);
+                    setPendingFormData(formData);
+                    setConfirmModalOpen(true);
+                }
             }
 
         } catch (error: any) {
@@ -230,42 +267,55 @@ const FacturaDirectaPage: React.FC = () => {
     const handleConfirmSend = async () => {
         setConfirmModalOpen(false);
         if (pendingPayload && pendingFormData) {
-            addNotification({ message: 'Enviando a la DIAN...', type: 'info' });
+            addNotification({ message: isTestMode ? 'Guardando en base de datos (Modo Prueba)...' : 'Enviando a la DIAN...', type: 'info' });
             await proceedWithInvoice(pendingPayload, pendingFormData);
         }
     };
 
     const proceedWithInvoice = async (payload: any, formData: any) => {
         try {
-            // 2. Enviar a DIAN
-            const dianResponse = await apiClient.sendManualDianTest(payload);
-            if (!dianResponse.success) {
-                throw new Error(dianResponse.message || 'Error enviando a DIAN');
-            }
+            let cufe = 'CUFE_PRUEBA_' + new Date().getTime(); // Default for Test Mode
 
-            const cufe = (dianResponse as any).dianResult?.cufe || (dianResponse as any).dianResult?.uuid || 'CUFE_PENDIENTE';
-            addNotification({ message: 'Factura aceptada por la DIAN', type: 'success' });
-
-            // Descargar PDF automáticamente si la DIAN lo devuelve
-            const pdfUrl = (dianResponse as any).dianResult?.pdf_url;
-            if (pdfUrl) {
-                try {
-                    addNotification({ message: 'Descargando documento ofical...', type: 'info' });
-                    const link = document.createElement('a');
-                    link.href = pdfUrl;
-                    link.setAttribute('download', `Factura_${formData.number}.pdf`);
-                    link.setAttribute('target', '_blank');
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                } catch (e) {
-                    console.error("Error auto-descargando PDF", e);
+            if (!isTestMode) {
+                // 2. Enviar a DIAN SOLO si NO es modo prueba
+                const dianResponse = await apiClient.sendManualDianTest(payload);
+                if (!dianResponse.success) {
+                    throw new Error(dianResponse.message || 'Error enviando a DIAN');
                 }
+
+                cufe = (dianResponse as any).dianResult?.cufe || (dianResponse as any).dianResult?.uuid || 'CUFE_PENDIENTE';
+                // addNotification({ message: 'Factura aceptada por la DIAN', type: 'success' }); // Replaced by Modal
+
+                // Set success data for modal
+                setSuccessCufe(cufe);
+                setSuccessDocumentNumber(formData.number);
+                setIsSuccessModalOpen(true);
+
+                // Descargar PDF automáticamente si la DIAN lo devuelve
+                const pdfUrl = (dianResponse as any).dianResult?.pdf_url;
+                if (pdfUrl) {
+                    try {
+                        addNotification({ message: 'Descargando documento ofical...', type: 'info' });
+                        const link = document.createElement('a');
+                        link.href = pdfUrl;
+                        link.setAttribute('download', `Factura_${formData.number}.pdf`);
+                        link.setAttribute('target', '_blank');
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    } catch (e) {
+                        console.error("Error auto-descargando PDF", e);
+                    }
+                }
+            } else {
+                addNotification({ message: 'Modo Prueba: DIAN omitido. Guardando solo en BD...', type: 'warning' });
             }
 
             // 3. Guardar en DB usando el endpoint estándar (Funciona para todas las empresas)
 
-            const codterFormatted = `${formData.customer.identification_number}-${formData.customer.dv}`;
+            // IMPORTANTE: La BD almacena codter SIN el DV, solo el número de identificación
+            // El DV solo se usa en el payload DIAN, no en la BD
+            const clienteIdForDB = formData.customer.identification_number;
 
             // Recalcular totales para el cuerpo de la factura
             const totals = formData.items.reduce((acc: any, item: any) => {
@@ -281,10 +331,13 @@ const FacturaDirectaPage: React.FC = () => {
             }, { lineExtensionAmount: 0, taxAmount: 0, payableAmount: 0 });
 
             // Mapear datos del formulario al formato esperado por createInvoice del backend
-            const backendItems = formData.items.map((item: any) => {
+            console.log('📋 Items originales del formulario:', formData.items);
+
+            const backendItems = formData.items.map((item: any, index: number) => {
                 const subtotalItem = item.precioUnitario * item.cantidad;
                 const ivaItem = subtotalItem * (item.ivaPorcentaje / 100);
-                return {
+
+                const mappedItem = {
                     codProducto: item.codProducto || item.referencia || '001',
                     productoId: item.productoId,
                     cantidad: item.cantidad,
@@ -296,7 +349,16 @@ const FacturaDirectaPage: React.FC = () => {
                     descripcion: item.descripcion || '',
                     referencia: item.referencia || ''
                 };
+
+                console.log(`📦 Item ${index + 1} mapeado:`, {
+                    original: { productoId: item.productoId, codProducto: item.codProducto, descripcion: item.descripcion },
+                    mapeado: { productoId: mappedItem.productoId, codProducto: mappedItem.codProducto }
+                });
+
+                return mappedItem;
             });
+
+            console.log('📦 Todos los items a enviar al backend:', backendItems);
 
             // Determinar valores de pago según el método seleccionado
             let valEfectivo = 0;
@@ -323,7 +385,7 @@ const FacturaDirectaPage: React.FC = () => {
                 numeroFactura: formData.number,
                 fechaFactura: formData.date,
                 fechaVencimiento: formData.dueDate,
-                clienteId: codterFormatted, // Se envía con DV (e.g. 900123456-1) para coincidir con BD
+                clienteId: clienteIdForDB, // Solo el número de identificación, SIN DV (e.g. 900123456)
                 vendedorId: formData.seller || '001', // Código del vendedor seleccionado
                 subtotal: totals.lineExtensionAmount,
                 ivaValor: totals.taxAmount,
@@ -352,7 +414,12 @@ const FacturaDirectaPage: React.FC = () => {
 
             addNotification({ message: 'Factura guardada exitosamente', type: 'success' });
             await refreshFacturasYRemisiones();
-            setPage('facturacion_electronica');
+
+            // Only redirect immediately if NOT showing the modal (e.g. Test Mode or fallback)
+            // If showing modal, the close handler will do the redirect
+            if (isTestMode) {
+                setPage('facturacion_electronica');
+            }
 
         } catch (error: any) {
             console.error(error);
@@ -419,8 +486,9 @@ const FacturaDirectaPage: React.FC = () => {
                         ¿Estás seguro de enviar esta factura a la DIAN?
                     </h3>
                     <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-6">
-                        Esta acción generará un documento oficial con validez fiscal.
-                        Asegúrate de que todos los datos sean correctos.
+                        {isTestMode
+                            ? "Estás en MODO PRUEBA. La factura se guardará en la base de datos pero NO se enviará a la DIAN."
+                            : "Esta acción generará un documento oficial con validez fiscal. Asegúrate de que todos los datos sean correctos."}
                     </p>
 
                     <div className="flex justify-center gap-4">
@@ -434,7 +502,7 @@ const FacturaDirectaPage: React.FC = () => {
                             onClick={handleConfirmSend}
                             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors shadow-lg shadow-blue-500/30"
                         >
-                            Sí, Enviar Factura
+                            Sí, {isTestMode ? "Guardar en BD" : "Enviar Factura"}
                         </button>
                     </div>
                 </div>
@@ -566,6 +634,19 @@ const FacturaDirectaPage: React.FC = () => {
                     </div>
                 </div>
             )}
+            {/* Modal de éxito DIAN */}
+            <DIANSuccessModal
+                isOpen={isSuccessModalOpen}
+                onClose={() => {
+                    setIsSuccessModalOpen(false);
+                    // Reset page or reload data if needed
+                    refreshFacturasYRemisiones();
+                    setPage('facturacion_electronica');
+                }}
+                cufe={successCufe}
+                documentType="factura"
+                documentNumber={successDocumentNumber}
+            />
         </div>
     );
 };

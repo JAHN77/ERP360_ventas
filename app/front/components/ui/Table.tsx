@@ -151,4 +151,14 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
   );
 };
 
-export default Table;
+// Memoize Table to prevent unnecessary re-renders
+export default React.memo(Table, (prevProps, nextProps) => {
+  return (
+    prevProps.data === nextProps.data &&
+    prevProps.isLoading === nextProps.isLoading &&
+    prevProps.highlightRowId === nextProps.highlightRowId &&
+    prevProps.sortConfig?.key === nextProps.sortConfig?.key &&
+    prevProps.sortConfig?.direction === nextProps.sortConfig?.direction &&
+    prevProps.columns === nextProps.columns
+  );
+}) as typeof Table;

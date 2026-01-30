@@ -22,6 +22,7 @@ const NuevaFacturaPage = lazy(() => import('../../pages/NuevaFacturaPage'));
 const FacturaDirectaPage = lazy(() => import('../../pages/FacturaDirectaPage'));
 const FormClientePage = lazy(() => import('../../pages/FormClientePage'));
 const FormProductoPage = lazy(() => import('../../pages/FormProductoPage'));
+const FormServicePage = lazy(() => import('../../pages/FormServicePage'));
 const NuevaCotizacionPage = lazy(() => import('../../pages/NuevaCotizacionPage'));
 const NuevoPedidoPage = lazy(() => import('../../pages/NuevoPedidoPage'));
 const OrdenesCompraPage = lazy(() => import('../../pages/OrdenesCompraPage'));
@@ -220,6 +221,15 @@ const AppRouter: React.FC = () => {
             element={
               <ProtectedRoute page="nuevo_producto">
                 <FormProductoPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path={routeMap.nuevo_servicio}
+            element={
+              <ProtectedRoute page="nuevo_producto">
+                {/* Reusing permission for products as likely they share same permission or we'd need to add 'nuevo_servicio' to permissions */}
+                <FormServicePage />
               </ProtectedRoute>
             }
           />

@@ -644,44 +644,70 @@ class DIANService {
 
     // Determinar forma de pago desde ven_facturas (Base de datos: Prueba_ERP360)
     console.log('\n💳 Determinando forma de pago desde ven_facturas...');
-    const valEfectivo = parseFloat(venFactura.efectivo || 0);
-    const valCredito = parseFloat(venFactura.credito || 0);
-    const valTarjeta = parseFloat(venFactura.tarjetacr || 0);
-    const valTransferencia = parseFloat(venFactura.Transferencia || venFactura.transferencia || 0);
-    const valPlazo = parseInt(venFactura.plazo || 0, 10);
 
-    console.log('   - efectivo:', valEfectivo);
-    console.log('   - credito:', valCredito);
-    console.log('   - tarjetacr:', valTarjeta);
-    console.log('   - Transferencia:', valTransferencia);
-    console.log('   - plazo:', valPlazo);
+    // Log raw values with types for debugging
+    console.log('   📊 Valores RAW:');
+    console.log(`     - efectivo: ${venFactura.efectivo} (type: ${typeof venFactura.efectivo})`);
+    console.log(`     - credito: ${venFactura.credito} (type: ${typeof venFactura.credito})`);
+    console.log(`     - tarjetacr: ${venFactura.tarjetacr} (type: ${typeof venFactura.tarjetacr})`);
+    console.log(`     - Transferencia: ${venFactura.Transferencia} (type: ${typeof venFactura.Transferencia})`);
+    console.log(`     - plazo: ${venFactura.plazo} (type: ${typeof venFactura.plazo})`);
+
+    // Robust parsing of monetary fields
+    const valEfectivo = Math.abs(parseFloat(String(venFactura.efectivo || 0).replace(',', '.'))) || 0;
+    const valCredito = Math.abs(parseFloat(String(venFactura.credito || 0).replace(',', '.'))) || 0;
+    const valTarjeta = Math.abs(parseFloat(String(venFactura.tarjetacr || 0).replace(',', '.'))) || 0;
+    const valTransferencia = Math.abs(parseFloat(String(venFactura.Transferencia || venFactura.transferencia || 0).replace(',', '.'))) || 0;
+    const valPlazo = parseInt(String(venFactura.plazo || 0).replace(/\D/g, ''), 10) || 0;
+
+    console.log('   📊 Valores PARSEADOS:');
+    console.log(`     - efectivo: ${valEfectivo}`);
+    console.log(`     - credito: ${valCredito}`);
+    console.log(`     - tarjetacr: ${valTarjeta}`);
+    console.log(`     - Transferencia: ${valTransferencia}`);
+    console.log(`     - plazo: ${valPlazo} días`);
 
     let paymentFormId = 1; // 1 = Contado (Defecto)
     let paymentMethodId = 9; // 9 = Efectivo (Actualizado)
+    let detectionMethod = 'default';
 
-    // Lógica para determinar el método principal
-    // Si hay tarjeta > 0
+    // Lógica para determinar el método principal con prioridad
+    // 1. Si hay tarjeta > 0
     if (valTarjeta > 0) {
       paymentFormId = 1;
       paymentMethodId = 48; // Tarjeta crédito
+      detectionMethod = 'tarjeta (campo tarjetacr > 0)';
       console.log('   ✅ Forma de pago: Tarjeta (Form ID: 1, Method ID: 48)');
     }
-    // Si hay transferencia > 0
+    // 2. Si hay transferencia > 0
     else if (valTransferencia > 0) {
       paymentFormId = 1;
       paymentMethodId = 30; // Transferencia Débito Bancaria (Actualizado)
+      detectionMethod = 'transferencia (campo Transferencia > 0)';
       console.log('   ✅ Forma de pago: Transferencia (Form ID: 1, Method ID: 30)');
     }
-    // Si hay crédito > 0
+    // 3. Si hay crédito > 0
     // IMPORTANTE: Solo marcar como crédito si valCredito > 0.
     // Si venFactura.credito venía como string "0" o similar, el parseFloat lo manejará.
     else if (valCredito > 0.01) {
       paymentFormId = 2; // Crédito (DIAN ID 2)
       paymentMethodId = 44; // Instrumento no definido (Actualizado)
+      detectionMethod = 'credito (campo credito > 0)';
       console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 44, Plazo: ${valPlazo} días)`);
+    }
+    // 4. HEURÍSTICA: Si tiene plazo > 0, asumir crédito (incluso si campo credito = 0)
+    else if (valPlazo > 0) {
+      paymentFormId = 2; // Crédito
+      paymentMethodId = 44; // Instrumento no definido
+      detectionMethod = 'heurística plazo (plazo > 0 indica crédito)';
+      console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 44) [Detectado por plazo: ${valPlazo} días]`);
+      console.log(`   ⚠️ NOTA: Campo 'credito' era ${valCredito}, pero plazo > 0 indica que es factura a crédito`);
     } else {
+      detectionMethod = 'efectivo (default, ningún otro método detectado)';
       console.log('   ✅ Forma de pago: Efectivo (Form ID: 1, Method ID: 9)');
     }
+
+    console.log(`   🔍 Método de detección usado: ${detectionMethod}`);
 
     // Construir líneas de factura desde ven_detafact (Base de datos: Prueba_ERP360)
     console.log('\n📦 Construyendo líneas de factura desde ven_detafact...');
@@ -899,11 +925,20 @@ class DIANService {
     codterLimpio = codterLimpio.replace(/[^\d]/g, '');
     const customerIdentification = Number(codterLimpio) || 222222222222;
 
-    // Si no se extrajo DV explícito, calcularlo
+    // Obtener tipo de documento del cliente ANTES de calcular DV
+    const customerTypeDocument = cliente?.Tipo_documento || cliente?.tipo_documento || "13";
+
+    // Si no se extrajo DV explícito, calcularlo solo si es NIT (31)
     if (customerDv === null) {
-      customerDv = this.calculateDV(customerIdentification);
-      console.log(`   ✅ DV del cliente calculado: ${customerDv}`);
+      if (customerTypeDocument === "31" || customerTypeDocument === 31) {
+        customerDv = this.calculateDV(customerIdentification);
+        console.log(`   ✅ DV del cliente calculado (NIT): ${customerDv}`);
+      } else {
+        customerDv = 0; // Para no-NITs, DV es 0
+        console.log(`   ℹ️ Tipo documento ${customerTypeDocument} no requiere DV, usando 0`);
+      }
     }
+
 
     const customerName = (
       (invoiceData?.customer_name ||
@@ -912,8 +947,7 @@ class DIANService {
         "CONSUMIDOR FINAL")
     ).toUpperCase().trim();
 
-    // Obtener tipo de documento del cliente desde con_terceros
-    const customerTypeDocument = cliente?.Tipo_documento || cliente?.tipo_documento || "13";
+    // El customerTypeDocument ya está declarado arriba, solo necesitamos customerTypeOrganization
     const customerTypeOrganization = cliente?.tipter || 2; // 1 = Jurídica, 2 = Natural
 
     console.log('   ✅ Datos del cliente procesados:');
@@ -963,6 +997,7 @@ class DIANService {
     // Asegurar tipos correctos: números como números, strings como strings
     const dianJson = {
       number: Number(invoiceNumber), // Número explícito
+      exact_decimals: true, // Mantener precisión decimal exacta
       type_document_id: Number(typeDocumentId), // 1 = Producción, 2 = Prueba
       identification_number: Number(companyData.identification_number || this.COMPANY_NIT), // Número explícito
       resolution_id: 58, // Hardcoded to 58 as requested
@@ -1194,14 +1229,24 @@ class DIANService {
     codterLimpio = codterLimpio.replace(/[^\d]/g, '');
     const customerNit = Number(codterLimpio) || 222222222222;
 
-    // Si no se extrajo DV explícito, calcularlo
+    // Obtener tipo de documento del cliente
+    const customerTypeDocument = cliente.Tipo_documento || cliente.tipo_documento || "13";
+
+    // Si no se extrajo DV explícito, calcularlo solo si es NIT (31)
     if (customerDv === null) {
-      customerDv = this.calculateDV(customerNit);
+      if (customerTypeDocument === "31" || customerTypeDocument === 31) {
+        customerDv = this.calculateDV(customerNit);
+        console.log(`   ✅ DV del cliente calculado (NIT) para NC: ${customerDv}`);
+      } else {
+        customerDv = 0; // Para no-NITs, DV es 0
+        console.log(`   ℹ️ Tipo documento ${customerTypeDocument} no requiere DV en NC, usando 0`);
+      }
     }
 
     // Construir JSON
     const creditNoteJson = {
       number: parseInt(nota.numero), // Consecutivo de la NC
+      exact_decimals: true, // Mantener precisión decimal exacta
       type_document_id: 5, // Nota Crédito
       identification_number: companyNit,
       dv: companyDv,
@@ -1299,27 +1344,71 @@ class DIANService {
       credit_note_lines: creditNoteLines,
 
       payment_forms: (() => {
-        // Determinar forma de pago desde facturaOriginal (Replicando lógica de factura)
-        const valEfectivo = parseFloat(facturaOriginal.efectivo || 0);
-        const valCredito = parseFloat(facturaOriginal.credito || 0);
-        const valTarjeta = parseFloat(facturaOriginal.tarjetacr || 0);
-        const valTransferencia = parseFloat(facturaOriginal.Transferencia || facturaOriginal.transferencia || 0);
-        const valPlazo = parseInt(facturaOriginal.plazo || 0, 10);
+        console.log('\n💳 [CREDIT NOTE] Determinando forma de pago desde facturaOriginal...');
 
-        let paymentFormId = 1; // 1 = Contado (Defecto)
-        let paymentMethodId = 9; // 9 = Efectivo (Actualizado)
+        // Log raw values with types for debugging
+        console.log('   📊 Valores RAW de factura original:');
+        console.log(`     - efectivo: ${facturaOriginal.efectivo} (type: ${typeof facturaOriginal.efectivo})`);
+        console.log(`     - credito: ${facturaOriginal.credito} (type: ${typeof facturaOriginal.credito})`);
+        console.log(`     - tarjetacr: ${facturaOriginal.tarjetacr} (type: ${typeof facturaOriginal.tarjetacr})`);
+        console.log(`     - Transferencia: ${facturaOriginal.Transferencia} (type: ${typeof facturaOriginal.Transferencia})`);
+        console.log(`     - plazo: ${facturaOriginal.plazo} (type: ${typeof facturaOriginal.plazo})`);
 
-        // Lógica para determinar el método principal
+        // Robust parsing of monetary fields with better type handling
+        const valEfectivo = Math.abs(parseFloat(String(facturaOriginal.efectivo || 0).replace(',', '.'))) || 0;
+        const valCredito = Math.abs(parseFloat(String(facturaOriginal.credito || 0).replace(',', '.'))) || 0;
+        const valTarjeta = Math.abs(parseFloat(String(facturaOriginal.tarjetacr || 0).replace(',', '.'))) || 0;
+        const valTransferencia = Math.abs(parseFloat(String(facturaOriginal.Transferencia || facturaOriginal.transferencia || 0).replace(',', '.'))) || 0;
+        const valPlazo = parseInt(String(facturaOriginal.plazo || 0).replace(/\D/g, ''), 10) || 0;
+
+        console.log('   📊 Valores PARSEADOS:');
+        console.log(`     - efectivo: ${valEfectivo}`);
+        console.log(`     - credito: ${valCredito}`);
+        console.log(`     - tarjetacr: ${valTarjeta}`);
+        console.log(`     - Transferencia: ${valTransferencia}`);
+        console.log(`     - plazo: ${valPlazo} días`);
+
+        let paymentFormId = 1; // Default: Contado
+        let paymentMethodId = 9; // Default: Efectivo
+        let detectionMethod = 'default';
+
+        // Lógica de detección con prioridad:
+        // 1. Tarjeta
         if (valTarjeta > 0) {
           paymentFormId = 1;
           paymentMethodId = 48; // Tarjeta crédito
-        } else if (valTransferencia > 0) {
-          paymentFormId = 1;
-          paymentMethodId = 30; // Transferencia Débito Bancaria (Actualizado)
-        } else if (valCredito > 0.01) {
-          paymentFormId = 2; // Crédito (DIAN ID 2)
-          paymentMethodId = 44; // Instrumento no definido (Actualizado)
+          detectionMethod = 'tarjeta (campo tarjetacr > 0)';
+          console.log(`   ✅ Forma de pago: Tarjeta Crédito (Form ID: 1, Method ID: 48)`);
         }
+        // 2. Transferencia
+        else if (valTransferencia > 0) {
+          paymentFormId = 1;
+          paymentMethodId = 30; // Transferencia Débito Bancaria
+          detectionMethod = 'transferencia (campo Transferencia > 0)';
+          console.log(`   ✅ Forma de pago: Transferencia (Form ID: 1, Method ID: 30)`);
+        }
+        // 3. Crédito (campo credito > 0)
+        else if (valCredito > 0.01) {
+          paymentFormId = 2; // Crédito
+          paymentMethodId = 44; // Instrumento no definido
+          detectionMethod = 'credito (campo credito > 0)';
+          console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 44, Plazo: ${valPlazo} días)`);
+        }
+        // 4. HEURÍSTICA: Si tiene plazo > 0, asumir crédito (incluso si campo credito = 0)
+        else if (valPlazo > 0) {
+          paymentFormId = 2; // Crédito
+          paymentMethodId = 44; // Instrumento no definido
+          detectionMethod = 'heurística plazo (plazo > 0 indica crédito)';
+          console.log(`   ✅ Forma de pago: Crédito (Form ID: 2, Method ID: 44) [Detectado por plazo: ${valPlazo} días]`);
+          console.log(`   ⚠️ NOTA: Campo 'credito' era ${valCredito}, pero plazo > 0 indica que es factura a crédito`);
+        }
+        // 5. Efectivo (default si nada más aplica)
+        else {
+          detectionMethod = 'efectivo (default, ningún otro método detectado)';
+          console.log(`   ✅ Forma de pago: Efectivo (Form ID: 1, Method ID: 9) [Default]`);
+        }
+
+        console.log(`   🔍 Método de detección usado: ${detectionMethod}`);
 
         // Calcular fecha vencimiento si es crédito
         let paymentDueDate = issueDate;
@@ -1327,6 +1416,7 @@ class DIANService {
           const dueDateObj = new Date(); // Fecha actual como base de emisión
           dueDateObj.setDate(dueDateObj.getDate() + valPlazo);
           paymentDueDate = dueDateObj.toISOString().split('T')[0];
+          console.log(`   📅 Fecha vencimiento calculada: ${paymentDueDate} (${valPlazo} días desde hoy)`);
         }
 
         return [{

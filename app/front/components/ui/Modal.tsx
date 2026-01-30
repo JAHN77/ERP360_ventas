@@ -46,30 +46,30 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center items-center p-4 transition-opacity duration-300 bg-slate-900/60 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex justify-center items-center p-2 sm:p-4 transition-opacity duration-300 bg-slate-900/60 backdrop-blur-[2px]"
       style={{ opacity: isOpen ? 1 : 0 }}
       onClick={onClose}
       aria-modal="true"
       role="dialog"
     >
       <div
-        className={`bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full ${maxWidthClass} transform transition-all duration-300 flex flex-col max-h-[90vh] ${className}`}
+        className={`bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full ${maxWidthClass} transform transition-all duration-300 flex flex-col max-h-[95vh] sm:max-h-[90vh] ${className}`}
         style={{ transform: isOpen ? 'scale(1)' : 'scale(0.95)', opacity: isOpen ? 1 : 0 }}
         onClick={e => e.stopPropagation()} // Prevent modal from closing when clicking inside
       >
         {title && (
-          <div className="flex justify-between items-center p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+          <div className="flex justify-between items-center p-3 sm:p-4 md:p-5 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+            <h3 className="text-base sm:text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
             <button
               onClick={onClose}
-              className="text-slate-400 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white rounded-lg text-sm p-1.5 ml-auto inline-flex items-center"
+              className="text-slate-400 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white rounded-lg text-sm w-8 h-8 sm:w-auto sm:h-auto p-2 sm:p-1.5 ml-2 sm:ml-auto inline-flex items-center justify-center min-w-[32px] min-h-[32px]"
               aria-label="Cerrar modal"
             >
-              <i className="fas fa-times fa-lg"></i>
+              <i className="fas fa-times text-base sm:text-lg"></i>
             </button>
           </div>
         )}
-        <div className={`${noPadding ? '' : 'p-3 sm:p-4 md:p-6'} sm:max-h-[85vh] max-h-[calc(95vh-64px)] overflow-y-auto`}>
+        <div className={`${noPadding ? '' : 'p-4 sm:p-5 md:p-6'} max-h-[calc(95vh-56px)] sm:max-h-[85vh] overflow-y-auto`}>
           {children}
         </div>
       </div>

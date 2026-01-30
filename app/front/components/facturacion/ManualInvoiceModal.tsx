@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Modal from '../ui/Modal';
+import DIANSuccessModal from '../common/DIANSuccessModal';
 import { useData } from '../../hooks/useData';
 import { useNotifications } from '../../hooks/useNotifications';
 import { apiClient } from '../../services/apiClient';
@@ -47,6 +48,9 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
     const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null);
     const [rowResults, setRowResults] = useState<any[]>([]);
     const tableRef = useRef<HTMLDivElement>(null);
+    const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+    const [successCufe, setSuccessCufe] = useState('');
+    const [successDocumentNumber, setSuccessDocumentNumber] = useState('');
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -282,10 +286,26 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
 
     const [previewMode, setPreviewMode] = useState<'json' | 'db' | null>(null);
 
+    // Función para calcular el dígito de verificación (solo para NITs)
+    const calculateDV = (nit: number): number => {
+        const primes = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71];
+        const nitStr = String(nit);
+        let sum = 0;
+
+        for (let i = 0; i < nitStr.length; i++) {
+            const digit = parseInt(nitStr[nitStr.length - 1 - i]);
+            sum += digit * primes[i];
+        }
+
+        const remainder = sum % 11;
+        return remainder > 1 ? 11 - remainder : remainder;
+    };
+
     const handleGenerateJson = () => {
         // Construct the JSON payload matching the user's example
         const payload = {
             number: parseInt(formData.number) || 0,
+            exact_decimals: true,
             legal_monetary_totals: {
                 tax_inclusive_amount: totals.payableAmount,
                 line_extension_amount: totals.lineExtensionAmount,
@@ -360,7 +380,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
             }),
             customer: {
                 type_liability_id: parseInt(formData.customer.type_liability_id) || 1,
-                dv: formData.customer.dv,
+                dv: formData.customer.dv || (formData.customer.type_document_id === "31" ? calculateDV(parseInt(formData.customer.identification_number)) : ""),
                 address: formData.customer.address,
                 identification_number: parseInt(formData.customer.identification_number),
                 phone: formData.customer.phone,
@@ -441,6 +461,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
             // 1. Generate JSON Payload
             const payload = {
                 number: parseInt(formData.number) || 0,
+                exact_decimals: true,
                 legal_monetary_totals: {
                     tax_inclusive_amount: totals.payableAmount,
                     line_extension_amount: totals.lineExtensionAmount,
@@ -509,7 +530,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
                 }),
                 customer: {
                     type_liability_id: parseInt(formData.customer.type_liability_id) || 1,
-                    dv: formData.customer.dv,
+                    dv: formData.customer.dv || (formData.customer.type_document_id === "31" ? calculateDV(parseInt(formData.customer.identification_number)) : ""),
                     address: formData.customer.address,
                     identification_number: parseInt(formData.customer.identification_number),
                     phone: formData.customer.phone,
@@ -646,7 +667,11 @@ END`;
             }
 
             addNotification({ message: 'Factura guardada exitosamente en DB', type: 'success' });
-            onClose();
+
+            // Mostrar modal de éxito con CUFE
+            setSuccessCufe(cufe);
+            setSuccessDocumentNumber(formData.number);
+            setIsSuccessModalOpen(true);
 
         } catch (error: any) {
             console.error(error);
@@ -659,412 +684,432 @@ END`;
     if (!isOpen) return null;
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Nueva Factura Manual ${isOrquidea ? '(Orquidea)' : ''}`} maxWidth="max-w-6xl">
-            <div className="space-y-8 p-8 bg-white dark:bg-slate-800 rounded-lg">
+        <>
+            <Modal isOpen={isOpen} onClose={onClose} title={`Nueva Factura Manual ${isOrquidea ? '(Orquidea)' : ''}`} maxWidth="max-w-6xl">
+                <div className="space-y-8 p-8 bg-white dark:bg-slate-800 rounded-lg">
 
-                {/* Header Section */}
-                <div className="bg-slate-50 dark:bg-slate-700/30 p-6 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 dark:border-slate-600 pb-2">Información General</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Número Factura</label>
-                            <input
-                                type="number"
-                                className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
-                                value={formData.number}
-                                onChange={e => setFormData({ ...formData, number: e.target.value })}
-                                placeholder="Ej: 5"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Fecha Emisión</label>
-                            <input type="date" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Fecha Vencimiento</label>
-                            <input type="date" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Forma de Pago</label>
-                            <select
-                                className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none"
-                                value={formData.paymentFormId}
-                                onChange={e => {
-                                    const val = e.target.value;
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        paymentFormId: val,
-                                        paymentMethodId: val === '2' ? '44' : prev.paymentMethodId
-                                    }));
-                                }}
-                            >
-                                <option value="1">Contado</option>
-                                <option value="2">Crédito</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Medio de Pago</label>
-                            <select
-                                className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none"
-                                value={formData.paymentMethodId}
-                                onChange={e => setFormData({ ...formData, paymentMethodId: e.target.value })}
-                            >
-                                {formData.paymentFormId === '1' ? (
-                                    <>
-                                        <option value="9">Efectivo</option>
-                                        <option value="30">Transferencia Débito</option>
-                                    </>
-                                ) : (
-                                    <option value="44">Crédito</option>
-                                )}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Vendedor</label>
-                            <select
-                                className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none"
-                                value={formData.seller}
-                                onChange={e => setFormData({ ...formData, seller: e.target.value })}
-                            >
-                                <option value="">-- SELEC. VENDEDOR --</option>
-                                {activeVendedores.map(v => (
-                                    <option key={v.id} value={v.id}>
-                                        {v.nombre || v.nombreCompleto || v.nomven || v.codigo || v.codigoVendedor || v.id}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="md:col-span-6">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Observaciones / Notas (Saldrán en la factura)</label>
-                            <textarea
-                                className="w-full h-16 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm resize-none"
-                                value={formData.notes}
-                                onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                                placeholder="Escriba aquí notas u observaciones que deban aparecer en el documento impreso..."
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Customer Section */}
-                <div className="bg-slate-50 dark:bg-slate-700/30 p-6 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 dark:border-slate-600 pb-2">Datos del Cliente</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="col-span-1 md:col-span-3">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Buscar Cliente Existente</label>
-                            <select className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none" value={selectedClientId} onChange={handleClientSelect}>
-                                <option value="">-- SELECCIONAR CLIENTE --</option>
-                                {activeClientes.map(c => (
-                                    <option key={c.id} value={c.id}>{c.razonSocial || `${c.primerNombre} ${c.primerApellido}`} - {c.numeroDocumento}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="col-span-1 md:col-span-2">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Nombre / Razón Social</label>
-                            <input type="text" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.name} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, name: e.target.value } })} />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Identificación (NIT/CC)</label>
-                            <input type="text" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.identification_number} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, identification_number: e.target.value } })} />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">DV</label>
-                            <input type="text" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.dv} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, dv: e.target.value } })} />
-                        </div>
-                        <div className="col-span-1 md:col-span-2">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Dirección</label>
-                            <input type="text" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.address} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, address: e.target.value } })} />
-                        </div>
-                        <div className="col-span-1 md:col-span-3">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Email</label>
-                            <input type="email" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.email} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, email: e.target.value } })} />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Items Section */}
-                <div className="bg-slate-50 dark:bg-slate-700/30 p-6 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 dark:border-slate-600 pb-2">Items de Factura</h3>
-
-                    {/* Add Item Form */}
-                    <div className="mb-6 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
-                        <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Añadir Productos</h4>
-                        <div className="grid grid-cols-12 gap-4 items-end">
-                            {/* Producto - Takes more space */}
-                            <div className="col-span-12 md:col-span-6 lg:col-span-4 xl:col-span-3">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Producto / Servicio</label>
+                    {/* Header Section */}
+                    <div className="bg-slate-50 dark:bg-slate-700/30 p-4 sm:p-5 md:p-6 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 sm:mb-4 border-b border-slate-200 dark:border-slate-600 pb-2">Información General</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 sm:gap-5 md:gap-6">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Número Factura</label>
+                                <input
+                                    type="number"
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
+                                    value={formData.number}
+                                    onChange={e => setFormData({ ...formData, number: e.target.value })}
+                                    placeholder="Ej: 5"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Fecha Emisión</label>
+                                <input type="date" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Fecha Vencimiento</label>
+                                <input type="date" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Forma de Pago</label>
                                 <select
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm appearance-none"
-                                    value={selectedProductId}
-                                    onChange={handleProductSelect}
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none"
+                                    value={formData.paymentFormId}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            paymentFormId: val,
+                                            paymentMethodId: val === '2' ? '44' : prev.paymentMethodId
+                                        }));
+                                    }}
                                 >
-                                    <option value="">Buscar por nombre...</option>
-                                    {activeProductos.map(p => (
-                                        <option key={p.id} value={p.id}>{p.codigo} - {p.nombre}</option>
+                                    <option value="1">Contado</option>
+                                    <option value="2">Crédito</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Medio de Pago</label>
+                                <select
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none"
+                                    value={formData.paymentMethodId}
+                                    onChange={e => setFormData({ ...formData, paymentMethodId: e.target.value })}
+                                >
+                                    {formData.paymentFormId === '1' ? (
+                                        <>
+                                            <option value="9">Efectivo</option>
+                                            <option value="30">Transferencia Débito</option>
+                                        </>
+                                    ) : (
+                                        <option value="44">Crédito</option>
+                                    )}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Vendedor</label>
+                                <select
+                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none"
+                                    value={formData.seller}
+                                    onChange={e => setFormData({ ...formData, seller: e.target.value })}
+                                >
+                                    <option value="">-- SELEC. VENDEDOR --</option>
+                                    {activeVendedores.map(v => (
+                                        <option key={v.id} value={v.id}>
+                                            {v.nombre || v.nombreCompleto || v.nomven || v.codigo || v.codigoVendedor || v.id}
+                                        </option>
                                     ))}
                                 </select>
                             </div>
-
-                            {/* Unidad */}
-                            <div className="col-span-6 md:col-span-2 lg:col-span-2 xl:col-span-1">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Unidad</label>
-                                <input
-                                    type="text"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-not-allowed text-center font-medium"
-                                    value={newLine.unit_display || 'UNIDAD'}
-                                    readOnly
+                            <div className="md:col-span-6">
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Observaciones / Notas (Saldrán en la factura)</label>
+                                <textarea
+                                    className="w-full h-16 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm resize-none"
+                                    value={formData.notes}
+                                    onChange={e => setFormData({ ...formData, notes: e.target.value })}
+                                    placeholder="Escriba aquí notas u observaciones que deban aparecer en el documento impreso..."
                                 />
                             </div>
+                        </div>
+                    </div>
 
-                            {/* Cantidad */}
-                            <div className="col-span-6 md:col-span-2 lg:col-span-2 xl:col-span-1">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Cantidad</label>
-                                <input
-                                    type="number"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-center font-bold"
-                                    value={newLine.quantity}
-                                    onChange={e => setNewLine({ ...newLine, quantity: Number(e.target.value) })}
-                                />
+                    {/* Customer Section */}
+                    <div className="bg-slate-50 dark:bg-slate-700/30 p-4 sm:p-5 md:p-6 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 sm:mb-4 border-b border-slate-200 dark:border-slate-600 pb-2">Datos del Cliente</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5 md:gap-6">
+                            <div className="col-span-1 md:col-span-3">
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Buscar Cliente Existente</label>
+                                <select className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none" value={selectedClientId} onChange={handleClientSelect}>
+                                    <option value="">-- SELECCIONAR CLIENTE --</option>
+                                    {activeClientes.map(c => (
+                                        <option key={c.id} value={c.id}>{c.razonSocial || `${c.primerNombre} ${c.primerApellido}`} - {c.numeroDocumento}</option>
+                                    ))}
+                                </select>
                             </div>
-
-                            {/* Precio */}
-                            <div className="col-span-6 md:col-span-2 lg:col-span-2 xl:col-span-2">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Vr. Unit.</label>
-                                <input
-                                    type="number"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-right font-medium"
-                                    value={newLine.price_amount}
-                                    onChange={e => setNewLine({ ...newLine, price_amount: Number(e.target.value) })}
-                                />
+                            <div className="col-span-1 md:col-span-2">
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Nombre / Razón Social</label>
+                                <input type="text" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.name} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, name: e.target.value } })} />
                             </div>
-
-                            {/* IVA */}
-                            <div className="col-span-6 md:col-span-2 lg:col-span-1 xl:col-span-1">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">% Iva</label>
-                                <input
-                                    type="number"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-center font-medium"
-                                    value={newLine.tax_percent}
-                                    onChange={e => setNewLine({ ...newLine, tax_percent: Number(e.target.value) })}
-                                />
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Identificación (NIT/CC)</label>
+                                <input type="text" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.identification_number} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, identification_number: e.target.value } })} />
                             </div>
-
-                            {/* Descuento */}
-                            <div className="col-span-6 md:col-span-2 lg:col-span-1 xl:col-span-1">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">% Descto</label>
-                                <input
-                                    type="number"
-                                    className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-center font-medium"
-                                    value={newLine.discount_percent}
-                                    onChange={e => setNewLine({ ...newLine, discount_percent: Number(e.target.value) })}
-                                />
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">DV</label>
+                                <input type="text" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.dv} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, dv: e.target.value } })} />
                             </div>
+                            <div className="col-span-1 md:col-span-2">
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Dirección</label>
+                                <input type="text" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.address} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, address: e.target.value } })} />
+                            </div>
+                            <div className="col-span-1 md:col-span-3">
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Email</label>
+                                <input type="email" className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" value={formData.customer.email} onChange={e => setFormData({ ...formData, customer: { ...formData.customer, email: e.target.value } })} />
+                            </div>
+                        </div>
+                    </div>
 
-                            {/* Totales */}
-                            <div className="col-span-12 md:col-span-3 lg:col-span-2 xl:col-span-2">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Subtotal</label>
-                                <div className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 flex items-center justify-end font-bold text-slate-700 dark:text-slate-200">
-                                    ${((newLine.price_amount * newLine.quantity) * (1 - newLine.discount_percent / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {/* Items Section */}
+                    <div className="bg-slate-50 dark:bg-slate-700/30 p-6 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 dark:border-slate-600 pb-2">Items de Factura</h3>
+
+                        {/* Add Item Form */}
+                        <div className="mb-6 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+                            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Añadir Productos</h4>
+                            <div className="grid grid-cols-12 gap-4 items-end">
+                                {/* Producto - Takes more space */}
+                                <div className="col-span-12 md:col-span-6 lg:col-span-4 xl:col-span-3">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Producto / Servicio</label>
+                                    <select
+                                        className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm appearance-none"
+                                        value={selectedProductId}
+                                        onChange={handleProductSelect}
+                                    >
+                                        <option value="">Buscar por nombre...</option>
+                                        {activeProductos.map(p => (
+                                            <option key={p.id} value={p.id}>{p.codigo} - {p.nombre}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Unidad */}
+                                <div className="col-span-6 md:col-span-2 lg:col-span-2 xl:col-span-1">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Unidad</label>
+                                    <input
+                                        type="text"
+                                        className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 text-slate-500 cursor-not-allowed text-center font-medium"
+                                        value={newLine.unit_display || 'UNIDAD'}
+                                        readOnly
+                                    />
+                                </div>
+
+                                {/* Cantidad */}
+                                <div className="col-span-6 md:col-span-2 lg:col-span-2 xl:col-span-1">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Cantidad</label>
+                                    <input
+                                        type="number"
+                                        className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-center font-bold"
+                                        value={newLine.quantity}
+                                        onChange={e => setNewLine({ ...newLine, quantity: Number(e.target.value) })}
+                                    />
+                                </div>
+
+                                {/* Precio */}
+                                <div className="col-span-6 md:col-span-2 lg:col-span-2 xl:col-span-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Vr. Unit.</label>
+                                    <input
+                                        type="number"
+                                        className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-right font-medium"
+                                        value={newLine.price_amount}
+                                        onChange={e => setNewLine({ ...newLine, price_amount: Number(e.target.value) })}
+                                    />
+                                </div>
+
+                                {/* IVA */}
+                                <div className="col-span-6 md:col-span-2 lg:col-span-1 xl:col-span-1">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">% Iva</label>
+                                    <input
+                                        type="number"
+                                        className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-center font-medium"
+                                        value={newLine.tax_percent}
+                                        onChange={e => setNewLine({ ...newLine, tax_percent: Number(e.target.value) })}
+                                    />
+                                </div>
+
+                                {/* Descuento */}
+                                <div className="col-span-6 md:col-span-2 lg:col-span-1 xl:col-span-1">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">% Descto</label>
+                                    <input
+                                        type="number"
+                                        className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-center font-medium"
+                                        value={newLine.discount_percent}
+                                        onChange={e => setNewLine({ ...newLine, discount_percent: Number(e.target.value) })}
+                                    />
+                                </div>
+
+                                {/* Totales */}
+                                <div className="col-span-12 md:col-span-3 lg:col-span-2 xl:col-span-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Subtotal</label>
+                                    <div className="w-full h-10 border border-slate-300 dark:border-slate-600 px-3 rounded-lg text-sm bg-slate-100 dark:bg-slate-700 flex items-center justify-end font-bold text-slate-700 dark:text-slate-200">
+                                        ${((newLine.price_amount * newLine.quantity) * (1 - newLine.discount_percent / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </div>
+                                </div>
+
+                                {/* Botón Añadir */}
+                                <div className="col-span-12 md:col-span-3 lg:col-span-2 xl:col-span-1">
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            addLine();
+                                        }}
+                                        className={`w-full h-10 rounded-lg transition-all shadow-sm flex items-center justify-center font-bold text-sm transform active:scale-95 ${!newLine.description ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-500 hover:bg-slate-600 text-white'}`}
+                                        disabled={!newLine.description}
+                                    >
+                                        + Añadir
+                                    </button>
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Botón Añadir */}
-                            <div className="col-span-12 md:col-span-3 lg:col-span-2 xl:col-span-1">
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        addLine();
-                                    }}
-                                    className={`w-full h-10 rounded-lg transition-all shadow-sm flex items-center justify-center font-bold text-sm transform active:scale-95 ${!newLine.description ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-500 hover:bg-slate-600 text-white'}`}
-                                    disabled={!newLine.description}
-                                >
-                                    + Añadir
-                                </button>
+                        {/* Items Table */}
+                        <div className="-mx-4 sm:mx-0">
+                            <div className="overflow-x-auto">
+                                <div ref={tableRef} className="inline-block min-w-full align-middle">
+                                    <div className="rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-6 overflow-hidden mx-4 sm:mx-0">
+                                        <table className="w-full text-sm border-collapse bg-white dark:bg-slate-800">
+                                            <thead>
+                                                <tr className="bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs tracking-wider">
+                                                    <th className="p-3 text-left font-bold border-b border-slate-200 dark:border-slate-600">Referencia</th>
+                                                    <th className="p-3 text-left font-bold border-b border-slate-200 dark:border-slate-600">Producto</th>
+                                                    <th className="p-3 text-center font-bold border-b border-slate-200 dark:border-slate-600">Unidad</th>
+                                                    <th className="p-3 text-center font-bold border-b border-slate-200 dark:border-slate-600">Cant.</th>
+                                                    <th className="p-3 text-right font-bold border-b border-slate-200 dark:border-slate-600">Precio</th>
+                                                    <th className="p-3 text-center font-bold border-b border-slate-200 dark:border-slate-600">Desc. %</th>
+                                                    <th className="p-3 text-center font-bold border-b border-slate-200 dark:border-slate-600">IVA %</th>
+                                                    <th className="p-3 text-right font-bold border-b border-slate-200 dark:border-slate-600">Total</th>
+                                                    <th className="p-3 text-center border-b border-slate-200 dark:border-slate-600">Acción</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {formData.lines.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={9} className="p-8 text-center text-slate-400 italic bg-slate-50/50 dark:bg-slate-800/50">
+                                                            <div className="flex flex-col items-center gap-2">
+                                                                <i className="fas fa-box-open text-2xl mb-1"></i>
+                                                                <span>No hay items agregados a la factura</span>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    formData.lines.map((line, idx) => {
+                                                        const lineSubtotal = line.price_amount * line.quantity;
+                                                        const lineDiscount = lineSubtotal * (line.discount_percent / 100);
+                                                        const totalLine = lineSubtotal - lineDiscount; // NEW: Excludes IVA in table
+
+                                                        return (
+                                                            <tr key={idx} className="border-b border-slate-100 dark:border-slate-700 hover:bg-blue-50/50 dark:hover:bg-slate-700/30 transition-colors last:border-0">
+                                                                <td className="p-3 font-mono text-slate-500 dark:text-slate-400 text-[10px]">{line.code}</td>
+                                                                <td className="p-3 relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={line.description}
+                                                                        onChange={e => handleRowProductSearch(idx, e.target.value)}
+                                                                        onFocus={() => setActiveSearchIdx(idx)}
+                                                                        placeholder="Buscar servicio..."
+                                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-sm focus:border-blue-500 outline-none transition-all"
+                                                                    />
+                                                                    {activeSearchIdx === idx && rowResults.length > 0 && (
+                                                                        <div className="absolute z-[100] left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded shadow-xl max-h-48 overflow-y-auto">
+                                                                            {rowResults.map(p => (
+                                                                                <div key={p.id} onClick={() => handleRowProductSelect(idx, p)} className="px-3 py-2.5 hover:bg-blue-500 hover:text-white cursor-pointer text-xs border-b last:border-0 border-slate-200 dark:border-slate-700">
+                                                                                    <div className="font-bold">{p.nombre || p.nomser}</div>
+                                                                                    <div className="opacity-70 text-[10px]">{p.referencia || p.codigo || p.codser} - ${Number(p.ultimoCosto || p.valser || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                                <td className="p-3 text-center">
+                                                                    <span className="bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-[10px] px-2 py-1 rounded-full font-bold">
+                                                                        {line.unit_display || 'UNIDAD'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-3 text-center">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={line.quantity}
+                                                                        onChange={e => handleUpdateLine(idx, 'quantity', Number(e.target.value))}
+                                                                        className="w-20 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1 py-1 text-sm font-bold focus:border-blue-500 outline-none"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-3 text-right">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={line.price_amount}
+                                                                        onChange={e => handleUpdateLine(idx, 'price_amount', Number(e.target.value))}
+                                                                        className="w-28 text-right bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-3 text-center">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={line.discount_percent}
+                                                                        onChange={e => handleUpdateLine(idx, 'discount_percent', Number(e.target.value))}
+                                                                        className="w-16 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1 py-1 text-sm focus:border-blue-500 outline-none"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-3 text-center">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={line.tax_percent}
+                                                                        onChange={e => handleUpdateLine(idx, 'tax_percent', Number(e.target.value))}
+                                                                        className="w-16 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1 py-1 text-sm focus:border-blue-500 outline-none"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-100">${totalLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                                <td className="p-3 text-center border-b border-slate-100 dark:border-slate-700">
+                                                                    <button onClick={() => removeLine(idx)} className="text-slate-400 hover:text-red-500 transition-colors p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20" title="Eliminar Item">
+                                                                        <i className="fas fa-trash-alt"></i>
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                )}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-slate-600 dark:text-slate-300 border-t border-slate-200 dark:border-slate-600">
+                                                    <td colSpan={7} className="p-3 text-right">Subtotal Bruto:</td>
+                                                    <td className="p-3 text-right font-bold">${totals.lineExtensionAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    <td></td>
+                                                </tr>
+                                                {totals.discountAmount > 0 && (
+                                                    <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-orange-600 dark:text-orange-400">
+                                                        <td colSpan={7} className="p-3 text-right">Descuento:</td>
+                                                        <td className="p-3 text-right font-bold">-${totals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                        <td></td>
+                                                    </tr>
+                                                )}
+                                                <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-slate-600 dark:text-slate-300">
+                                                    <td colSpan={7} className="p-3 text-right">Subtotal Neto:</td>
+                                                    <td className="p-3 text-right font-bold">${totals.taxBase.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    <td></td>
+                                                </tr>
+                                                <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-slate-600 dark:text-slate-300">
+                                                    <td colSpan={7} className="p-3 text-right">IVA (19%):</td>
+                                                    <td className="p-3 text-right font-bold">${totals.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    <td></td>
+                                                </tr>
+                                                <tr className="bg-blue-50 dark:bg-blue-900/30 font-bold text-lg text-blue-700 dark:text-blue-300 border-t-2 border-blue-100 dark:border-blue-800">
+                                                    <td colSpan={7} className="p-3 text-right">Total a Pagar:</td>
+                                                    <td className="p-3 text-right font-bold text-blue-600 dark:text-blue-400">${totals.payableAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Items Table */}
-                    <div ref={tableRef} className="rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-6">
-                        <table className="w-full text-sm border-collapse bg-white dark:bg-slate-800">
-                            <thead>
-                                <tr className="bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs tracking-wider">
-                                    <th className="p-3 text-left font-bold border-b border-slate-200 dark:border-slate-600">Referencia</th>
-                                    <th className="p-3 text-left font-bold border-b border-slate-200 dark:border-slate-600">Producto</th>
-                                    <th className="p-3 text-center font-bold border-b border-slate-200 dark:border-slate-600">Unidad</th>
-                                    <th className="p-3 text-center font-bold border-b border-slate-200 dark:border-slate-600">Cant.</th>
-                                    <th className="p-3 text-right font-bold border-b border-slate-200 dark:border-slate-600">Precio</th>
-                                    <th className="p-3 text-center font-bold border-b border-slate-200 dark:border-slate-600">Desc. %</th>
-                                    <th className="p-3 text-center font-bold border-b border-slate-200 dark:border-slate-600">IVA %</th>
-                                    <th className="p-3 text-right font-bold border-b border-slate-200 dark:border-slate-600">Total</th>
-                                    <th className="p-3 text-center border-b border-slate-200 dark:border-slate-600">Acción</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {formData.lines.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={9} className="p-8 text-center text-slate-400 italic bg-slate-50/50 dark:bg-slate-800/50">
-                                            <div className="flex flex-col items-center gap-2">
-                                                <i className="fas fa-box-open text-2xl mb-1"></i>
-                                                <span>No hay items agregados a la factura</span>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    formData.lines.map((line, idx) => {
-                                        const lineSubtotal = line.price_amount * line.quantity;
-                                        const lineDiscount = lineSubtotal * (line.discount_percent / 100);
-                                        const totalLine = lineSubtotal - lineDiscount; // NEW: Excludes IVA in table
-
-                                        return (
-                                            <tr key={idx} className="border-b border-slate-100 dark:border-slate-700 hover:bg-blue-50/50 dark:hover:bg-slate-700/30 transition-colors last:border-0">
-                                                <td className="p-3 font-mono text-slate-500 dark:text-slate-400 text-[10px]">{line.code}</td>
-                                                <td className="p-3 relative">
-                                                    <input
-                                                        type="text"
-                                                        value={line.description}
-                                                        onChange={e => handleRowProductSearch(idx, e.target.value)}
-                                                        onFocus={() => setActiveSearchIdx(idx)}
-                                                        placeholder="Buscar servicio..."
-                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-sm focus:border-blue-500 outline-none transition-all"
-                                                    />
-                                                    {activeSearchIdx === idx && rowResults.length > 0 && (
-                                                        <div className="absolute z-[100] left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded shadow-xl max-h-48 overflow-y-auto">
-                                                            {rowResults.map(p => (
-                                                                <div key={p.id} onClick={() => handleRowProductSelect(idx, p)} className="px-3 py-2.5 hover:bg-blue-500 hover:text-white cursor-pointer text-xs border-b last:border-0 border-slate-200 dark:border-slate-700">
-                                                                    <div className="font-bold">{p.nombre || p.nomser}</div>
-                                                                    <div className="opacity-70 text-[10px]">{p.referencia || p.codigo || p.codser} - ${Number(p.ultimoCosto || p.valser || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </td>
-                                                <td className="p-3 text-center">
-                                                    <span className="bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-[10px] px-2 py-1 rounded-full font-bold">
-                                                        {line.unit_display || 'UNIDAD'}
-                                                    </span>
-                                                </td>
-                                                <td className="p-3 text-center">
-                                                    <input
-                                                        type="number"
-                                                        value={line.quantity}
-                                                        onChange={e => handleUpdateLine(idx, 'quantity', Number(e.target.value))}
-                                                        className="w-20 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1 py-1 text-sm font-bold focus:border-blue-500 outline-none"
-                                                    />
-                                                </td>
-                                                <td className="p-3 text-right">
-                                                    <input
-                                                        type="number"
-                                                        value={line.price_amount}
-                                                        onChange={e => handleUpdateLine(idx, 'price_amount', Number(e.target.value))}
-                                                        className="w-28 text-right bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none"
-                                                    />
-                                                </td>
-                                                <td className="p-3 text-center">
-                                                    <input
-                                                        type="number"
-                                                        value={line.discount_percent}
-                                                        onChange={e => handleUpdateLine(idx, 'discount_percent', Number(e.target.value))}
-                                                        className="w-16 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1 py-1 text-sm focus:border-blue-500 outline-none"
-                                                    />
-                                                </td>
-                                                <td className="p-3 text-center">
-                                                    <input
-                                                        type="number"
-                                                        value={line.tax_percent}
-                                                        onChange={e => handleUpdateLine(idx, 'tax_percent', Number(e.target.value))}
-                                                        className="w-16 text-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1 py-1 text-sm focus:border-blue-500 outline-none"
-                                                    />
-                                                </td>
-                                                <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-100">${totalLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                <td className="p-3 text-center border-b border-slate-100 dark:border-slate-700">
-                                                    <button onClick={() => removeLine(idx)} className="text-slate-400 hover:text-red-500 transition-colors p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20" title="Eliminar Item">
-                                                        <i className="fas fa-trash-alt"></i>
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                )}
-                            </tbody>
-                            <tfoot>
-                                <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-slate-600 dark:text-slate-300 border-t border-slate-200 dark:border-slate-600">
-                                    <td colSpan={7} className="p-3 text-right">Subtotal Bruto:</td>
-                                    <td className="p-3 text-right font-bold">${totals.lineExtensionAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td></td>
-                                </tr>
-                                {totals.discountAmount > 0 && (
-                                    <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-orange-600 dark:text-orange-400">
-                                        <td colSpan={7} className="p-3 text-right">Descuento:</td>
-                                        <td className="p-3 text-right font-bold">-${totals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td></td>
-                                    </tr>
-                                )}
-                                <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-slate-600 dark:text-slate-300">
-                                    <td colSpan={7} className="p-3 text-right">Subtotal Neto:</td>
-                                    <td className="p-3 text-right font-bold">${totals.taxBase.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td></td>
-                                </tr>
-                                <tr className="bg-slate-50 dark:bg-slate-700/50 font-medium text-slate-600 dark:text-slate-300">
-                                    <td colSpan={7} className="p-3 text-right">IVA (19%):</td>
-                                    <td className="p-3 text-right font-bold">${totals.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td></td>
-                                </tr>
-                                <tr className="bg-blue-50 dark:bg-blue-900/30 font-bold text-lg text-blue-700 dark:text-blue-300 border-t-2 border-blue-100 dark:border-blue-800">
-                                    <td colSpan={7} className="p-3 text-right">Total a Pagar:</td>
-                                    <td className="p-3 text-right font-bold text-blue-600 dark:text-blue-400">${totals.payableAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                </div>
-
-                {/* Preview Area */}
-                {jsonPreview && (
-                    <div className="mt-4 border rounded-lg overflow-hidden">
-                        <div className="bg-slate-200 dark:bg-slate-700 p-2 flex justify-between items-center">
-                            <h4 className="font-bold text-xs uppercase text-slate-600 dark:text-slate-300">
-                                {previewMode === 'json' ? 'JSON Generado (Vista Previa)' : 'Simulación Base de Datos (SQL INSERT)'}
-                            </h4>
-                            <button onClick={copyToClipboard} className="text-xs bg-white dark:bg-slate-600 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-slate-500 transition-colors">
-                                <i className="fas fa-copy mr-1"></i> Copiar
-                            </button>
+                    {/* Preview Area */}
+                    {jsonPreview && (
+                        <div className="mt-4 border rounded-lg overflow-hidden">
+                            <div className="bg-slate-200 dark:bg-slate-700 p-2 flex justify-between items-center">
+                                <h4 className="font-bold text-xs uppercase text-slate-600 dark:text-slate-300">
+                                    {previewMode === 'json' ? 'JSON Generado (Vista Previa)' : 'Simulación Base de Datos (SQL INSERT)'}
+                                </h4>
+                                <button onClick={copyToClipboard} className="text-xs bg-white dark:bg-slate-600 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-slate-500 transition-colors">
+                                    <i className="fas fa-copy mr-1"></i> Copiar
+                                </button>
+                            </div>
+                            <textarea
+                                className="w-full h-48 p-2 text-xs font-mono bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 outline-none resize-none"
+                                value={jsonPreview}
+                                readOnly
+                            />
                         </div>
-                        <textarea
-                            className="w-full h-48 p-2 text-xs font-mono bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 outline-none resize-none"
-                            value={jsonPreview}
-                            readOnly
-                        />
+                    )}
+
+                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-600">
+                        <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" disabled={isSending}>Cancelar</button>
+
+                        <button onClick={handleGenerateDbPreview} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-lg shadow-indigo-600/30 transition-all transform hover:-translate-y-0.5" disabled={isSending}>
+                            <i className="fas fa-database mr-2"></i> Ver Guardado DB
+                        </button>
+
+                        <button onClick={handleGenerateJson} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-lg shadow-green-600/30 transition-all transform hover:-translate-y-0.5" disabled={isSending}>
+                            <i className="fas fa-code mr-2"></i> Generar JSON
+                        </button>
+
+                        <button onClick={handleSendAndSave} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-lg shadow-blue-600/30 transition-all transform hover:-translate-y-0.5 flex items-center" disabled={isSending}>
+                            {isSending ? (
+                                <>
+                                    <i className="fas fa-spinner fa-spin mr-2"></i> Procesando...
+                                </>
+                            ) : (
+                                <>
+                                    <i className="fas fa-paper-plane mr-2"></i> Enviar a DIAN y Guardar
+                                </>
+                            )}
+                        </button>
                     </div>
-                )}
-
-                <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-600">
-                    <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" disabled={isSending}>Cancelar</button>
-
-                    <button onClick={handleGenerateDbPreview} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-lg shadow-indigo-600/30 transition-all transform hover:-translate-y-0.5" disabled={isSending}>
-                        <i className="fas fa-database mr-2"></i> Ver Guardado DB
-                    </button>
-
-                    <button onClick={handleGenerateJson} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-lg shadow-green-600/30 transition-all transform hover:-translate-y-0.5" disabled={isSending}>
-                        <i className="fas fa-code mr-2"></i> Generar JSON
-                    </button>
-
-                    <button onClick={handleSendAndSave} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-lg shadow-blue-600/30 transition-all transform hover:-translate-y-0.5 flex items-center" disabled={isSending}>
-                        {isSending ? (
-                            <>
-                                <i className="fas fa-spinner fa-spin mr-2"></i> Procesando...
-                            </>
-                        ) : (
-                            <>
-                                <i className="fas fa-paper-plane mr-2"></i> Enviar a DIAN y Guardar
-                            </>
-                        )}
-                    </button>
                 </div>
-            </div>
-        </Modal>
+            </Modal>
+
+            {/* Modal de éxito DIAN */}
+            <DIANSuccessModal
+                isOpen={isSuccessModalOpen}
+                onClose={() => {
+                    setIsSuccessModalOpen(false);
+                    onClose(); // Cerrar el modal principal también
+                }}
+                cufe={successCufe}
+                documentType="factura"
+                documentNumber={successDocumentNumber}
+            />
+        </>
     );
 };
 

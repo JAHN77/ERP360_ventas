@@ -343,16 +343,18 @@ const creditNoteController = {
               ROUND((d.QTYDEV * d.Venta), 0) AS subtotal,
               ROUND((d.QTYDEV * d.Venta * (d.Iva/100)), 0) AS valorIva,
               ROUND(((d.QTYDEV * d.Venta) + (d.QTYDEV * d.Venta * (d.Iva/100))), 0) AS total,
-              LTRIM(RTRIM(COALESCE(i.nomins, ''))) as descripcion,
+              LTRIM(RTRIM(COALESCE(i.nomins, s.nomser, ''))) as descripcion,
+              LTRIM(RTRIM(COALESCE(i.referencia, s.REFSER, ''))) as referencia,
               d.id_nota,
               d.Numdev,
               g.consecutivo
             FROM gen_movimiento_notas g
             INNER JOIN Ven_Devolucion d ON (d.id_nota = g.id OR (g.consecutivo IS NOT NULL AND d.Numdev = g.consecutivo))
             LEFT JOIN inv_insumos i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.Codins))
+            LEFT JOIN ven_servicios s ON LTRIM(RTRIM(s.codser)) = LTRIM(RTRIM(d.Codins))
             WHERE g.id IN (${placeholders})
           `;
-          
+
           console.log('🔍 Executing detallesQuery for credit notes...');
           const detallesResult = await request.query(detallesQuery);
           console.log(`✅ Detalles found: ${detallesResult.recordset.length}`);
@@ -371,7 +373,8 @@ const creditNoteController = {
               subtotal: Number(detalle.subtotal),
               valorIva: Number(detalle.valorIva),
               total: Number(detalle.total),
-              descripcion: detalle.descripcion || ''
+              descripcion: detalle.descripcion || '',
+              referencia: detalle.referencia || ''
             });
             return acc;
           }, new Map());
@@ -618,26 +621,51 @@ const creditNoteController = {
           const normalizado = buildNotaDetallePayload(rawItem);
 
           if (!productosCache.has(normalizado.productoId)) {
-            const reqProducto = createRequest();
-            reqProducto.input('productoId', sql.Int, normalizado.productoId);
-            const productoResult = await reqProducto.query(`
-              SELECT TOP 1 id, codins, referencia 
-              FROM inv_insumos
-              WHERE id = @productoId
-            `);
+            const isService = normalizado.productoId >= 2000000;
+            let productoResult;
+
+            if (isService) {
+              // Determine the original service code
+              const serviceCodeVal = normalizado.productoId - 2000000;
+              const reqService = createRequest();
+              reqService.input('codeVal', sql.BigInt, serviceCodeVal);
+
+              // Query ven_servicios
+              productoResult = await reqService.query(`
+                   SELECT TOP 1 
+                      codser as codins, 
+                      REFSER as referencia
+                   FROM ven_servicios
+                   WHERE ISNUMERIC(codser) = 1 AND CAST(codser AS BIGINT) = @codeVal
+                `);
+
+              // If found, mock the ID properly in the recordset for cache consistency
+              if (productoResult.recordset.length > 0) {
+                productoResult.recordset[0].id = normalizado.productoId;
+              }
+            } else {
+              const reqProducto = createRequest();
+              reqProducto.input('productoId', sql.Int, normalizado.productoId);
+              productoResult = await reqProducto.query(`
+                  SELECT TOP 1 id, codins, referencia 
+                  FROM inv_insumos
+                  WHERE id = @productoId
+                `);
+            }
 
             if (productoResult.recordset.length === 0) {
               await safeRollback();
               return res.status(400).json({
                 success: false,
-                message: `Producto con ID ${normalizado.productoId} no existe en inv_insumos`
+                message: `${isService ? 'Servicio' : 'Producto'} con ID ${normalizado.productoId} no existe en la base de datos`
               });
             }
 
             productosCache.set(normalizado.productoId, {
               id: productoResult.recordset[0].id,
               codins: productoResult.recordset[0].codins ? String(productoResult.recordset[0].codins).trim().toLowerCase() : null,
-              referencia: productoResult.recordset[0].referencia ? String(productoResult.recordset[0].referencia).trim() : null
+              referencia: productoResult.recordset[0].referencia ? String(productoResult.recordset[0].referencia).trim() : null,
+              isService: isService // Mark as service
             });
           }
 
@@ -670,10 +698,10 @@ const creditNoteController = {
           }
 
           devolucionesActuales.set(keyDetalle, cantidadDevueltaActual + normalizado.cantidad);
-          detallesNormalizados.push({ 
-            ...normalizado, 
-            matchKey: keyDetalle, 
-            referencia: productoInfo.referencia 
+          detallesNormalizados.push({
+            ...normalizado,
+            matchKey: keyDetalle,
+            referencia: productoInfo.referencia
           });
         }
 
@@ -718,15 +746,15 @@ const creditNoteController = {
 
             // Check if calculated number exists (handling the skip from 50 -> 52 over 51)
             let exists = true;
-            while(exists) {
-               const checkReq = createRequest();
-               checkReq.input('checkNum', sql.Int, nextNum);
-               const checkRes = await checkReq.query('SELECT 1 FROM gen_movimiento_notas WHERE consecutivo = @checkNum');
-               if(checkRes.recordset.length > 0) {
-                 nextNum++;
-               } else {
-                 exists = false;
-               }
+            while (exists) {
+              const checkReq = createRequest();
+              checkReq.input('checkNum', sql.Int, nextNum);
+              const checkRes = await checkReq.query('SELECT 1 FROM gen_movimiento_notas WHERE consecutivo = @checkNum');
+              if (checkRes.recordset.length > 0) {
+                nextNum++;
+              } else {
+                exists = false;
+              }
             }
             console.log(`🧪 Consecutivo simulado para prueba: ${nextNum}`);
           }
@@ -743,24 +771,49 @@ const creditNoteController = {
             total: totalTotal,
             motivo: motivo,
             estadoDian: '0',
-            cufe: null,
+            cufe: factura.CUFE || factura.cufe || 'N/A', // Get CUFE from original invoice
             itemsDevueltos: detallesNormalizados.map(d => ({
               ...d,
-              descripcion: d.descripcion || `Producto ${d.productoId}`
+              descripcion: d.descripcion || `Producto ${d.productoId}`,
+              referencia: d.referencia || null, // Include referencia
+              codProducto: productosCache.get(d.productoId)?.codins || null // Include code
             }))
           };
 
-          // Completar descripciones si faltan
+          // Completar descripciones y referencias si faltan (buscar en inv_insumos Y ven_servicios)
           for (const item of notaTemp.itemsDevueltos) {
             if (!item.descripcion || item.descripcion.startsWith('Producto')) {
               try {
-                const descReq = pool.request();
-                descReq.input('pid', sql.Int, item.productoId);
-                const descRes = await descReq.query('SELECT nomins FROM inv_insumos WHERE id = @pid');
-                if (descRes.recordset.length > 0) {
-                  item.descripcion = descRes.recordset[0].nomins;
+                const productoInfo = productosCache.get(item.productoId);
+                let descRes;
+
+                // Si es servicio (ID >= 2000000 o código empieza con 'S-')
+                if (item.productoId >= 2000000 || (productoInfo?.codins && String(productoInfo.codins).toUpperCase().startsWith('S-'))) {
+                  console.log(`🔍 Buscando descripción de servicio para: ${item.productoId}`);
+                  const codins = productoInfo?.codins || item.codProducto;
+                  if (codins) {
+                    const descReq = pool.request();
+                    descReq.input('codser', sql.VarChar(8), codins);
+                    descRes = await descReq.query('SELECT nomser as nomins, REFSER as referencia FROM ven_servicios WHERE codser = @codser');
+                  }
+                } else {
+                  // Producto físico
+                  console.log(`🔍 Buscando descripción de producto para: ${item.productoId}`);
+                  const descReq = pool.request();
+                  descReq.input('pid', sql.Int, item.productoId);
+                  descRes = await descReq.query('SELECT nomins, referencia FROM inv_insumos WHERE id = @pid');
                 }
-              } catch (e) { }
+
+                if (descRes && descRes.recordset.length > 0) {
+                  item.descripcion = descRes.recordset[0].nomins || item.descripcion;
+                  if (!item.referencia && descRes.recordset[0].referencia) {
+                    item.referencia = descRes.recordset[0].referencia;
+                  }
+                  console.log(`✅ Descripción encontrada: ${item.descripcion}`);
+                }
+              } catch (e) {
+                console.warn(`⚠️ Error obteniendo descripción para producto ${item.productoId}:`, e.message);
+              }
             }
           }
 
@@ -772,6 +825,21 @@ const creditNoteController = {
           };
 
           const notaJson = await DIANService.transformNotaCreditoForDIAN(notaData, resolution, dianParams);
+
+          // Mostrar JSON completo en consola (igual que en sendInvoiceToDIAN)
+          console.log('\n' + '='.repeat(100));
+          console.log('🧪 ========== JSON GENERADO PARA NOTA DE CRÉDITO (MODO PRUEBA) ==========');
+          console.log('='.repeat(100));
+          console.log('\n📦 PAYLOAD COMPLETO QUE SE ENVIARÍA A DIAN:');
+          console.log('─'.repeat(100));
+          console.log(JSON.stringify(notaJson, null, 2));
+          console.log('─'.repeat(100));
+          console.log(`📊 Tamaño del payload: ${JSON.stringify(notaJson).length} caracteres`);
+          console.log('\n💾 JSON EN UNA LÍNEA (para copiar):');
+          console.log('─'.repeat(100));
+          console.log(JSON.stringify(notaJson));
+          console.log('─'.repeat(100));
+          console.log('='.repeat(100));
 
           return res.json({
             success: true,
@@ -913,15 +981,15 @@ const creditNoteController = {
 
             // Loop to skip existing numbers (e.g. skip 51 when we reach 50)
             let exists = true;
-            while(exists) {
-               const checkReq = new sql.Request(tx);
-               checkReq.input('checkNum', sql.Int, nextConsecutivo);
-               const checkRes = await checkReq.query('SELECT 1 FROM gen_movimiento_notas WHERE consecutivo = @checkNum');
-               if(checkRes.recordset.length > 0) {
-                 nextConsecutivo++;
-               } else {
-                 exists = false;
-               }
+            while (exists) {
+              const checkReq = new sql.Request(tx);
+              checkReq.input('checkNum', sql.Int, nextConsecutivo);
+              const checkRes = await checkReq.query('SELECT 1 FROM gen_movimiento_notas WHERE consecutivo = @checkNum');
+              if (checkRes.recordset.length > 0) {
+                nextConsecutivo++;
+              } else {
+                exists = false;
+              }
             }
 
             console.log('🔢 Consecutivo generado desde gen_movimiento_notas (skip 51):', nextConsecutivo);
@@ -1037,29 +1105,33 @@ const creditNoteController = {
             `);
           } catch (insertErr) {
             console.error('❌ Error insertando detalle Ven_Devolucion:', {
-               msg: insertErr.message,
-               code: insertErr.code,
-               producto: detalle.productoId,
-               notaId: nuevaNotaId
+              msg: insertErr.message,
+              code: insertErr.code,
+              producto: detalle.productoId,
+              notaId: nuevaNotaId
             });
             throw insertErr; // Re-throw to trigger rollback
           }
 
-          // KARDEX: Registrar Entrada (Devolución)
-          await InventoryService.registrarEntrada({
-            transaction: tx,
-            productoId: detalle.productoId,
-            cantidad: detalle.cantidad,
-            bodega: codalmFinal,
-            numeroDocumentoInt: nextConsecutivo, // Usamos el consecutivo interno de la nota
-            tipoMovimiento: 'EN', // Entrada por devolución
-            costo: 0, // Si no se tiene costo exacto de devolución, el servicio usará el último costo
-            precioVenta: detalle.precioUnitario,
-            observaciones: `Devolución NC ${comprobante}`,
-            codUsuario: usuarioFinal,
-            clienteId: clienteFinal,
-            numComprobante: nextConsecutivo
-          });
+          // KARDEX: Registrar Entrada (Devolución) - SOLO PARA PRODUCTOS FISICOS
+          if (detalle.productoId < 2000000) {
+            await InventoryService.registrarEntrada({
+              transaction: tx,
+              productoId: detalle.productoId,
+              cantidad: detalle.cantidad,
+              bodega: codalmFinal,
+              numeroDocumentoInt: nextConsecutivo, // Usamos el consecutivo interno de la nota
+              tipoMovimiento: 'EN', // Entrada por devolución
+              costo: 0, // Si no se tiene costo exacto de devolución, el servicio usará el último costo
+              precioVenta: detalle.precioUnitario,
+              observaciones: `Devolución NC ${comprobante}`,
+              codUsuario: usuarioFinal,
+              clienteId: clienteFinal,
+              numComprobante: nextConsecutivo
+            });
+          } else {
+            console.log(`ℹ️ Omitiendo movimiento de inventario para servicio/intangible ID: ${detalle.productoId}`);
+          }
         }
 
 
@@ -1220,15 +1292,15 @@ const creditNoteController = {
 
       // Check existence loop
       let exists = true;
-      while(exists) {
-          const checkReq = new sql.Request(pool);
-          checkReq.input('checkNum', sql.Int, nextConsecutivo);
-          const checkRes = await checkReq.query('SELECT 1 FROM gen_movimiento_notas WHERE consecutivo = @checkNum');
-          if(checkRes.recordset.length > 0) {
-            nextConsecutivo++;
-          } else {
-            exists = false;
-          }
+      while (exists) {
+        const checkReq = new sql.Request(pool);
+        checkReq.input('checkNum', sql.Int, nextConsecutivo);
+        const checkRes = await checkReq.query('SELECT 1 FROM gen_movimiento_notas WHERE consecutivo = @checkNum');
+        if (checkRes.recordset.length > 0) {
+          nextConsecutivo++;
+        } else {
+          exists = false;
+        }
       }
 
       const nextNumber = String(nextConsecutivo);

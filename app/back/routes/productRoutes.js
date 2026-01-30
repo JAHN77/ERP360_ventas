@@ -7,6 +7,12 @@ const verifyToken = require('../middleware/authMiddleware');
 // GET /api/productos/
 router.get('/', verifyToken, productController.getAllProducts);
 
+// POST /api/productos/ (Create Product or Service)
+router.post('/', verifyToken, productController.createProduct);
+
+// POST /api/productos/create (Alias for compatibility)
+router.post('/create', verifyToken, productController.createProduct);
+
 // GET /api/productos/services
 router.get('/services', verifyToken, productController.getAllServices);
 
@@ -24,5 +30,8 @@ router.get('/:id/stock', verifyToken, productController.getProductStockDetails);
 
 // PUT /api/productos/:id
 router.put('/:id', verifyToken, productController.updateProduct);
+
+// DELETE /api/productos/:id
+router.delete('/:id', verifyToken, productController.deleteProduct);
 
 module.exports = router;

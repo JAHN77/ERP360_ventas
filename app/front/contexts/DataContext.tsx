@@ -3534,7 +3534,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 subtotal: sanitizeNumber(item.subtotal),
                 valorIva: sanitizeNumber(item.valorIva ?? item.valor_iva),
                 total: sanitizeNumber(item.total)
-            }))
+            })),
+            cufe: data.cufe || data.uuid || data.CUFE // Asegurar que el CUFE se capture de la respuesta
         };
 
         setNotasCredito(prev => {

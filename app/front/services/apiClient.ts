@@ -318,6 +318,19 @@ class ApiClient {
     });
   }
 
+  async deleteProducto(id: string | number) {
+    return this.request(`/productos/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async createProductOrService(payload: any) {
+    return this.request('/productos/create', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async getFacturas(page?: number, pageSize?: number, search?: string, estado?: string, fechaInicio?: string, fechaFin?: string, clienteId?: string, sortBy?: string, sortOrder?: 'asc' | 'desc') {
     const queryParams = new URLSearchParams();
     if (page) queryParams.append('page', String(page));

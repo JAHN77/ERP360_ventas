@@ -17,6 +17,7 @@ import { fetchFacturasDetalle } from '../services/apiClient';
 import { useAuth } from '../hooks/useAuth';
 import { useClientesConFacturasAceptadas } from '../hooks/useClientesConFacturasAceptadas';
 import SendEmailModal from '../components/comercial/SendEmailModal';
+import DIANSuccessModal from '../components/common/DIANSuccessModal';
 import apiClient from '../services/apiClient';
 import { pdf } from '@react-pdf/renderer';
 
@@ -101,6 +102,9 @@ const DevolucionesPage: React.FC = () => {
     // Retry flow state
     const [retryNotaNumero, setRetryNotaNumero] = useState<string | null>(null);
     const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+    const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+    const [successCufe, setSuccessCufe] = useState('');
+    const [successDocumentNumber, setSuccessDocumentNumber] = useState('');
 
     useEffect(() => {
         const fetchNextNumber = async () => {
@@ -167,6 +171,29 @@ const DevolucionesPage: React.FC = () => {
             facturasResult = facturas.filter(f => String(f.clienteId) === String(clienteId) && f.estado === 'ACEPTADA');
         }
 
+        // --- FILTER FULLY RETURNED INVOICES ---
+        // Exclude invoices where the sum of valid credit notes >= invoice total
+        facturasResult = facturasResult.filter(f => {
+            // Always include if it's the currently selected one (to avoid UI glitches if selected)
+            if (facturaId && String(f.id) === String(facturaId)) return true;
+
+            const invoiceTotal = Number(f.total || 0);
+
+            // Find credit notes for this invoice
+            // Match loosely on string/number ID
+            const relatedNotes = notasCredito.filter(nc =>
+                (String(nc.facturaId) === String(f.id)) &&
+                nc.estadoDian !== 'Error' // Only count valid or pending notes
+            );
+
+            const totalReturned = relatedNotes.reduce((sum, nc) => sum + Number(nc.total || 0), 0);
+
+            // Use a small epsilon for float comparison safety, though currency usually handled as ints/fixed
+            // If remaining balance is less than 1 unit (peso), consider it fully paid/returned
+            return (invoiceTotal - totalReturned) > 1;
+        });
+
+
         // Asegurar que si hay una factura seleccionada (por ejemplo en Retry), esté en la lista aunque no sea "ACEPTADA" o no venga en el estricto
         if (facturaId) {
             const exists = facturasResult.some(f => String(f.id) === String(facturaId));
@@ -179,7 +206,7 @@ const DevolucionesPage: React.FC = () => {
         }
 
         return facturasResult;
-    }, [clienteId, clientesDisponibles, facturas, facturaId]);
+    }, [clienteId, clientesDisponibles, facturas, facturaId, notasCredito]);
 
     // Buscar factura de forma flexible: primero en facturasFiltradas, luego en todas las facturas
     // Si la factura tiene items cargados localmente, usarlos
@@ -550,7 +577,7 @@ const DevolucionesPage: React.FC = () => {
                     type: 'info'
                 });
 
-                // Pasar directamente el facturaId como string o number, no como objeto
+                // Pasar directamente el facturaId como string o number
                 const detallesResponse = await fetchFacturasDetalle(selectedFactura.id);
                 if (detallesResponse.success && detallesResponse.data) {
                     // El backend ya filtra por facturaId, así que usamos directamente los datos
@@ -749,10 +776,12 @@ const DevolucionesPage: React.FC = () => {
             }
 
             setSavedNota(nuevaNota);
-            addNotification({
-                message: `Nota de Crédito ${nuevaNota.numero || nuevaNota.id} guardada con éxito.`,
-                type: 'success'
-            });
+
+            // Mostrar modal de éxito con CUFE
+            const cufe = nuevaNota.cufe || 'N/A';
+            setSuccessCufe(cufe);
+            setSuccessDocumentNumber(nuevaNota.numero || nuevaNota.id);
+            setIsSuccessModalOpen(true);
 
             // Close modal
             setDraftNotaToPreview(null);
@@ -1168,7 +1197,7 @@ const DevolucionesPage: React.FC = () => {
                                             handleClienteChange(selectedValue);
                                         }}
                                         disabled={isFormDisabled || isLoadingClientes}
-                                        className="w-full px-3 py-2.5 text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed"
+                                        className="w-full px-3 py-2.5 min-h-[44px] text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed"
                                     >
                                         <option value="">
                                             {isLoadingClientes ? 'Cargando clientes...' : 'Seleccione un cliente...'}
@@ -1189,7 +1218,7 @@ const DevolucionesPage: React.FC = () => {
                                 </div>
                                 <div>
                                     <label htmlFor="factura-select" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Factura</label>
-                                    <select id="factura-select" value={facturaId} onChange={e => handleFacturaChange(e.target.value)} disabled={!clienteId || isFormDisabled} className="w-full px-3 py-2.5 text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed">
+                                    <select id="factura-select" value={facturaId} onChange={e => handleFacturaChange(e.target.value)} disabled={!clienteId || isFormDisabled} className="w-full px-3 py-2.5 min-h-[44px] text-sm bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:cursor-not-allowed">
                                         <option value="">Seleccione una factura...</option>
                                         {facturasFiltradas && facturasFiltradas.length > 0 ? (
                                             facturasFiltradas.map(f => <option key={f.id} value={f.id}>{f.numeroFactura} - {new Date(f.fechaFactura).toLocaleDateString()}</option>)
@@ -1420,7 +1449,7 @@ const DevolucionesPage: React.FC = () => {
                                                                             max={cantidadPendiente}
                                                                             min="0"
                                                                             step="any"
-                                                                            className="w-24 px-2 py-1 text-right text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:cursor-not-allowed"
+                                                                            className="w-24 px-2 py-2 text-right text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:cursor-not-allowed"
                                                                             disabled={isTotalDevolucion || cantidadPendiente <= 0 || isFormDisabled}
                                                                         />
                                                                     </td>
@@ -1428,7 +1457,7 @@ const DevolucionesPage: React.FC = () => {
                                                                         <select
                                                                             value={devItem?.motivoSeleccion || devItem?.motivo || getMotivoDefault()}
                                                                             onChange={e => handleMotivoSelect(item.productoId, e.target.value)}
-                                                                            className="w-full px-2 py-1 text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:cursor-not-allowed"
+                                                                            className="w-full px-2 py-2 text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:cursor-not-allowed"
                                                                             disabled={isTotalDevolucion || !devItem || devItem.cantidadDevuelta === 0 || isFormDisabled}
                                                                         >
                                                                             {motivosDisponibles.map(m => <option key={m} value={m}>{m}</option>)}
@@ -1439,7 +1468,7 @@ const DevolucionesPage: React.FC = () => {
                                                                                 value={devItem.motivo || ''}
                                                                                 onChange={e => handleMotivoCustomChange(item.productoId, e.target.value)}
                                                                                 placeholder="Describa el motivo"
-                                                                                className="mt-2 w-full px-2 py-1 text-sm bg-white dark:bg-slate-900/70 border border-dashed border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                                                className="mt-2 w-full px-2 py-2 text-sm bg-white dark:bg-slate-900/70 border border-dashed border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
                                                                                 disabled={isFormDisabled}
                                                                             />
                                                                         )}
@@ -1592,7 +1621,7 @@ const DevolucionesPage: React.FC = () => {
                                         <div className="flex items-center gap-3 w-full md:w-auto">
                                             <button
                                                 onClick={resetForm}
-                                                className="px-5 py-2.5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors w-full md:w-auto focus:ring-2 focus:ring-slate-200"
+                                                className="px-5 py-2.5 min-h-[44px] bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors w-full md:w-auto focus:ring-2 focus:ring-slate-200"
                                             >
                                                 Limpiar Formulario
                                             </button>
@@ -1602,7 +1631,7 @@ const DevolucionesPage: React.FC = () => {
                                             <button
                                                 onClick={handleTestJson}
                                                 disabled={devolucionItems.length === 0 || isFormDisabled}
-                                                className="px-4 py-2.5 text-purple-600 dark:text-purple-400 font-medium rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                className="px-4 py-2.5 min-h-[44px] text-purple-600 dark:text-purple-400 font-medium rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                                 title="Ver JSON que se enviará a la DIAN"
                                             >
                                                 <i className="fas fa-code mr-2"></i>Prueba JSON
@@ -1612,7 +1641,7 @@ const DevolucionesPage: React.FC = () => {
                                                 <button
                                                     onClick={handleGenerateEmail}
                                                     disabled={!savedNota}
-                                                    className="px-4 py-2.5 text-sky-600 dark:text-sky-400 font-medium rounded-xl hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                    className="px-4 py-2.5 min-h-[44px] text-sky-600 dark:text-sky-400 font-medium rounded-xl hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                                 >
                                                     <i className="fas fa-magic mr-2"></i>Redactar Correo
                                                 </button>
@@ -1621,7 +1650,7 @@ const DevolucionesPage: React.FC = () => {
                                             <button
                                                 disabled={!savedNota}
                                                 onClick={() => handleOpenPrintModal(savedNota!)}
-                                                className="px-5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                                                className="px-5 py-2.5 min-h-[44px] border border-slate-300 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
                                             >
                                                 <i className="fas fa-print mr-2"></i>Imprimir
                                             </button>
@@ -1630,7 +1659,7 @@ const DevolucionesPage: React.FC = () => {
                                                 <button
                                                     onClick={handleSave}
                                                     disabled={devolucionItems.length === 0 || isFormDisabled}
-                                                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:shadow-none disabled:cursor-not-allowed transition-all transform active:scale-95"
+                                                    className="px-6 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:shadow-none disabled:cursor-not-allowed transition-all transform active:scale-95"
                                                 >
                                                     {isSaving ? (
                                                         <><i className="fas fa-spinner fa-spin mr-2"></i>Procesando...</>
@@ -1728,7 +1757,27 @@ const DevolucionesPage: React.FC = () => {
                                             </p>
                                         </div>
                                     </div>
-                                    <div><p className="font-semibold text-slate-600 dark:text-slate-400">Total Nota Crédito:</p><p className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(selectedNotaParaVer.total)}</p></div>
+                                    <div className="col-span-1 sm:col-span-2">
+                                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                                            <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                                                {/* Subtotal */}
+                                                <div className="flex justify-between items-center px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50">
+                                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Subtotal:</span>
+                                                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 tabular-nums">{formatCurrency(selectedNotaParaVer.subtotal || 0)}</span>
+                                                </div>
+                                                {/* IVA */}
+                                                <div className="flex justify-between items-center px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50">
+                                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">IVA:</span>
+                                                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 tabular-nums">{formatCurrency(selectedNotaParaVer.iva || 0)}</span>
+                                                </div>
+                                                {/* Total */}
+                                                <div className="flex justify-between items-center px-4 py-3 bg-blue-50 dark:bg-blue-900/20">
+                                                    <span className="text-base font-bold text-slate-800 dark:text-slate-100">Total Nota Crédito:</span>
+                                                    <span className="text-lg font-bold text-blue-600 dark:text-blue-400 tabular-nums">{formatCurrency(selectedNotaParaVer.total)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div className="col-span-1 sm:col-span-2"><p className="font-semibold text-slate-600 dark:text-slate-400">Motivo:</p><p>{selectedNotaParaVer.motivo}</p></div>
                                 </div>
                                 <h4 className="text-base font-semibold pt-4 border-t border-slate-200 dark:border-slate-700">Items Devueltos</h4>
@@ -1828,6 +1877,20 @@ const DevolucionesPage: React.FC = () => {
                     );
                 })()
             }
+
+            {/* Modal de éxito DIAN */}
+            <DIANSuccessModal
+                isOpen={isSuccessModalOpen}
+                onClose={() => {
+                    setIsSuccessModalOpen(false);
+                    // Reset form and reload data
+                    resetFormPartially();
+                    setFacturaId('');
+                }}
+                cufe={successCufe}
+                documentType="nota-credito"
+                documentNumber={successDocumentNumber}
+            />
         </div >
     );
 };

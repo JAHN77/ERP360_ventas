@@ -13,6 +13,7 @@ import ColumnManagerModal from '../components/ui/ColumnManagerModal';
 import ProductDetails from '../components/productos/ProductDetails';
 import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
+import NewServiceProductModal from '../components/facturacion/NewServiceProductModal';
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
@@ -41,10 +42,21 @@ const ProductosPage: React.FC = () => {
   const [tempPrice, setTempPrice] = useState<string>('');
   const [isUpdatingPrice, setIsUpdatingPrice] = useState(false);
 
+  // Estado para modal de nuevo producto/servicio
+  const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [editProductData, setEditProductData] = useState<any>(null);
+
   /* -----------------------------------------------------------------------------------------------
    * ESTADO DE UI
    * -----------------------------------------------------------------------------------------------*/
-  const [activeTab, setActiveTab] = useState<'productos' | 'servicios'>('productos');
+  const [activeTab, setActiveTab] = useState<'productos' | 'servicios'>((params?.tab as 'productos' | 'servicios') || 'productos');
+
+  // Update tab if params change (e.g. navigation back with param)
+  useEffect(() => {
+    if (params?.tab && (params.tab === 'productos' || params.tab === 'servicios')) {
+      setActiveTab(params.tab);
+    }
+  }, [params?.tab]);
 
   // Cargar categorías una sola vez
   useEffect(() => {
@@ -279,11 +291,32 @@ const ProductosPage: React.FC = () => {
             </button>
             <ProtectedComponent permission="productos:edit">
               <button
-                onClick={() => setPage('editar_producto', { id: item.id })}
-                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
-                title="Editar Producto"
+                onClick={() => {
+                  const productData = {
+                    id: item.id,
+                    codigo: (item as any).codigo || '',
+                    nombre: item.nombre,
+                    precio: (item as any).precioBase || 0,
+                    aplicaIva: ((item as any).iva || 0) > 0,
+                    referencia: (item as any).referencia || '',
+                    idTipoProducto: activeTab === 'servicios' ? 2 : 1
+                  };
+                  setEditProductData(productData);
+                  setIsNewModalOpen(true);
+                }}
+                className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-all duration-200"
+                title="Editar"
               >
                 <i className="fas fa-pencil-alt"></i>
+              </button>
+            </ProtectedComponent>
+            <ProtectedComponent permission="productos:edit">
+              <button
+                onClick={() => handleDeleteProduct(item)}
+                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all duration-200"
+                title="Eliminar"
+              >
+                <i className="fas fa-trash"></i>
               </button>
             </ProtectedComponent>
           </div>
@@ -323,6 +356,64 @@ const ProductosPage: React.FC = () => {
       alert('Error de conexión al actualizar el costo');
     } finally {
       setIsUpdatingPrice(false);
+    }
+  };
+
+  const handleDeleteProduct = async (item: InvProducto) => {
+    if (!confirm(`¿Estás seguro de que deseas eliminar ${activeTab === 'servicios' ? 'el servicio' : 'el producto'} "${item.nombre}"?`)) {
+      return;
+    }
+
+    try {
+      // TODO: Implement deleteProducto method in apiClient
+      alert('La funcionalidad de eliminar estará disponible próximamente');
+      return;
+
+      // const response = await apiClient.deleteProducto(item.id);
+
+      if (response.success) {
+        // Recargar datos después de eliminar
+        const loadData = async () => {
+          setIsLoading(true);
+          try {
+            let refreshResponse;
+            if (activeTab === 'productos') {
+              refreshResponse = await apiClient.getProductos(
+                undefined,
+                currentPage,
+                pageSize,
+                searchTerm || undefined,
+                sortConfig?.key as string,
+                sortConfig?.direction
+              );
+            } else {
+              refreshResponse = await apiClient.getServices(
+                currentPage,
+                pageSize,
+                searchTerm || undefined,
+                sortConfig?.key as string,
+                sortConfig?.direction
+              );
+            }
+
+            if (refreshResponse.success) {
+              setProductos((refreshResponse.data as any[]) as InvProducto[]);
+            }
+          } catch (error) {
+            console.error('Error refreshing data:', error);
+          } finally {
+            setIsLoading(false);
+          }
+        };
+
+        await loadData();
+        alert(`${activeTab === 'servicios' ? 'Servicio' : 'Producto'} eliminado exitosamente`);
+      } else {
+        alert('Error al eliminar: ' + response.message);
+      }
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      alert('Error de conexión al eliminar');
     }
   };
 
@@ -376,8 +467,8 @@ const ProductosPage: React.FC = () => {
         <button
           onClick={() => handleTabChange('productos')}
           className={`py-2 px-6 font-medium text-sm transition-colors border-b-2 ${activeTab === 'productos'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'
+            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+            : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'
             }`}
         >
           <i className="fas fa-box-open mr-2"></i>
@@ -386,8 +477,8 @@ const ProductosPage: React.FC = () => {
         <button
           onClick={() => handleTabChange('servicios')}
           className={`py-2 px-6 font-medium text-sm transition-colors border-b-2 ${activeTab === 'servicios'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'
+            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+            : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'
             }`}
         >
           <i className="fas fa-concierge-bell mr-2"></i>
@@ -401,7 +492,7 @@ const ProductosPage: React.FC = () => {
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
             createActionLabel={activeTab === 'productos' ? "Nuevo Producto" : "Nuevo Servicio"}
-            onCreateAction={() => setPage(activeTab === 'productos' ? 'nuevo_producto' : 'nuevo_servicio')}
+            onCreateAction={() => setIsNewModalOpen(true)}
             additionalFilters={additionalFilters}
             onCustomizeColumns={() => setIsColumnModalOpen(true)}
             placeholder={`Buscar ${activeTab === 'productos' ? 'producto' : 'servicio'}, referencia...`}
@@ -466,6 +557,23 @@ const ProductosPage: React.FC = () => {
           <ProductDetails producto={selectedProducto} />
         </Modal>
       )}
+
+      {/* Modal para crear nuevo producto/servicio */}
+      <NewServiceProductModal
+        isOpen={isNewModalOpen}
+        onClose={() => {
+          setIsNewModalOpen(false);
+          setEditProductData(null); // Reset edit data on close
+        }}
+        onSuccess={() => {
+          setIsNewModalOpen(false);
+          setEditProductData(null); // Reset edit data on success
+          // Refrescar datos después de crear/editar
+          setCurrentPage(1);
+          setSearchTerm('');
+        }}
+        editData={editProductData} // Pass edit data to modal
+      />
     </PageContainer>
   );
 };

@@ -70,13 +70,13 @@ const productController = {
         LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
         WHERE ins.activo = 1
       `;
-      
+
       if (searchTerm) {
         query += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search OR ins.codins LIKE @search)`;
       }
 
       // NO GROUP BY needed now
-      
+
       let orderByClause = 'ORDER BY ins.nomins ASC';
       if (sortColumn && sortDirection) {
         const direction = sortDirection === 'desc' ? 'DESC' : 'ASC';
@@ -86,14 +86,14 @@ const productController = {
           'ultimoCosto': 'ins.ultimoCosto', // Basic sort, computed sort is tricky without alias support in all SQL versions
           'stock': 'stock' // This might fail if alias not supported in ORDER BY in older SQL
         };
-        
+
         if (sortColumn === 'stock') {
-             // Sort by subquery directly for safety
-             orderByClause = `ORDER BY COALESCE((SELECT SUM(inv.caninv) FROM inv_invent inv WHERE inv.codins = ins.codins AND (@codalm IS NULL OR inv.codalm = @codalm)), 0) ${direction}`;
+          // Sort by subquery directly for safety
+          orderByClause = `ORDER BY COALESCE((SELECT SUM(inv.caninv) FROM inv_invent inv WHERE inv.codins = ins.codins AND (@codalm IS NULL OR inv.codalm = @codalm)), 0) ${direction}`;
         } else if (sortColumn === 'ultimoCosto') {
-             orderByClause = `ORDER BY COALESCE(CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(18,2)), ins.ultimo_costo) ${direction}`;
+          orderByClause = `ORDER BY COALESCE(CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(18,2)), ins.ultimo_costo) ${direction}`;
         } else if (validColumns[sortColumn]) {
-             orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
+          orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
         }
       }
       query += ` ${orderByClause}`;
@@ -191,7 +191,7 @@ const productController = {
         FROM ${TABLE_NAMES.servicios} s
         WHERE 1=1
       `;
-      
+
       if (searchTerm) {
         query += ` AND (s.nomser LIKE @search OR s.REFSER LIKE @search OR s.codser LIKE @search)`;
       }
@@ -253,6 +253,116 @@ const productController = {
       });
     }
   },
+  /**
+   * Create a new product or service
+   */
+  createProduct: async (req, res) => {
+    try {
+      const {
+        nombre,
+        idTipoProducto, // 1 = Producto, 2 = Servicio
+        precio,
+        unidadMedida,
+        aplicaIva,
+        referencia,
+        descripcion,
+        controlaExistencia,
+        idSublineas,
+        idCategoria
+      } = req.body;
+
+      const isService = Number(idTipoProducto) === 2;
+      const tableName = isService ? TABLE_NAMES.servicios : TABLE_NAMES.productos;
+      const idCol = isService ? 'codser' : 'codins';
+
+      const { getConnectionForDb } = require('../services/sqlServerClient.cjs');
+      const sql = require('mssql');
+      const pool = await getConnectionForDb(req.db_name);
+
+      // Simple generation of next code (max + 1)
+      let nextCode = '001';
+      try {
+        const maxQuery = `SELECT MAX(CAST(${idCol} AS BIGINT)) as maxCode FROM ${tableName} WHERE ISNUMERIC(${idCol}) = 1`;
+        const maxRes = await pool.request().query(maxQuery);
+        const maxVal = maxRes.recordset[0].maxCode || 0;
+        nextCode = String(maxVal + 1).padStart(3, '0');
+      } catch (e) {
+        console.warn('Error generating code, fallback to timestamp', e);
+        nextCode = String(Date.now()).substring(6);
+      }
+
+      // Map Unit
+      let codMedida = '003'; // Default Unidad
+      const uLimit = String(unidadMedida || '').toUpperCase();
+      if (uLimit.includes('HORA')) codMedida = '001';
+      else if (uLimit.includes('DIA') || uLimit.includes('DÍA')) codMedida = '002';
+      else codMedida = '003';
+
+      const tasaIvaVal = aplicaIva ? 19 : 0;
+      const precioVal = parseFloat(precio || 0);
+
+      const transaction = new sql.Transaction(pool);
+      await transaction.begin();
+
+      try {
+        const request = new sql.Request(transaction);
+
+        if (isService) {
+          // Insert Service
+          // Note: ven_servicios columns inferred from getAllServices select list
+          const query = `
+            INSERT INTO ${TABLE_NAMES.servicios} 
+            (codser, nomser, ivaser, valser, REFSER, Codigo_medida, CODSUBLINEA)
+            VALUES
+            (@code, @nombre, @iva, @precio, @referencia, @medida, @sublinea)
+          `;
+          request.input('code', sql.VarChar(20), nextCode);
+          request.input('nombre', sql.VarChar(255), nombre || 'Nuevo Servicio');
+          request.input('iva', sql.Decimal(5, 2), tasaIvaVal);
+          request.input('precio', sql.Decimal(18, 2), precioVal);
+          request.input('referencia', sql.VarChar(50), referencia || '');
+          request.input('medida', sql.VarChar(5), codMedida);
+          request.input('sublinea', sql.VarChar(5), idSublineas ? String(idSublineas) : '01');
+
+          await request.query(query);
+
+        } else {
+          // Insert Product
+          const query = `
+            INSERT INTO ${TABLE_NAMES.productos}
+            (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, karins, activo, codigo_linea, codigo_sublinea, costo_promedio, precio_publico)
+            VALUES
+            (@code, @nombre, @iva, @precio, @referencia, @medida, @karins, 1, '01', @sublinea, @precio, @precio)
+          `;
+          request.input('code', sql.VarChar(20), nextCode);
+          request.input('nombre', sql.VarChar(255), nombre || 'Nuevo Producto');
+          request.input('iva', sql.Decimal(5, 2), tasaIvaVal);
+          request.input('precio', sql.Decimal(18, 2), precioVal);
+          request.input('referencia', sql.VarChar(50), referencia || '');
+          request.input('medida', sql.VarChar(5), codMedida);
+          request.input('karins', sql.Bit, controlaExistencia ? 1 : 0);
+          request.input('sublinea', sql.VarChar(5), idSublineas ? String(idSublineas) : '01');
+
+          await request.query(query);
+
+          // Initial stock record? (inv_invent)
+          // Usually separate process, but we might want an empty record
+        }
+
+        await transaction.commit();
+        res.json({ success: true, message: `${isService ? 'Servicio' : 'Producto'} creado correctamente`, data: { id: nextCode, codigo: nextCode } });
+
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
+
+    } catch (error) {
+      console.error('Error creating product/service:', error);
+      res.status(500).json({ success: false, message: 'Error al crear', error: error.message });
+    }
+  },
+
   searchProducts: async (req, res) => {
     try {
       const { search = '', limit = 20, codalm = null } = req.query;
@@ -475,6 +585,74 @@ const productController = {
       res.status(500).json({
         success: false,
         message: 'Error al actualizar el producto',
+        error: error.message
+      });
+    }
+  },
+
+  /**
+   * Delete a product or service
+   */
+  deleteProduct: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const { getConnectionForDb } = require('../services/sqlServerClient.cjs');
+      const sql = require('mssql');
+      const pool = await getConnectionForDb(req.db_name);
+
+      // First, check if the product exists and determine if it's a service or product
+      // Try products table first
+      let isService = false;
+      let exists = false;
+
+      const checkProductQuery = `SELECT codins FROM ${TABLE_NAMES.productos} WHERE codins = @id`;
+      const productCheck = await pool.request()
+        .input('id', sql.VarChar(20), String(id))
+        .query(checkProductQuery);
+
+      if (productCheck.recordset.length > 0) {
+        exists = true;
+        isService = false;
+      } else {
+        // Check services table
+        const checkServiceQuery = `SELECT codser FROM ${TABLE_NAMES.servicios} WHERE codser = @id`;
+        const serviceCheck = await pool.request()
+          .input('id', sql.VarChar(20), String(id))
+          .query(checkServiceQuery);
+
+        if (serviceCheck.recordset.length > 0) {
+          exists = true;
+          isService = true;
+        }
+      }
+
+      if (!exists) {
+        return res.status(404).json({
+          success: false,
+          message: 'Producto o servicio no encontrado'
+        });
+      }
+
+      // Delete from the appropriate table
+      const tableName = isService ? TABLE_NAMES.servicios : TABLE_NAMES.productos;
+      const idCol = isService ? 'codser' : 'codins';
+
+      const deleteQuery = `DELETE FROM ${tableName} WHERE ${idCol} = @id`;
+      await pool.request()
+        .input('id', sql.VarChar(20), String(id))
+        .query(deleteQuery);
+
+      res.json({
+        success: true,
+        message: `${isService ? 'Servicio' : 'Producto'} eliminado correctamente`
+      });
+
+    } catch (error) {
+      console.error('Error deleting product/service:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al eliminar',
         error: error.message
       });
     }
