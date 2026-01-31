@@ -14,6 +14,7 @@ import ProductDetails from '../components/productos/ProductDetails';
 import PageContainer from '../components/ui/PageContainer';
 import SectionHeader from '../components/ui/SectionHeader';
 import NewServiceProductModal from '../components/facturacion/NewServiceProductModal';
+import { useNotifications } from '../hooks/useNotifications';
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
@@ -46,15 +47,20 @@ const ProductosPage: React.FC = () => {
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [editProductData, setEditProductData] = useState<any>(null);
 
+  // Hook para notificaciones
+  const { addNotification } = useNotifications();
+
   /* -----------------------------------------------------------------------------------------------
    * ESTADO DE UI
    * -----------------------------------------------------------------------------------------------*/
-  const [activeTab, setActiveTab] = useState<'productos' | 'servicios'>((params?.tab as 'productos' | 'servicios') || 'productos');
+  // Force default to 'servicios' and virtually disable 'productos'
+  const [activeTab, setActiveTab] = useState<'servicios'>('servicios');
 
-  // Update tab if params change (e.g. navigation back with param)
+  // Update tab if params change (forcing services)
   useEffect(() => {
-    if (params?.tab && (params.tab === 'productos' || params.tab === 'servicios')) {
-      setActiveTab(params.tab);
+    if (params?.tab) {
+      // Ignore params.tab if it tries to switch to products, or just keep it on services
+      setActiveTab('servicios');
     }
   }, [params?.tab]);
 
@@ -73,33 +79,17 @@ const ProductosPage: React.FC = () => {
       try {
         let response;
 
-        if (activeTab === 'productos') {
-          response = await apiClient.getProductos(
-            undefined, // codalm
-            currentPage,
-            pageSize,
-            searchTerm || undefined,
-            sortConfig?.key as string,
-            sortConfig?.direction
-          );
-        } else {
-          // Cargar Servicios
-          response = await apiClient.getServices(
-            currentPage,
-            pageSize,
-            searchTerm || undefined,
-            sortConfig?.key as string,
-            sortConfig?.direction
-          );
-        }
+        // Always load services
+        response = await apiClient.getServices(
+          currentPage,
+          pageSize,
+          searchTerm || undefined,
+          sortConfig?.key as string,
+          sortConfig?.direction
+        );
 
         if (response.success) {
           let dataList = (response.data as any[]) as InvProducto[];
-
-          // Aplicar filtro de categoría en el cliente (SOLO PARA PRODUCTOS)
-          if (activeTab === 'productos' && categoryFilter !== 'Todos') {
-            dataList = dataList.filter(p => p.idCategoria === parseInt(categoryFilter));
-          }
 
           setProductos(dataList);
 
@@ -125,18 +115,18 @@ const ProductosPage: React.FC = () => {
     }, searchTerm ? 500 : 0);
 
     return () => clearTimeout(timeoutId);
-  }, [currentPage, pageSize, searchTerm, categoryFilter, sortConfig, activeTab]);
+  }, [currentPage, pageSize, searchTerm, categoryFilter, sortConfig]);
 
   const handleOpenModal = (producto: InvProducto) => {
     setSelectedProducto(producto);
     setIsModalOpen(true);
   };
 
-  // Resetear paginación al cambiar de tab
-  const handleTabChange = (tab: 'productos' | 'servicios') => {
-    setActiveTab(tab);
+  // Resetear paginación al cambiar de tab (Unused now but kept for compatibility if needed)
+  const handleTabChange = (_tab: any) => {
+    setActiveTab('servicios');
     setCurrentPage(1);
-    setSearchTerm(''); // Opcional: limpiar búsqueda al cambiar tab
+    setSearchTerm('');
     setCategoryFilter('Todos');
   };
 
@@ -175,7 +165,7 @@ const ProductosPage: React.FC = () => {
         <div className="flex flex-col">
           <span className="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[250px]" title={item.nombre}>{item.nombre}</span>
           <span className="text-xs text-slate-500 dark:text-slate-400">{(item as any).descripcion || ''}</span>
-          {activeTab === 'servicios' && <span className="text-[10px] text-blue-500 font-semibold bg-blue-50 dark:bg-blue-900/20 px-1 rounded w-fit mt-0.5">SERVICIO</span>}
+          <span className="text-[10px] text-blue-500 font-semibold bg-blue-50 dark:bg-blue-900/20 px-1 rounded w-fit mt-0.5">SERVICIO</span>
         </div>
       )
     },
@@ -233,28 +223,6 @@ const ProductosPage: React.FC = () => {
       }
     },
     {
-      header: 'Stock',
-      accessor: 'stock',
-      cell: (item) => {
-        const stock = (item as any).stock ?? 0;
-
-        // Servicios siempre tienen stock infinito/ficticio
-        if (activeTab === 'servicios') {
-          return <span className="text-xs text-slate-400 px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-full">N/A</span>;
-        }
-
-        const isLow = stock < 10;
-        return (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isLow
-            ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-            : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-            }`}>
-            {stock}
-          </span>
-        );
-      }
-    },
-    {
       header: 'Acciones', accessor: 'id', cell: (item) => {
         const isEditing = editingPriceId === item.id;
 
@@ -289,36 +257,35 @@ const ProductosPage: React.FC = () => {
             >
               <i className="fas fa-eye"></i>
             </button>
-            <ProtectedComponent permission="productos:edit">
-              <button
-                onClick={() => {
-                  const productData = {
-                    id: item.id,
-                    codigo: (item as any).codigo || '',
-                    nombre: item.nombre,
-                    precio: (item as any).precioBase || 0,
-                    aplicaIva: ((item as any).iva || 0) > 0,
-                    referencia: (item as any).referencia || '',
-                    idTipoProducto: activeTab === 'servicios' ? 2 : 1
-                  };
-                  setEditProductData(productData);
-                  setIsNewModalOpen(true);
-                }}
-                className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-all duration-200"
-                title="Editar"
-              >
-                <i className="fas fa-pencil-alt"></i>
-              </button>
-            </ProtectedComponent>
-            <ProtectedComponent permission="productos:edit">
-              <button
-                onClick={() => handleDeleteProduct(item)}
-                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all duration-200"
-                title="Eliminar"
-              >
-                <i className="fas fa-trash"></i>
-              </button>
-            </ProtectedComponent>
+            <button
+              onClick={() => {
+                const productData = {
+                  id: item.id,
+                  codigo: (item as any).codigo || '',
+                  nombre: item.nombre,
+                  precio: (item as any).precioBase || (item as any).ultimoCosto || 0,
+                  aplicaIva: ((item as any).tasaIva || 0) > 0,
+                  referencia: (item as any).referencia || '',
+                  idTipoProducto: 2, // Always service
+                  idCategoria: (item as any).idCategoria,
+                  idSublineas: (item as any).idSublineas,
+                  unidadMedidaCodigo: (item as any).unidadMedidaCodigo
+                };
+                setEditProductData(productData);
+                setIsNewModalOpen(true);
+              }}
+              className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-all duration-200"
+              title="Editar"
+            >
+              <i className="fas fa-pencil-alt"></i>
+            </button>
+            <button
+              onClick={() => handleDeleteProduct(item)}
+              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all duration-200"
+              title="Eliminar"
+            >
+              <i className="fas fa-trash"></i>
+            </button>
           </div>
         );
       }
@@ -360,16 +327,14 @@ const ProductosPage: React.FC = () => {
   };
 
   const handleDeleteProduct = async (item: InvProducto) => {
-    if (!confirm(`¿Estás seguro de que deseas eliminar ${activeTab === 'servicios' ? 'el servicio' : 'el producto'} "${item.nombre}"?`)) {
+    if (!confirm(`¿Estás seguro de que deseas eliminar el servicio "${item.nombre}"?`)) {
       return;
     }
 
     try {
-      // TODO: Implement deleteProducto method in apiClient
-      alert('La funcionalidad de eliminar estará disponible próximamente');
-      return;
-
-      // const response = await apiClient.deleteProducto(item.id);
+      // Para servicios, usar el código (codser) en lugar del id
+      const serviceCode = (item as any).codigo || item.id;
+      const response = await apiClient.deleteProducto(serviceCode);
 
       if (response.success) {
         // Recargar datos después de eliminar
@@ -377,24 +342,13 @@ const ProductosPage: React.FC = () => {
           setIsLoading(true);
           try {
             let refreshResponse;
-            if (activeTab === 'productos') {
-              refreshResponse = await apiClient.getProductos(
-                undefined,
-                currentPage,
-                pageSize,
-                searchTerm || undefined,
-                sortConfig?.key as string,
-                sortConfig?.direction
-              );
-            } else {
-              refreshResponse = await apiClient.getServices(
-                currentPage,
-                pageSize,
-                searchTerm || undefined,
-                sortConfig?.key as string,
-                sortConfig?.direction
-              );
-            }
+            refreshResponse = await apiClient.getServices(
+              currentPage,
+              pageSize,
+              searchTerm || undefined,
+              sortConfig?.key as string,
+              sortConfig?.direction
+            );
 
             if (refreshResponse.success) {
               setProductos((refreshResponse.data as any[]) as InvProducto[]);
@@ -407,13 +361,22 @@ const ProductosPage: React.FC = () => {
         };
 
         await loadData();
-        alert(`${activeTab === 'servicios' ? 'Servicio' : 'Producto'} eliminado exitosamente`);
+        addNotification({
+          type: 'success',
+          message: `Servicio "${item.nombre}" eliminado exitosamente`
+        });
       } else {
-        alert('Error al eliminar: ' + response.message);
+        addNotification({
+          type: 'error',
+          message: 'Error al eliminar: ' + response.message
+        });
       }
     } catch (error) {
       console.error('Error deleting product:', error);
-      alert('Error de conexión al eliminar');
+      addNotification({
+        type: 'error',
+        message: 'Error de conexión al eliminar'
+      });
     }
   };
 
@@ -453,49 +416,25 @@ const ProductosPage: React.FC = () => {
     setSortConfig({ key, direction });
   };
 
-  const additionalFilters = activeTab === 'productos' ? null : null; // Podríamos habilitar filtros diferentes
+  const additionalFilters = null;
 
   return (
     <PageContainer>
       <SectionHeader
-        title="Gestión de Productos y Servicios"
-        subtitle="Administra el catálogo de productos, servicios y control de inventario."
+        title="Gestión de Servicios"
+        subtitle="Administra el catálogo de servicios."
       />
-
-      {/* Tabs Navigation */}
-      <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6 w-full">
-        <button
-          onClick={() => handleTabChange('productos')}
-          className={`py-2 px-6 font-medium text-sm transition-colors border-b-2 ${activeTab === 'productos'
-            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-            : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'
-            }`}
-        >
-          <i className="fas fa-box-open mr-2"></i>
-          Productos
-        </button>
-        <button
-          onClick={() => handleTabChange('servicios')}
-          className={`py-2 px-6 font-medium text-sm transition-colors border-b-2 ${activeTab === 'servicios'
-            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-            : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'
-            }`}
-        >
-          <i className="fas fa-concierge-bell mr-2"></i>
-          Servicios
-        </button>
-      </div>
 
       <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="p-2 sm:p-3 bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700">
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
-            createActionLabel={activeTab === 'productos' ? "Nuevo Producto" : "Nuevo Servicio"}
+            createActionLabel="Nuevo Servicio"
             onCreateAction={() => setIsNewModalOpen(true)}
-            additionalFilters={additionalFilters}
+            additionalFilters={null}
             onCustomizeColumns={() => setIsColumnModalOpen(true)}
-            placeholder={`Buscar ${activeTab === 'productos' ? 'producto' : 'servicio'}, referencia...`}
+            placeholder="Buscar servicio, referencia..."
           />
         </div>
 
@@ -512,7 +451,7 @@ const ProductosPage: React.FC = () => {
               onSort={requestSort}
               sortConfig={sortConfig}
               highlightRowId={params?.highlightId ?? params?.focusId}
-              emptyMessage={activeTab === 'productos' ? "No se encontraron productos." : "No se encontraron servicios."}
+              emptyMessage="No se encontraron servicios."
             />
           )}
         </CardContent>
@@ -551,7 +490,7 @@ const ProductosPage: React.FC = () => {
         <Modal
           isOpen={isModalOpen}
           onClose={handleCloseModal}
-          title={`Detalle del ${activeTab === 'productos' ? 'Producto' : 'Servicio'}: ${selectedProducto.nombre}`}
+          title={`Detalle del Servicio: ${selectedProducto.nombre}`}
           size="4xl"
         >
           <ProductDetails producto={selectedProducto} />

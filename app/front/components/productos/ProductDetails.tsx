@@ -74,45 +74,49 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ producto }) => {
                             {(producto as any).descripcion || 'Sin descripción disponible.'}
                         </p>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
-                        <div className={`px-4 py-2 rounded-lg text-center min-w-[120px] ${(producto as any).stock < 10 ? 'bg-red-50 border border-red-100 dark:bg-red-900/20 dark:border-red-800' : 'bg-green-50 border border-green-100 dark:bg-green-900/20 dark:border-green-800'}`}>
-                            <span className={`block text-xs font-bold uppercase tracking-wider ${(producto as any).stock < 10 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>Stock Actual</span>
-                            <span className={`text-2xl font-bold ${(producto as any).stock < 10 ? 'text-red-800 dark:text-red-300' : 'text-green-800 dark:text-green-300'}`}>{(producto as any).stock ?? 0}</span>
+                    {producto.idTipoProducto !== 2 && (
+                        <div className="flex flex-col items-end gap-2">
+                            <div className={`px-4 py-2 rounded-lg text-center min-w-[120px] ${(producto as any).stock < 10 ? 'bg-red-50 border border-red-100 dark:bg-red-900/20 dark:border-red-800' : 'bg-green-50 border border-green-100 dark:bg-green-900/20 dark:border-green-800'}`}>
+                                <span className={`block text-xs font-bold uppercase tracking-wider ${(producto as any).stock < 10 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>Stock Actual</span>
+                                <span className={`text-2xl font-bold ${(producto as any).stock < 10 ? 'text-red-800 dark:text-red-300' : 'text-green-800 dark:text-green-300'}`}>{(producto as any).stock ?? 0}</span>
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 
 
             {/* Nueva Sección: Distribución de Stock por Bodega */}
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm">
-                <SectionTitle title="Distribución de Inventario" icon="fa-warehouse" />
+            {producto.idTipoProducto !== 2 && (
+                <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm">
+                    <SectionTitle title="Distribución de Inventario" icon="fa-warehouse" />
 
-                {loadingStock ? (
-                    <div className="text-center py-4 text-slate-500"><i className="fas fa-spinner fa-spin mr-2"></i>Cargando inventario...</div>
-                ) : stockDetails.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {stockDetails.map((bodega) => (
-                            <div key={bodega.codalm} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-600 gap-3">
-                                <div className="flex items-center gap-3 min-w-0 flex-1">
-                                    <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex-shrink-0 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                                        <i className="fas fa-building text-xs"></i>
+                    {loadingStock ? (
+                        <div className="text-center py-4 text-slate-500"><i className="fas fa-spinner fa-spin mr-2"></i>Cargando inventario...</div>
+                    ) : stockDetails.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {stockDetails.map((bodega) => (
+                                <div key={bodega.codalm} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-600 gap-3">
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                        <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex-shrink-0 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                                            <i className="fas fa-building text-xs"></i>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase truncate">{bodega.codalm}</div>
+                                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200 break-words line-clamp-2" title={bodega.nombreBodega}>{bodega.nombreBodega}</div>
+                                        </div>
                                     </div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase truncate">{bodega.codalm}</div>
-                                        <div className="text-sm font-medium text-slate-800 dark:text-slate-200 break-words line-clamp-2" title={bodega.nombreBodega}>{bodega.nombreBodega}</div>
+                                    <div className={`text-lg font-bold whitespace-nowrap flex-shrink-0 ${bodega.cantidad > 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-400 dark:text-slate-500'}`}>
+                                        {bodega.cantidad}
                                     </div>
                                 </div>
-                                <div className={`text-lg font-bold whitespace-nowrap flex-shrink-0 ${bodega.cantidad > 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-400 dark:text-slate-500'}`}>
-                                    {bodega.cantidad}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <p className="text-slate-500 dark:text-slate-400 italic">No hay información de stock disponible.</p>
-                )}
-            </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-slate-500 dark:text-slate-400 italic">No hay información de stock disponible.</p>
+                    )}
+                </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Columna Izquierda */}

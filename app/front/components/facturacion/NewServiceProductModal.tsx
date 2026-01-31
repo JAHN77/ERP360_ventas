@@ -25,15 +25,52 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
     const isEditMode = !!editData;
 
     const [formData, setFormData] = useState({
-        idTipoProducto: 2, // 2 = Servicio por defecto
+        idTipoProducto: 2, // 2 = Servicio (Always forced)
         nombre: '',
         precio: '',
         aplicaIva: true,
-        referencia: '',
-        unidadMedida: 'Unidad'
+        unidadMedidaCodigo: '003', // Default 'Unidad'
+        idCategoria: '',
+        idSublineas: ''
     });
 
+    const [categories, setCategories] = useState<any[]>([]);
+    const [sublines, setSublines] = useState<any[]>([]);
+    const [measures, setMeasures] = useState<any[]>([]);
+    const [loadingOptions, setLoadingOptions] = useState(false);
+
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+    // Load options
+    useEffect(() => {
+        const fetchOptions = async () => {
+            setLoadingOptions(true);
+            try {
+                const [catsRes, measuresRes] = await Promise.all([
+                    apiClient.request<any>('/categorias/lineas-sublineas'),
+                    apiClient.getMedidas()
+                ]);
+
+                if (catsRes.success) setCategories(catsRes.data as any[]);
+                if (measuresRes.success) setMeasures(measuresRes.data as any[]);
+            } catch (error) {
+                console.error('Error fetching options:', error);
+            } finally {
+                setLoadingOptions(false);
+            }
+        };
+        fetchOptions();
+    }, []);
+
+    // Load sublines when category changes
+    useEffect(() => {
+        if (formData.idCategoria) {
+            const selectedCat = categories.find(c => c.codline === formData.idCategoria);
+            setSublines(selectedCat?.sublineas || []);
+        } else {
+            setSublines([]);
+        }
+    }, [formData.idCategoria, categories]);
 
     // Reset form when modal opens/closes or editData changes
     useEffect(() => {
@@ -41,12 +78,13 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
             if (editData) {
                 // Edit mode: populate with existing data
                 setFormData({
-                    idTipoProducto: editData.idTipoProducto,
+                    idTipoProducto: 2,
                     nombre: editData.nombre,
                     precio: String(editData.precio),
                     aplicaIva: editData.aplicaIva,
-                    referencia: editData.referencia || '',
-                    unidadMedida: (editData as any).unidadMedida || 'Unidad'
+                    unidadMedidaCodigo: (editData as any).unidadMedidaCodigo || '003',
+                    idCategoria: (editData as any).idCategoria || '',
+                    idSublineas: (editData as any).idSublineas || ''
                 });
             } else {
                 // Create mode: reset to defaults
@@ -55,8 +93,9 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                     nombre: '',
                     precio: '',
                     aplicaIva: true,
-                    referencia: '',
-                    unidadMedida: 'Unidad'
+                    unidadMedidaCodigo: '003',
+                    idCategoria: '',
+                    idSublineas: ''
                 });
             }
             setErrors({});
@@ -90,15 +129,15 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
         try {
             const payload = {
                 nombre: formData.nombre,
-                idTipoProducto: formData.idTipoProducto,
+                idTipoProducto: 2,
                 precio: parseFloat(formData.precio),
                 aplicaIva: formData.aplicaIva,
-                unidadMedida: formData.unidadMedida,
-                referencia: formData.referencia || '',
+                unidadMedida: formData.unidadMedidaCodigo,
+                stock: 0,
                 descripcion: '',
                 controlaExistencia: 0,
-                idSublineas: 1,
-                idCategoria: 1
+                idSublineas: formData.idSublineas || '01',
+                idCategoria: formData.idCategoria || '01'
             };
 
             let response;
@@ -112,7 +151,7 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
 
             if (response.success) {
                 addNotification({
-                    message: `${formData.idTipoProducto === 2 ? 'Servicio' : 'Producto'} "${formData.nombre}" ${isEditMode ? 'actualizado' : 'creado'} exitosamente`,
+                    message: `Servicio "${formData.nombre}" ${isEditMode ? 'actualizado' : 'creado'} exitosamente`,
                     type: 'success'
                 });
                 onSuccess?.();
@@ -121,7 +160,7 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                 throw new Error(response.message || 'Error al guardar');
             }
         } catch (error: any) {
-            console.error('Error creating/updating service/product:', error);
+            console.error('Error creating/updating service:', error);
             addNotification({
                 message: error.message || 'Error al guardar el registro',
                 type: 'error'
@@ -131,8 +170,9 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
         }
     };
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value, type, checked } = e.target;
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value, type } = e.target;
+        const checked = (e.target as HTMLInputElement).checked;
 
         setFormData(prev => ({
             ...prev,
@@ -149,36 +189,9 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
         }
     };
 
-    const isService = formData.idTipoProducto === 2;
-
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`${isEditMode ? 'Editar' : 'Crear Nuevo'} ${isService ? 'Servicio' : 'Producto'}`} size="md">
+        <Modal isOpen={isOpen} onClose={onClose} title={`${isEditMode ? 'Editar' : 'Crear Nuevo'} Servicio`} size="md">
             <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Toggle Tipo - Más compacto */}
-                <div className="flex gap-2">
-                    <button
-                        type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, idTipoProducto: 2 }))}
-                        className={`flex-1 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${isService
-                            ? 'bg-blue-600 text-white shadow-md'
-                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                            }`}
-                    >
-                        <i className="fas fa-concierge-bell mr-1.5"></i>
-                        Servicio
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, idTipoProducto: 1 }))}
-                        className={`flex-1 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${!isService
-                            ? 'bg-blue-600 text-white shadow-md'
-                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                            }`}
-                    >
-                        <i className="fas fa-box mr-1.5"></i>
-                        Producto
-                    </button>
-                </div>
 
                 {/* Nombre */}
                 <div>
@@ -195,48 +208,73 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                             ? 'border-red-500 bg-red-50 dark:bg-red-900/10'
                             : 'border-slate-300 dark:border-slate-600'
                             }`}
-                        placeholder={isService ? 'Ej. Consultoría IT' : 'Ej. Cable HDMI'}
+                        placeholder="Ej. Consultoría IT"
                     />
                     {errors.nombre && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.nombre}</p>}
                 </div>
 
-                {/* Referencia y Unidad de Medida */}
+                {/* Unidad de Medida */}
+                <div>
+                    <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
+                        Unidad
+                    </label>
+                    <select
+                        name="unidadMedidaCodigo"
+                        value={formData.unidadMedidaCodigo}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm appearance-none"
+                        style={{ backgroundImage: 'none' }}
+                    >
+                        {measures.length > 0 ? (
+                            measures.map(m => (
+                                <option key={m.codigo} value={m.codigo}>{m.nombre}</option>
+                            ))
+                        ) : (
+                            <>
+                                <option value="003">Unidad</option>
+                                <option value="001">Hora</option>
+                                <option value="002">Día</option>
+                            </>
+                        )}
+                    </select>
+                </div>
+
+                {/* Categoría y Subcategoría */}
                 <div className="flex gap-3">
-                    <div className="flex-[2]">
+                    <div className="flex-1">
                         <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
-                            Referencia <span className="text-slate-400 text-xs font-normal">(Opcional)</span>
+                            Categoría (Línea)
                         </label>
-                        <input
-                            type="text"
-                            name="referencia"
-                            value={formData.referencia}
+                        <select
+                            name="idCategoria"
+                            value={formData.idCategoria}
                             onChange={handleChange}
-                            placeholder="Ej. REF-001"
                             className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
-                        />
+                        >
+                            <option value="">Seleccione...</option>
+                            {categories.map(cat => (
+                                <option key={cat.codline} value={cat.codline}>{cat.nomline}</option>
+                            ))}
+                        </select>
                     </div>
                     <div className="flex-1">
                         <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
-                            Unidad
+                            Subcategoría
                         </label>
                         <select
-                            name="unidadMedida"
-                            value={formData.unidadMedida}
-                            onChange={(e) => setFormData(prev => ({ ...prev, unidadMedida: e.target.value }))}
-                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm appearance-none"
-                            style={{ backgroundImage: 'none' }} // Remove browser default arrow if needed, but standard select is safer
+                            name="idSublineas"
+                            value={formData.idSublineas}
+                            onChange={handleChange}
+                            disabled={!formData.idCategoria}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm disabled:opacity-50"
                         >
-                            <option value="Unidad">Unidad</option>
-                            <option value="Servicio">Servicio</option>
-                            <option value="Kilo">Kilo</option>
-                            <option value="Metro">Metro</option>
-                            <option value="Litro">Litro</option>
-                            <option value="Hora">Hora</option>
-                            <option value="Día">Día</option>
+                            <option value="">Seleccione...</option>
+                            {sublines.map(sub => (
+                                <option key={sub.codsub} value={sub.codsub}>{sub.nomsub}</option>
+                            ))}
                         </select>
                     </div>
                 </div>
-
                 {/* Precio e IVA en una línea */}
                 <div className="flex gap-3 items-start">
                     <div className="flex-1">

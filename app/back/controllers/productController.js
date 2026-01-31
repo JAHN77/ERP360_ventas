@@ -184,11 +184,19 @@ const productController = {
             CAST(s.ivaser AS decimal(18,2))            AS tasaIva,
             CAST(s.valser AS decimal(18,2))            AS ultimoCosto,
             LTRIM(RTRIM(COALESCE(s.REFSER, '')))       AS referencia,
-            CAST(9999 AS decimal(18,2))                AS stock,
+            CAST(0 AS decimal(18,2))                   AS stock,
+            COALESCE(RTRIM(l.nomline), 'Servicios')    AS categoriaNombre,
+            COALESCE(RTRIM(m.nommed), 'Servicio')      AS unidadMedidaNombre,
+            LTRIM(RTRIM(s.Codigo_medida))              AS unidadMedidaCodigo,
+            LTRIM(RTRIM(s.CODSUBLINEA))                AS idSublineas,
+            LTRIM(RTRIM(sl.codline))                   AS idCategoria,
             CAST(s.valser AS decimal(18,2))            AS precioPublico,
             CAST((s.valser * (1 + (s.ivaser / 100.0))) AS decimal(18,2)) AS precioConIva,
             1                                          AS activo
         FROM ${TABLE_NAMES.servicios} s
+        LEFT JOIN inv_medidas m ON LTRIM(RTRIM(m.codmed)) = LTRIM(RTRIM(s.Codigo_medida))
+        LEFT JOIN inv_sublinea sl ON LTRIM(RTRIM(sl.codsub)) = LTRIM(RTRIM(s.CODSUBLINEA))
+        LEFT JOIN inv_lineas l ON LTRIM(RTRIM(l.codline)) = LTRIM(RTRIM(sl.codline))
         WHERE 1=1
       `;
 
@@ -279,16 +287,27 @@ const productController = {
       const sql = require('mssql');
       const pool = await getConnectionForDb(req.db_name);
 
-      // Simple generation of next code (max + 1)
+      // Generate next code (max + 1) handling leading zeros
       let nextCode = '001';
       try {
-        const maxQuery = `SELECT MAX(CAST(${idCol} AS BIGINT)) as maxCode FROM ${tableName} WHERE ISNUMERIC(${idCol}) = 1`;
+        // Get max code, removing leading zeros for numeric comparison
+        const maxQuery = `
+          SELECT MAX(
+            CASE 
+              WHEN ISNUMERIC(${idCol}) = 1 THEN CAST(${idCol} AS INT)
+              ELSE 0
+            END
+          ) as maxCode 
+          FROM ${tableName}
+        `;
         const maxRes = await pool.request().query(maxQuery);
         const maxVal = maxRes.recordset[0].maxCode || 0;
         nextCode = String(maxVal + 1).padStart(3, '0');
+        console.log(`Generated next code for ${tableName}: ${nextCode} (max was ${maxVal})`);
       } catch (e) {
-        console.warn('Error generating code, fallback to timestamp', e);
-        nextCode = String(Date.now()).substring(6);
+        console.warn('Error generating code:', e);
+        // Fallback: use timestamp-based code
+        nextCode = String(Date.now()).substring(7).padStart(3, '0');
       }
 
       // Map Unit
@@ -309,20 +328,33 @@ const productController = {
 
         if (isService) {
           // Insert Service
-          // Note: ven_servicios columns inferred from getAllServices select list
+          // Auto-generate reference: S-SER{codigo}
+          const autoRef = `S-SER${nextCode}`;
+
+          // Default accounting code for services (Otros Ingresos Operacionales)
+          const codCue = '42201001'; // Cuenta por defecto para servicios
+          const codigoInterfase = '04'; // Código de interfaz para servicios
+
           const query = `
             INSERT INTO ${TABLE_NAMES.servicios} 
-            (codser, nomser, ivaser, valser, REFSER, Codigo_medida, CODSUBLINEA)
+            (codser, nomser, codcue, valser, ivaser, tasacomis, codins, REFSER, concesion, CODSUBLINEA, CODIGO_INTERFASE, Codigo_medida)
             VALUES
-            (@code, @nombre, @iva, @precio, @referencia, @medida, @sublinea)
+            (@code, @nombre, @codcue, @precio, @iva, @tasacomis, @codins, @referencia, @concesion, @sublinea, @interfase, @medida)
           `;
-          request.input('code', sql.VarChar(20), nextCode);
-          request.input('nombre', sql.VarChar(255), nombre || 'Nuevo Servicio');
-          request.input('iva', sql.Decimal(5, 2), tasaIvaVal);
-          request.input('precio', sql.Decimal(18, 2), precioVal);
-          request.input('referencia', sql.VarChar(50), referencia || '');
-          request.input('medida', sql.VarChar(5), codMedida);
-          request.input('sublinea', sql.VarChar(5), idSublineas ? String(idSublineas) : '01');
+          request.input('code', sql.VarChar(3), nextCode);
+          request.input('nombre', sql.VarChar(100), nombre || 'Nuevo Servicio');
+          request.input('codcue', sql.VarChar(8), codCue);
+          request.input('precio', sql.Decimal(18, 4), precioVal);
+          request.input('iva', sql.Decimal(6, 2), tasaIvaVal);
+          request.input('tasacomis', sql.Decimal(6, 2), 0); // Sin comisión por defecto
+          request.input('codins', sql.VarChar(8), autoRef);
+          request.input('referencia', sql.VarChar(15), autoRef);
+          request.input('concesion', sql.Bit, 0);
+          // Format subline with SS prefix: SS01, SS02, etc.
+          const sublineaFormatted = idSublineas ? `SS${String(idSublineas).padStart(2, '0')}` : 'SS01';
+          request.input('sublinea', sql.VarChar(4), sublineaFormatted);
+          request.input('interfase', sql.VarChar(2), codigoInterfase);
+          request.input('medida', sql.VarChar(3), codMedida);
 
           await request.query(query);
 
@@ -461,9 +493,17 @@ const productController = {
           ) AS unidadMedida,
           -- Precio con IVA calculado (aunque valser parece ser precio base)
           (ins.valser * (1 + (ins.ivaser / 100.0))) AS precioConIva,
-          -- Control de existencia (servicios no suelen tener stock, pero retornamos 9999 para que no bloquee)
-          9999 AS stock
+          -- Control de existencia (servicios no tienen stock)
+          0 AS stock,
+          COALESCE(RTRIM(l.nomline), 'Servicios') AS categoriaNombre,
+          COALESCE(RTRIM(m.nommed), 'Servicio') AS unidadMedidaNombre,
+          LTRIM(RTRIM(ins.Codigo_medida)) AS unidadMedidaCodigo,
+          LTRIM(RTRIM(ins.CODSUBLINEA)) AS idSublineas,
+          LTRIM(RTRIM(sl.codline)) AS idCategoria
         FROM ven_servicios ins
+        LEFT JOIN inv_medidas m ON LTRIM(RTRIM(m.codmed)) = LTRIM(RTRIM(ins.Codigo_medida))
+        LEFT JOIN inv_sublinea sl ON LTRIM(RTRIM(sl.codsub)) = LTRIM(RTRIM(ins.CODSUBLINEA))
+        LEFT JOIN inv_lineas l ON LTRIM(RTRIM(l.codline)) = LTRIM(RTRIM(sl.codline))
         WHERE (ins.nomser LIKE @like OR ins.codser LIKE @like OR ins.REFSER LIKE @like)
         ORDER BY ins.nomser
       `;
