@@ -269,9 +269,9 @@ const createQuote = async (req, res) => {
       reqCliente.input('clienteIdVal', sql.VarChar(20), clienteIdStr);
       const resId = await reqCliente.query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @clienteIdVal`);
       if (resId.recordset.length > 0) {
-          clienteData = resId.recordset[0];
+        clienteData = resId.recordset[0];
       }
-      
+
       if (!clienteData) {
         throw new Error(`Cliente no encontrado: ${clienteId}`);
       }
@@ -286,9 +286,9 @@ const createQuote = async (req, res) => {
         reqVen.input('vcod', sql.VarChar(20), vendedorIdStr);
         const resVen = await reqVen.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE LTRIM(RTRIM(codven)) = @vcod`);
         if (resVen.recordset.length > 0) {
-           codVendedorFinal = resVen.recordset[0].codven;
+          codVendedorFinal = resVen.recordset[0].codven;
         } else {
-           codVendedorFinal = vendedorIdStr;
+          codVendedorFinal = vendedorIdStr;
         }
       }
 
@@ -315,10 +315,10 @@ const createQuote = async (req, res) => {
       reqInsertHeader.input('numcot', sql.VarChar(8), nuevoNumero);
       reqInsertHeader.input('fecha', sql.Date, fechaCotizacion || new Date());
       reqInsertHeader.input('fecha_vence', sql.Date, fechaVencimiento || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000));
-      
+
       reqInsertHeader.input('codter', sql.VarChar(15), String(codTerFinal).substring(0, 15));
       reqInsertHeader.input('cod_vendedor', sql.VarChar(10), String(codVendedorFinal || '').substring(0, 10));
-      
+
       let codAlmFinal = '001';
       if (empresaId) codAlmFinal = String(empresaId).trim().substring(0, 3);
       reqInsertHeader.input('codalm', sql.VarChar(3), codAlmFinal);
@@ -335,13 +335,13 @@ const createQuote = async (req, res) => {
       let formaPagoFinal = '01';
       if (formaPago) {
         const fpStr = String(formaPago).trim();
-         // Basic Mapping
+        // Basic Mapping
         if (fpStr === '1' || fpStr.toLowerCase() === 'contado') formaPagoFinal = '01';
         else if (fpStr === '2' || fpStr.toLowerCase().includes('credito')) formaPagoFinal = '02';
         else formaPagoFinal = fpStr.substring(0, 2);
       }
       reqInsertHeader.input('formapago', sql.NChar(4), formaPagoFinal);
-      
+
       reqInsertHeader.input('fecsys', sql.Date, new Date());
       reqInsertHeader.input('cod_usuario', sql.VarChar(10), 'ADMIN');
       reqInsertHeader.input('COD_TARIFA', sql.Char(2), '01');
@@ -358,7 +358,7 @@ const createQuote = async (req, res) => {
         );
         SELECT SCOPE_IDENTITY() AS id;
       `;
-      
+
       const headerResult = await reqInsertHeader.query(insertHeaderQuery);
       const cotizacionId = headerResult.recordset[0].id; // Capture ID for Details
 
@@ -372,12 +372,12 @@ const createQuote = async (req, res) => {
         let codProductoStr = String(item.codProducto || '').trim();
         // Fallback lookup
         if (!codProductoStr && item.productoId) {
-             const reqProd = new sql.Request(tx);
-             reqProd.input('pid', sql.Int, item.productoId);
-             try {
-                const resProd = await reqProd.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @pid`);
-                if (resProd.recordset.length > 0) codProductoStr = resProd.recordset[0].codins;
-             } catch (e) { }
+          const reqProd = new sql.Request(tx);
+          reqProd.input('pid', sql.Int, item.productoId);
+          try {
+            const resProd = await reqProd.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @pid`);
+            if (resProd.recordset.length > 0) codProductoStr = resProd.recordset[0].codins;
+          } catch (e) { }
         }
 
         reqDetail.input('cod_producto', sql.VarChar(8), codProductoStr.substring(0, 8));
@@ -393,9 +393,9 @@ const createQuote = async (req, res) => {
         reqDetail.input('tasa_descuento', sql.Decimal(9, 5), tasaDcto);
         reqDetail.input('tasa_iva', sql.Decimal(5, 2), tasaIva);
         reqDetail.input('valor', sql.Decimal(18, 2), totalItem);
-        
+
         reqDetail.input('codigo_medida', sql.VarChar(3), String(item.codigoMedida || 'UND').substring(0, 3));
-        reqDetail.input('estado', sql.VarChar(1), 'P'); 
+        reqDetail.input('estado', sql.VarChar(1), 'P');
         reqDetail.input('qtycot', sql.Decimal(10, 4), cant);
 
         await reqDetail.query(`
@@ -776,7 +776,7 @@ const sendQuoteEmail = async (req, res) => {
     }
 
     // Helper para formatear moneda en el backend
-    const formatCurrencyCO = (value) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value || 0);
+    const formatCurrencyCO = (value) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
     const formatDateCO = (date) => new Date(date).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
 
     // Preparar detalles para el documento

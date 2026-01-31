@@ -135,7 +135,22 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                         <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
                             <Text style={[pdfStyles.tableCellText, { width: '12%', fontSize: 8, paddingLeft: 4 }]}>{(item as any).referencia || (item as any).codProducto || 'N/A'}</Text>
                             <Text style={[pdfStyles.tableCellText, { width: '35%', fontSize: 8, paddingHorizontal: 4 }]}>{item.descripcion}</Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>{(item as any).unidadMedida || 'UND'}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>
+                                {(() => {
+                                    let unit = String((item as any).unidadMedida || 'UND').toUpperCase();
+                                    if (unit.includes(',')) {
+                                        const parts = unit.split(',').map(p => p.trim()).filter(p => p);
+                                        unit = [...new Set(parts)].join(', ');
+                                    }
+                                    if (unit.length > 0 && unit.length % 2 === 0) {
+                                        const half = unit.length / 2;
+                                        if (unit.substring(0, half) === unit.substring(half)) {
+                                            unit = unit.substring(0, half);
+                                        }
+                                    }
+                                    return unit;
+                                })()}
+                            </Text>
                             <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'center', fontSize: 8 }]}>{item.cantidad}</Text>
                             {preferences.showPrices ? (<>
                                 <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrency(item.precioUnitario)}</Text>

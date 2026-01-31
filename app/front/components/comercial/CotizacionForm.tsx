@@ -5,11 +5,11 @@ import { isWithinRange, isPositiveInteger, isNonNegativeNumber } from '../../uti
 import { useData } from '../../hooks/useData';
 import { useAuth } from '../../hooks/useAuth';
 import { useNotifications } from '../../hooks/useNotifications';
-import { apiSearchClientes, apiSearchVendedores, apiCreateCotizacion, apiSearchProductos, apiGetClienteById } from '../../services/apiClient';
+import { apiSearchClientes, apiSearchVendedores, apiCreateCotizacion, apiSearchProductos, apiSearchServices, apiGetClienteById } from '../../services/apiClient';
 // apiSetClienteListaPrecios comentado temporalmente - lista de precios no implementada en frontend
 
 const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
 
 interface CotizacionFormData {
@@ -62,6 +62,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
     const [currentProductId, setCurrentProductId] = useState('');
     const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
     const [currentQuantity, setCurrentQuantity] = useState<number | string>(1);
+    const [currentPrice, setCurrentPrice] = useState<number | string>('');
     const [currentDiscount, setCurrentDiscount] = useState<number | string>(0);
 
     const searchRef = useRef<HTMLDivElement>(null);
@@ -193,8 +194,10 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         if (selectedProduct && isPositiveInteger(currentQuantity) && isWithinRange(Number(currentDiscount), 0, 100)) {
             const quantityNum = Number(currentQuantity);
             const discountNum = Number(currentDiscount);
+            const priceNum = Number(currentPrice) || 0;
+
             // Calcular subtotal sin IVA (después de descuento)
-            const subtotal = (selectedProduct.ultimoCosto * quantityNum) * (1 - (discountNum / 100));
+            const subtotal = (priceNum * quantityNum) * (1 - (discountNum / 100));
             // Determinar IVA: usar aplicaIva si existe, sino usar tasaIva > 0
             const tieneIva = (selectedProduct as any).aplicaIva !== undefined
                 ? (selectedProduct as any).aplicaIva
@@ -287,32 +290,53 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         return () => { clearTimeout(handler); controller.abort(); };
     }, [vendedorSearch]);
 
-    // Búsqueda de productos server-side (debounce)
+    // Búsqueda de productos y servicios server-side (debounce)
+    // Búsqueda de productos y servicios server-side (debounce)
     useEffect(() => {
         const controller = new AbortController();
         const handler = setTimeout(async () => {
             const q = productSearchTerm.trim();
             if (q.length >= 2) {
                 try {
-                    const resp = await apiSearchProductos(q, 20);
-                    if (resp.success && resp.data) {
-                        const dataArray = resp.data as any[];
-                        const productsInList = new Set(items.map(item => item.productoId));
-                        // Mapear los resultados para incluir unidadMedida desde unidadMedidaNombre
-                        const mappedProducts = dataArray.map((p: any) => ({
-                            ...p,
-                            unidadMedida: p.unidadMedidaNombre || p.unidadMedida || 'Unidad',
-                            nombre: p.nombre || p.nomins,
-                            aplicaIva: (p.tasaIva || 0) > 0,
-                            ultimoCosto: p.ultimoCosto || 0,
-                            stock: p.stock || 0,
-                            controlaExistencia: p.stock || 0
-                        }));
-                        const available = mappedProducts.filter((p: any) => !productsInList.has(p.id));
-                        setProductResults(available);
-                    }
+                    // Buscar tanto en productos como en servicios
+                    const [respProductos, respServicios] = await Promise.all([
+                        apiSearchProductos(q, 20),
+                        apiSearchServices(q, 20)
+                    ]);
+
+                    const productosData = (respProductos.success && respProductos.data) ? respProductos.data as any[] : [];
+                    const serviciosData = (respServicios.success && respServicios.data) ? respServicios.data as any[] : [];
+
+                    // Mapear productos
+                    const mappedProducts = productosData.map((p: any) => ({
+                        ...p,
+                        unidadMedida: p.unidadMedidaNombre || p.unidadMedida || 'Unidad',
+                        nombre: p.nombre || p.nomins,
+                        aplicaIva: (p.tasaIva || 0) > 0,
+                        ultimoCosto: p.ultimoCosto || 0,
+                        stock: p.stock || 0,
+                        controlaExistencia: p.stock || 0
+                    }));
+
+                    // Mapear servicios
+                    const mappedServices = serviciosData.map((s: any) => ({
+                        ...s,
+                        unidadMedida: s.unidadMedidaNombre || s.unidadMedida || 'Unidad',
+                        nombre: s.nombre || s.nomser,
+                        aplicaIva: (s.tasaIva || 0) > 0,
+                        ultimoCosto: s.ultimoCosto || s.precio || s.valser || 0,
+                        stock: 0, // Los servicios no tienen stock
+                        controlaExistencia: 0 // Los servicios no controlan existencia
+                    }));
+
+                    // Combinar y filtrar los que ya están en la lista (comparando como strings)
+                    const existingIds = new Set(items.map(item => String(item.productoId)));
+                    const allResults = [...mappedProducts, ...mappedServices];
+
+                    const available = allResults.filter((p: any) => !existingIds.has(String(p.id)));
+                    setProductResults(available);
                 } catch (error) {
-                    console.error('Error buscando productos:', error);
+                    console.error('Error buscando productos y servicios:', error);
                 }
             } else {
                 setProductResults([]);
@@ -394,28 +418,26 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         setCurrentProductId(String(product.id));
         setSelectedProduct(product);
         setProductSearchTerm(product.nombre);
+        // Inicializar el precio con el costo/precio del producto seleccionado
+        setCurrentPrice(product.ultimoCosto || (product as any).precio || (product as any).valser || 0);
         setIsProductDropdownOpen(false);
     };
 
     const handleAddItem = () => {
         // Usar selectedProduct directamente, ya que se guarda cuando se selecciona del dropdown
-        // Si no está disponible, buscar en productos o productResults
         let product = selectedProduct;
 
         if (!product && currentProductId) {
-            // Buscar primero en productos del contexto
-            product = productos.find(p => p.id === Number(currentProductId));
+            // Buscar primero en productos del contexto (comparando como strings)
+            product = productos.find(p => String(p.id) === String(currentProductId));
 
             // Si no se encuentra, buscar en los resultados de búsqueda
             if (!product) {
-                product = productResults.find(p => p.id === Number(currentProductId));
+                product = productResults.find(p => String(p.id) === String(currentProductId));
             }
         }
 
         if (!product) {
-            if (selectedProduct?.id) {
-                console.error('❌ Producto seleccionado pero no encontrado:', { selectedId: selectedProduct.id });
-            }
             addNotification({ type: 'warning', message: 'Por favor, selecciona un producto válido antes de agregarlo.' });
             return;
         }
@@ -446,22 +468,17 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         }
 
         // Validar que el producto no esté ya en la lista
-        if (items.some(item => item.productoId === product.id)) {
+        if (items.some(item => String(item.productoId) === String(product!.id))) {
             addNotification({ type: 'info', message: "El producto ya está en la lista." });
             return;
         }
 
-        // Validar y obtener precio unitario
-        const precioUnitario = Number(product.ultimoCosto || product.precio || (product as any).precioPublico || 0);
-        if (!precioUnitario || precioUnitario <= 0 || !isFinite(precioUnitario)) {
-            console.error('❌ Precio inválido para producto:', {
-                productId: product.id,
-                nombre: product.nombre,
-                ultimoCosto: product.ultimoCosto,
-                precio: product.precio,
-                precioPublico: (product as any).precioPublico
-            });
-            addNotification({ type: 'error', message: `El producto "${product.nombre}" no tiene un precio válido. Por favor, verifica el precio del producto.` });
+        // Validar y obtener precio unitario del estado editable
+        const precioUnitario = Number(currentPrice);
+
+        // Permitir precio 0 si es intencional, pero validar que sea número finito
+        if (!isFinite(precioUnitario) || precioUnitario < 0) {
+            addNotification({ type: 'error', message: 'Precio inválido.' });
             return;
         }
 
@@ -482,7 +499,6 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
         const valorIva = roundTo2(subtotal * (ivaPorcentaje / 100));
         const total = roundTo2(subtotal + valorIva);
 
-
         const newItem: DocumentItem & { unidadMedida?: string; referencia?: string } = {
             productoId: product.id,
             descripcion: product.nombre || 'Sin nombre',
@@ -502,75 +518,88 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
             (newItem as any).referencia = (product as any).referencia;
         }
 
+
         setItems([...items, newItem]);
+
+
 
         // Limpiar campos
         setCurrentProductId('');
         setSelectedProduct(null);
         setCurrentQuantity(1);
         setCurrentDiscount(0);
+        setCurrentPrice('');
         setProductSearchTerm('');
     };
 
-    const handleRemoveItem = (productId: number) => {
-        setItems(items.filter(item => item.productoId !== productId));
+    const handleRemoveItem = (productId: number | string) => {
+        setItems(items.filter(item => String(item.productoId) !== String(productId)));
     }
 
-    const handleItemChange = (productId: number, field: 'cantidad' | 'descuentoPorcentaje', value: any) => {
+    const handleItemChange = (productId: number | string, field: 'cantidad' | 'descuentoPorcentaje' | 'precioUnitario' | 'ivaPorcentaje' | 'descripcion', value: any) => {
         setItems(prevItems => {
             return prevItems.map(item => {
-                if (item.productoId === productId) {
+                // Compara como string para mayor seguridad
+                if (String(item.productoId) === String(productId)) {
                     // Procesar el valor según el campo
-                    let processedValue: number;
+                    let processedValue: any = value;
 
                     if (field === 'cantidad') {
                         const numericString = String(value).replace(/[^0-9]/g, '');
-                        const cantidadIngresada = numericString === '' ? 1 : parseInt(numericString, 10);
+                        const cantidadIngresada = numericString === '' ? '' : parseInt(numericString, 10); // Permitir vacío temporalmente mientras escribe
 
-                        // Buscar el producto para obtener el stock disponible
-                        const product = productos.find(p =>
-                            String(p.id) === String(productId) ||
-                            p.id === productId
-                        );
-
-                        // Obtener stock disponible y si controla existencia
-                        const stockDisponible = product?.stock ?? null;
-                        const controlaExistencia = product?.karins ?? false;
-
-                        // Si el producto controla existencia y hay stock disponible, limitar a ese stock
-                        if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
-                            processedValue = Math.max(1, Math.min(cantidadIngresada, stockDisponible));
+                        // Si es vacío, retornamos vacío para el input, pero para cálculo usaremos 0 o 1
+                        if (cantidadIngresada === '') {
+                            processedValue = '';
                         } else {
-                            // Si no controla existencia o no hay stock definido, permitir cualquier cantidad >= 1
-                            processedValue = Math.max(1, cantidadIngresada);
+                            // Validar stock solo si es producto (no servicio) y controla existencia
+                            const product = productos.find(p => String(p.id) === String(productId));
+                            const stockDisponible = product?.stock ?? null;
+                            const controlaExistencia = product?.karins ?? false;
+
+                            if (controlaExistencia && stockDisponible !== null && stockDisponible >= 0) {
+                                processedValue = Math.max(1, Math.min(cantidadIngresada as number, stockDisponible));
+                            } else {
+                                processedValue = Math.max(1, cantidadIngresada as number);
+                            }
                         }
-                    } else if (field === 'descuentoPorcentaje') {
-                        const numericString = String(value).replace(/[^0-9]/g, '');
-                        processedValue = numericString === '' ? 0 : Math.min(100, Math.max(0, parseInt(numericString, 10)));
-                    } else {
-                        return item; // Campo no soportado
+                    } else if (field === 'descuentoPorcentaje' || field === 'ivaPorcentaje') {
+                        const numericString = String(value).replace(/[^0-9.]/g, ''); // Permitir decimales
+                        // Permitir vacío temporalmente
+                        if (numericString === '') {
+                            processedValue = '';
+                        } else {
+                            processedValue = Math.min(100, Math.max(0, parseFloat(numericString) || 0));
+                        }
+                    } else if (field === 'precioUnitario') {
+                        const numericString = String(value).replace(/[^0-9.]/g, '');
+                        if (numericString === '') {
+                            processedValue = '';
+                        } else {
+                            processedValue = parseFloat(numericString) || 0;
+                        }
+                    } else if (field === 'descripcion') {
+                        processedValue = value;
                     }
 
                     const newItem = { ...item, [field]: processedValue };
 
-                    // Recalculate with robust tax rate logic
-                    const product = productos.find(p => p.id === productId);
-                    const ivaPorcentaje = product ? ((product.tasaIva || 0) > 0 ? (product.tasaIva || 19) : 0) : newItem.ivaPorcentaje;
-
-                    // Asegurar que si tenemos el producto, usamos su tasa, si no, mantenemos la que tiene el item
-                    const finalIvaPorcentaje = (product && (product as any).tasaIva !== undefined) ? product.tasaIva : ivaPorcentaje;
+                    // Valores para cálculo (usar 0 si es vacío o inválido)
+                    const calcCantidad = Number(newItem.cantidad) || 0;
+                    const calcPrecio = Number(newItem.precioUnitario) || 0;
+                    const calcDesc = Number(newItem.descuentoPorcentaje) || 0;
+                    const calcIva = newItem.ivaPorcentaje === '' ? 0 : (Number(newItem.ivaPorcentaje) || 0);
 
                     // Recalcular totales
                     const roundTo2 = (val: number) => Math.round(val * 100) / 100;
-                    const subtotalBruto = newItem.precioUnitario * newItem.cantidad;
-                    const descuentoValor = roundTo2(subtotalBruto * ({ ...newItem, ivaPorcentaje: finalIvaPorcentaje }.descuentoPorcentaje / 100));
+                    const subtotalBruto = calcPrecio * calcCantidad;
+                    const descuentoValor = roundTo2(subtotalBruto * (calcDesc / 100));
                     const subtotal = roundTo2(subtotalBruto - descuentoValor);
-                    const valorIva = roundTo2(subtotal * (finalIvaPorcentaje / 100));
+                    const valorIva = roundTo2(subtotal * (calcIva / 100));
                     const total = roundTo2(subtotal + valorIva);
 
                     return {
                         ...newItem,
-                        ivaPorcentaje: finalIvaPorcentaje,
                         subtotal: roundTo2(subtotal),
                         valorIva: roundTo2(valorIva),
                         total: roundTo2(total)
@@ -579,7 +608,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                 return item;
             });
         });
-    }
+    };
 
     const totals = useMemo(() => {
         // Calculate totals using catalog tax rates for accuracy
@@ -1031,7 +1060,23 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                     </div>
                     <div className="lg:col-span-1">
                         <label className={labelStyle}>Unidad</label>
-                        <input type="text" value={selectedProduct?.unidadMedida || ''} disabled className={`${disabledInputStyle} text-center !py-1.5`} title={selectedProduct?.unidadMedida || ''} />
+                        <input
+                            type="text"
+                            value={(() => {
+                                let u = String(selectedProduct?.unidadMedida || '').toUpperCase();
+                                if (u.includes(',')) {
+                                    u = [...new Set(u.split(',').map(p => p.trim()).filter(p => p))].join(', ');
+                                }
+                                if (u.length > 0 && u.length % 2 === 0) {
+                                    const half = u.length / 2;
+                                    if (u.substring(0, half) === u.substring(half)) u = u.substring(0, half);
+                                }
+                                return u;
+                            })()}
+                            disabled
+                            className={`${disabledInputStyle} text-center !py-1.5`}
+                            title={selectedProduct?.unidadMedida || ''}
+                        />
                     </div>
                     <div className="lg:col-span-1">
                         <label className={labelStyle}>Cantidad</label>
@@ -1042,7 +1087,17 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                     </div>
                     <div className="lg:col-span-1">
                         <label className={labelStyle}>Vr. Unit.</label>
-                        <input type="text" value={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} disabled className={`${disabledInputStyle} !py-1.5`} title={selectedProduct ? formatCurrency(selectedProduct.ultimoCosto) : formatCurrency(0)} />
+                        <input
+                            type="text"
+                            value={currentPrice === '' ? '' : formatCurrency(Number(currentPrice))}
+                            onChange={(e) => {
+                                // Eliminar formato moneda para obtener valor numérico
+                                const val = e.target.value.replace(/[^0-9]/g, '');
+                                setCurrentPrice(val);
+                            }}
+                            disabled={!selectedProduct}
+                            className={`${getNumericInputClasses(currentPrice !== '' ? Number(currentPrice) : 0, true)} !py-1.5`}
+                        />
                     </div>
                     <div className="lg:col-span-1">
                         <label className={labelStyle}>% Iva</label>
@@ -1093,13 +1148,13 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                             <thead className="bg-slate-50 dark:bg-slate-700">
                                 <tr>
                                     <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Referencia</th>
-                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Producto</th>
+                                    <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap min-w-[200px]">Producto</th>
                                     <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Unidad</th>
-                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Cant.</th>
-                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Precio</th>
-                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Desc. %</th>
-                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">IVA %</th>
-                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Total</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap w-24">Cant.</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap w-32">V. Unit.</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap w-20">Desc. %</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap w-20">IVA %</th>
+                                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap w-32">Subtotal</th>
                                     <th className="px-4 py-2 text-center text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase whitespace-nowrap">Acción</th>
                                 </tr>
                             </thead>
@@ -1124,7 +1179,12 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                                 {(item as any).referencia || product?.referencia || 'N/A'}
                                             </td>
                                             <td className="px-4 py-2 text-sm">
-                                                <div className="font-medium text-slate-800 dark:text-slate-100">{productoNombre}</div>
+                                                <input
+                                                    type="text"
+                                                    value={item.descripcion}
+                                                    onChange={(e) => handleItemChange(item.productoId, 'descripcion', e.target.value)}
+                                                    className="w-full px-2 py-1 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500"
+                                                />
                                                 {shouldShowWarning && (
                                                     <span className="text-[10px] text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 px-1.5 py-0.5 rounded border border-yellow-200 dark:border-yellow-800 flex items-center gap-1 w-fit mt-1">
                                                         <i className="fas fa-exclamation-triangle"></i> No en catálogo
@@ -1133,7 +1193,25 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                             </td>
                                             <td className="px-4 py-2 text-sm text-center">
                                                 <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-xs text-slate-600 dark:text-slate-300 uppercase">
-                                                    {(item as any).unidadMedida || item.codigoMedida || product?.unidadMedida || 'N/A'}
+                                                    {(() => {
+                                                        let u = String((item as any).unidadMedida || product?.unidadMedida || 'Unidad').toUpperCase();
+
+                                                        // Fix para listas separadas por coma (ej: HORA,HORA)
+                                                        if (u.includes(',')) {
+                                                            const parts = u.split(',').map(p => p.trim()).filter(p => p);
+                                                            const uniqueParts = [...new Set(parts)];
+                                                            u = uniqueParts.join(', ');
+                                                        }
+
+                                                        // Fix genérico para duplicaciones pegadas (ej: HORAHORA)
+                                                        if (u.length > 0 && u.length % 2 === 0) {
+                                                            const half = u.length / 2;
+                                                            if (u.substring(0, half) === u.substring(half)) {
+                                                                u = u.substring(0, half);
+                                                            }
+                                                        }
+                                                        return u;
+                                                    })()}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-2 text-sm text-right">
@@ -1141,31 +1219,47 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                                                     type="number"
                                                     min="1"
                                                     value={item.cantidad}
-                                                    readOnly
-                                                    className="w-20 px-2 py-1 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md cursor-not-allowed opacity-75 font-medium"
+                                                    onChange={(e) => handleItemChange(item.productoId, 'cantidad', e.target.value)}
+                                                    className="w-20 px-2 py-1 text-right bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500 font-medium"
                                                 />
                                             </td>
-                                            <td className="px-4 py-2 text-sm text-right font-medium text-slate-700 dark:text-slate-300">{formatCurrency(item.precioUnitario)}</td>
                                             <td className="px-4 py-2 text-sm text-right">
-                                                <div className="relative inline-block">
+                                                <input
+                                                    type="text"
+                                                    value={item.precioUnitario}
+                                                    onChange={(e) => handleItemChange(item.productoId, 'precioUnitario', e.target.value)}
+                                                    className="w-28 px-2 py-1 text-right bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500 font-medium"
+                                                />
+                                            </td>
+                                            <td className="px-4 py-2 text-sm text-right">
+                                                <div className="relative inline-block w-20">
                                                     <input
                                                         type="number"
                                                         min="0"
                                                         max="100"
                                                         value={item.descuentoPorcentaje}
-                                                        onChange={(e) => {
-                                                            const newValue = e.target.value;
-                                                            if (newValue === '' || (parseInt(newValue, 10) >= 0 && parseInt(newValue, 10) <= 100)) {
-                                                                handleItemChange(item.productoId, 'descuentoPorcentaje', newValue);
-                                                            }
-                                                        }}
-                                                        className="w-16 px-2 py-1 pr-6 text-right bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                                        onChange={(e) => handleItemChange(item.productoId, 'descuentoPorcentaje', e.target.value)}
+                                                        className="w-full px-2 py-1 text-right pr-6 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500 text-slate-600 dark:text-slate-300"
+                                                        placeholder="0"
                                                     />
                                                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
                                                 </div>
                                             </td>
-                                            <td className="px-4 py-2 text-sm text-right text-slate-500">{item.ivaPorcentaje}%</td>
-                                            <td className="px-4 py-2 text-sm text-right font-bold text-slate-800 dark:text-slate-100">{formatCurrency(item.total)}</td>
+                                            <td className="px-4 py-2 text-sm text-right">
+                                                <div className="relative inline-block w-20">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="100"
+                                                        value={item.ivaPorcentaje}
+                                                        onChange={(e) => handleItemChange(item.productoId, 'ivaPorcentaje', e.target.value)}
+                                                        className="w-full px-2 py-1 text-right pr-6 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500 text-slate-600 dark:text-slate-300"
+                                                        placeholder="19"
+                                                    />
+                                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-2 text-sm text-right font-bold text-slate-800 dark:text-slate-100">{formatCurrency(item.subtotal)}</td>
                                             <td className="px-4 py-2 text-center">
                                                 <button
                                                     type="button"

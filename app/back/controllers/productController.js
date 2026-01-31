@@ -436,7 +436,7 @@ const productController = {
         LEFT JOIN inv_medidas m ON LTRIM(RTRIM(m.codmed)) = LTRIM(RTRIM(ins.Codigo_Medida))
         LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
         WHERE ins.activo = 1 AND (ins.nomins LIKE @like OR ins.referencia LIKE @like OR ins.codins LIKE @like)
-        GROUP BY ins.id, ins.codins, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva, dp.valins
+        GROUP BY ins.id, ins.codins, ins.nomins, ins.referencia, ins.ultimo_costo, ins.undins, m.nommed, ins.tasa_iva, dp.valins, ins.Codigo_Medida
         ORDER BY ins.nomins
       `;
 
