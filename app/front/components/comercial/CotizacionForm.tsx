@@ -588,7 +588,7 @@ const CotizacionForm: React.FC<CotizacionFormProps> = ({ onSubmit, onCancel, onD
                     const calcCantidad = Number(newItem.cantidad) || 0;
                     const calcPrecio = Number(newItem.precioUnitario) || 0;
                     const calcDesc = Number(newItem.descuentoPorcentaje) || 0;
-                    const calcIva = newItem.ivaPorcentaje === '' ? 0 : (Number(newItem.ivaPorcentaje) || 0);
+                    const calcIva = Number(newItem.ivaPorcentaje) || 0;
 
                     // Recalcular totales
                     const roundTo2 = (val: number) => Math.round(val * 100) / 100;

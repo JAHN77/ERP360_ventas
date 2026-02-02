@@ -79,7 +79,7 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                             </View>
                             <View style={pdfStyles.clientRow}>
                                 <Text style={pdfStyles.clientLabel}>Dirección:</Text>
-                                <Text style={pdfStyles.clientValue} numberOfLines={1}>{(cliente.direccion || '').replace(/\s+/g, ' ').trim()}</Text>
+                                <Text style={pdfStyles.clientValue} {...({ numberOfLines: 1 } as any)}>{(cliente.direccion || '').replace(/\s+/g, ' ').trim()}</Text>
                             </View>
                             <View style={pdfStyles.clientRow}>
                                 <Text style={pdfStyles.clientLabel}>Ciudad:</Text>
