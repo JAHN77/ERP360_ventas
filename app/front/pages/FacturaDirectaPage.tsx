@@ -115,7 +115,7 @@ const FacturaDirectaPage: React.FC = () => {
                     tax_id: 1
                 }
             ],
-            resolution_id: 62,
+            resolution_id: 98,
             sync: true,
             notes: formData.observacionesInternas || "sin ob",
             type_document_id: 1,
@@ -155,14 +155,14 @@ const FacturaDirectaPage: React.FC = () => {
                     description: item.descripcion,
                     unit_measure_id: (() => {
                         const code = String(item.unit_measure_id || item.unidadMedidaCodigo || '').trim();
-                        if (code === '001') return 730; // HORA
-                        if (code === '002') return 606; // DIA
+                        if (code === '001' || code === 'HORA') return 730; // HORA
+                        if (code === '002' || code === 'DIA') return 606; // DIA
                         return 70; // UNIDAD / Default
                     })(),
                     unit_measure: (() => {
                         const code = String(item.unit_measure_id || item.unidadMedidaCodigo || '').trim();
-                        if (code === '001') return 'hora';
-                        if (code === '002') return 'dia';
+                        if (code === '001' || code === 'HORA') return 'hora';
+                        if (code === '002' || code === 'DIA') return 'dia';
                         return 'unidad';
                     })()
                 };
@@ -221,42 +221,18 @@ const FacturaDirectaPage: React.FC = () => {
         try {
             const payload = createInvoicePayload(formData);
 
-            // Si es Orquidea o está en modo prueba
-            if (selectedCompany?.razonSocial?.toLowerCase().includes('orquidea') || isTestMode) {
-                if (isTestMode) {
-                    // MODO PRUEBA
-                    // setJsonContent(JSON.stringify(payload, null, 2));
-                    // setJsonModalOpen(true);
-                    // addNotification({ message: 'Modo Prueba: Factura NO enviada a DIAN.', type: 'warning' });
-                    // return;
-
-                    // AHORA: Modo Prueba = Guardar en DB sin DIAN
-                    setPendingPayload(payload);
-                    setPendingFormData(formData);
-                    setConfirmModalOpen(true);
-                    return;
-                } else {
-                    // MODO PRODUCCIÓN: Pedir confirmación antes de enviar
-                    setPendingPayload(payload);
-                    setPendingFormData(formData);
-                    setConfirmModalOpen(true);
-                    return;
-                }
-            } else {
-                // Otras empresas
-                if (isTestMode) {
-                    // MODO PRUEBA: Confirmar antes de guardar LOCALMENTE
-                    setPendingPayload(payload);
-                    setPendingFormData(formData);
-                    setConfirmModalOpen(true);
-                    return;
-                } else {
-                    // MODO PRODUCCIÓN: Pedir confirmación antes de enviar DIAN + DB
-                    setPendingPayload(payload);
-                    setPendingFormData(formData);
-                    setConfirmModalOpen(true);
-                }
+            // Si está en modo prueba, solo mostrar JSON y NO guardar
+            if (isTestMode) {
+                setJsonContent(JSON.stringify(payload, null, 2));
+                setJsonModalOpen(true);
+                addNotification({ message: 'Modo Prueba: Visualizando JSON. No se guardará en la base de datos.', type: 'info' });
+                return;
             }
+
+            // MODO PRODUCCIÓN: Pedir confirmación antes de enviar
+            setPendingPayload(payload);
+            setPendingFormData(formData);
+            setConfirmModalOpen(true);
 
         } catch (error: any) {
             console.error('Error en proceso de facturación:', error);
@@ -400,7 +376,7 @@ const FacturaDirectaPage: React.FC = () => {
                 credito: valCredito,
                 transferencia: valTransferencia,
                 cufe: cufe,
-                resolucionDian: '01', // Corregido a '01' según solicitud
+                resolucionDian: '98', // Corregido a '98' según solicitud
                 estadoEnvio: true // Marcar como enviada
             };
 

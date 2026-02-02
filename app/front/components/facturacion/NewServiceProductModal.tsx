@@ -25,13 +25,15 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
     const isEditMode = !!editData;
 
     const [formData, setFormData] = useState({
-        idTipoProducto: 2, // 2 = Servicio (Always forced)
+        idTipoProducto: 1, // 1 = Producto (Always forced)
         nombre: '',
         precio: '',
         aplicaIva: true,
         unidadMedidaCodigo: '003', // Default 'Unidad'
         idCategoria: '',
-        idSublineas: ''
+        idSublineas: '',
+        referencia: '',
+        controlaExistencia: true
     });
 
     const [categories, setCategories] = useState<any[]>([]);
@@ -78,24 +80,28 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
             if (editData) {
                 // Edit mode: populate with existing data
                 setFormData({
-                    idTipoProducto: 2,
+                    idTipoProducto: 1,
                     nombre: editData.nombre,
                     precio: String(editData.precio),
                     aplicaIva: editData.aplicaIva,
                     unidadMedidaCodigo: (editData as any).unidadMedidaCodigo || '003',
                     idCategoria: (editData as any).idCategoria || '',
-                    idSublineas: (editData as any).idSublineas || ''
+                    idSublineas: (editData as any).idSublineas || '',
+                    referencia: editData.referencia || '',
+                    controlaExistencia: (editData as any).controlaExistencia ?? true
                 });
             } else {
                 // Create mode: reset to defaults
                 setFormData({
-                    idTipoProducto: 2,
+                    idTipoProducto: 1,
                     nombre: '',
                     precio: '',
                     aplicaIva: true,
                     unidadMedidaCodigo: '003',
                     idCategoria: '',
-                    idSublineas: ''
+                    idSublineas: '',
+                    referencia: '',
+                    controlaExistencia: true
                 });
             }
             setErrors({});
@@ -129,29 +135,30 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
         try {
             const payload = {
                 nombre: formData.nombre,
-                idTipoProducto: 2,
+                idTipoProducto: 1,
                 precio: parseFloat(formData.precio),
                 aplicaIva: formData.aplicaIva,
                 unidadMedida: formData.unidadMedidaCodigo,
                 stock: 0,
+                referencia: formData.referencia,
                 descripcion: '',
-                controlaExistencia: 0,
+                controlaExistencia: formData.controlaExistencia ? 1 : 0,
                 idSublineas: formData.idSublineas || '01',
                 idCategoria: formData.idCategoria || '01'
             };
 
             let response;
             if (isEditMode && editData) {
-                // Update existing product/service
+                // Update existing product
                 response = await apiClient.updateProducto(editData.id, payload);
             } else {
-                // Create new product/service
+                // Create new product
                 response = await apiClient.createProductOrService(payload);
             }
 
             if (response.success) {
                 addNotification({
-                    message: `Servicio "${formData.nombre}" ${isEditMode ? 'actualizado' : 'creado'} exitosamente`,
+                    message: `Producto "${formData.nombre}" ${isEditMode ? 'actualizado' : 'creado'} exitosamente`,
                     type: 'success'
                 });
                 onSuccess?.();
@@ -190,27 +197,42 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`${isEditMode ? 'Editar' : 'Crear Nuevo'} Servicio`} size="md">
+        <Modal isOpen={isOpen} onClose={onClose} title={`${isEditMode ? 'Editar' : 'Crear Nuevo'} Producto`} size="md">
             <form onSubmit={handleSubmit} className="space-y-4">
 
-                {/* Nombre */}
-                <div>
-                    <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
-                        Nombre <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                        type="text"
-                        name="nombre"
-                        value={formData.nombre}
-                        onChange={handleChange}
-                        autoFocus
-                        className={`w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm ${errors.nombre
-                            ? 'border-red-500 bg-red-50 dark:bg-red-900/10'
-                            : 'border-slate-300 dark:border-slate-600'
-                            }`}
-                        placeholder="Ej. Consultoría IT"
-                    />
-                    {errors.nombre && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.nombre}</p>}
+                {/* Nombre y Referencia */}
+                <div className="flex gap-3">
+                    <div className="flex-[2]">
+                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
+                            Nombre <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            name="nombre"
+                            value={formData.nombre}
+                            onChange={handleChange}
+                            autoFocus
+                            className={`w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm ${errors.nombre
+                                ? 'border-red-500 bg-red-50 dark:bg-red-900/10'
+                                : 'border-slate-300 dark:border-slate-600'
+                                }`}
+                            placeholder="Ej. Casco Certificado"
+                        />
+                        {errors.nombre && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.nombre}</p>}
+                    </div>
+                    <div className="flex-1">
+                        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
+                            Referencia
+                        </label>
+                        <input
+                            type="text"
+                            name="referencia"
+                            value={formData.referencia}
+                            onChange={handleChange}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                            placeholder="REF-001"
+                        />
+                    </div>
                 </div>
 
                 {/* Unidad de Medida */}
@@ -275,7 +297,7 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                         </select>
                     </div>
                 </div>
-                {/* Precio e IVA en una línea */}
+                {/* Precio e IVA y Kardex */}
                 <div className="flex gap-3 items-start">
                     <div className="flex-1">
                         <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
@@ -297,8 +319,8 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                         {errors.precio && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.precio}</p>}
                     </div>
 
-                    {/* Checkbox IVA más compacto */}
-                    <div className="pt-8">
+                    <div className="flex flex-col gap-2 pt-6">
+                        {/* Checkbox IVA */}
                         <label className="flex items-center cursor-pointer">
                             <input
                                 type="checkbox"
@@ -309,6 +331,20 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                             />
                             <span className="ml-2 text-sm text-slate-700 dark:text-slate-300 whitespace-nowrap">
                                 IVA 19%
+                            </span>
+                        </label>
+
+                        {/* Checkbox Kardex */}
+                        <label className="flex items-center cursor-pointer">
+                            <input
+                                type="checkbox"
+                                name="controlaExistencia"
+                                checked={formData.controlaExistencia}
+                                onChange={handleChange}
+                                className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 dark:focus:ring-green-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                            <span className="ml-2 text-sm text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                Maneja Kardex
                             </span>
                         </label>
                     </div>

@@ -175,7 +175,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             const q = productSearchTerm.trim();
             if (q.length >= 2) {
                 try {
-                    const resp = await apiSearchServices(q, 20);
+                    const resp = await apiSearchProductos(q, 20);
                     if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
                         const mapped = dataArray.map(p => ({
@@ -200,7 +200,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             return;
         }
         try {
-            const resp = await apiSearchServices(query, 10);
+            const resp = await apiSearchProductos(query, 10);
             if (resp.success && resp.data) {
                 const mapped = (resp.data as any[]).map(p => ({
                     ...p,
@@ -641,12 +641,12 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-3 uppercase tracking-wider">Añadir Productos</h3>
                 <div ref={productRef} className="grid grid-cols-1 lg:grid-cols-12 gap-2 items-end">
                     <div className="lg:col-span-2 relative">
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Producto / Servicio</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Producto</label>
                         <input
                             type="text"
                             value={productSearchTerm}
                             onChange={(e) => { setProductSearchTerm(e.target.value); setIsProductDropdownOpen(true); }}
-                            placeholder="Buscar por nombre..."
+                            placeholder="Buscar producto..."
                             className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                         />
                         {isProductDropdownOpen && productResults.length > 0 && (
@@ -731,7 +731,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                     <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 uppercase text-xs">
                         <tr>
                             <th className="px-4 py-3">Referencia</th>
-                            <th className="px-4 py-3">Producto / Servicio</th>
+                            <th className="px-4 py-3">Producto</th>
                             <th className="px-4 py-3 text-center">Unidad</th>
                             <th className="px-4 py-3 text-center">Cant.</th>
                             <th className="px-4 py-3 text-right">Precio</th>
@@ -758,7 +758,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                                             value={item.descripcion}
                                             onChange={(e) => handleRowProductSearch(idx, e.target.value)}
                                             onFocus={() => setActiveSearchIdx(idx)}
-                                            placeholder="Buscar servicio..."
+                                            placeholder="Buscar producto..."
                                             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-sm focus:border-blue-500 outline-none transition-all"
                                         />
                                         {activeSearchIdx === idx && rowResults.length > 0 && (

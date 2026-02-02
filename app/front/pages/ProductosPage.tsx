@@ -53,16 +53,7 @@ const ProductosPage: React.FC = () => {
   /* -----------------------------------------------------------------------------------------------
    * ESTADO DE UI
    * -----------------------------------------------------------------------------------------------*/
-  // Force default to 'servicios' and virtually disable 'productos'
-  const [activeTab, setActiveTab] = useState<'servicios'>('servicios');
-
-  // Update tab if params change (forcing services)
-  useEffect(() => {
-    if (params?.tab) {
-      // Ignore params.tab if it tries to switch to products, or just keep it on services
-      setActiveTab('servicios');
-    }
-  }, [params?.tab]);
+  const [activeTab, setActiveTab] = useState<'productos'>('productos');
 
   // Cargar categorías una sola vez
   useEffect(() => {
@@ -72,15 +63,13 @@ const ProductosPage: React.FC = () => {
     })();
   }, []);
 
-  // Cargar productos o servicios con paginación
+  // Cargar productos con paginación
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
       try {
-        let response;
-
-        // Always load services
-        response = await apiClient.getServices(
+        const response = await apiClient.getProductos(
+          undefined, // codalm
           currentPage,
           pageSize,
           searchTerm || undefined,
@@ -100,7 +89,7 @@ const ProductosPage: React.FC = () => {
           }
         } else {
           console.error('Error loading data:', response.message);
-          setProductos([]); // Limpiar si hay error para evitar confusión
+          setProductos([]);
         }
       } catch (error) {
         console.error('Error cargando datos:', error);
@@ -124,7 +113,7 @@ const ProductosPage: React.FC = () => {
 
   // Resetear paginación al cambiar de tab (Unused now but kept for compatibility if needed)
   const handleTabChange = (_tab: any) => {
-    setActiveTab('servicios');
+    setActiveTab('productos');
     setCurrentPage(1);
     setSearchTerm('');
     setCategoryFilter('Todos');
@@ -165,8 +154,17 @@ const ProductosPage: React.FC = () => {
         <div className="flex flex-col">
           <span className="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[250px]" title={item.nombre}>{item.nombre}</span>
           <span className="text-xs text-slate-500 dark:text-slate-400">{(item as any).descripcion || ''}</span>
-          <span className="text-[10px] text-blue-500 font-semibold bg-blue-50 dark:bg-blue-900/20 px-1 rounded w-fit mt-0.5">SERVICIO</span>
+          <span className="text-[10px] text-green-500 font-semibold bg-green-50 dark:bg-green-900/20 px-1 rounded w-fit mt-0.5">PRODUCTO</span>
         </div>
+      )
+    },
+    {
+      header: 'Stock',
+      accessor: 'stock' as any,
+      cell: (item) => (
+        <span className={`font-mono font-bold ${Number(item.stock || 0) <= 0 ? 'text-red-500' : 'text-green-600'}`}>
+          {Number(item.stock || 0).toLocaleString()}
+        </span>
       )
     },
     {
@@ -180,8 +178,6 @@ const ProductosPage: React.FC = () => {
       cell: (item) => {
         const isEditing = editingPriceId === item.id;
         const costoBase = (item as any).ultimoCosto || 0;
-        const iva = (item as any).tasaIva || 0;
-        const precioConIva = costoBase * (1 + (iva / 100));
 
         if (isEditing) {
           return (
@@ -209,7 +205,6 @@ const ProductosPage: React.FC = () => {
               setEditingPriceId(item.id);
               setTempPrice(costoBase.toFixed(0));
             }}
-            title={`Precio con IVA: ${formatCurrency(precioConIva)}`}
           >
             <div className="flex items-center gap-2">
               <span className="font-mono font-medium text-slate-700 dark:text-slate-300">
@@ -217,10 +212,23 @@ const ProductosPage: React.FC = () => {
               </span>
               <i className="fas fa-pencil-alt text-[10px] text-slate-300 group-hover:text-blue-500 transition-colors"></i>
             </div>
-            <span className="text-[10px] text-slate-400">IVA {iva}%</span>
           </div>
         );
       }
+    },
+    {
+      header: 'IVA',
+      accessor: 'tasaIva' as any,
+      cell: (item) => <span className="text-xs text-slate-500">{(item as any).tasaIva || 0}%</span>
+    },
+    {
+      header: 'Precio Público',
+      accessor: 'precioPublico' as any,
+      cell: (item) => (
+        <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+          {formatCurrency((item as any).precioPublico || 0)}
+        </span>
+      )
     },
     {
       header: 'Acciones', accessor: 'id', cell: (item) => {
@@ -266,7 +274,7 @@ const ProductosPage: React.FC = () => {
                   precio: (item as any).precioBase || (item as any).ultimoCosto || 0,
                   aplicaIva: ((item as any).tasaIva || 0) > 0,
                   referencia: (item as any).referencia || '',
-                  idTipoProducto: 2, // Always service
+                  idTipoProducto: 1, // Always product now
                   idCategoria: (item as any).idCategoria,
                   idSublineas: (item as any).idSublineas,
                   unidadMedidaCodigo: (item as any).unidadMedidaCodigo
@@ -327,14 +335,14 @@ const ProductosPage: React.FC = () => {
   };
 
   const handleDeleteProduct = async (item: InvProducto) => {
-    if (!confirm(`¿Estás seguro de que deseas eliminar el servicio "${item.nombre}"?`)) {
+    if (!confirm(`¿Estás seguro de que deseas eliminar el producto "${item.nombre}"?`)) {
       return;
     }
 
     try {
-      // Para servicios, usar el código (codser) en lugar del id
-      const serviceCode = (item as any).codigo || item.id;
-      const response = await apiClient.deleteProducto(serviceCode);
+      // Para productos, usar el código (codins) en lugar del id
+      const productCode = (item as any).codigo || item.id;
+      const response = await apiClient.deleteProducto(productCode);
 
       if (response.success) {
         // Recargar datos después de eliminar
@@ -342,7 +350,8 @@ const ProductosPage: React.FC = () => {
           setIsLoading(true);
           try {
             let refreshResponse;
-            refreshResponse = await apiClient.getServices(
+            refreshResponse = await apiClient.getProductos(
+              undefined,
               currentPage,
               pageSize,
               searchTerm || undefined,
@@ -421,8 +430,8 @@ const ProductosPage: React.FC = () => {
   return (
     <PageContainer>
       <SectionHeader
-        title="Gestión de Servicios"
-        subtitle="Administra el catálogo de servicios."
+        title="Gestión de Productos"
+        subtitle="Administra el catálogo de productos (Insumos)."
       />
 
       <Card className="shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -430,11 +439,11 @@ const ProductosPage: React.FC = () => {
           <TableToolbar
             searchTerm={searchTerm}
             onSearchChange={handleSearch}
-            createActionLabel="Nuevo Servicio"
+            createActionLabel="Nuevo Producto"
             onCreateAction={() => setIsNewModalOpen(true)}
             additionalFilters={null}
             onCustomizeColumns={() => setIsColumnModalOpen(true)}
-            placeholder="Buscar servicio, referencia..."
+            placeholder="Buscar producto, referencia..."
           />
         </div>
 
@@ -451,7 +460,7 @@ const ProductosPage: React.FC = () => {
               onSort={requestSort}
               sortConfig={sortConfig}
               highlightRowId={params?.highlightId ?? params?.focusId}
-              emptyMessage="No se encontraron servicios."
+              emptyMessage="No se encontraron productos."
             />
           )}
         </CardContent>

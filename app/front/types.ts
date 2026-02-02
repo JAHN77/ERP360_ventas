@@ -176,6 +176,9 @@ export interface InvProducto {
   precioConIva?: number; // Precio CON IVA (para referencia/visualización)
   margenTarifa?: number; // Margen de la tarifa
   codigo?: string; // Mapeado de codins desde backend
+  precioPublico?: number;
+  precioMayorista?: number;
+  precioMinorista?: number;
 }
 export type Producto = InvProducto;
 

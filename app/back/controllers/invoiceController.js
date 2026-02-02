@@ -1195,7 +1195,7 @@ const invoiceController = {
         }
 
         if (debeTimbrar) {
-          reqUpdate.input('resolucion_dian', sql.Char(2), '58');
+          reqUpdate.input('resolucion_dian', sql.Char(2), '98');
           updates.push('resolucion_dian = @resolucion_dian');
         }
 
@@ -1372,8 +1372,8 @@ const invoiceController = {
       const result = await pool.request().query(`
         SELECT TOP 1 numfact 
         FROM ${TABLE_NAMES.facturas} 
-        WHERE ISNUMERIC(numfact) = 1
-        ORDER BY CAST(numfact AS INT) DESC
+        WHERE numfact IS NOT NULL AND numfact <> ''
+        ORDER BY TRY_CAST(numfact AS INT) DESC, numfact DESC
       `);
 
       let nextNum = '88996';

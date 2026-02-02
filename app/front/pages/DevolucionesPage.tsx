@@ -1842,7 +1842,7 @@ const DevolucionesPage: React.FC = () => {
                                 cliente={selectedCliente as any}
                                 empresa={{
                                     ...datosEmpresa,
-                                    nombre: datosEmpresa.nombre || datosEmpresa.razonSocial || 'MULTIACABADOS S.A.S.',
+                                    nombre: datosEmpresa.nombre || datosEmpresa.razonSocial || 'CICLOLIDER',
                                     nit: datosEmpresa.nit || '',
                                     direccion: datosEmpresa.direccion || '',
                                     telefono: datosEmpresa.telefono || '',

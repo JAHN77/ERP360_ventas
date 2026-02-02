@@ -56,7 +56,7 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                             )}
                         </View>
                         <View style={pdfStyles.companyInfo}>
-                            <Text style={pdfStyles.companyName}>{empresa.nombre || empresa.razonSocial || 'MULTIACABADOS'}</Text>
+                            <Text style={pdfStyles.companyName}>{empresa.nombre || empresa.razonSocial || 'CICLOLIDER'}</Text>
                             <Text style={pdfStyles.companyDetails}>
                                 <Text style={pdfStyles.companyDetailLabel}>NIT: </Text>{empresa.nit} • {empresa.regimen || 'Responsable de IVA'}
                             </Text>
@@ -95,7 +95,7 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                             </View>
                             <View style={pdfStyles.clientRow}>
                                 <Text style={pdfStyles.clientLabel}>Dirección:</Text>
-                                <Text style={pdfStyles.clientValue} numberOfLines={1}>{(cliente.direccion || '').replace(/\s+/g, ' ').trim()}</Text>
+                                <Text style={pdfStyles.clientValue} {...({ numberOfLines: 1 } as any)}>{(cliente.direccion || '').replace(/\s+/g, ' ').trim()}</Text>
                             </View>
                             <View style={pdfStyles.clientRow}>
                                 <Text style={pdfStyles.clientLabel}>Ciudad:</Text>

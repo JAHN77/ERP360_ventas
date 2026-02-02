@@ -39,9 +39,9 @@ const productController = {
             ins.Codigo_Medida          AS idMedida,
             COALESCE(
                 CASE 
-                    WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '001' THEN 'HORA'
-                    WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '002' THEN 'DIA'
-                    WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '003' THEN 'UNIDAD'
+                    WHEN LTRIM(RTRIM(ins.undins)) = 'UND' THEN 'UNIDAD'
+                    WHEN LTRIM(RTRIM(ins.undins)) = 'HORA' THEN 'HORA'
+                    WHEN LTRIM(RTRIM(ins.undins)) = 'DIA' THEN 'DIA'
                     ELSE NULL 
                 END,
                 m.nommed, 
@@ -420,9 +420,9 @@ const productController = {
           -- Prioritize code checks (001,002,003), then Measure Name, then internal code
           COALESCE(
             CASE 
-                WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '001' THEN 'HORA'
-                WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '002' THEN 'DIA'
-                WHEN LTRIM(RTRIM(ins.Codigo_Medida)) = '003' THEN 'UNIDAD'
+                WHEN LTRIM(RTRIM(ins.undins)) = 'UND' THEN 'UNIDAD'
+                WHEN LTRIM(RTRIM(ins.undins)) = 'HORA' THEN 'HORA'
+                WHEN LTRIM(RTRIM(ins.undins)) = 'DIA' THEN 'DIA'
                 ELSE NULL 
             END,
             m.nommed, 

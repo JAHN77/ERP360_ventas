@@ -190,12 +190,12 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     // Company data state
     const [datosEmpresa, setDatosEmpresa] = useState<any>({
         id: 1,
-        nombre: 'MULTIACABADOS',
-        nit: '900.123.456-7',
+        nombre: 'CICLOLIDER',
+        nit: '901907454',
         direccion: 'Avenida Siempre Viva 123',
         ciudad: 'Bogotá D.C.',
         telefono: '601-555-1234',
-        email: 'ventas@multiacabados.com',
+        email: 'ventas@ciclolider.com',
         resolucionDian: 'Res. DIAN No. 18760000001 de 2023-01-01',
         rangoNumeracion: 'FC-1 al FC-1000',
         regimen: 'Responsable de IVA',
@@ -2696,7 +2696,8 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 observaciones: data.observaciones || '',
                 // Usar código de bodega desde la bodega seleccionada en el header
                 empresaId: bodegaCodigo,
-                codalm: bodegaCodigo // NUEVO: Se envía explícitamente para el backend
+                codalm: bodegaCodigo, // NUEVO: Se envía explícitamente para el backend
+                resolucionDian: '98'
             };
             const resp = await apiCreateFactura(payload);
             if (resp.success && resp.data) {
@@ -3173,6 +3174,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 estado: 'BORRADOR',
                 empresaId: bodegaCodigo,
                 codalm: bodegaCodigo, // NUEVO: Se envía explícitamente para el backend
+                resolucionDian: '98',
                 items: itemsConsolidados.map(item => {
                     // Asegurar que productoId sea válido (número mayor que 0)
                     const productoId = typeof item.productoId === 'number' ? item.productoId : parseInt(String(item.productoId || 0), 10);

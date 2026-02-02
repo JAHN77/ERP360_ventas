@@ -7,12 +7,12 @@ const { getConnectionForDb } = require('./sqlServerClient.cjs');
  * y envía las facturas al endpoint de DIAN
  */
 class DIANService {
-  // NIT de la empresa (MULTIACABADOS S.A.S.)
-  static COMPANY_NIT = 802024306;
+  // NIT de la empresa (CICLOLIDER S.A.S.)
+  static COMPANY_NIT = 901907454;
 
   // Datos de la empresa (se obtendrán desde gen_empresa)
   static COMPANY_DATA = {
-    identification_number: 802024306, // nitemp de gen_empresa
+    identification_number: 901907454, // nitemp de gen_empresa
     name: "", // razemp de gen_empresa - se actualizará dinámicamente
     type_organization_id: 1, // 1 = Persona Jurídica
     type_document_id: "31", // NIT
@@ -131,12 +131,12 @@ class DIANService {
       }
 
       const resolution = {
-        id: 62,
+        id: 98,
         consecutivo: 'SETP',
         rango_inicial: 90000,
         rango_final: 99000,
-        codigo: 62,
-        id_api: 62,
+        codigo: 98,
+        id_api: 98,
         activa: true
       };
 
@@ -1000,7 +1000,7 @@ class DIANService {
       exact_decimals: true, // Mantener precisión decimal exacta
       type_document_id: Number(typeDocumentId), // 1 = Producción, 2 = Prueba
       identification_number: Number(companyData.identification_number || this.COMPANY_NIT), // Número explícito
-      resolution_id: 58, // Hardcoded to 58 as requested
+      resolution_id: 98, // Hardcoded to 98 as requested
       sync: Boolean(syncValue), // Boolean explícito
       company: {
         identification_number: Number(companyData.identification_number || this.COMPANY_NIT), // Número explícito

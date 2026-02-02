@@ -236,7 +236,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
             return;
         }
         try {
-            const resp = await apiClient.searchServices(query, 10);
+            const resp = await apiClient.searchProductos(query, 10);
             if (resp.success && resp.data) {
                 setRowResults(resp.data as any[]);
             }
@@ -331,7 +331,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
                     tax_id: 1
                 }
             ],
-            resolution_id: 101,
+            resolution_id: 98,
             sync: true,
             notes: formData.notes || "sin ob",
             type_document_id: 1,
@@ -424,7 +424,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
     '001', '${formData.number}', 'FV', '${selectedClientId || formData.customer.identification_number}', '1', '${formatDate(formData.date)}', '${formatDate(formData.dueDate)}', '${formData.seller || '001'}',
     ${totals.lineExtensionAmount.toFixed(2)}, ${totals.taxAmount.toFixed(2)}, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
     ${totals.payableAmount.toFixed(2)}, 0.00, '13050501', ${efectivo.toFixed(2)}, 0.00, ${credito.toFixed(2)}, 0.00, 0.00, ${transferencia.toFixed(2)},
-    ${totals.payableAmount.toFixed(2)}, '02', '${formData.lines.map(l => l.description).join(', ').substring(0, 100) || 'Factura Manual'}', 0.0000, 0, 'ADMIN', '${formatDateTime(now)}', '1',
+    ${totals.payableAmount.toFixed(2)}, '98', '${formData.lines.map(l => l.description).join(', ').substring(0, 100) || 'Factura Manual'}', 0.0000, 0, 'ADMIN', '${formatDateTime(now)}', '1',
     0.00, NULL, NULL, 0, NULL, NULL, NULL, 0.00, 0.00,
     1, 1, 0.00
 );`;
@@ -487,7 +487,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
                         tax_id: 1
                     }
                 ],
-                resolution_id: 101,
+                resolution_id: 98,
                 sync: true,
                 notes: formData.notes || "sin ob",
                 type_document_id: 1,
@@ -519,8 +519,8 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
                         type_item_identification_id: 4,
                         unit_measure_id: (() => {
                             const code = String(line.unit_measure_id || '').trim();
-                            if (code === '001') return 730; // HORA
-                            if (code === '002') return 606; // DIA
+                            if (code === '001' || code === 'HORA') return 730; // HORA
+                            if (code === '002' || code === 'DIA') return 606; // DIA
                             return 70; // UNIDAD / Default
                         })(),
                         description: line.description,
@@ -612,7 +612,7 @@ BEGIN
         '001', '${formData.number}', 'FV', '${codterFormatted}', '${formData.number}', '${formatDate(formData.date)}', '${formatDate(formData.dueDate)}', '${formData.seller || '001'}',
         ${totals.lineExtensionAmount.toFixed(2)}, ${totals.taxAmount.toFixed(2)}, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
         ${totals.payableAmount.toFixed(2)}, 0.00, '13050501', ${efectivo.toFixed(2)}, 0.00, ${credito.toFixed(2)}, 0.00, 0.00, ${transferencia.toFixed(2)},
-        ${totals.payableAmount.toFixed(2)}, '02', '${formData.lines.map(l => l.description).join(', ').substring(0, 100) || 'Factura Manual'}', 0.0000, 0, 'ADMIN', '${formatDateTime(now)}', '1',
+        ${totals.payableAmount.toFixed(2)}, '98', '${formData.lines.map(l => l.description).join(', ').substring(0, 100) || 'Factura Manual'}', 0.0000, 0, 'ADMIN', '${formatDateTime(now)}', '1',
         0.00, '${cufe}', NULL, 1, NULL, NULL, NULL, 0.00, 0.00,
         1, 1, 0.00
     );
@@ -955,7 +955,7 @@ END`;
                                                                         value={line.description}
                                                                         onChange={e => handleRowProductSearch(idx, e.target.value)}
                                                                         onFocus={() => setActiveSearchIdx(idx)}
-                                                                        placeholder="Buscar servicio..."
+                                                                        placeholder="Buscar producto..."
                                                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-sm focus:border-blue-500 outline-none transition-all"
                                                                     />
                                                                     {activeSearchIdx === idx && rowResults.length > 0 && (
