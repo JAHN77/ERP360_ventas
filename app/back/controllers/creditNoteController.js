@@ -104,12 +104,13 @@ const buildNotaDetallePayload = (item) => {
 const fetchNotaCreditoById = async (connection, notaId, transaction = null) => {
   const runner = transaction ? new sql.Request(transaction) : connection.request();
   runner.input('notaId', sql.Int, notaId);
+
+  // Removed id_factura
   const notaResult = await runner.query(`
     SELECT 
       id,
       consecutivo AS numero,
-      id_factura AS facturaId,
-      codter AS clienteId,
+      LTRIM(RTRIM(codter)) AS clienteId,
       fecha AS fechaEmision,
       valor_nota AS subtotal,
       iva_nota AS iva,
@@ -139,10 +140,28 @@ const fetchNotaCreditoById = async (connection, notaId, transaction = null) => {
       Iva AS ivaPorcentaje,
       (QTYDEV * Venta) AS subtotal, -- Calculado
       (QTYDEV * Venta * (Iva/100)) AS valorIva, -- Calculado
-      ((QTYDEV * Venta) + (QTYDEV * Venta * (Iva/100))) AS total -- Calculado
+      ((QTYDEV * Venta) + (QTYDEV * Venta * (Iva/100))) AS total, -- Calculado
+      LTRIM(RTRIM(Numfac)) AS Numfac
     FROM Ven_Devolucion
     WHERE id_nota = @notaId
   `);
+
+  // Extract Invoice Number from items (assuming all items belong to same invoice)
+  let facturaId = null;
+  const numfacs = [...new Set(detalleResult.recordset.map(r => r.Numfac).filter(Boolean))];
+
+  if (numfacs.length > 0) {
+    // Determine facturaId from Numfac
+    const numfac = String(numfacs[0]).trim(); // Take the first one if multiple (should be consistent)
+    const facRunner = transaction ? new sql.Request(transaction) : connection.request();
+    facRunner.input('numfact', sql.VarChar(50), numfac);
+
+    // We search by numfact
+    const facResult = await facRunner.query('SELECT id FROM ven_facturas WHERE numfact = @numfact');
+    if (facResult.recordset.length > 0) {
+      facturaId = facResult.recordset[0].id;
+    }
+  }
 
   // Mapeo manual de los items ya que la estructura es diferente
   const itemsDevueltos = (detalleResult.recordset || []).map(row => ({
@@ -156,8 +175,11 @@ const fetchNotaCreditoById = async (connection, notaId, transaction = null) => {
     total: Number(row.total)
   }));
 
+  const header = mapNotaCreditoHeader(notaResult.recordset[0]);
+
   return {
-    ...mapNotaCreditoHeader(notaResult.recordset[0]),
+    ...header,
+    facturaId: facturaId, // Explicitly set it
     itemsDevueltos
   };
 };
@@ -198,7 +220,7 @@ const creditNoteController = {
                 SELECT SUM(d.QTYDEV)
                 FROM Ven_Devolucion d
                 INNER JOIN gen_movimiento_notas n ON n.id = d.id_nota
-                WHERE n.id_factura = f.id
+                WHERE LTRIM(RTRIM(d.Numfac)) = LTRIM(RTRIM(f.numfact))
                 AND (n.estado IS NULL OR n.estado != 'RE')
                 AND LTRIM(RTRIM(d.Codins)) = LTRIM(RTRIM(df.codins))
             ), 0) + 0.0001 -- Tolerancia pequeña para flotantes
@@ -265,29 +287,40 @@ const creditNoteController = {
 
       const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
 
-      // Construir WHERE
+      // WHERE clauses
       let whereClauses = [];
       const params = { offset, pageSize: pageSizeNum };
 
+      // NOTE: Filtering by facturaId is harder now since it's not in the main table.
+      // We'll handle it by joining if needed, or subquery.
+      // For performance, if facturaId is provided, we might want to search Ven_Devolucion first?
+      // But let's stick to the main table and EXISTS for now if filtered.
+
       if (facturaId) {
-        whereClauses.push('factura_id = @facturaId');
+        // Find notes linked to this invoice via Ven_Devolucion
+        whereClauses.push(`EXISTS (
+          SELECT 1 FROM Ven_Devolucion vd 
+          INNER JOIN ven_facturas vf ON vf.numfact = vd.Numfac
+          WHERE vd.id_nota = gen_movimiento_notas.id AND vf.id = @facturaId
+        )`);
         params.facturaId = parseInt(facturaId, 10);
       }
 
       if (clienteId) {
-        whereClauses.push('cliente_id = @clienteId');
-        params.clienteId = parseInt(clienteId, 10) || String(clienteId).trim();
+        whereClauses.push('codter = @clienteId');
+        params.clienteId = String(clienteId).trim(); // codter is varchar
       }
 
       const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
       console.log('🔍 [DEBUG] Executing getAllCreditNotes query on gen_movimiento_notas');
+
       // Query principal con paginación
+      // Removed id_factura from selection
       const query = `
         SELECT 
           id,
           consecutivo AS numero,
-          id_factura AS facturaId,
           LTRIM(RTRIM(codter)) AS clienteId,
           fecha AS fechaEmision,
           valor_nota AS subtotal,
@@ -299,7 +332,7 @@ const creditNoteController = {
           fecsys AS updatedAt,
           cufe
         FROM gen_movimiento_notas
-        ${whereClause.replace('factura_id', 'id_factura').replace('cliente_id', 'codter')}
+        ${whereClause}
         ORDER BY fecha DESC, id DESC
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
       `;
@@ -308,12 +341,12 @@ const creditNoteController = {
       const countQuery = `
         SELECT COUNT(*) as total
         FROM gen_movimiento_notas
-        ${whereClause.replace('factura_id', 'id_factura').replace('cliente_id', 'codter')}
+        ${whereClause}
       `;
 
       const [notasResult, countResult] = await Promise.all([
         executeQueryWithParams(query, params, req.db_name),
-        executeQueryWithParams(countQuery, facturaId || clienteId ? { ...(facturaId && { facturaId: params.facturaId }), ...(clienteId && { clienteId: params.clienteId }) } : {}, req.db_name)
+        executeQueryWithParams(countQuery, params, req.db_name) // Reuse params safely
       ]);
 
       const notas = notasResult || [];
@@ -321,9 +354,10 @@ const creditNoteController = {
       const totalPages = Math.ceil(total / pageSizeNum);
 
       let detalleMap = new Map();
+      let facturasMap = new Map(); // Map noteId -> { facturaId, numeroFactura }
 
       // Solo cargar detalles si hay notas
-      if (notas.length > 0 && notas.length <= 100) {
+      if (notas.length > 0) {
         const idsList = notas.map((nota) => nota.id).filter(Boolean);
         if (idsList.length > 0) {
           const request = pool.request();
@@ -332,6 +366,28 @@ const creditNoteController = {
             request.input(`id${i}`, sql.Int, id);
           });
 
+          // Fetch Invoice Info for these notes
+          // We assume one invoice per credit note for simplicity in this view, 
+          // taking the MAX (or distinct) if multiple items point to same invoice.
+          const facturaQuery = `
+            SELECT DISTINCT
+              d.id_nota,
+              vf.id AS facturaId,
+              vf.numfact AS numeroFactura
+            FROM Ven_Devolucion d
+            INNER JOIN ven_facturas vf ON vf.numfact = d.Numfac
+            WHERE d.id_nota IN (${placeholders})
+          `;
+
+          const facturasResult = await request.query(facturaQuery);
+          facturasResult.recordset.forEach(row => {
+            facturasMap.set(row.id_nota, {
+              facturaId: row.facturaId,
+              numeroFactura: row.numeroFactura // useful if we want to show it
+            });
+          });
+
+          // Fetch Details
           const detallesQuery = `
             SELECT 
               g.id AS notaId,
@@ -340,16 +396,16 @@ const creditNoteController = {
               d.Venta AS precioUnitario,
               d.desins AS descuentoPorcentaje,
               d.Iva AS ivaPorcentaje,
-              ROUND((d.QTYDEV * d.Venta), 0) AS subtotal,
-              ROUND((d.QTYDEV * d.Venta * (d.Iva/100)), 0) AS valorIva,
-              ROUND(((d.QTYDEV * d.Venta) + (d.QTYDEV * d.Venta * (d.Iva/100))), 0) AS total,
+              CAST(ROUND((d.QTYDEV * d.Venta), 2) AS numeric(18,2)) AS subtotal,
+              CAST(ROUND((d.QTYDEV * d.Venta * (d.Iva/100)), 2) AS numeric(18,2)) AS valorIva,
+              CAST(ROUND(((d.QTYDEV * d.Venta) + (d.QTYDEV * d.Venta * (d.Iva/100))), 2) AS numeric(18,2)) AS total,
               LTRIM(RTRIM(COALESCE(i.nomins, s.nomser, ''))) as descripcion,
               LTRIM(RTRIM(COALESCE(i.referencia, s.REFSER, ''))) as referencia,
               d.id_nota,
               d.Numdev,
               g.consecutivo
             FROM gen_movimiento_notas g
-            INNER JOIN Ven_Devolucion d ON (d.id_nota = g.id OR (g.consecutivo IS NOT NULL AND d.Numdev = g.consecutivo))
+            INNER JOIN Ven_Devolucion d ON (d.id_nota = g.id)
             LEFT JOIN inv_insumos i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(d.Codins))
             LEFT JOIN ven_servicios s ON LTRIM(RTRIM(s.codser)) = LTRIM(RTRIM(d.Codins))
             WHERE g.id IN (${placeholders})
@@ -381,10 +437,15 @@ const creditNoteController = {
         }
       }
 
-      const data = notas.map((nota) => ({
-        ...mapNotaCreditoHeader(nota),
-        itemsDevueltos: detalleMap.get(nota.id) || []
-      }));
+      const data = notas.map((nota) => {
+        const fInfo = facturasMap.get(nota.id) || {};
+        return {
+          ...mapNotaCreditoHeader(nota),
+          facturaId: fInfo.facturaId || null, // Attach fetched facturaId
+          // numeroFactura: fInfo.numeroFactura, // Optional: add if frontend needs it
+          itemsDevueltos: detalleMap.get(nota.id) || []
+        };
+      });
 
       res.json({
         success: true,
@@ -595,14 +656,15 @@ const creditNoteController = {
         }));
 
         const devolucionesPreviasRequest = createRequest();
-        devolucionesPreviasRequest.input('facturaId', sql.Int, factura.id);
+        // Updated query to use Numfac instead of id_factura to link to invoice
+        devolucionesPreviasRequest.input('numFactura', sql.VarChar(50), String(factura.numeroFactura).trim());
         const devolucionesPreviasResult = await devolucionesPreviasRequest.query(`
           SELECT 
             d.Codins AS productoId,
             d.QTYDEV AS cantidad
           FROM Ven_Devolucion d
           INNER JOIN gen_movimiento_notas n ON n.id = d.id_nota
-          WHERE n.id_factura = @facturaId 
+          WHERE LTRIM(RTRIM(d.Numfac)) = @numFactura
           AND (n.estado = 'OK' OR n.estado_envio = 1)
         `);
 
@@ -1002,7 +1064,7 @@ const creditNoteController = {
           comprobante = `${year}-${month}-${paddedNum}`;
 
           const insertNotaRequest = new sql.Request(tx);
-          insertNotaRequest.input('id_factura', sql.BigInt, factura.id);
+          // Removed id_factura
           insertNotaRequest.input('codalm', sql.Char(3), codalmFinal);
           insertNotaRequest.input('consecutivo', sql.Int, nextConsecutivo);
           insertNotaRequest.input('comprobante', sql.VarChar(12), comprobante);
@@ -1025,14 +1087,14 @@ const creditNoteController = {
 
           const insertNotaResult = await insertNotaRequest.query(`
               INSERT INTO gen_movimiento_notas (
-                id_factura, codalm, consecutivo, comprobante, fecha, codter, 
+                codalm, consecutivo, comprobante, fecha, codter, 
                 tipo_nota, clase, codcon, detalle, valor_nota, iva_nota, 
                 retencion_nota, reteica_nota, reteiva_nota, total_nota, 
                 usuario, estado, fecsys, valor_descuento, estado_envio
               )
               OUTPUT INSERTED.id
               VALUES (
-                @id_factura, @codalm, @consecutivo, @comprobante, @fecha, @codter,
+                @codalm, @consecutivo, @comprobante, @fecha, @codter,
                 @tipo_nota, @clase, @codcon, @detalle, @valor_nota, @iva_nota,
                 @retencion_nota, @reteica_nota, @reteiva_nota, @total_nota,
                 @usuario, @estado, GETDATE(), @valor_descuento, @estado_envio
@@ -1333,7 +1395,8 @@ const creditNoteController = {
           c.EMAIL 
         FROM gen_movimiento_notas n
         LEFT JOIN con_terceros c ON LTRIM(RTRIM(c.codter)) = LTRIM(RTRIM(n.codter))
-        LEFT JOIN ${TABLE_NAMES.facturas} f ON f.id = n.id_factura
+        OUTER APPLY (SELECT TOP 1 Numfac FROM Ven_Devolucion WHERE id_nota = n.id) d
+        LEFT JOIN ${TABLE_NAMES.facturas} f ON LTRIM(RTRIM(f.numfact)) = LTRIM(RTRIM(d.Numfac))
         WHERE n.id = @id
       `;
       const notaRes = await executeQueryWithParams(notaQuery, { id: idNum });

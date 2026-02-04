@@ -2,7 +2,7 @@ const { Readable } = require('stream');
 const sql = require('mssql');
 const { getConnection, executeQuery, executeQueryWithParams } = require('../services/sqlServerClient.cjs');
 const { TABLE_NAMES } = require('../services/dbConfig.cjs');
-const { mapEstadoFromDb, mapEstadoToDb } = require('../utils/helpers.js');
+const { mapEstadoFromDb, mapEstadoToDb, validateDecimal18_2 } = require('../utils/helpers.js'); // Updated import
 const fs = require('fs');
 const path = require('path');
 const DIANService = require('../services/dian-service.cjs');
@@ -448,13 +448,13 @@ const invoiceController = {
 
             if (remisionItemsResult.recordset.length > 0) {
               itemsFinales = remisionItemsResult.recordset.map(item => {
-                const cantidad = Number(item.cantidad) || 0;
-                const precioUnitario = Number(item.precioUnitario) || 0;
-                const ivaPorcentajeItem = Number(item.ivaPorcentaje) || 0;
+                const cantidad = validateDecimal18_2(item.cantidad);
+                const precioUnitario = validateDecimal18_2(item.precioUnitario);
+                const ivaPorcentajeItem = validateDecimal18_2(item.ivaPorcentaje);
 
-                const subtotalItem = precioUnitario * cantidad;
-                const ivaItem = subtotalItem * (ivaPorcentajeItem / 100);
-                const totalItem = subtotalItem + ivaItem;
+                const subtotalItem = validateDecimal18_2(precioUnitario * cantidad);
+                const ivaItem = validateDecimal18_2(subtotalItem * (ivaPorcentajeItem / 100));
+                const totalItem = validateDecimal18_2(subtotalItem + ivaItem);
 
                 return {
                   productoId: item.productoId,
@@ -465,7 +465,6 @@ const invoiceController = {
                   descuentoValor: 0,
                   ivaPorcentaje: ivaPorcentajeItem,
                   valorIva: ivaItem,
-                  subtotal: subtotalItem,
                   subtotal: subtotalItem,
                   total: totalItem,
                   descripcion: item.descripcion || item.codProducto,
@@ -481,9 +480,9 @@ const invoiceController = {
           const ivaCalculado = itemsFinales.reduce((sum, item) => sum + (item.valorIva || 0), 0);
           const totalCalculado = itemsFinales.reduce((sum, item) => sum + (item.total || 0), 0);
 
-          body.subtotal = subtotalCalculado;
-          body.ivaValor = ivaCalculado;
-          body.total = totalCalculado;
+          body.subtotal = validateDecimal18_2(subtotalCalculado);
+          body.ivaValor = validateDecimal18_2(ivaCalculado);
+          body.total = validateDecimal18_2(totalCalculado);
         }
 
         if (!Array.isArray(itemsFinales) || itemsFinales.length === 0) {
@@ -578,9 +577,14 @@ const invoiceController = {
             ORDER BY CAST(numfact AS INT) DESC
           `);
 
-          let currentNum = 88996; // Punto de partida base
+          let currentNum = 21; // Punto de partida base
           if (resultMax.recordset.length > 0) {
             currentNum = parseInt(resultMax.recordset[0].numfact, 10);
+          }
+
+          // FORZAR INICIO EN 21 SI ES MENOR
+          if (currentNum < 21) {
+            currentNum = 21;
           }
 
           let assignedNum = null;
@@ -676,11 +680,10 @@ const invoiceController = {
         const req1 = new sql.Request(tx);
         const estadoMapeado = mapEstadoToDb(estado);
 
-        const maxDecimal18_2 = 9999999999999999.99;
-        const subtotalFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.subtotal || subtotal) || 0), maxDecimal18_2));
-        const descuentoValorFinal = Math.max(0, Math.min(Math.abs(parseFloat(descuentoValor) || 0), maxDecimal18_2));
-        const ivaValorFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.ivaValor || ivaValor) || 0), maxDecimal18_2));
-        const totalFinal = Math.max(0, Math.min(Math.abs(parseFloat(body.total || total) || 0), maxDecimal18_2));
+        const subtotalFinal = validateDecimal18_2(body.subtotal || subtotal);
+        const descuentoValorFinal = validateDecimal18_2(descuentoValor);
+        const ivaValorFinal = validateDecimal18_2(body.ivaValor || ivaValor);
+        const totalFinal = validateDecimal18_2(body.total || total);
 
         const numfactFinal = String(numeroFacturaFinal || '').trim().substring(0, 15);
         const tipfacFinal = String(body.tipoFactura || 'FV').trim().substring(0, 2).padEnd(2, ' ');
@@ -933,11 +936,11 @@ const invoiceController = {
           const subtotalSinIva = precioUnitarioNum * cantidadNum * (1 - (descuentoPorcentajeNum / 100));
           const valorIvaFinalCalculado = subtotalSinIva * (tasaIvaProducto / 100);
 
-          const qtyinsFinal = Math.max(0.01, Math.min(Math.abs(cantidadNum), maxDecimal18_2));
-          const valinsFinal = Math.max(0, Math.min(Math.abs(precioUnitarioNum), maxDecimal18_2));
-          const desinsFinal = Math.max(0, Math.min(Math.abs(descuentoPorcentajeNum), 100));
-          const valorIvaFinal = Math.max(0, Math.min(Math.abs(valorIvaFinalCalculado), maxDecimal18_2));
-          const valdescuentoFinal = Math.max(0, Math.min(Math.abs(subtotalSinIva * (desinsFinal / 100)), maxDecimal18_2));
+          const qtyinsFinal = Math.max(0.01, validateDecimal18_2(Math.abs(cantidadNum)));
+          const valinsFinal = validateDecimal18_2(Math.abs(precioUnitarioNum));
+          const desinsFinal = Math.max(0, Math.min(validateDecimal18_2(Math.abs(descuentoPorcentajeNum)), 100));
+          const valorIvaFinal = validateDecimal18_2(Math.abs(valorIvaFinalCalculado));
+          const valdescuentoFinal = validateDecimal18_2(Math.abs(subtotalSinIva * (desinsFinal / 100)));
 
           // CALCULAR COSTO BASE (venkar) usando Lista 07
           const precioLista07 = parseFloat(productoResult.recordset[0].precio_lista_07) || 0;
@@ -1333,7 +1336,7 @@ const invoiceController = {
         ORDER BY CAST(numfact AS INT) DESC
       `);
 
-      let nextNum = '88996';
+      let nextNum = '21';
       if (result.recordset.length > 0) {
         const lastNum = result.recordset[0].numfact;
         const consecutivo = parseInt(lastNum, 10);
@@ -1354,6 +1357,11 @@ const invoiceController = {
         } else {
           // Si no está timbrado, se reutiliza
           nextNum = String(consecutivo);
+        }
+
+        // FORZAR INICIO EN 21 SI ES MENOR
+        if (parseInt(nextNum, 10) < 21) {
+          nextNum = '21';
         }
       }
 
