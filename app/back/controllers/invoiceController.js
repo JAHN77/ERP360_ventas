@@ -991,8 +991,15 @@ const invoiceController = {
           // Por ahora, asumimos que si hay remisiónId encadenada, toda la factura está cubierta por remisiones o el usuario ya gestionó el inventario.
           // Ajuste: El requerimiento es que "ya sea entrada o salida se debe reflejar". 
           // Si allRemisionIds.length > 0, NO movemos kardex.
+          // LOG DEBUG KARDEX
+          console.log(`🔍 [DEBUG KARDEX] Item ${idx}: ProductoId=${productoIdNum}, RemisionesLen=${allRemisionIds.length}`, {
+            remisiones: allRemisionIds
+          });
+
           if (allRemisionIds.length === 0) {
             const numFacInt = parseInt(String(numfactFinal).replace(/\D/g, '')) || 0;
+            console.log(`🚀 [DEBUG KARDEX] Intentando registrar salida para ${productoIdNum}, Doc: ${numFacInt}`);
+
             await InventoryService.registrarSalida({
               transaction: tx,
               productoId: productoIdNum,
@@ -1008,6 +1015,8 @@ const invoiceController = {
               clienteId: codterFinal,
               numComprobante: numFacInt
             });
+          } else {
+            console.log(`⚠️ [DEBUG KARDEX] OMITIENDO Salida (Tiene remisiones vinculadas)`);
           }
         }
 

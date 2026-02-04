@@ -346,6 +346,7 @@ export interface Factura {
   remisionId?: string;
   pedidoId?: string;
   clienteId: string;
+  clienteNombre?: string; // Nombre del cliente (mapeado de nomter en backend)
   vendedorId?: string;
   subtotal: number;
   descuentoValor: number;

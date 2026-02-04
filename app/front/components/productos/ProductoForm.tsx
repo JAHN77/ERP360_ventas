@@ -18,7 +18,8 @@ const getInitialFormState = (data?: InvProducto | null, isService?: boolean): Om
   idTipoProducto: data?.idTipoProducto || (isService ? 2 : 1), // 2 for Services, 1 for Products
   precio: data?.precio || 0,
   ultimoCosto: data?.ultimoCosto || 0,
-  controlaExistencia: isService ? 0 : (data?.controlaExistencia || 0),
+  controlaExistencia: isService ? 0 : (data?.controlaExistencia !== undefined ? data.controlaExistencia : 1), // Default 1 for products
+  stock: data?.stock || 0, // Initialize stock
   unidadMedida: data?.unidadMedida || 'Unidad',
   aplicaIva: data?.aplicaIva ?? true,
   // FIX: Add missing properties to satisfy Omit<InvProducto, 'id'> type
@@ -30,7 +31,7 @@ const getInitialFormState = (data?: InvProducto | null, isService?: boolean): Om
   tasaIva: data?.tasaIva ?? (data?.aplicaIva ? 19 : 0),
   costoPromedio: data?.costoPromedio || 0,
   referencia: data?.referencia,
-  karins: isService ? false : (data?.karins ?? false),
+  karins: isService ? false : (data?.karins ?? true), // Default true for products
   activo: data?.activo ?? true,
   idMedida: data?.idMedida,
   idMarca: data?.idMarca,
@@ -50,7 +51,7 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
 
     if (!isNotEmpty(formData.nombre)) newErrors.nombre = `El nombre del ${isService ? 'servicio' : 'producto'} es obligatorio.`;
     if (!isPositiveNumber(formData.precio)) newErrors.precio = 'El precio debe ser un número mayor a cero.';
-    if (!isService && !isNonNegativeInteger(formData.controlaExistencia)) newErrors.controlaExistencia = 'El stock debe ser un número entero no negativo.';
+    // Stock validation is optional, can be 0.
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -80,14 +81,25 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
     const { name, type } = target;
     const value = type === 'checkbox' ? (target as HTMLInputElement).checked : target.value;
 
-    if (name === 'precio' || name === 'ultimoCosto' || name === 'controlaExistencia') {
-      const numericValue = String(value).replace(/[^0-9]/g, '');
+    if (name === 'precio' || name === 'ultimoCosto' || name === 'stock') {
+      const numericValue = String(value).replace(/[^0-9.]/g, ''); // Allow decimals for stock/price if needed?
+      // Assuming integers for now based on previous regex /[^0-9]/, but stock can be decimal.
+      // previous regex was /[^0-9]/ which forces integer. valid since inputs are pattern="[0-9]*"
+      // But let's stick to simple int parsing for consistency or improve.
       const num = numericValue === '' ? 0 : parseInt(numericValue, 10);
+
       if (name === 'precio') {
         setFormData(prev => ({ ...prev, precio: num, ultimoCosto: num }));
       } else {
         setFormData(prev => ({ ...prev, [name]: num }));
       }
+    } else if (name === 'controlaExistencia') {
+      // Handle Maneja Kardex checkbox (mapped to karins in backend, but creates separate logic here)
+      // Actually, let's map 'controlaExistencia' (flag) to checkbox.
+      // Wait, 'controlaExistencia' in formData is number (from InvProducto interface).
+      // Let's treat it as boolean here for the checkbox, and store as number 1/0.
+      const checked = (target as HTMLInputElement).checked;
+      setFormData(prev => ({ ...prev, controlaExistencia: checked ? 1 : 0, karins: checked }));
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -105,6 +117,7 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
         karins: isService ? false : (!!formData.controlaExistencia && formData.controlaExistencia > 0),
         precio: Number(formData.precio),
         controlaExistencia: isService ? 0 : Number(formData.controlaExistencia),
+        stock: isService ? 0 : Number(formData.stock), // Send stock
         ultimoCosto: Number(formData.ultimoCosto),
         idCategoria: Number(formData.idCategoria),
         idSublineas: Number(formData.idSublineas),
@@ -204,15 +217,15 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
           </InputWrapper>
 
           {!isService && (
-            <InputWrapper label="Stock Inicial" icon="fa-boxes">
+            <InputWrapper label="Stock" icon="fa-boxes">
               <input
                 type="text"
                 pattern="[0-9]*"
                 inputMode="numeric"
-                name="controlaExistencia"
-                value={formData.controlaExistencia}
+                name="stock"
+                value={formData.stock}
                 onChange={handleChange}
-                className={getInputClassesLocal('controlaExistencia')}
+                className={getInputClassesLocal('stock') || inputBaseClasses}
                 placeholder="0"
               />
             </InputWrapper>
@@ -238,7 +251,7 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
           </InputWrapper>
         </div>
 
-        <div className="mt-6 flex items-center">
+        <div className="mt-6 flex flex-wrap gap-6">
           <label className="relative inline-flex items-center cursor-pointer group">
             <input
               type="checkbox"
@@ -252,6 +265,23 @@ const ProductoForm: React.FC<ProductoFormProps> = ({ initialData, onSubmit, onCa
               Aplica IVA (19%)
             </span>
           </label>
+
+          {!isService && (
+            <label className="relative inline-flex items-center cursor-pointer group">
+              <input
+                type="checkbox"
+                name="controlaExistencia"
+                checked={!!formData.controlaExistencia}
+                onChange={handleChange}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+              <span className="ml-3 text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-blue-600 transition-colors">
+                Maneja Kardex
+              </span>
+            </label>
+          )}
+
         </div>
       </div>
 

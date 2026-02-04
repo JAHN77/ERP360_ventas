@@ -649,7 +649,9 @@ const FacturasPage: React.FC = () => {
     // Si no tiene items, cargarlos bajo demanda
     setIsLoadingDetails(true);
     try {
+      console.log('Fetching details for invoice:', factura.id);
       const response = await apiClient.getFacturasDetalle(factura.id);
+      console.log('Details Response:', response);
       if (response.success && Array.isArray(response.data)) {
         const items = response.data.map((d: any) => ({
           productoId: d.productoId || null,

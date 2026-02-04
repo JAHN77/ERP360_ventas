@@ -83,8 +83,8 @@ const getAllOrders = async (req, res) => {
         NULL as listaPrecioId,
         COALESCE(p.descuento_porcentaje, 0) as descuentoPorcentaje,
         COALESCE(p.iva_porcentaje, 0) as ivaPorcentaje,
-        COALESCE(p.impoconsumo_valor, 0) as impoconsumoValor,
-        LTRIM(RTRIM(COALESCE(p.instrucciones_entrega, ''))) as instruccionesEntrega,
+        0 as impoconsumoValor,
+        NULL as instruccionesEntrega,
         LTRIM(RTRIM(COALESCE(p.formapago, '01'))) as formaPago,
         u.firma as firmaVendedor
       FROM ${TABLE_NAMES.pedidos} p

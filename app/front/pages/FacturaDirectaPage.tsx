@@ -221,15 +221,11 @@ const FacturaDirectaPage: React.FC = () => {
         try {
             const payload = createInvoicePayload(formData);
 
-            // Si está en modo prueba, solo mostrar JSON y NO guardar
+            // MODO PRUEBA: Ahora permitimos guardar
             if (isTestMode) {
-                setJsonContent(JSON.stringify(payload, null, 2));
-                setJsonModalOpen(true);
-                addNotification({ message: 'Modo Prueba: Visualizando JSON. No se guardará en la base de datos.', type: 'info' });
-                return;
+                addNotification({ message: 'Modo Prueba: Se procederá a guardar sin enviar a la DIAN.', type: 'info' });
             }
 
-            // MODO PRODUCCIÓN: Pedir confirmación antes de enviar
             setPendingPayload(payload);
             setPendingFormData(formData);
             setConfirmModalOpen(true);
@@ -250,17 +246,20 @@ const FacturaDirectaPage: React.FC = () => {
 
     const proceedWithInvoice = async (payload: any, formData: any) => {
         try {
-            let cufe = 'CUFE_PRUEBA_' + new Date().getTime(); // Default for Test Mode
+            let cufe = '';
 
-            if (!isTestMode) {
-                // 2. Enviar a DIAN SOLO si NO es modo prueba
+            if (isTestMode) {
+                // MODO PRUEBA: Simular CUFE y no enviar a DIAN
+                cufe = 'PRUEBA-' + new Date().getTime() + '-' + Math.random().toString(36).substring(7).toUpperCase();
+                addNotification({ message: 'Modo Prueba: DIAN omitido. Guardando en BD...', type: 'warning' });
+            } else {
+                // MODO PRODUCCIÓN: Enviar a DIAN
                 const dianResponse = await apiClient.sendManualDianTest(payload);
                 if (!dianResponse.success) {
                     throw new Error(dianResponse.message || 'Error enviando a DIAN');
                 }
 
                 cufe = (dianResponse as any).dianResult?.cufe || (dianResponse as any).dianResult?.uuid || 'CUFE_PENDIENTE';
-                // addNotification({ message: 'Factura aceptada por la DIAN', type: 'success' }); // Replaced by Modal
 
                 // Set success data for modal
                 setSuccessCufe(cufe);
@@ -283,8 +282,6 @@ const FacturaDirectaPage: React.FC = () => {
                         console.error("Error auto-descargando PDF", e);
                     }
                 }
-            } else {
-                addNotification({ message: 'Modo Prueba: DIAN omitido. Guardando solo en BD...', type: 'warning' });
             }
 
             // 3. Guardar en DB usando el endpoint estándar (Funciona para todas las empresas)

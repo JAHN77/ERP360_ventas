@@ -378,7 +378,23 @@ const productController = {
           await request.query(query);
 
           // Initial stock record? (inv_invent)
-          // Usually separate process, but we might want an empty record
+          const initialStock = (controlaExistencia && !isNaN(controlaExistencia)) ? parseFloat(controlaExistencia) : 0;
+
+          if (initialStock > 0 || (controlaExistencia && Number(controlaExistencia) !== 0)) {
+            const reqStock = new sql.Request(transaction);
+            reqStock.input('codins', sql.VarChar(20), nextCode); // nextCode is the new codins
+            reqStock.input('cantidad', sql.Decimal(18, 2), initialStock);
+            reqStock.input('codalm', sql.VarChar(5), '01'); // Default warehouse
+
+            // Check if it already exists (unlikely for new product, but safe)
+            const checkStock = await reqStock.query(`SELECT 1 FROM inv_invent WHERE codins = @codins AND codalm = '01'`);
+            if (checkStock.recordset.length === 0) {
+              await reqStock.query(`
+                    INSERT INTO inv_invent (codalm, codins, caninv, ucoins, invfis)
+                    VALUES (@codalm, @codins, @cantidad, 0, 0)
+                 `);
+            }
+          }
         }
 
         await transaction.commit();
@@ -560,7 +576,7 @@ const productController = {
   updateProduct: async (req, res) => {
     try {
       const { id } = req.params;
-      const { precioBase, tasaIva } = req.body;
+      const { precioBase, tasaIva, stock } = req.body;
 
       if (precioBase === undefined) {
         return res.status(400).json({ success: false, message: 'El costo base es requerido' });
@@ -610,6 +626,31 @@ const productController = {
         } else {
           // Si no existe, se podría insertar, pero por ahora solo actualizamos si existe
           console.warn(`Tarifa 07 no encontrada para el producto ${codins}`);
+        }
+
+        // 4. Actualizar Stock (inv_invent) si se proporciona
+        if (stock !== undefined && stock !== null && stock !== '') {
+          const stockNum = parseFloat(stock);
+          const reqStock = new sql.Request(transaction);
+          reqStock.input('codins', sql.VarChar(8), codins);
+          reqStock.input('cantidad', sql.Decimal(18, 2), stockNum);
+
+          // Asumimos bodega '01' por defecto
+          const codalm = '01';
+          reqStock.input('codalm', sql.VarChar(5), codalm);
+
+          // Verificar existencia en inv_invent para bodega 01
+          const checkInvent = await reqStock.query(`SELECT 1 FROM inv_invent WHERE codins = @codins AND codalm = @codalm`);
+
+          if (checkInvent.recordset.length > 0) {
+            await reqStock.query(`UPDATE inv_invent SET caninv = @cantidad WHERE codins = @codins AND codalm = @codalm`);
+          } else {
+            // Insertar si no existe
+            await reqStock.query(`
+                    INSERT INTO inv_invent (codalm, codins, caninv, ucoins, invfis)
+                    VALUES (@codalm, @codins, @cantidad, 0, 0)
+                 `);
+          }
         }
 
         await transaction.commit();
