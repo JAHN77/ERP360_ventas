@@ -477,11 +477,8 @@ const createQuote = async (req, res) => {
 const updateQuote = async (req, res) => {
   const { id } = req.params;
   const body = req.body;
-  const idNum = parseInt(id, 10);
-
-  if (isNaN(idNum)) {
-    return res.status(400).json({ success: false, message: 'ID de cotización inválido' });
-  }
+  // Allow alphanumeric IDs (numcot)
+  const idStr = String(id).trim();
 
   const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
   const tx = new sql.Transaction(pool);
@@ -491,8 +488,8 @@ const updateQuote = async (req, res) => {
 
     // Verificar estado actual
     const reqCheck = new sql.Request(tx);
-    reqCheck.input('id', sql.Int, idNum);
-    const checkRes = await reqCheck.query(`SELECT estcot, numcot, codter FROM ${TABLE_NAMES.cotizaciones} WHERE id = @id`);
+    reqCheck.input('id', sql.VarChar(20), idStr);
+    const checkRes = await reqCheck.query(`SELECT estcot, numcot, codter FROM ${TABLE_NAMES.cotizaciones} WHERE numcot = @id`);
 
     if (checkRes.recordset.length === 0) {
       await tx.rollback();
@@ -505,7 +502,7 @@ const updateQuote = async (req, res) => {
     // Preparar updates dinámicos
     let updates = [];
     const reqUpdate = new sql.Request(tx);
-    reqUpdate.input('id', sql.Int, idNum);
+    reqUpdate.input('id', sql.VarChar(20), idStr);
 
     if (body.estado) {
       const estadoDb = mapEstadoToDb(body.estado);
@@ -545,7 +542,7 @@ const updateQuote = async (req, res) => {
     }
 
     if (updates.length > 0) {
-      const updateQuery = `UPDATE ${TABLE_NAMES.cotizaciones} SET ${updates.join(', ')} WHERE id = @id`;
+      const updateQuery = `UPDATE ${TABLE_NAMES.cotizaciones} SET ${updates.join(', ')} WHERE numcot = @id`;
       await reqUpdate.query(updateQuery);
     }
 
@@ -554,20 +551,22 @@ const updateQuote = async (req, res) => {
     if (body.estado === 'APROBADA' && currentStatusMapped !== 'APROBADA') {
       try {
         // 1. Obtener items de la cotización
+        // 1. Obtener items de la cotización usando numcot (la relación legacy)
         const reqItems = new sql.Request(tx);
-        reqItems.input('cotizacionId', sql.BigInt, idNum);
+        // Usar numcot (que es igual a idStr en este contexto)
+        reqItems.input('numCot', sql.VarChar(20), idStr);
         const itemsRes = await reqItems.query(`
                 SELECT 
-                    d.cod_producto as codProducto, 
-                    d.cantidad, 
-                    d.preciound as precioUnitario, 
-                    d.tasa_descuento as descuentoPorcentaje, 
-                    d.tasa_iva as ivaPorcentaje, 
-                    d.valor as total,
-                    d.codigo_medida as codigoMedida,
-                    (SELECT TOP 1 id FROM inv_insumos WHERE codins = d.cod_producto) as productoId
+                    d.coddet as codProducto, 
+                    d.candet as cantidad, 
+                    d.vundet as precioUnitario, 
+                    d.dctdet as descuentoPorcentaje, 
+                    d.ivadet as ivaPorcentaje, 
+                    ((d.candet * d.vundet) * (1 - (d.dctdet/100)) * (1 + (d.ivadet/100))) as total,
+                    d.coddet as codigoMedida,
+                    (SELECT TOP 1 id FROM inv_insumos WHERE codins = d.coddet) as productoId
                 FROM ${TABLE_NAMES.cotizaciones_detalle} d 
-                WHERE d.id_cotizacion = @cotizacionId
+                WHERE d.numcot = @numCot
             `);
 
         const itemsCotizacion = itemsRes.recordset;
@@ -580,8 +579,8 @@ const updateQuote = async (req, res) => {
           // Necesitamos más datos del header que tal vez no trajimos en el check inicial (solo trajimos estado, numcot, codter)
           // Vamos a traer todo el header actualizado
           const reqFullHeader = new sql.Request(tx);
-          reqFullHeader.input('id', sql.Int, idNum);
-          const fullHeaderRes = await reqFullHeader.query(`SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE id = @id`);
+          reqFullHeader.input('id', sql.VarChar(20), idStr);
+          const fullHeaderRes = await reqFullHeader.query(`SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE numcot = @id`);
           const fullHeader = fullHeaderRes.recordset[0];
 
           // Función helper local para asegurar 2 decimales
@@ -639,8 +638,8 @@ const updateQuote = async (req, res) => {
 
     // Obtener cotización actualizada para devolver al frontend
     const reqFinal = new sql.Request(tx);
-    reqFinal.input('finalId', sql.Int, idNum);
-    const finalRes = await reqFinal.query(`SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE id = @finalId`);
+    reqFinal.input('finalId', sql.VarChar(20), idStr);
+    const finalRes = await reqFinal.query(`SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE numcot = @finalId`);
     const finalCotizacion = finalRes.recordset[0] ? {
       ...finalRes.recordset[0],
       estado: mapEstadoFromDb(finalRes.recordset[0].estado) // Mapear estado para frontend
