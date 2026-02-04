@@ -462,8 +462,8 @@ const QUERIES = {
         )
         FROM ${TABLE_NAMES.remisiones_detalle} rd
         LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(rd.codins))
-        -- REMOVED BROKEN JOIN: LEFT JOIN ${TABLE_NAMES.pedidos} ped ON ped.id = r.pedido_id
-        -- REMOVED BROKEN JOIN: LEFT JOIN ${TABLE_NAMES.pedidos_detalle} pd
+        LEFT JOIN ${TABLE_NAMES.pedidos} ped ON ped.id = r.pedido_id
+        LEFT JOIN ${TABLE_NAMES.pedidos_detalle} pd ON LTRIM(RTRIM(pd.numped)) = LTRIM(RTRIM(ped.numero_pedido)) AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
         WHERE rd.remision_id = r.id
       ) as total,
       NULL as subtotal,
@@ -498,24 +498,82 @@ const QUERIES = {
       COALESCE(rd.cantidad_devuelta, 0) as cantidadDevuelta,
       COALESCE(rd.cantidad_enviada, 0) as cantidad,
       
-      -- 1. PRECIO UNITARIO: Fallback al catálogo
-         COALESCE(p.ultimo_costo, 0) as precioUnitario,
+      -- 1. PRECIO UNITARIO: Prioridad Pedido -> Catálogo
+         COALESCE(
+        (SELECT TOP 1 pd.valins 
+         FROM ${TABLE_NAMES.pedidos_detalle} pd 
+         WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+        p.ultimo_costo, -- Fallback al costo/precio de lista si no hay precio en pedido
+        0
+      ) as precioUnitario,
 
-      -- 2. DESCUENTO: 0 por ahora (JOIN roto)
-      0 as descuentoPorcentaje,
+      -- 2. DESCUENTO: Prioridad Pedido -> 0
+      CASE 
+        WHEN COALESCE(rd.cantidad_enviada, 0) > 0 THEN
+           COALESCE(
+            (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0)) * 100
+             FROM ${TABLE_NAMES.pedidos_detalle} pd 
+             WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+             0
+           )
+        ELSE 0
+      END as descuentoPorcentaje,
 
-      -- 3. IVA: 0
+      -- 3. IVA: SIEMPRE DEL CATALOGO (Base de datos real)
       0 as ivaPorcentaje,
 
       -- 4. CAMPOS CALCULADOS
       -- Subtotal
-      (rd.cantidad_enviada * COALESCE(p.ultimo_costo, 0)) as subtotal,
+      (rd.cantidad_enviada * 
+       COALESCE(
+        (SELECT TOP 1 pd.valins FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+        p.ultimo_costo, 
+        0
+       ) 
+       * (1 - (
+         COALESCE(
+           (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0))
+            FROM ven_detapedidos pd 
+            INNER JOIN ${TABLE_NAMES.pedidos} ped ON LTRIM(RTRIM(ped.numero_pedido)) = LTRIM(RTRIM(pd.numped))
+            WHERE ped.id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+           0
+         )
+       ))
+      ) as subtotal,
 
-      -- Valor IVA
-      0 as valorIva,
+      -- Valor IVA (sobre el subtotal con descuento)
+      ((rd.cantidad_enviada * 
+        COALESCE(
+         (SELECT TOP 1 pd.valins FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+         p.ultimo_costo, 
+         0
+        ) 
+        * (1 - (
+          COALESCE(
+            (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0))
+             FROM ${TABLE_NAMES.pedidos_detalle} pd 
+             WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+            0
+          )
+        ))
+      ) * (0 / 100.0)) as valorIva,
 
       -- Total
-      (rd.cantidad_enviada * COALESCE(p.ultimo_costo, 0)) as total
+      ((rd.cantidad_enviada * 
+        COALESCE(
+         (SELECT TOP 1 pd.valins FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+         p.ultimo_costo, 
+         0
+        ) 
+        * (1 - (
+          COALESCE(
+            (SELECT TOP 1 (COALESCE(pd.dctped, 0) / NULLIF(pd.canped * pd.valins, 0))
+             FROM ${TABLE_NAMES.pedidos_detalle} pd 
+             WHERE pd.pedido_id = re.pedido_id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))),
+            0
+          )
+        ))
+      ) * (1 + (0 / 100.0))) as total
 
     FROM ${TABLE_NAMES.remisiones_detalle} rd
     LEFT JOIN ${TABLE_NAMES.remisiones} re ON re.id = rd.remision_id

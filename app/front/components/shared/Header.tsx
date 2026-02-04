@@ -157,7 +157,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
   // Ahora usamos los custom hooks useClickOutside y useEscapeKey (ver arriba)
 
   return (
-    <header className="sticky top-0 z-40 flex justify-between items-center px-2 sm:px-4 md:px-6 lg:px-8 py-1.5 sm:py-2 md:py-2.5 bg-white/90 dark:bg-slate-800/90 supports-[backdrop-filter]:backdrop-blur border-b border-slate-200 dark:border-slate-700">
+    <header className="sticky top-0 z-40 flex justify-between items-center px-2 sm:px-4 md:px-6 lg:px-8 py-1.5 sm:py-2 md:py-2.5 bg-white/90 dark:bg-slate-800/90 supports-[backdrop-filter]:backdrop-blur border-b border-slate-200 dark:border-slate-700 shadow-sm">
       {/* Left Section: Menu, Company, Search */}
       <div className="flex items-center min-w-0 flex-1 gap-2 sm:gap-3 md:gap-4">
         {/* Mobile Menu Button */}
@@ -174,7 +174,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
           <div className="relative hidden md:block ml-2 md:ml-0 mr-2 md:mr-4" ref={companyDropdownRef}>
             <button
               onClick={() => setIsCompanyDropdownOpen(!isCompanyDropdownOpen)}
-              className="flex items-center gap-2 text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors max-w-[200px]"
+              className="flex items-center gap-2 text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 hover:text-red-600 dark:hover:text-red-400 transition-colors max-w-[200px]"
               title={selectedCompany?.razonSocial || ''}
             >
               <span className="truncate">{selectedCompany?.razonSocial || 'Sin empresa'}</span>
@@ -193,10 +193,10 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                         setPage('dashboard', { companySlug: empresa.db_name });
                         setIsCompanyDropdownOpen(false);
                       }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-2 ${selectedCompany.id === empresa.id ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-200'
+                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-2 ${selectedCompany.id === empresa.id ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-medium' : 'text-slate-700 dark:text-slate-200'
                         }`}
                     >
-                      <i className={`fas fa-building ${selectedCompany.id === empresa.id ? 'text-blue-500' : 'text-slate-400'}`}></i>
+                      <i className={`fas fa-building ${selectedCompany.id === empresa.id ? 'text-red-500' : 'text-slate-400'}`}></i>
                       <span className="truncate">{empresa.razonSocial}</span>
                       {selectedCompany.id === empresa.id && <i className="fas fa-check ml-auto text-xs"></i>}
                     </button>
@@ -216,7 +216,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
             onChange={(e) => setSearchTerm(e.target.value)}
             onFocus={() => { if (searchResults) setIsResultsOpen(true); }}
             placeholder="Buscar documentos, clientes, productos..."
-            className="w-full pl-10 pr-4 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow-md"
+            className="w-full pl-10 pr-4 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all shadow-sm hover:shadow-md"
           />
           {isResultsOpen && searchResults && (
             <GlobalSearchResults
@@ -246,7 +246,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onFocus={() => { if (searchResults) setIsResultsOpen(true); }}
                 placeholder="Buscar documentos, clientes, productos..."
-                className="w-full pl-10 pr-10 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-lg"
+                className="w-full pl-10 pr-10 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all shadow-lg"
               />
               <button className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300" onClick={() => { setIsMobileSearchOpen(false); setIsResultsOpen(false); }} aria-label="Cerrar búsqueda">
                 <i className="fas fa-times"></i>
@@ -270,7 +270,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
           <button
             id="sede-chip"
             className={`inline-flex items-center gap-2 pl-3 pr-2 py-2 text-sm bg-white dark:bg-slate-800 border rounded-lg transition-all max-w-[200px] focus:outline-none ${isSedePopoverOpen
-              ? 'border-blue-500 shadow-md bg-blue-50 dark:bg-blue-900/20'
+              ? 'border-red-500 shadow-md bg-red-50 dark:bg-red-900/20'
               : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 hover:shadow-sm'
               } ${isLoadingBodegas ? 'opacity-50 cursor-wait' : ''}`}
             onClick={(e) => {
@@ -310,7 +310,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
             <div
               id="sede-popover"
               ref={bodegasPopoverRef}
-              className="absolute top-full left-0 mt-2 w-[280px] max-h-72 overflow-auto no-scrollbar rounded-md border-2 border-blue-500 bg-white dark:bg-slate-800 shadow-2xl z-50"
+              className="absolute top-full left-0 mt-2 w-[280px] max-h-72 overflow-auto no-scrollbar rounded-md border-2 border-red-500 bg-white dark:bg-slate-800 shadow-2xl z-50"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
@@ -349,8 +349,8 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                     return (
                       <li key={`bodega-${sede.id || sede.codigo || index}-${index}`}>
                         <button
-                          className={`w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors flex items-center gap-2 ${isSelected
-                            ? 'font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                          className={`w-full text-left px-3 py-2.5 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors flex items-center gap-2 ${isSelected
+                            ? 'font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
                             : 'text-slate-700 dark:text-slate-300'
                             }`}
                           onClick={(e) => {
@@ -395,13 +395,13 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                             // El popover ya se cierra arriba con setIsSedePopoverOpen(false)
                           }}
                         >
-                          <i className={`fas fa-warehouse text-xs ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400'}`}></i>
+                          <i className={`fas fa-warehouse text-xs ${isSelected ? 'text-red-600 dark:text-red-400' : 'text-slate-400'}`}></i>
                           <span className="flex-1 font-medium">{sede.nombre || 'Sin nombre'}</span>
                           {sede.codigo && (
                             <span className="text-xs text-slate-400">({sede.codigo})</span>
                           )}
                           {isSelected && (
-                            <i className="fas fa-check text-blue-600 dark:text-blue-400 text-xs"></i>
+                            <i className="fas fa-check text-red-600 dark:text-red-400 text-xs"></i>
                           )}
                         </button>
                       </li>
@@ -441,7 +441,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                       }
                       setIsMoreMenuOpen(false);
                     }}
-                    className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                   >
                     {(user?.empresas || []).map(empresa => (
                       <option key={empresa?.id || ''} value={empresa?.id || ''}>
@@ -473,7 +473,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                         }
                         setIsMoreMenuOpen(false);
                       }}
-                      className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full pl-3 pr-8 py-2 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                       disabled={!selectedCompany?.sedes || selectedCompany.sedes.length === 0}
                     >
                       {(selectedCompany?.sedes && selectedCompany.sedes.length > 0) ? (
@@ -528,7 +528,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
               <div className="flex justify-between items-center p-3 border-b border-slate-200 dark:border-slate-700">
                 <h4 className="font-semibold text-slate-800 dark:text-slate-100">Notificaciones</h4>
                 {notifications.some(n => !n.isRead) && (
-                  <button onClick={markAllAsRead} className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                  <button onClick={markAllAsRead} className="text-xs font-medium text-red-600 dark:text-red-400 hover:underline">
                     Marcar todas como leídas
                   </button>
                 )}
@@ -539,7 +539,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
                     <div
                       key={n.id}
                       onClick={() => { handleNotificationClick(n); setNotificationDropdownOpen(false); }}
-                      className={`p-3 flex items-start gap-3 cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-slate-700/50 ${!n.isRead ? 'bg-blue-50 dark:bg-slate-900/50' : ''}`}
+                      className={`p-3 flex items-start gap-3 cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-slate-700/50 ${!n.isRead ? 'bg-red-50 dark:bg-slate-900/50' : ''}`}
                       role="button"
                       tabIndex={0}
                     >
@@ -578,7 +578,7 @@ const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
             aria-label="Menú de usuario"
             aria-expanded={userDropdownOpen}
           >
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center font-bold flex-shrink-0 shadow-sm ring-2 ring-blue-100 dark:ring-blue-900/50">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-red-600 text-white flex items-center justify-center font-bold flex-shrink-0 shadow-sm ring-2 ring-red-100 dark:ring-red-900/50">
               {(user?.nombre && String(user.nombre).charAt(0)?.toUpperCase()) || 'U'}
             </div>
             <div className="text-left hidden md:block min-w-0">

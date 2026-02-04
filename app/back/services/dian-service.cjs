@@ -197,14 +197,50 @@ class DIANService {
       console.log('   - Coddane:', empresa.Coddane);
       console.log('   - Ciuemp:', empresa.Ciuemp);
 
-      // Extraer solo la parte antes del guión del nitemp (ej: "802024306-1" → "802024306")
-      let nitempLimpio = String(empresa.nitemp || '').trim();
+      // Extraer solo la parte antes del guión del nitemp
+      // User Request: usar split('-') para separar NIT y DV
+      const nitempOriginal = String(empresa.nitemp || '').trim();
+      console.log(`   - nitemp RAW de DB: '${nitempOriginal}'`);
+
+      let nitempLimpio = nitempOriginal;
       let dvEmpresa = null;
-      if (nitempLimpio.includes('-')) {
-        const parts = nitempLimpio.split('-');
+
+      if (nitempOriginal.includes('-')) {
+        // Caso 1: Tiene guión (Ej: "901907454-2")
+        // Lógica solicitada: cadenaCompleta.split('-')[0]
+        const parts = nitempOriginal.split('-');
         nitempLimpio = parts[0].trim();
-        dvEmpresa = parseInt(parts[1], 10);
-        console.log(`   - nitemp procesado: ${nitempLimpio}, DV explícito: ${dvEmpresa}`);
+        // Guardar DV para uso futuro
+        if (parts.length > 1) {
+          dvEmpresa = parseInt(parts[1], 10);
+        }
+        console.log(`   - nitemp SPLIT por guión: ${nitempLimpio}, DV: ${dvEmpresa}`);
+      } else {
+        // Caso 2: No tiene guión, validar si es concatenado (Ej: "9019074542")
+        // Limpiar caracteres no numéricos
+        const nitempClean = nitempOriginal.replace(/[^\d]/g, '');
+
+        if (nitempClean.length === 10 && (nitempClean.startsWith('8') || nitempClean.startsWith('9'))) {
+          // Asumimos formato NIT+DV concatenado
+          const nitPart = nitempClean.substring(0, 9);
+          const dvPart = parseInt(nitempClean.substring(9), 10);
+
+          // Validamos con algoritmo DIAN para logging, pero FORZAMOS la separación
+          // porque el usuario confirma que "el 2 es el DV"
+          const calculatedDv = this.calculateDV(nitPart);
+
+          if (calculatedDv === dvPart) {
+            console.log(`   - nitemp SPLIT por longitud (concatenado): ${nitPart}, DV: ${dvPart} (Validado)`);
+          } else {
+            console.warn(`   ⚠️ nitemp ${nitempClean} parece concatenado pero DV matemático no coincide (Calc: ${calculatedDv} vs Real: ${dvPart}). SEPARANDO IGUALMENTE por requerimiento.`);
+          }
+
+          nitempLimpio = nitPart;
+          dvEmpresa = dvPart;
+
+        } else {
+          nitempLimpio = nitempClean;
+        }
       }
 
       // Usar Coddane si existe, sino default
@@ -219,8 +255,8 @@ class DIANService {
       telefonoLimpio = telefonoLimpio.replace(/[^\d]/g, ''); // Solo números
 
       const companyData = {
-        identification_number: Number(nitempLimpio) || this.COMPANY_NIT,
-        dv: dvEmpresa !== null ? dvEmpresa : this.calculateDV(Number(nitempLimpio) || this.COMPANY_NIT),
+        identification_number: 901907454, // VALOR QUEMADO/HARDCODED POR SOLICITUD DEL USUARIO
+        dv: 2, // DV del 901907454
         name: (empresa.razemp || '').trim().toUpperCase() || 'MULTIACABADOS S.A.S.',
         type_organization_id: 1, // 1 = Persona Jurídica
         type_document_id: "31", // NIT
@@ -234,7 +270,7 @@ class DIANService {
       this.COMPANY_DATA = companyData;
       this.COMPANY_NIT = companyData.identification_number;
 
-      console.log('✅ Datos de empresa procesados y listos para usar');
+      console.log('✅ Datos de empresa procesados (NIT QUEMADO):', companyData.identification_number);
       return companyData;
     } catch (error) {
       console.error('❌ [DIAN] Error obteniendo datos de empresa desde gen_empresa:', error.message);
@@ -920,7 +956,21 @@ class DIANService {
         customerDv = parseInt(parts[1], 10);
         console.log(`   ✅ DV del cliente extraído explícitamente: ${customerDv}`);
       }
+    } else {
+      // Remover cualquier carácter no numérico temporalmente para validar longitud
+      const tempClean = codterLimpio.replace(/[^\d]/g, '');
+      if (tempClean.length === 10 && (tempClean.startsWith('8') || tempClean.startsWith('9'))) {
+        // Probable NIT + DV concatenado
+        const nitCandidate = tempClean.substring(0, 9);
+        const dvCandidate = parseInt(tempClean.substring(9), 10);
+        if (this.calculateDV(nitCandidate) === dvCandidate) {
+          codterLimpio = nitCandidate;
+          customerDv = dvCandidate;
+          console.log(`   ✅ NIT del cliente detectado como concatenado: ${codterLimpio}, DV: ${customerDv}`);
+        }
+      }
     }
+
     // Remover cualquier carácter no numérico que pueda quedar
     codterLimpio = codterLimpio.replace(/[^\d]/g, '');
     const customerIdentification = Number(codterLimpio) || 222222222222;
@@ -1224,7 +1274,20 @@ class DIANService {
       if (parts[1] && !isNaN(parseInt(parts[1]))) {
         customerDv = parseInt(parts[1], 10);
       }
+    } else {
+      // Caso concatenado (ej. 9019074542)
+      const tempClean = codterLimpio.replace(/[^\d]/g, '');
+      if (tempClean.length === 10 && (tempClean.startsWith('8') || tempClean.startsWith('9'))) {
+        const nitCandidate = tempClean.substring(0, 9);
+        const dvCandidate = parseInt(tempClean.substring(9), 10);
+        if (this.calculateDV(nitCandidate) === dvCandidate) {
+          codterLimpio = nitCandidate;
+          customerDv = dvCandidate;
+          console.log(`   ✅ NIT del cliente detectado como concatenado en NC: ${codterLimpio}, DV: ${customerDv}`);
+        }
+      }
     }
+
     // Remover cualquier carácter no numérico que pueda quedar
     codterLimpio = codterLimpio.replace(/[^\d]/g, '');
     const customerNit = Number(codterLimpio) || 222222222222;

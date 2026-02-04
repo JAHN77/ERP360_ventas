@@ -9,6 +9,7 @@ interface ClienteCreateModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
+    isProveedor?: boolean;
 }
 
 // --- HELPER COMPONENTS (Moved outside to prevent re-creation on render) ---
@@ -62,7 +63,7 @@ const Select = (props: React.SelectHTMLAttributes<HTMLSelectElement>) => (
 );
 
 
-const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose, onSuccess }) => {
+const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose, onSuccess, isProveedor = false }) => {
     const { addNotification } = useNotifications();
     const { ciudades, departamentos } = useData();
     const [isLoading, setIsLoading] = useState(false);
@@ -321,6 +322,7 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
             ...formData,
             tipoPersonaId: formData.tipoDocumento === '31' ? '2' : '1',
             reasonSocial: formData.razonSocial,
+            isProveedor: isProveedor
         };
 
         try {
@@ -343,7 +345,7 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
     const isNit = formData.tipoDocumento === '31';
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Nuevo Tercero / Cliente" size="5xl" >
+        <Modal isOpen={isOpen} onClose={onClose} title={isProveedor ? "Nuevo Proveedor" : "Nuevo Cliente"} size="5xl" >
             <div className="p-1.5 text-slate-800 dark:text-slate-100 bg-[#f8fafc] dark:bg-[#0f172a] min-h-[600px]">
                 <form onSubmit={handleSubmit} className="px-4 pb-4">
 

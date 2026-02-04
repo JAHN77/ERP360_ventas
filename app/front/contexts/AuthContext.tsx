@@ -210,15 +210,34 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (response.success && response.data) {
         const userData = response.data.user; // { id, codusu, nomusu, role, firma }
 
-        // Fetch companies from backend
+        // Fetch companies and active company info from backend
         let userCompanies: Empresa[] = [];
+        let activeEmpresa: Empresa | null = null;
+
         try {
+          // 1. Get companies from active database (gen_empresa)
+          const empresaRes = await apiClient.getEmpresa();
+          if (empresaRes.success && empresaRes.data) {
+            const data = empresaRes.data as any;
+            activeEmpresa = {
+              id: 1, // Default ID for single tenant
+              razonSocial: data.razonSocial,
+              nit: data.nit,
+              direccion: data.direccion,
+              ciudad: data.ciudad,
+              telefono: data.telefono,
+              db_name: data.db_name
+            };
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Empresa activa cargada desde BD:', activeEmpresa.razonSocial);
+          }
+
+          // 2. Get list of companies if multi-tenant (optional)
           const companiesRes = await apiClient.getCompanies();
           if (companiesRes.success && Array.isArray(companiesRes.data)) {
             userCompanies = companiesRes.data;
-            logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Empresas cargadas desde backend:', userCompanies.length);
+          } else if (activeEmpresa) {
+            userCompanies = [activeEmpresa];
           } else {
-            logger.warn({ prefix: 'AuthContext' }, '⚠️ Fallo al cargar empresas, usando mock data');
             userCompanies = allEmpresas;
           }
         } catch (e) {
@@ -261,8 +280,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         if (userObj.empresas.length > 0) {
           let companyToSelect = null;
 
-          // 1. Priority: Match company with current Token DB
-          if (userData.empresaDb) {
+          // 1. Priority: If we have activeEmpresa, use it!
+          if (activeEmpresa) {
+            companyToSelect = userObj.empresas.find(e => e.razonSocial === activeEmpresa?.razonSocial) || userObj.empresas[0];
+          }
+
+          // 2. Fallback: Match company with current Token DB
+          if (!companyToSelect && userData.empresaDb) {
             companyToSelect = userObj.empresas.find(e => e.db_name === userData.empresaDb || e.razonSocial.toLowerCase().includes(userData.empresaDb.toLowerCase()));
             if (companyToSelect) {
               logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Seleccionando empresa basada en Token DB:', companyToSelect.razonSocial);
@@ -388,12 +412,29 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           await loadBodegas();
         }
 
-        // Construct User
+        // Fetch actual company data instead of using mock
+        let userCompanies: Empresa[] = [];
         const sedesToUse = bodegas.length > 0 ? bodegas : [];
-        const empresasWithSedes = allEmpresas.map(e => ({
-          ...e,
-          sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id }))
-        }));
+
+        try {
+          const empresaRes = await apiClient.getEmpresa();
+          if (empresaRes.success && empresaRes.data) {
+            const data = empresaRes.data as any;
+            userCompanies = [{
+              id: 1,
+              razonSocial: data.razonSocial,
+              nit: data.nit,
+              direccion: data.direccion,
+              ciudad: data.ciudad,
+              telefono: data.telefono,
+              db_name: data.db_name
+            }];
+          } else {
+            userCompanies = allEmpresas;
+          }
+        } catch (e) {
+          userCompanies = allEmpresas;
+        }
 
         const fullName = userData.nomusu || username;
 
@@ -405,7 +446,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           primerApellido: fullName.split(' ').slice(1).join(' ') || '',
           nombre: fullName,
           rol: userData.role as Role || 'vendedor',
-          empresas: empresasWithSedes,
+          empresas: userCompanies.map(e => ({
+            ...e,
+            sedes: sedesToUse.map(s => ({ ...s, empresaId: e.id }))
+          })),
           firma: userData.firma
         };
 

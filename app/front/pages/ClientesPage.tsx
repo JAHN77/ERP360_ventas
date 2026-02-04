@@ -39,6 +39,7 @@ const ClientesPage: React.FC = () => {
 
   const [typeFilter, setTypeFilter] = useState('Todos');
   const [paymentFilter, setPaymentFilter] = useState('Todos');
+  const [soloContactosValidosFilter, setSoloContactosValidosFilter] = useState(false);
   const [activeTab, setActiveTab] = useState<'clientes' | 'proveedores'>('clientes');
 
   // Sync tab with navigation params
@@ -69,7 +70,8 @@ const ClientesPage: React.FC = () => {
         serverSort.direction as 'asc' | 'desc',
         isProveedor,
         typeFilter === 'Todos' ? undefined : typeFilter,
-        paymentFilter === 'Todos' ? undefined : paymentFilter
+        paymentFilter === 'Todos' ? undefined : paymentFilter,
+        soloContactosValidosFilter
       );
 
       if (response.success && response.data) {
@@ -90,12 +92,12 @@ const ClientesPage: React.FC = () => {
 
   useEffect(() => {
     loadClients();
-  }, [serverPage, serverPageSize, serverSearch, serverSort, typeFilter, paymentFilter, activeTab]);
+  }, [serverPage, serverPageSize, serverSearch, serverSort, typeFilter, paymentFilter, activeTab, soloContactosValidosFilter]);
 
   // Tab change resets page
   useEffect(() => {
     setServerPage(1);
-  }, [activeTab, typeFilter, paymentFilter]);
+  }, [activeTab, typeFilter, paymentFilter, soloContactosValidosFilter]);
 
 
   const handleOpenModal = (cliente: Cliente) => {
@@ -262,7 +264,7 @@ const ClientesPage: React.FC = () => {
           className="w-full sm:w-auto px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="Todos">Todos los Tipos</option>
-          {tiposPersona.map(tp => <option key={tp.id} value={tp.id}>{tp.nombre}</option>)}
+          {tiposPersona.map(tp => <option key={tp.id} value={tp.codigo}>{tp.nombre}</option>)}
         </select>
       </div>
       <div>
@@ -279,6 +281,18 @@ const ClientesPage: React.FC = () => {
           <option value="30">Crédito 30 días</option>
           <option value="60">Crédito 60 días</option>
         </select>
+      </div>
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-lg">
+        <input
+          type="checkbox"
+          id="contactosFilter"
+          checked={soloContactosValidosFilter}
+          onChange={(e) => setSoloContactosValidosFilter(e.target.checked)}
+          className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+        />
+        <label htmlFor="contactosFilter" className="text-sm font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
+          Solo con contacto válido (Email/Tel)
+        </label>
       </div>
     </div>
   );
@@ -359,6 +373,7 @@ const ClientesPage: React.FC = () => {
         onSuccess={() => {
           loadClients();
         }}
+        isProveedor={activeTab === 'proveedores'}
       />
 
       {selectedCliente && (

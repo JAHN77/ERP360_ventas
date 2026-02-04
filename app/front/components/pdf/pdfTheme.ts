@@ -65,8 +65,8 @@ export const pdfStyles = StyleSheet.create({
         alignItems: 'flex-end',
     },
     documentBadge: {
-        backgroundColor: '#e6f2ff', // blue-50
-        borderColor: '#93c5fd', // blue-300
+        backgroundColor: '#fef2f2', // red-50
+        borderColor: '#fecaca', // red-200
         borderWidth: 1,
         borderRadius: 4,
         paddingVertical: 4,
@@ -74,7 +74,7 @@ export const pdfStyles = StyleSheet.create({
         marginBottom: 4,
     },
     documentTitle: {
-        color: '#1e40af', // blue-800
+        color: '#dc2626', // red-600
         fontSize: 12,
         fontWeight: 'heavy',
         textTransform: 'uppercase',
@@ -82,7 +82,7 @@ export const pdfStyles = StyleSheet.create({
     documentNumber: {
         fontSize: 14,
         fontWeight: 'bold',
-        color: '#1e3a8a', // blue-900
+        color: '#991b1b', // red-800
     },
 
     // Grid Information
@@ -104,7 +104,7 @@ export const pdfStyles = StyleSheet.create({
         position: 'absolute',
         top: 0,
         left: 0,
-        backgroundColor: '#1e3a8a', // Nisa Blue (Dark)
+        backgroundColor: '#dc2626', // Ciclo Lider Red
         color: '#FFFFFF',
         fontSize: 8,
         fontWeight: 'bold',
@@ -123,7 +123,7 @@ export const pdfStyles = StyleSheet.create({
     clientName: {
         fontSize: 8, // Further reduced from 9 to save space
         fontWeight: 'bold',
-        color: '#1e3a8a', // Nisa Blue
+        color: '#991b1b', // Red-800
         marginBottom: 2,
     },
     // New optimized styles for Client Info Card
@@ -171,9 +171,9 @@ export const pdfStyles = StyleSheet.create({
     },
     tableHeader: {
         flexDirection: 'row',
-        backgroundColor: '#eff6ff', // blue-50
+        backgroundColor: '#fef2f2', // red-50
         borderBottomWidth: 1,
-        borderBottomColor: '#bfdbfe', // blue-200
+        borderBottomColor: '#fecaca', // red-200
         paddingVertical: 6,
     },
     tableRow: {
@@ -194,7 +194,7 @@ export const pdfStyles = StyleSheet.create({
     tableHeaderText: {
         fontSize: 7,
         fontWeight: 'bold',
-        color: '#1e40af', // blue-800
+        color: '#dc2626', // red-600
     },
     tableCellText: {
         fontSize: 8,
@@ -233,7 +233,7 @@ export const pdfStyles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginTop: 8,
-        backgroundColor: '#1e3a8a', // Nisa Blue (Dark)
+        backgroundColor: '#dc2626', // Red-600
         padding: 8,
         borderRadius: 4,
     },

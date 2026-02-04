@@ -100,115 +100,15 @@ const getAllOrders = async (req, res) => {
     // Obtener pedidos
     const pedidos = await executeQuery(pedidosQuery, {}, req.db_name);
 
-    // Sincronizar estados de pedidos basándose en remisiones existentes
+    // Sincronización de estados (DESHABILITADA TEMPORALMENTE - ERROR DE SCHEMA pedido_id)
+    // Se requiere refactorizar para usar numped en lugar de pedido_id en remisiones
+    /*
     const pedidosParaSincronizar = pedidos.filter(p => {
-      const estadoMapeado = mapEstadoFromDb(p.estado);
-      return estadoMapeado === 'CONFIRMADO' ||
-        estadoMapeado === 'EN_PROCESO' ||
-        estadoMapeado === 'PARCIALMENTE_REMITIDO' ||
-        estadoMapeado === 'RECHAZADA' ||
-        estadoMapeado === 'REMITIDO';
+       // ... existing logic ...
     });
-
-    if (pedidosParaSincronizar.length > 0) {
-      for (const pedido of pedidosParaSincronizar) {
-        try {
-          const pedidoId = pedido.id;
-          const estadoActual = mapEstadoFromDb(pedido.estado);
-
-          const reqRemisiones = new sql.Request(pool);
-          reqRemisiones.input('pedidoId', sql.Int, pedidoId);
-          const remisionesResult = await reqRemisiones.query(`
-            SELECT COUNT(*) as total
-            FROM ${TABLE_NAMES.remisiones}
-            WHERE pedido_id = @pedidoId
-          `);
-
-          const tieneRemisiones = remisionesResult.recordset[0].total > 0;
-
-          if (tieneRemisiones) {
-            let numeroPedidoStr = pedido.numeroPedido || pedido.numero_pedido || 'N/A';
-
-            // Obtener items del pedido para calcular estado real
-            const reqItemsPedido = new sql.Request(pool);
-            reqItemsPedido.input('pedidoId', sql.Int, pedidoId);
-            const pedidoNumResult = await reqItemsPedido.query(`SELECT numero_pedido FROM ${TABLE_NAMES.pedidos} WHERE id = @pedidoId`);
-            const numeroPedido = pedidoNumResult.recordset[0]?.numero_pedido;
-
-            let numpedPedido = null;
-            if (numeroPedido) {
-              const match = String(numeroPedido).match(/(\d+)/);
-              if (match) {
-                numpedPedido = 'PED' + match[1].padStart(5, '0');
-              } else {
-                numpedPedido = String(numeroPedido).replace(/-/g, '').substring(0, 8).padStart(8, '0');
-              }
-              numpedPedido = numpedPedido.substring(0, 8).padStart(8, '0');
-            }
-
-            const reqItemsPedido2 = new sql.Request(pool);
-            let itemsPedidoResult;
-            if (numpedPedido) {
-              reqItemsPedido2.input('numped', sql.Char(8), numpedPedido);
-              itemsPedidoResult = await reqItemsPedido2.query(`
-                SELECT pd.codins, (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as producto_id, pd.canped as cantidad
-                FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.numped = @numped
-              `);
-            } else {
-              reqItemsPedido2.input('pedidoId', sql.Int, pedidoId);
-              itemsPedidoResult = await reqItemsPedido2.query(`
-                SELECT pd.codins, (SELECT TOP 1 id FROM inv_insumos WHERE codins = pd.codins) as producto_id, pd.canped as cantidad
-                FROM ${TABLE_NAMES.pedidos_detalle} pd WHERE pd.pedido_id = @pedidoId
-              `);
-            }
-
-            if (itemsPedidoResult.recordset.length === 0) continue;
-
-            const reqItemsRemitidos = new sql.Request(pool);
-            reqItemsRemitidos.input('pedidoId', sql.Int, pedidoId);
-            const itemsRemitidosResult = await reqItemsRemitidos.query(`
-              SELECT rd.codins, SUM(rd.cantidad_enviada) as cantidad_remitida
-              FROM ${TABLE_NAMES.remisiones_detalle} rd
-              INNER JOIN ${TABLE_NAMES.remisiones} r ON rd.remision_id = r.id
-              WHERE r.pedido_id = @pedidoId
-              GROUP BY rd.codins
-            `);
-
-            let todosRemitidos = true;
-            let algunoRemitido = false;
-
-            for (const itemPedido of itemsPedidoResult.recordset) {
-              const itemRemitido = itemsRemitidosResult.recordset.find(
-                ir => String(ir.codins || '').trim() === String(itemPedido.codins || '').trim()
-              );
-              const cantidadRemitida = itemRemitido ? parseFloat(itemRemitido.cantidad_remitida) : 0;
-              const cantidadPedida = parseFloat(itemPedido.cantidad);
-
-              if (cantidadRemitida > 0) algunoRemitido = true;
-              if (Math.abs(cantidadRemitida - cantidadPedida) > 0.01) todosRemitidos = false;
-            }
-
-            let nuevoEstado = estadoActual;
-            if (todosRemitidos && algunoRemitido) nuevoEstado = 'REMITIDO';
-            else if (algunoRemitido && !todosRemitidos) nuevoEstado = 'PARCIALMENTE_REMITIDO';
-            else if (estadoActual === 'CONFIRMADO' && algunoRemitido) nuevoEstado = 'EN_PROCESO';
-
-            if (nuevoEstado !== estadoActual) {
-              const reqUpdate = new sql.Request(pool);
-              reqUpdate.input('pedidoId', sql.Int, pedidoId);
-              const estadoDb = mapEstadoToDb(nuevoEstado);
-              const estadoDbTruncado = String(estadoDb || 'B').substring(0, 1);
-              reqUpdate.input('nuevoEstado', sql.Char(1), estadoDbTruncado);
-
-              await reqUpdate.query(`UPDATE ${TABLE_NAMES.pedidos} SET estado = @nuevoEstado WHERE id = @pedidoId`);
-              pedido.estado = estadoDbTruncado;
-            }
-          }
-        } catch (syncError) {
-          console.error(`⚠️ Error sincronizando pedido ${pedido.id}:`, syncError);
-        }
-      }
-    }
+    
+    if (pedidosParaSincronizar.length > 0) { ... } 
+    */
 
     const pedidosMapeados = pedidos.map(p => ({
       ...p,
@@ -241,21 +141,32 @@ const getOrderDetails = async (req, res) => {
     const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
     const pageSizeNum = Math.min(1000, Math.max(50, parseInt(String(pageSize), 10) || 500));
 
-    let whereClause = "WHERE pd.pedido_id IS NOT NULL OR (pd.numped IS NOT NULL AND LTRIM(RTRIM(pd.numped)) <> '')";
+    let whereClause = "WHERE (pd.numped IS NOT NULL AND LTRIM(RTRIM(pd.numped)) <> '')";
     const params = {};
     params.pageSize = pedidoId ? 1000 : pageSizeNum;
 
     if (pedidoId) {
       const pedidoIdNum = parseInt(pedidoId, 10);
       if (isFinite(pedidoIdNum)) {
-        whereClause = "WHERE pd.pedido_id = @pedidoId";
-        params.pedidoId = pedidoIdNum;
+        // Resolve numero_pedido from ID first directly
+        const dbPool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
+        const resNum = await dbPool.request()
+          .input('pid', require('mssql').Int, pedidoIdNum)
+          .query(`SELECT numero_pedido FROM ${TABLE_NAMES.pedidos} WHERE id = @pid`);
 
-        // Verificar existencia (opcional, pero buena práctica)
-        const check = await executeQueryWithParams(`SELECT COUNT(*) as total FROM ${TABLE_NAMES.pedidos_detalle} WHERE pedido_id = @pedidoId`, { pedidoId: pedidoIdNum }, req.db_name);
-        if (check[0].total === 0) {
-          // Intentar buscar por numped si pedido_id falla (legacy fallback)
-          // Lógica omitida para simplificar, confiamos en pedido_id
+        if (resNum.recordset.length > 0) {
+          let numpedVal = resNum.recordset[0].numero_pedido;
+          // Normalize logic: "123" -> "00000123"
+          const match = String(numpedVal).match(/(\d+)/);
+          if (match) {
+            numpedVal = match[1].padStart(8, '0');
+          }
+
+          whereClause = "WHERE pd.numped = @numped";
+          params.numped = numpedVal;
+        } else {
+          // ID not found, just filter nothing or invalid
+          whereClause = "WHERE 1=0";
         }
       }
     }
@@ -269,7 +180,7 @@ const getOrderDetails = async (req, res) => {
 
     const query = `
       SELECT 
-        pd.pedido_id as pedidoId,
+        NULL as pedidoId,
         pd.numped,
         pd.codins as codProducto,
         COALESCE(i.id, NULL) as productoId,
@@ -383,21 +294,21 @@ const createOrderInternal = async (tx, orderData) => {
     // Encontrado por ID
   }
 
-      
-      const clienteData = clienteRes.recordset.length > 0 ? clienteRes.recordset[0] : (await new sql.Request(tx).query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = ${parseInt(clienteIdStr)}`)).recordset[0];
-      const codTerFinal = clienteData.codter;
 
-      // 2. Validar Empresa/Almacén
-      let codAlmFinal = '001';
-      let empresaIdValid = 1;
-      // Lógica simplificada: usar '001' si no viene, o validar si viene.
-      if (empresaId) codAlmFinal = String(empresaId).trim();
+  const clienteData = clienteRes.recordset.length > 0 ? clienteRes.recordset[0] : (await new sql.Request(tx).query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = ${parseInt(clienteIdStr)}`)).recordset[0];
+  const codTerFinal = clienteData.codter;
 
-      // 3. Generar/Validar Número
-      let numeroPedidoFinal = numeroPedido;
-      if (!numeroPedido || numeroPedido === 'AUTO') {
-          const reqUltimo = new sql.Request(tx);
-          const ultimoRes = await reqUltimo.query(`
+  // 2. Validar Empresa/Almacén
+  let codAlmFinal = '001';
+  let empresaIdValid = 1;
+  // Lógica simplificada: usar '001' si no viene, o validar si viene.
+  if (empresaId) codAlmFinal = String(empresaId).trim();
+
+  // 3. Generar/Validar Número
+  let numeroPedidoFinal = numeroPedido;
+  if (!numeroPedido || numeroPedido === 'AUTO') {
+    const reqUltimo = new sql.Request(tx);
+    const ultimoRes = await reqUltimo.query(`
             SELECT TOP 1 numero_pedido FROM ${TABLE_NAMES.pedidos} 
             WHERE numero_pedido NOT LIKE 'B-%' 
             ORDER BY id DESC
@@ -441,15 +352,15 @@ const createOrderInternal = async (tx, orderData) => {
     const vendedorIdStr = String(vendedorId).trim();
     if (!isNaN(parseInt(vendedorIdStr)) && String(parseInt(vendedorIdStr)) === vendedorIdStr) {
       // Logic same as before
-       codVendedorFinal = vendedorIdStr;
+      codVendedorFinal = vendedorIdStr;
     } else {
       codVendedorFinal = vendedorIdStr;
     }
   }
   reqHead.input('codven', sql.VarChar(20), codVendedorFinal);
-  reqHead.input('empresa_id', sql.Int, empresaIdValid); 
+  reqHead.input('empresa_id', sql.Int, empresaIdValid);
   reqHead.input('cotizacion_id', sql.Int, cotizacionId || null);
-  
+
   reqHead.input('subtotal', sql.Decimal(18, 2), subtotalFinal);
   reqHead.input('descuento_valor', sql.Decimal(18, 2), descuentoFinal);
   reqHead.input('descuento_porcentaje', sql.Decimal(5, 2), descPorcFinal);
@@ -463,10 +374,10 @@ const createOrderInternal = async (tx, orderData) => {
   // Default logic for FP
   const formaPagoFinal = formaPago || '001';
   reqHead.input('formapago', sql.NChar(4), formaPagoFinal);
-  
+
   // No legacy default fields needed for _web table usually, but we keep mapped standard fields
-  
-      const headQuery = `
+
+  const headQuery = `
         INSERT INTO ${TABLE_NAMES.pedidos} (
           numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, empresa_id,
           cotizacion_id, subtotal, descuento_valor, descuento_porcentaje, iva_valor,
@@ -479,92 +390,92 @@ const createOrderInternal = async (tx, orderData) => {
         SELECT SCOPE_IDENTITY() AS id;
       `;
 
-      const headRes = await reqHead.query(headQuery);
-      const pedidoId = headRes.recordset[0].id;
-      
-      let numpedLegacy = numeroPedidoFinal;
-      const match = String(numeroPedidoFinal).match(/(\d+)/);
-      if (match) {
-        numpedLegacy = match[1].padStart(8, '0');
+  const headRes = await reqHead.query(headQuery);
+  const pedidoId = headRes.recordset[0].id;
+
+  let numpedLegacy = numeroPedidoFinal;
+  const match = String(numeroPedidoFinal).match(/(\d+)/);
+  if (match) {
+    numpedLegacy = match[1].padStart(8, '0');
+  }
+
+  // 6. Insertar Detalles (ven_detapedidos)
+  for (const item of items) {
+    const reqDet = new sql.Request(tx);
+
+    // RESOLUCIÓN ROBUSTA DE CÓDIGO DE PRODUCTO
+    // El frontend puede enviar 'productoId' (numérico) o 'codProducto' (string).
+    // Si envía un ID, debemos buscar el código real (codins) en inv_insumos.
+    // Si envía un código, verificamos si es el código real o si es un ID disfrazado.
+
+    let realCodIns = String(item.codProducto || item.productoId || '').trim();
+
+    // Intentar resolver código correcto desde BD si parece un ID numérico o para asegurar
+    if (item.productoId || (realCodIns && !isNaN(realCodIns))) {
+      try {
+        const reqCode = new sql.Request(tx);
+        // Buscar por ID si tenemos productoId explícito, o si realCodIns es numérico y no encontramos por codins
+        let queryCode = `SELECT TOP 1 codins FROM ${TABLE_NAMES.productos} WHERE `;
+
+        if (item.productoId) {
+          queryCode += `id = @pid`;
+          reqCode.input('pid', sql.Int, item.productoId);
+        } else {
+          // Caso raro: item.codProducto es "1004" (ID)
+          queryCode += `id = @pcode OR codins = @pcodeStr`; // Prioridad ID si coincide numerico? No, mejor buscar exacto.
+          // Simplificación: Si es numérico, intentamos buscar por ID primero.
+          reqCode.input('pcode', sql.Int, parseInt(realCodIns));
+          reqCode.input('pcodeStr', sql.VarChar(50), realCodIns);
+          // Query ajustada: devolver codins si coincidencia por ID o por CODINS
+          queryCode = `SELECT TOP 1 codins FROM ${TABLE_NAMES.productos} WHERE id = @pcode OR codins = @pcodeStr`;
+        }
+
+        const resCode = await reqCode.query(queryCode);
+        if (resCode.recordset.length > 0) {
+          realCodIns = resCode.recordset[0].codins; // USAR EL CÓDIGO REAL DE LA BD
+        }
+      } catch (errCode) {
+        console.warn('Error resolviendo codins en createOrder:', errCode);
+        // Fallback: usar lo que venía
       }
+    }
 
-      // 6. Insertar Detalles (ven_detapedidos)
-      for (const item of items) {
-          const reqDet = new sql.Request(tx);
-          
-          // RESOLUCIÓN ROBUSTA DE CÓDIGO DE PRODUCTO
-          // El frontend puede enviar 'productoId' (numérico) o 'codProducto' (string).
-          // Si envía un ID, debemos buscar el código real (codins) en inv_insumos.
-          // Si envía un código, verificamos si es el código real o si es un ID disfrazado.
-          
-          let realCodIns = String(item.codProducto || item.productoId || '').trim();
-          
-          // Intentar resolver código correcto desde BD si parece un ID numérico o para asegurar
-          if (item.productoId || (realCodIns && !isNaN(realCodIns))) {
-             try {
-                 const reqCode = new sql.Request(tx);
-                 // Buscar por ID si tenemos productoId explícito, o si realCodIns es numérico y no encontramos por codins
-                 let queryCode = `SELECT TOP 1 codins FROM ${TABLE_NAMES.productos} WHERE `;
-                 
-                 if (item.productoId) {
-                     queryCode += `id = @pid`;
-                     reqCode.input('pid', sql.Int, item.productoId);
-                 } else {
-                     // Caso raro: item.codProducto es "1004" (ID)
-                     queryCode += `id = @pcode OR codins = @pcodeStr`; // Prioridad ID si coincide numerico? No, mejor buscar exacto.
-                     // Simplificación: Si es numérico, intentamos buscar por ID primero.
-                     reqCode.input('pcode', sql.Int, parseInt(realCodIns));
-                     reqCode.input('pcodeStr', sql.VarChar(50), realCodIns);
-                     // Query ajustada: devolver codins si coincidencia por ID o por CODINS
-                     queryCode = `SELECT TOP 1 codins FROM ${TABLE_NAMES.productos} WHERE id = @pcode OR codins = @pcodeStr`;
-                 }
-                 
-                 const resCode = await reqCode.query(queryCode);
-                 if (resCode.recordset.length > 0) {
-                     realCodIns = resCode.recordset[0].codins; // USAR EL CÓDIGO REAL DE LA BD
-                 }
-             } catch (errCode) {
-                 console.warn('Error resolviendo codins en createOrder:', errCode);
-                 // Fallback: usar lo que venía
-             }
-          }
+    const codIns = String(realCodIns).trim();
 
-          const codIns = String(realCodIns).trim();
+    const cant = validateDecimal18_2(item.cantidad, 'cant');
+    const prec = validateDecimal18_2(item.precioUnitario, 'prec');
 
-          const cant = validateDecimal18_2(item.cantidad, 'cant');
-          const prec = validateDecimal18_2(item.precioUnitario, 'prec');
-          
-          let dctoVal = 0;
-          if (item.descuentoValor) dctoVal = validateDecimal18_2(item.descuentoValor, 'dctoVal');
-          else if (item.descuentoPorcentaje) dctoVal = (cant * prec) * (parseFloat(item.descuentoPorcentaje)/100);
-          dctoVal = validateDecimal18_2(dctoVal, 'dcto');
+    let dctoVal = 0;
+    if (item.descuentoValor) dctoVal = validateDecimal18_2(item.descuentoValor, 'dctoVal');
+    else if (item.descuentoPorcentaje) dctoVal = (cant * prec) * (parseFloat(item.descuentoPorcentaje) / 100);
+    dctoVal = validateDecimal18_2(dctoVal, 'dcto');
 
-          const ivaVal = validateDecimal18_2(item.valorIva || 0, 'iva');
-          
-          reqDet.input('numped', sql.Char(8), numpedLegacy.substring(0, 8).padStart(8, '0'));
-          reqDet.input('codins', sql.Char(8), codIns.substring(0,8));
-          reqDet.input('valins', sql.Decimal(18, 2), prec);
-          reqDet.input('canped', sql.Decimal(18, 2), cant);
-          reqDet.input('ivaped', sql.Decimal(18, 2), ivaVal);
-          reqDet.input('dctped', sql.Decimal(18, 2), dctoVal);
-          reqDet.input('estped', sql.Char(1), 'B');
-          reqDet.input('codalm', sql.Char(3), codAlmFinal); // Use codalm if available or mapping
-          reqDet.input('pedido_id', sql.Int, pedidoId);
-          reqDet.input('feccargo', sql.Date, fechaPedido || new Date());
+    const ivaVal = validateDecimal18_2(item.valorIva || 0, 'iva');
 
-          reqDet.input('codtec', sql.VarChar(20), ''); // Legacy required param in our create_tables?
-          // Table definition in create_orders_tables.cjs has: numped, codins, valins, canped, ivaped, dctped, estped, codalm, serial, reservado, usureserva, numfac, DiasGar, Numord, Fecsys, msisdn, imei, iccid, codplan, feccargo, codtec, pedido_id
-          
-          await reqDet.query(`
+    reqDet.input('numped', sql.Char(8), numpedLegacy.substring(0, 8).padStart(8, '0'));
+    reqDet.input('codins', sql.Char(8), codIns.substring(0, 8));
+    reqDet.input('valins', sql.Decimal(18, 2), prec);
+    reqDet.input('canped', sql.Decimal(18, 2), cant);
+    reqDet.input('ivaped', sql.Decimal(18, 2), ivaVal);
+    reqDet.input('dctped', sql.Decimal(18, 2), dctoVal);
+    reqDet.input('estped', sql.Char(1), 'B');
+    reqDet.input('codalm', sql.Char(3), codAlmFinal); // Use codalm if available or mapping
+    // REMOVED: reqDet.input('pedido_id', sql.Int, pedidoId);
+    reqDet.input('feccargo', sql.Date, fechaPedido || new Date());
+
+    reqDet.input('codtec', sql.VarChar(20), ''); // Legacy required param in our create_tables?
+    // Table definition in create_orders_tables.cjs has: numped, codins, valins, canped, ivaped, dctped, estped, codalm, serial, reservado, usureserva, numfac, DiasGar, Numord, Fecsys, msisdn, imei, iccid, codplan, feccargo, codtec, pedido_id
+
+    await reqDet.query(`
             INSERT INTO ${TABLE_NAMES.pedidos_detalle} (
                numped, codins, valins, canped, ivaped, dctped, estped, codalm, 
-               pedido_id, feccargo, Fecsys, codtec
+               feccargo, Fecsys, codtec
             ) VALUES (
                @numped, @codins, @valins, @canped, @ivaped, @dctped, @estped, @codalm, 
-               @pedido_id, @feccargo, GETDATE(), @codtec
+               @feccargo, GETDATE(), @codtec
             )
           `);
-      }
+  }
 
   return { id: pedidoId, numeroPedido: numeroPedidoFinal };
 };

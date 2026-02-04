@@ -10,7 +10,7 @@ interface Company {
 }
 
 // Default company for single-tenant mode
-const DEFAULT_COMPANY: Company = { id: 5, name: 'ERP360', theme: 'blue' };
+const DEFAULT_COMPANY: Company = { id: 5, name: 'Ciclo Lider', theme: 'red' };
 
 const LoginPage: React.FC = () => {
   // Step 1: Login (skipping company selection)
@@ -68,28 +68,27 @@ const LoginPage: React.FC = () => {
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900">
       {/* Decorative Side */}
-      <div className="hidden lg:flex lg:w-1/2 items-center justify-center relative overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-800">
+      <div className="hidden lg:flex lg:w-1/2 items-center justify-center relative overflow-hidden bg-gradient-to-br from-red-700 to-slate-900">
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
         <div className="z-10 text-center text-white p-12">
-          <div className="mb-6 inline-block p-4 bg-white/10 rounded-full backdrop-blur-sm">
-            <i className="fas fa-building fa-4x text-white"></i>
+          <div className="mb-8 inline-block p-6 bg-white rounded-xl shadow-2xl transition-transform hover:scale-105">
+            <img src="/assets/ciclolider.png" alt="Ciclo Lider Logo" className="h-24 w-auto object-contain" />
           </div>
-          <h2 className="text-4xl font-bold mb-2">ERP360</h2>
-          <p className="text-blue-100 text-lg max-w-md mx-auto mb-8">
-            Plataforma Integral de Gestión
+          <p className="text-red-100 text-lg max-w-md mx-auto mb-8 font-medium">
+            Gestión Integral para Tu Negocio
           </p>
         </div>
         {/* Abstract shapes */}
-        <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-white rounded-full mix-blend-overlay filter blur-3xl opacity-20 animate-blob"></div>
-        <div className="absolute -top-24 -right-24 w-64 h-64 bg-white rounded-full mix-blend-overlay filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-red-500 rounded-full mix-blend-overlay filter blur-3xl opacity-20 animate-blob"></div>
+        <div className="absolute -top-24 -right-24 w-64 h-64 bg-slate-500 rounded-full mix-blend-overlay filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
       </div>
 
       {/* Login Form Side */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative">
         <div className="w-full max-w-md space-y-8">
           <div className="text-center lg:text-left">
-            <div className="lg:hidden inline-block p-3 rounded-full mb-4 text-white bg-blue-600">
-              <i className="fas fa-building fa-2x"></i>
+            <div className="lg:hidden inline-block mb-6">
+              <img src="/assets/ciclolider.png" alt="Ciclo Lider" className="h-16 w-auto mx-auto" />
             </div>
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
               Iniciar Sesión
@@ -117,7 +116,7 @@ const LoginPage: React.FC = () => {
                     placeholder="Ej: WEBADMIN"
                     className={`block w-full pl-10 pr-3 py-3 border rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 transition-all ${usernameError
                       ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
-                      : 'border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white focus:ring-blue-500 focus:border-blue-500'
+                      : 'border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white focus:ring-red-500 focus:border-red-500'
                       }`}
                   />
                 </div>
@@ -140,7 +139,7 @@ const LoginPage: React.FC = () => {
                     placeholder="••••••••"
                     className={`block w-full pl-10 pr-10 py-3 border rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 transition-all ${passwordError
                       ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
-                      : 'border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white focus:ring-blue-500 focus:border-blue-500'
+                      : 'border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white focus:ring-red-500 focus:border-red-500'
                       }`}
                   />
                   <button
@@ -175,7 +174,7 @@ const LoginPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={!!usernameError || isLoggingIn}
-                className={`group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-0.5 bg-blue-600 hover:bg-blue-700 focus:ring-blue-500`}
+                className={`group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-0.5 bg-red-600 hover:bg-red-700 focus:ring-red-500`}
               >
                 {isLoggingIn ? (
                   <span className="flex items-center">

@@ -29,11 +29,10 @@ const purchaseOrderController = {
           EMAIL as email,
           ciudad,
           plazo,
-          regimen_tributario,
-          isproveedor
-        FROM con_terceros
+          regimen_tributario
+        FROM ${TABLE_NAMES.clientes}
         WHERE activo = 1 
-          AND isproveedor = 1 
+          AND tipter = 1 -- 1 = Proveedor
           AND EMAIL IS NOT NULL 
           AND LTRIM(RTRIM(EMAIL)) <> ''
           AND (nomter LIKE @like OR codter LIKE @like)

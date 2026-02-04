@@ -98,7 +98,7 @@ const FacturaDirectaPage: React.FC = () => {
                 payable_amount: round(totals.payableAmount),
                 allowance_total_amount: round(totals.allowanceTotalAmount)
             },
-            identification_number: 900097288,
+            identification_number: 901907454, // Hardcoded per user request to remove any DV logic here
             payment_forms: [
                 {
                     payment_method_id: formData.paymentFormId === '2' ? 44 : parseInt(formData.paymentMethodId),

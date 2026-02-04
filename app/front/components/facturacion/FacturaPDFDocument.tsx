@@ -44,14 +44,10 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                 <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
                     <View style={pdfStyles.logoSection}>
                         <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
-                            {empresa.logoExt ? (
-                                <Image src={empresa.logoExt} style={pdfStyles.logo} />
-                            ) : (
-                                <View style={pdfStyles.logoPlaceholder} />
-                            )}
+                            <Image src="/assets/ciclolider.png" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                         </View>
                         <View style={pdfStyles.companyInfo}>
-                            <Text style={pdfStyles.companyName}>{empresa.nombre || empresa.razonSocial || 'MULTIACABADOS'}</Text>
+                            <Text style={pdfStyles.companyName}>{empresa.nombre || empresa.razonSocial || 'EMPRESA'}</Text>
                             <Text style={pdfStyles.companyDetails}>
                                 <Text style={pdfStyles.companyDetailLabel}>NIT: </Text>{empresa.nit} • {empresa.regimen || 'Responsable de IVA'}
                             </Text>
@@ -90,7 +86,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                             </View>
                             <View style={pdfStyles.clientRow}>
                                 <Text style={pdfStyles.clientLabel}>Dirección:</Text>
-                                <Text style={pdfStyles.clientValue} numberOfLines={1}>{(cliente.direccion || '').replace(/\s+/g, ' ').trim()}</Text>
+                                <Text style={pdfStyles.clientValue} {...({ numberOfLines: 1 } as any)}>{(cliente.direccion || '').replace(/\s+/g, ' ').trim()}</Text>
                             </View>
                             <View style={pdfStyles.clientRow}>
                                 <Text style={pdfStyles.clientLabel}>Ciudad:</Text>
@@ -215,7 +211,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                                 <Text style={pdfStyles.totalLabel}>IVA</Text>
                                 <Text style={pdfStyles.totalValue}>{formatCurrencySafe(ivaValor)}</Text>
                             </View>
-                            <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#0f172a' }]}>
+                            <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#dc2626' }]}>
                                 <Text style={pdfStyles.finalTotalLabel}>TOTAL</Text>
                                 <Text style={pdfStyles.finalTotalValue}>{formatCurrencySafe(total)}</Text>
                             </View>

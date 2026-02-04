@@ -190,16 +190,16 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     // Company data state
     const [datosEmpresa, setDatosEmpresa] = useState<any>({
         id: 1,
-        nombre: 'CICLOLIDER',
-        nit: '901907454',
-        direccion: 'Avenida Siempre Viva 123',
-        ciudad: 'Bogotá D.C.',
-        telefono: '601-555-1234',
-        email: 'ventas@ciclolider.com',
-        resolucionDian: 'Res. DIAN No. 18760000001 de 2023-01-01',
-        rangoNumeracion: 'FC-1 al FC-1000',
+        nombre: 'EMPRESA',
+        nit: '',
+        direccion: '',
+        ciudad: '',
+        telefono: '',
+        email: '',
+        resolucionDian: '',
+        rangoNumeracion: '',
         regimen: 'Responsable de IVA',
-        logoExt: `${BACKEND_URL}/assets/images.png`
+        logoExt: `${BACKEND_URL}/assets/logo.png`
     });
 
     // Phase 1: Load essential catalogs first
@@ -363,12 +363,12 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                         const e = empresaResp.data as any;
                         setDatosEmpresa({
                             id: 1,
-                            nombre: e.razonSocial || 'MULTIACABADOS',
-                            nit: e.nit || '900.123.456-7',
-                            direccion: e.direccion || 'Avenida Siempre Viva 123',
-                            ciudad: e.ciudad || 'Bogotá D.C.',
-                            telefono: e.telefono || '601-555-1234',
-                            email: e.email || 'ventas@multiacabados.com',
+                            nombre: e.razonSocial || 'EMPRESA',
+                            nit: e.nit || '',
+                            direccion: e.direccion || '',
+                            ciudad: e.ciudad || '',
+                            telefono: e.telefono || '',
+                            email: e.email || '',
                             slogan: e.slogan,
                             departamento: e.departamento,
                             regimen: e.regimen || 'Responsable de IVA',

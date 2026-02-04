@@ -16,29 +16,29 @@ const getAllRemissions = async (req, res) => {
     const params = { offset, pageSize: pageSizeNum };
 
     if (search && typeof search === 'string' && search.trim()) {
-      whereClauses.push('(r.numero_remision LIKE @search OR r.observaciones LIKE @search)');
+      whereClauses.push('(r.numrem LIKE @search OR r.observacion LIKE @search)');
       params.search = `%${search.trim()}%`;
     }
 
     if (pedidoId) {
-      whereClauses.push('r.pedido_id = @pedidoId');
-      params.pedidoId = parseInt(pedidoId, 10);
+      // ven_remisiones no tiene pedido_id, se filtra por 1=0 si se pide para evitar errores
+      // O si se conoce la columna equivalente, se usa. Por ahora 1=0.
+      whereClauses.push('1=0');
     }
 
     if (estado && estado.trim()) {
-      // Mapear el estado recibido (ej. 'ENTREGADO') al código de DB (ej. 'D')
       const dbEstado = mapEstadoToDb(estado);
       whereClauses.push('r.estado = @estado');
       params.estado = dbEstado;
     }
 
     if (fechaInicio) {
-      whereClauses.push('r.fecha_remision >= @fechaInicio');
+      whereClauses.push('r.fecrem >= @fechaInicio');
       params.fechaInicio = fechaInicio;
     }
 
     if (fechaFin) {
-      whereClauses.push('r.fecha_remision <= @fechaFin');
+      whereClauses.push('r.fecrem <= @fechaFin');
       params.fechaFin = fechaFin;
     }
 
@@ -50,33 +50,21 @@ const getAllRemissions = async (req, res) => {
     const baseQuery = `
       SELECT 
         r.id,
-        LTRIM(RTRIM(COALESCE(r.numero_remision, ''))) as numeroRemision,
+        LTRIM(RTRIM(COALESCE(r.numrem, ''))) as numeroRemision,
         LTRIM(RTRIM(COALESCE(r.codalm, ''))) as codalm,
-        CAST(r.fecha_remision AS DATE) as fechaRemision,
-        CAST(COALESCE(r.pedido_id, NULL) AS INT) as pedidoId,
+        CAST(r.fecrem AS DATE) as fechaRemision,
+        NULL as pedidoId,
         LTRIM(RTRIM(COALESCE(r.codter, ''))) as clienteId,
         LTRIM(RTRIM(COALESCE(r.codven, ''))) as vendedorId,
         LTRIM(RTRIM(COALESCE(r.estado, 'BORRADOR'))) as estado,
-        LTRIM(RTRIM(COALESCE(r.observaciones, ''))) as observaciones,
-        LTRIM(RTRIM(COALESCE(r.codusu, ''))) as codUsuario,
-        COALESCE(r.fec_creacion, GETDATE()) as fechaCreacion,
-        r.factura_id as facturaId,
-        (
-          SELECT SUM(
-            COALESCE(rd.cantidad_enviada, 0) * 
-            COALESCE(pd.valins, p.ultimo_costo, 0) * 
-            (1 - COALESCE(pd.dctped / NULLIF(pd.valins * pd.canped, 0), 0)) *
-            (1 + 0 / 100.0)
-          )
-          FROM ${TABLE_NAMES.remisiones_detalle} rd
-          LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(rd.codins))
-          LEFT JOIN ${TABLE_NAMES.pedidos} ped ON ped.id = r.pedido_id
-          LEFT JOIN ${TABLE_NAMES.pedidos_detalle} pd ON pd.pedido_id = ped.id AND LTRIM(RTRIM(pd.codins)) = LTRIM(RTRIM(rd.codins))
-          WHERE rd.remision_id = r.id
-        ) as total
+        LTRIM(RTRIM(COALESCE(r.observacion, ''))) as observaciones,
+        LTRIM(RTRIM(COALESCE(r.usuario, ''))) as codUsuario,
+        COALESCE(r.fecrem, GETDATE()) as fechaCreacion,
+        NULL as facturaId,
+        r.total as total
       FROM ${TABLE_NAMES.remisiones} r
       ${whereClause}
-      ORDER BY r.fecha_remision DESC, r.id DESC
+      ORDER BY r.fecrem DESC, r.id DESC
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `;
 

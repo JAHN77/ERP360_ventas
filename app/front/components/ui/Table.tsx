@@ -31,13 +31,13 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
       return <i className="fas fa-sort text-slate-400 dark:text-slate-500 ml-2 opacity-50"></i>;
     }
     if (sortConfig.direction === 'asc') {
-      return <i className="fas fa-sort-up text-blue-500 ml-2"></i>;
+      return <i className="fas fa-sort-up text-red-500 ml-2"></i>;
     }
-    return <i className="fas fa-sort-down text-blue-500 ml-2"></i>;
+    return <i className="fas fa-sort-down text-red-500 ml-2"></i>;
   };
 
   const resolvedHighlightId = highlightRowId !== undefined && highlightRowId !== null ? String(highlightRowId) : null;
-  const resolvedHighlightClass = highlightClassName || 'bg-blue-500/10 dark:bg-blue-500/20';
+  const resolvedHighlightClass = highlightClassName || 'bg-red-500/10 dark:bg-red-500/20';
 
   return (
     <div className="w-full max-w-full">
@@ -57,7 +57,7 @@ const Table = <T extends { id: string | number }>({ columns, data, onSort, sortC
             return (
               <div
                 key={item.id}
-                className={`rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/95 dark:bg-slate-800/80 shadow-sm px-4 py-3 space-y-3 transition-colors ${isHighlighted ? 'ring-1 ring-blue-300/70 dark:ring-blue-500/40' : ''
+                className={`rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/95 dark:bg-slate-800/80 shadow-sm px-4 py-3 space-y-3 transition-colors ${isHighlighted ? 'ring-1 ring-red-300/70 dark:ring-red-500/40' : ''
                   }`}
               >
                 {columns.map((col, colIndex) => (

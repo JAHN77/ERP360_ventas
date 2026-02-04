@@ -4,9 +4,10 @@
 
 /* Design Tokens */
 :root {
-    /* Brand Colors */
-    --color-primario: #002B5B;
-    --color-secundario: #F53F3F;
+    /* Brand Colors - CicloLider (Red/Black/White) */
+    --color-primario: #DC2626; /* red-600 */
+    --color-secundario: #0F172A; /* slate-900 */
+    --color-accent: #EF4444; /* red-500 */
 
     /* Spacing System - Optimized for compact layout */
     --spacing-page: 1rem;
@@ -18,13 +19,10 @@
     --spacing-element: 0.5rem;
     /* 8px - Reduced from 12px */
 
-    /* Border Radius */
-    --radius-sm: 0.375rem;
-    /* 6px */
-    --radius-md: 0.5rem;
-    /* 8px */
-    --radius-lg: 0.75rem;
-    /* 12px */
+    /* Border Radius - Slightly more rounded for modern feel */
+    --radius-sm: 0.5rem;   /* 8px */
+    --radius-md: 0.75rem;  /* 12px */
+    --radius-lg: 1rem;     /* 16px */
 
     /* Transitions */
     --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);

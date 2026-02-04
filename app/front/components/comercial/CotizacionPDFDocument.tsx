@@ -33,11 +33,7 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                 <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
                     <View style={pdfStyles.logoSection}>
                         <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
-                            {empresa.logoExt ? (
-                                <Image src={empresa.logoExt} style={pdfStyles.logo} />
-                            ) : (
-                                <View style={pdfStyles.logoPlaceholder} />
-                            )}
+                            <Image src="/assets/ciclolider.png" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                         </View>
                         <View style={pdfStyles.companyInfo}>
                             <Text style={pdfStyles.companyName}>{empresa.nombre || empresa.razonSocial || 'CICLOLIDER'}</Text>
@@ -61,8 +57,8 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                         </View>
                     </View>
                     <View style={pdfStyles.documentTitleSection}>
-                        <View style={[pdfStyles.documentBadge, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
-                            <Text style={[pdfStyles.documentTitle, { color: '#0369a1' }]}>COTIZACIÓN</Text>
+                        <View style={[pdfStyles.documentBadge, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]}>
+                            <Text style={[pdfStyles.documentTitle, { color: '#dc2626' }]}>COTIZACIÓN</Text>
                         </View>
                         <Text style={pdfStyles.documentNumber}>N° {cotizacion.numeroCotizacion?.replace('C-', '')}</Text>
                     </View>
@@ -70,7 +66,7 @@ const CotizacionPDFDocument: React.FC<Props> = ({
 
                 <View style={pdfStyles.infoGrid}>
                     <View style={pdfStyles.infoCard}>
-                        <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0ea5e9' }]}>CLIENTE</Text>
+                        <Text style={[pdfStyles.cardLabel, { backgroundColor: '#dc2626' }]}>CLIENTE</Text>
                         <View style={pdfStyles.cardContent}>
                             <Text style={pdfStyles.clientName}>{cliente.nombreCompleto}</Text>
                             <View style={[pdfStyles.clientRow, { marginTop: 3 }]}>
@@ -164,7 +160,7 @@ const CotizacionPDFDocument: React.FC<Props> = ({
 
                 {preferences.showPrices && (
                     <View style={pdfStyles.totalsSection}>
-                        <View style={pdfStyles.totalsCard}><View style={pdfStyles.totalRow}><Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text><Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.subtotal + totalDescuentos)}</Text></View><View style={pdfStyles.totalRow}><Text style={[pdfStyles.totalLabel, pdfStyles.textRed]}>Descuentos</Text><Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrency(totalDescuentos)}</Text></View><View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}><Text style={pdfStyles.totalLabel}>Subtotal Neto</Text><Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.subtotal)}</Text></View><View style={pdfStyles.totalRow}><Text style={pdfStyles.totalLabel}>IVA</Text><Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.ivaValor)}</Text></View><View style={[pdfStyles.finalTotalRow, { backgroundColor: '#0ea5e9' }]}><Text style={pdfStyles.finalTotalLabel}>TOTAL</Text><Text style={pdfStyles.finalTotalValue}>{formatCurrency(cotizacion.total)}</Text></View></View>
+                        <View style={pdfStyles.totalsCard}><View style={pdfStyles.totalRow}><Text style={pdfStyles.totalLabel}>Subtotal Bruto</Text><Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.subtotal + totalDescuentos)}</Text></View><View style={pdfStyles.totalRow}><Text style={[pdfStyles.totalLabel, pdfStyles.textRed]}>Descuentos</Text><Text style={[pdfStyles.totalValue, pdfStyles.textRed]}>-{formatCurrency(totalDescuentos)}</Text></View><View style={[pdfStyles.totalRow, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e2e8f0' }]}><Text style={pdfStyles.totalLabel}>Subtotal Neto</Text><Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.subtotal)}</Text></View><View style={pdfStyles.totalRow}><Text style={pdfStyles.totalLabel}>IVA</Text><Text style={pdfStyles.totalValue}>{formatCurrency(cotizacion.ivaValor)}</Text></View><View style={[pdfStyles.finalTotalRow, { backgroundColor: '#dc2626' }]}><Text style={pdfStyles.finalTotalLabel}>TOTAL</Text><Text style={pdfStyles.finalTotalValue}>{formatCurrency(cotizacion.total)}</Text></View></View>
                     </View>
                 )}
 
@@ -189,7 +185,7 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                         </Text>
                     ) : null}
                     <Text style={{ fontSize: 7, color: '#94a3b8', textAlign: 'center' }}>
-                        Cotización generada por ERP 360 - {empresa.nombre}
+                        Cotización generada por Ciclo Lider - {empresa.nombre}
                     </Text>
                 </View>
             </Page>

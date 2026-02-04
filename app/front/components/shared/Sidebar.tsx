@@ -16,18 +16,18 @@ const NavItem = ({ icon, label, active, onClick, indent }: { icon?: string, labe
         className={`
             flex items-center w-full px-3 py-2.5 rounded-lg transition-all duration-200 group/item relative
             ${active
-                ? 'bg-blue-600/10 text-blue-400 font-medium'
+                ? 'bg-red-600/10 text-red-400 font-medium'
                 : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}
             ${indent ? 'pl-11' : ''}
         `}
         title={label}
     >
         {active && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-blue-500 rounded-r-full"></div>
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-red-500 rounded-r-full"></div>
         )}
 
         {icon && (
-            <div className={`w-6 h-6 flex items-center justify-center shrink-0 text-lg transition-colors ${active ? 'text-blue-400' : 'text-slate-400 group-hover/item:text-slate-300'}`}>
+            <div className={`w-6 h-6 flex items-center justify-center shrink-0 text-lg transition-colors ${active ? 'text-red-400' : 'text-slate-400 group-hover/item:text-slate-300'}`}>
                 <i className={`${icon}`}></i>
             </div>
         )}
@@ -59,12 +59,12 @@ const NavGroup = ({ icon, label, isOpen, isActive, onToggle, children }: NavGrou
                 onClick={onToggle}
                 className={`
                     flex items-center w-full px-3 py-2.5 rounded-lg transition-all duration-200 group/group justify-between
-                    ${isActive && !isOpen ? 'text-blue-400 bg-slate-800/30' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}
+                    ${isActive && !isOpen ? 'text-red-400 bg-slate-800/30' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}
                     ${isOpen ? 'bg-slate-800/20' : ''}
                 `}
             >
                 <div className="flex items-center">
-                    <div className={`w-6 h-6 flex items-center justify-center shrink-0 text-lg transition-colors ${isActive ? 'text-blue-400' : 'text-slate-400 group-hover/group:text-slate-300'}`}>
+                    <div className={`w-6 h-6 flex items-center justify-center shrink-0 text-lg transition-colors ${isActive ? 'text-red-400' : 'text-slate-400 group-hover/group:text-slate-300'}`}>
                         <i className={`${icon}`}></i>
                     </div>
                     <span className="ml-3 whitespace-nowrap text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 md:opacity-0 md:group-hover:opacity-100">
@@ -73,7 +73,7 @@ const NavGroup = ({ icon, label, isOpen, isActive, onToggle, children }: NavGrou
                 </div>
                 <i className={`
                     fas fa-chevron-down text-xs transition-transform duration-300 opacity-0 group-hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 mr-1
-                    ${isOpen ? 'rotate-180 text-blue-400' : 'text-slate-600'}
+                    ${isOpen ? 'rotate-180 text-red-400' : 'text-slate-600'}
                 `}></i>
             </button>
             <div className={`
@@ -152,17 +152,18 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarOpen, setIsSidebarOpen }) =>
             <aside className={`${sidebarBase} ${desktopWidthClass} ${mobileTransformClass}`}>
 
                 {/* Header / Logo */}
-                <div className="flex items-center h-16 shrink-0 px-3 bg-[#0f172a] border-b border-slate-800">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white font-bold text-xl shrink-0 shadow-lg shadow-blue-900/20">
-                        E
+                <div className="flex items-center h-26 shrink-0 px-3 bg-[#0f172a] border-b border-slate-800">
+                    <div className="flex items-center justify-center w-full md:w-auto overflow-hidden">
+                        <img
+                            src="/assets/ciclolider.png"
+                            alt="CicloLider"
+                            className="h-8 w-auto object-contain transition-all duration-300 md:h-8 md:group-hover:h-10 max-w-[170px]"
+                        />
                     </div>
-                    <div className="ml-3 font-bold text-lg text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap md:group-hover:block md:hidden block tracking-tight">
-                        ERP 360
-                    </div>
-                    {/* Mobile Close Button */}
+                    {/* Mobile Close Button - repositioned */}
                     <button
                         onClick={() => setIsSidebarOpen(false)}
-                        className="ml-auto text-slate-400 hover:text-white md:hidden p-2"
+                        className="ml-auto text-slate-400 hover:text-white md:hidden p-2 absolute right-2"
                     >
                         <i className="fas fa-times"></i>
                     </button>
@@ -260,7 +261,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isSidebarOpen, setIsSidebarOpen }) =>
                 {/* Footer / User */}
                 <div className="p-3 border-t border-slate-800 bg-[#0f172a]">
                     <div className={`flex items-center gap-3 overflow-hidden rounded-lg p-2 transition-colors hover:bg-slate-800/50 cursor-pointer`}>
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-inner">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-red-500 to-red-600 shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-inner">
                             {user?.nombre?.charAt(0).toUpperCase() || 'U'}
                         </div>
                         <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap overflow-hidden">

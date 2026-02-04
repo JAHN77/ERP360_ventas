@@ -96,7 +96,8 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
     diasCredito: 0,
     formaPago: '0',
     tipoPersonaId: 'tp1', // UI Helper
-    actividadSearchTerm: '' // Unified search term for CIIU
+    actividadSearchTerm: '', // Unified search term for CIIU
+    tipter: 2 // Default to Client
   });
 
   // Actividad Search State
@@ -163,7 +164,8 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
         formaPago: initialData.formaPago || '0',
 
         // Logic to infer Tipo Persona: If Razon Social exists, it's Juridica (2)
-        tipoPersonaId: (hasRazonSocial && !hasNames) ? 'tp2' : (initialData.tipter === 1 ? 'tp1' : 'tp2')
+        tipoPersonaId: (hasRazonSocial && !hasNames) ? 'tp2' : (initialData.tipter === 1 ? 'tp1' : 'tp2'),
+        tipter: initialData.tipter || 2
       }));
 
       // Fetch Extra Details (Async)
@@ -342,9 +344,10 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
 
       limiteCredito: formData.cupoCredito,
       // Map UI helper to tipter
-      // Note: Controller expects 'tipoPersonaId' to be '1' or '2'. 
-      // Our 'tp1'/'tp2' map needs conversion.
+      // Note: Controller expects 'tipoPersonaId' to be '1' or '2' for REGIMEN but distinct for tipter. 
+      // We send explicit tipter to preserve it.
       tipoPersonaId: formData.tipoPersonaId === 'tp1' ? '1' : '2',
+      tipter: formData.tipter
     };
 
     onSubmit(payload);

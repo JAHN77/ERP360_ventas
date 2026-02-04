@@ -33,11 +33,7 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                 <View style={[pdfStyles.header, { alignItems: 'flex-start' }]}>
                     <View style={pdfStyles.logoSection}>
                         <View style={{ width: 85, height: 60, marginRight: 15, justifyContent: 'center', alignItems: 'center' }}>
-                            {empresa.logoExt ? (
-                                <Image src={empresa.logoExt} style={pdfStyles.logo} />
-                            ) : (
-                                <View style={pdfStyles.logoPlaceholder} />
-                            )}
+                            <Image src="/assets/ciclolider.png" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                         </View>
                         <View style={pdfStyles.companyInfo}>
                             <Text style={pdfStyles.companyName}>{empresa.nombre || empresa.razonSocial || 'CICLOLIDER'}</Text>
@@ -61,8 +57,8 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                         </View>
                     </View>
                     <View style={pdfStyles.documentTitleSection}>
-                        <View style={[pdfStyles.documentBadge, { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' }]}>
-                            <Text style={[pdfStyles.documentTitle, { color: '#0369a1' }]}>ORDEN DE COMPRA</Text>
+                        <View style={[pdfStyles.documentBadge, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]}>
+                            <Text style={[pdfStyles.documentTitle, { color: '#dc2626' }]}>ORDEN DE COMPRA</Text>
                         </View>
                         <Text style={pdfStyles.documentNumber}>N° {(pedido.numeroPedido || '').replace('PED-', '')}</Text>
                     </View>
@@ -70,7 +66,7 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
 
                 <View style={pdfStyles.infoGrid}>
                     <View style={pdfStyles.infoCard}>
-                        <Text style={[pdfStyles.cardLabel, { backgroundColor: '#0ea5e9' }]}>DIRECCIÓN DE ENTREGA</Text>
+                        <Text style={[pdfStyles.cardLabel, { backgroundColor: '#dc2626' }]}>DIRECCIÓN DE ENTREGA</Text>
                         <View style={pdfStyles.cardContent}>
                             <Text style={pdfStyles.clientName}>{cliente.nombreCompleto}</Text>
                             <View style={[pdfStyles.clientRow, { marginTop: 3 }]}>
@@ -171,7 +167,7 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                                 <Text style={pdfStyles.totalLabel}>IVA</Text>
                                 <Text style={pdfStyles.totalValue}>{formatCurrencySafe(ivaValor)}</Text>
                             </View>
-                            <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#0ea5e9' }]}>
+                            <View style={[pdfStyles.finalTotalRow, { backgroundColor: '#dc2626' }]}>
                                 <Text style={pdfStyles.finalTotalLabel}>TOTAL</Text>
                                 <Text style={pdfStyles.finalTotalValue}>{formatCurrencySafe(total)}</Text>
                             </View>

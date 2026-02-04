@@ -56,7 +56,7 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                             )}
                         </View>
                         <View style={pdfStyles.companyInfo}>
-                            <Text style={pdfStyles.companyName}>{empresa.nombre || empresa.razonSocial || 'CICLOLIDER'}</Text>
+                            <Text style={pdfStyles.companyName}>{empresa.nombre || empresa.razonSocial || 'EMPRESA'}</Text>
                             <Text style={pdfStyles.companyDetails}>
                                 <Text style={pdfStyles.companyDetailLabel}>NIT: </Text>{empresa.nit} • {empresa.regimen || 'Responsable de IVA'}
                             </Text>

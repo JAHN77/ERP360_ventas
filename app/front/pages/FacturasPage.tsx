@@ -758,7 +758,7 @@ const FacturasPage: React.FC = () => {
     <ID>${factura.numeroFactura}</ID>
     <UUID>${factura.cufe}</UUID>
     <IssueDate>${factura.fechaFactura}</IssueDate>
-    <Note>Factura generada por ERP360 Comercial</Note>
+    <Note>Factura generada por Ciclo Lider</Note>
 </Invoice>`;
     const blob = new Blob([xmlContent], { type: 'application/xml' });
     const url = URL.createObjectURL(blob);

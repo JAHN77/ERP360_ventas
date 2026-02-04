@@ -259,7 +259,7 @@ class ApiClient {
   }
 
   // Métodos para obtener datos
-  async getClientes(page?: number, pageSize?: number, hasEmail?: boolean, search?: string, sortBy?: string, sortOrder?: 'asc' | 'desc', isProveedor?: boolean | string, tipoPersonaId?: string, diasCredito?: string) {
+  async getClientes(page?: number, pageSize?: number, hasEmail?: boolean, search?: string, sortBy?: string, sortOrder?: 'asc' | 'desc', isProveedor?: boolean | string, tipoPersonaId?: string, diasCredito?: string, soloContactosValidos?: boolean) {
     const queryParams = new URLSearchParams();
     if (page) queryParams.append('page', String(page));
     if (pageSize) queryParams.append('pageSize', String(pageSize));
@@ -270,6 +270,7 @@ class ApiClient {
     if (isProveedor !== undefined) queryParams.append('isProveedor', String(isProveedor));
     if (tipoPersonaId) queryParams.append('tipoPersonaId', tipoPersonaId);
     if (diasCredito) queryParams.append('diasCredito', diasCredito);
+    if (soloContactosValidos) queryParams.append('soloContactosValidos', 'true');
     const params = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.request(`/clientes${params}`);
   }

@@ -69,30 +69,32 @@ const getEmpresa = async (req, res) => {
         LTRIM(RTRIM(DPTOEMP)) as departamento,
         LTRIM(RTRIM(Slogan)) as slogan,
         LTRIM(RTRIM(IMGLOGOEXT)) as logoExt,
-        LTRIM(RTRIM(regimen_empresa)) as regimen
+        LTRIM(RTRIM(regimen_empresa)) as regimen,
+        DB_NAME() as db_name
       FROM gen_empresa
     `;
     const result = await executeQueryWithParams(query, {}, req.db_name);
     const empresa = result[0] || null;
 
-    // Si hay empresa, forzar la carga del logo solicitado por el usuario como base64
     if (empresa) {
-      try {
-        const logoPath = path.join(__dirname, '../public/assets/grupoNisa.jpg');
+      // Intentar cargar logo si existe en el sistema de archivos
+      // Buscamos un logo que coincida con el nombre corto o el logoExt guardado
+      const possibleLogos = [
+        path.join(__dirname, '../public/assets/logo.png'),
+        path.join(__dirname, '../public/assets/logo.jpg'),
+        path.join(__dirname, '../public/assets/empresa.png'),
+        path.join(__dirname, '../public/assets/grupoNisa.jpg') // Fallback legacy
+      ];
 
+      for (const logoPath of possibleLogos) {
         if (fs.existsSync(logoPath)) {
           const bitmap = fs.readFileSync(logoPath);
           const extension = path.extname(logoPath).replace('.', '') || 'png';
           const base64Logo = `data:image/${extension};base64,${bitmap.toString('base64')}`;
-
           empresa.logoBase64 = base64Logo;
           empresa.logoExt = base64Logo;
-          console.log('✅ Logo cargado exitosamente como Base64');
-        } else {
-          console.warn('⚠️ Logo no encontrado en:', logoPath);
+          break;
         }
-      } catch (err) {
-        console.warn('⚠️ Error procesando el logo:', err.message);
       }
     }
 

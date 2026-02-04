@@ -61,7 +61,7 @@ const SendEmailModal: React.FC<SendEmailModalProps> = ({
     }
   };
 
-  const getInputClasses = (fieldName: keyof Errors) => `w-full px-3 py-2 text-sm text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 ${errors[fieldName] ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
+  const getInputClasses = (fieldName: keyof Errors) => `w-full px-3 py-2 text-sm text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 border rounded-md focus:outline-none focus:ring-2 ${errors[fieldName] ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-red-500'
     }`;
   const labelClasses = "block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1";
   const ErrorMessage: React.FC<{ fieldName: keyof Errors }> = ({ fieldName }) => (
@@ -72,13 +72,13 @@ const SendEmailModal: React.FC<SendEmailModalProps> = ({
     <Modal isOpen={isOpen} onClose={onClose} title="Enviar Documento por Correo" size="2xl">
       <div className="space-y-4">
         {/* Info Banner */}
-        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-start gap-3">
-          <div className="text-blue-500 dark:text-blue-400 mt-0.5">
+        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-start gap-3">
+          <div className="text-red-500 dark:text-red-400 mt-0.5">
             <i className="fas fa-info-circle text-lg"></i>
           </div>
           <div>
-            <h4 className="font-semibold text-blue-900 dark:text-blue-100 text-sm">Plantilla Corporativa</h4>
-            <p className="text-blue-800 dark:text-blue-200 text-xs mt-0.5">
+            <h4 className="font-semibold text-red-900 dark:text-red-100 text-sm">Plantilla Corporativa</h4>
+            <p className="text-red-800 dark:text-red-200 text-xs mt-0.5">
               Este mensaje se incluirá automáticamente dentro de la <strong>plantilla oficial de la empresa</strong>, junto con el logo, los detalles del documento y sus datos de contacto.
             </p>
           </div>
@@ -128,7 +128,7 @@ const SendEmailModal: React.FC<SendEmailModalProps> = ({
           <button
             onClick={handleSend}
             disabled={isSending || Object.keys(errors).filter(k => k !== 'submit').length > 0}
-            className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed"
+            className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed"
           >
             {isSending ? (
               <><i className="fas fa-spinner fa-spin mr-2"></i>Enviando...</>

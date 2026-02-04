@@ -8,39 +8,39 @@ const { getCompanyLogo } = require('../utils/imageUtils.cjs');
 let transporter = null;
 
 const createTransporter = () => {
-  if (transporter) return transporter;
+    if (transporter) return transporter;
 
-  // Verificar variables de entorno requeridas
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      console.warn('⚠️ Advertencia: Faltan variables de entorno SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS). El envío de correos no funcionará.');
-  }
-
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true', // true para 465, false para otros
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-    tls: {
-        rejectUnauthorized: false // Deshabilitar verificación exigente de certificados (útil en dev)
+    // Verificar variables de entorno requeridas
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+        console.warn('⚠️ Advertencia: Faltan variables de entorno SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS). El envío de correos no funcionará.');
     }
-  });
 
-  return transporter;
+    transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: process.env.SMTP_SECURE === 'true', // true para 465, false para otros
+        auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+        },
+        tls: {
+            rejectUnauthorized: false // Deshabilitar verificación exigente de certificados (útil en dev)
+        }
+    });
+
+    return transporter;
 };
 
 
 /**
  * Genera una plantilla de correo profesional
  */
-const getProfessionalEmailTemplate = ({ 
-    title, 
-    subtitle, 
-    mainMessage, 
-    processSteps, 
-    detailsGrid, 
+const getProfessionalEmailTemplate = ({
+    title,
+    subtitle,
+    mainMessage,
+    processSteps,
+    detailsGrid,
     companyName,
     logoCid // ID del logo embebido
 }) => {
@@ -59,12 +59,12 @@ const getProfessionalEmailTemplate = ({
                     
                     <!-- Header -->
                     <tr>
-                        <td style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); padding: 25px 20px; text-align: center;">
-                            ${logoCid 
-                                ? `<img src="cid:${logoCid}" alt="${companyName}" style="max-width: 240px; max-height: 100px; object-fit: contain; margin-bottom: 5px;">` 
-                                : `<h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700; letter-spacing: 0.5px;">${title}</h1>`
-                            }
-                            ${!logoCid && subtitle ? `<p style="color: #dbeafe; margin: 10px 0 0 0; font-size: 16px; font-weight: 500;">${subtitle}</p>` : ''}
+                        <td style="background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); padding: 25px 20px; text-align: center;">
+                            ${logoCid
+            ? `<img src="cid:${logoCid}" alt="${companyName}" style="max-width: 240px; max-height: 100px; object-fit: contain; margin-bottom: 5px;">`
+            : `<h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700; letter-spacing: 0.5px;">${title}</h1>`
+        }
+                            ${!logoCid && subtitle ? `<p style="color: #fecaca; margin: 10px 0 0 0; font-size: 16px; font-weight: 500;">${subtitle}</p>` : ''}
                         </td>
                     </tr>
 
@@ -81,7 +81,7 @@ const getProfessionalEmailTemplate = ({
                     ${detailsGrid ? `
                     <tr>
                         <td style="padding: 0 40px 30px 40px;">
-                            <p style="margin: 0 0 15px 0; color: #1e40af; font-size: 16px; font-weight: 600;">Detalles del documento:</p>
+                            <p style="margin: 0 0 15px 0; color: #b91c1c; font-size: 16px; font-weight: 600;">Detalles del documento:</p>
                             <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8fafc; border-radius: 8px; padding: 20px; border: 1px solid #e2e8f0;">
                                 ${detailsGrid}
                             </table>
@@ -93,8 +93,8 @@ const getProfessionalEmailTemplate = ({
                     ${processSteps ? `
                     <tr>
                         <td style="padding: 0 40px 20px 40px;">
-                            <div style="background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; padding: 20px;">
-                                <div style="color: #1e3a8a; font-size: 14px; line-height: 1.5;">
+                            <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px; padding: 20px;">
+                                <div style="color: #7f1d1d; font-size: 14px; line-height: 1.5;">
                                     ${processSteps}
                                 </div>
                             </div>
@@ -120,7 +120,7 @@ const getProfessionalEmailTemplate = ({
                             <div style="margin-top: 20px; border-top: 1px solid #cbd5e1; width: 40px; display: inline-block;"></div>
 
                             <p style="margin: 20px 0 0 0; font-size: 12px; color: #94a3b8;">
-                                Este es un correo automático generado por ERP360. Por favor no responder directamente a menos que se indique lo contrario.
+                                Este es un correo automático generado por Ciclo Lider. Por favor no responder directamente a menos que se indique lo contrario.
                             </p>
                             <p style="margin-top: 10px; font-size: 12px; color: #94a3b8; text-align: center;">
                                 &copy; ${new Date().getFullYear()} ${companyName}. Todos los derechos reservados.
@@ -145,7 +145,7 @@ const sendGenericEmail = async ({ to, subject, html, attachments = [] }) => {
     try {
         const mailTransporter = createTransporter();
         const mailOptions = {
-            from: `"${process.env.SMTP_FROM_NAME || 'ERP360'}" <${process.env.SMTP_USER}>`,
+            from: `"${process.env.SMTP_FROM_NAME || 'Ciclo Lider'}" <${process.env.SMTP_USER}>`,
             to: to,
             subject: subject,
             html: html,
@@ -164,21 +164,21 @@ const sendGenericEmail = async ({ to, subject, html, attachments = [] }) => {
 /**
  * Envia un documento (Cotización, Pedido, Factura, etc.) por correo con plantilla profesional
  */
-const sendDocumentEmail = async ({ 
-    to, 
-    customerName, 
-    documentNumber, 
-    documentType = 'Documento', 
-    pdfBuffer, 
-    subject, 
+const sendDocumentEmail = async ({
+    to,
+    customerName,
+    documentNumber,
+    documentType = 'Documento',
+    pdfBuffer,
+    subject,
     body, // Mensaje personalizado opcional, si se usa reemplaza el saludo estándar
     documentDetails,
-    processSteps 
+    processSteps
 }) => {
     try {
         const mailTransporter = createTransporter();
-        const companyName = process.env.SMTP_FROM_NAME || 'ERP360';
-        
+        const companyName = process.env.SMTP_FROM_NAME || 'Ciclo Lider';
+
         // 1. Asunto Estándar: [TIPO] No. [000] | [EMPRESA] - [CLIENTE]
         const finalSubject = subject || `${documentType} No. ${documentNumber} | ${companyName} - ${customerName}`;
         const title = `${documentType} No. ${documentNumber}`;
@@ -190,20 +190,20 @@ const sendDocumentEmail = async ({
             <p>En seguimiento a nuestra gestión comercial, le hacemos entrega de la <strong>${documentType}</strong> adjunta.</p>
         `;
 
-        const mainMessage = body 
+        const mainMessage = body
             ? body.split('\n').filter(p => p.trim()).map(p => `<p style="margin-bottom: 15px;">${p}</p>`).join('')
             : defaultMessage;
 
         // 3. Grid de detalles
         let detailsGrid = '';
         if (documentDetails && Array.isArray(documentDetails)) {
-             // Construir grid de 2 columnas dinámica
-             let rows = '';
-             for (let i = 0; i < documentDetails.length; i += 2) {
-                 const item1 = documentDetails[i];
-                 const item2 = documentDetails[i + 1];
-                 
-                 rows += `
+            // Construir grid de 2 columnas dinámica
+            let rows = '';
+            for (let i = 0; i < documentDetails.length; i += 2) {
+                const item1 = documentDetails[i];
+                const item2 = documentDetails[i + 1];
+
+                rows += `
                     <tr>
                         <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; width: 50%; vertical-align: top;">
                             <p style="margin: 0; font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">${item1.label}</p>
@@ -217,29 +217,29 @@ const sendDocumentEmail = async ({
                         ` : '<td style="width: 50%;"></td>'}
                     </tr>
                  `;
-             }
-             detailsGrid = rows;
+            }
+            detailsGrid = rows;
         }
 
 
 
         // Asegurar que pdfBuffer es Buffer y Validar Header PDF
         let finalAttachment;
-        
+
         if (Buffer.isBuffer(pdfBuffer)) {
             finalAttachment = pdfBuffer;
         } else if (typeof pdfBuffer === 'string') {
             console.log(`🔍 Recibido PDF String (inicio): ${pdfBuffer.substring(0, 50)}...`);
-            
+
             // Limpieza robusta de prefijos Data URI
             let base64Data = pdfBuffer
                 .replace(/^data:application\/pdf;base64,/, "")
                 .replace(/^data:application\/octet-stream;base64,/, "")
                 .replace(/^data:;base64,/, ""); // A veces viene sin mime type
-            
+
             // Eliminar espacios en blanco que puedan corromper
             base64Data = base64Data.trim();
-            
+
             finalAttachment = Buffer.from(base64Data, 'base64');
         }
 
@@ -247,9 +247,9 @@ const sendDocumentEmail = async ({
         if (finalAttachment) {
             const header = finalAttachment.toString('utf8', 0, 5); // Leer primeros 5 caracteres
             console.log(`📄 Check PDF Header: '${header}' (${finalAttachment.length} bytes)`);
-            
+
             if (!header.startsWith('%PDF-')) {
-                 console.warn('⚠️ ALERTA: El adjunto no parece ser un PDF válido (Header incorrecto). Posible corrupción.');
+                console.warn('⚠️ ALERTA: El adjunto no parece ser un PDF válido (Header incorrecto). Posible corrupción.');
             }
         } else {
             if (pdfBuffer) console.warn('⚠️ pdfBuffer no se pudo convertir a Buffer válido');
@@ -260,9 +260,24 @@ const sendDocumentEmail = async ({
         let logoCid = null;
 
         // 1. Adjuntar Logo (CID)
-        const logoPath = path.join(process.cwd(), 'public/assets/grupoNisa.jpg');
+        let logoPath = null;
+        const possibleLogos = [
+            path.join(process.cwd(), 'public/assets/ciclolider.png'),
+            path.join(process.cwd(), 'public/assets/logo.png'),
+            path.join(process.cwd(), 'public/assets/logo.jpg'),
+            path.join(process.cwd(), 'public/assets/empresa.png'),
+            path.join(process.cwd(), 'public/assets/grupoNisa.jpg')
+        ];
+
+        for (const p of possibleLogos) {
+            if (fs.existsSync(p)) {
+                logoPath = p;
+                break;
+            }
+        }
+
         try {
-            if (require('fs').existsSync(logoPath)) {
+            if (logoPath) {
                 attachments.push({
                     filename: 'logo.png',
                     path: logoPath,

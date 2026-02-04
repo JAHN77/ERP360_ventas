@@ -314,7 +314,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
                 payable_amount: totals.payableAmount,
                 allowance_total_amount: totals.discountAmount
             },
-            identification_number: 901994818, // Fixed Orquidea NIT
+            identification_number: parseInt(datosEmpresa.nit.replace(/\D/g, '')) || 0,
             payment_forms: [
                 {
                     payment_method_id: formData.paymentFormId === '2' ? 44 : parseInt(formData.paymentMethodId),
@@ -470,7 +470,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
                     payable_amount: totals.payableAmount,
                     allowance_total_amount: totals.discountAmount
                 },
-                identification_number: 901994818, // Fixed Orquidea NIT
+                identification_number: parseInt(datosEmpresa.nit.replace(/\D/g, '')) || 0,
                 payment_forms: [
                     {
                         payment_method_id: formData.paymentFormId === '2' ? 44 : parseInt(formData.paymentMethodId),

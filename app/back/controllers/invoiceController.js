@@ -163,10 +163,10 @@ const invoiceController = {
           f.IdCaja as cajaId,
           f.Valnotas as valorNotas,
           t.nomter as nombreCliente,
-          (SELECT STRING_AGG(r.numero_remision, ', ') FROM ${TABLE_NAMES.remisiones} r WHERE r.factura_id = f.ID) as remisionesNumeros,
-          (SELECT STRING_AGG(CAST(r.id AS VARCHAR), ',') FROM ${TABLE_NAMES.remisiones} r WHERE r.factura_id = f.ID) as remisionesIds
+          (SELECT STRING_AGG(CAST(r.numrem AS VARCHAR), ', ') FROM ${TABLE_NAMES.remisiones} r WHERE 1=0) as remisionesNumeros,
+          (SELECT STRING_AGG(CAST(r.id AS VARCHAR), ',') FROM ${TABLE_NAMES.remisiones} r WHERE 1=0) as remisionesIds
         FROM ${TABLE_NAMES.facturas} f
-        LEFT JOIN ${TABLE_NAMES.clientes} t ON f.codter = t.codter
+        LEFT JOIN ${TABLE_NAMES.clientes} t ON LTRIM(RTRIM(f.codter)) = LTRIM(RTRIM(t.codter))
         ${whereClause}
         ${orderByClause}
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -831,28 +831,17 @@ const invoiceController = {
           const reqDet = new sql.Request(tx);
 
           // Intentar obtener productoId del item
-          // IMPORTANTE: Si productoId es un string (ej: '001', '013'), usarlo como código directamente
-          const isStringCode = typeof it.productoId === 'string' && it.productoId.trim().length > 0;
-          let productoIdNum = -1;
-          let codProducto = '';
+          let productoIdNum = typeof it.productoId === 'number' ? it.productoId : parseInt(it.productoId, 10);
 
-          if (isStringCode) {
-            // productoId es un código string, usarlo directamente para preservar ceros
-            codProducto = String(it.productoId).trim();
-            console.log(`🔍 Item ${idx + 1}: productoId es código string: "${codProducto}"`);
-          } else {
-            // productoId es número o no válido, intentar parsearlo
-            productoIdNum = typeof it.productoId === 'number' ? it.productoId : parseInt(it.productoId, 10);
-            codProducto = String(it.codProducto || it.referencia || '').trim();
-          }
+          // Si productoId no es válido, intentar buscarlo en la BD usando codProducto
+          if (isNaN(productoIdNum) || productoIdNum <= 0) {
+            const codProducto = String(it.codProducto || it.referencia || '').trim();
 
-          // Si productoId no es válido O es código string, buscar en BD
-          if (isNaN(productoIdNum) || productoIdNum <= 0 || isStringCode) {
             if (!codProducto) {
               throw new Error(`Item ${idx + 1}: Se requiere productoId o codProducto válido`);
             }
 
-            // Buscar el producto por código en inv_insumos
+            // Buscar el producto por código
             const reqBuscarProducto = new sql.Request(tx);
             reqBuscarProducto.input('codins', sql.VarChar(8), codProducto);
             const buscarResult = await reqBuscarProducto.query(`
@@ -860,21 +849,18 @@ const invoiceController = {
             `);
 
             if (buscarResult.recordset.length === 0) {
-              // No está en inv_insumos, se buscará en ven_servicios más adelante
-              console.log(`⚠️ Item ${idx + 1}: Código "${codProducto}" no encontrado en inv_insumos, se buscará en ven_servicios`);
-              productoIdNum = -1; // Marcar para buscar en servicios
-            } else {
-              productoIdNum = buscarResult.recordset[0].id;
-              console.log(`✅ Item ${idx + 1}: productoId encontrado automáticamente: ${productoIdNum} para código ${codProducto}`);
+              throw new Error(`Item ${idx + 1}: Producto con código "${codProducto}" no encontrado en inventario`);
             }
+
+            productoIdNum = buscarResult.recordset[0].id;
+            console.log(`✅ Item ${idx + 1}: productoId encontrado automáticamente: ${productoIdNum} para código ${codProducto}`);
           }
 
           const reqProducto = new sql.Request(tx);
           reqProducto.input('productoId', sql.Int, productoIdNum);
-          reqProducto.input('codProducto', sql.VarChar(8), codProducto);
+          reqProducto.input('codProducto', sql.VarChar(8), String(it.codProducto || '').trim());
 
           // Intentar buscar primero en inv_insumos (productos)
-          // Nota: Si productoIdNum es -1, esto no devolverá nada, lo cual es correcto y activará el fallback
           let productoResult = await reqProducto.query(`
             SELECT TOP 1 
                 i.codins, 
@@ -890,14 +876,14 @@ const invoiceController = {
 
           // Si no se encuentra en inv_insumos, buscar en ven_servicios
           if (productoResult.recordset.length === 0) {
-            console.log(`⚠️ Item ${idx + 1}: No encontrado en inv_insumos (ID: ${productoIdNum}), buscando en ven_servicios con código: ${codProducto}...`);
+            console.log(`⚠️ Item ${idx + 1}: No encontrado en inv_insumos (ID: ${productoIdNum}), buscando en ven_servicios con código: ${it.codProducto}...`);
 
             const reqServicio = new sql.Request(tx);
-            reqServicio.input('codser', sql.VarChar(8), codProducto);
+            reqServicio.input('codser', sql.VarChar(8), String(it.codProducto || '').trim());
 
             productoResult = await reqServicio.query(`
               SELECT TOP 1 
-                  LTRIM(RTRIM(COALESCE(s.REFSER, s.codser))) as codins, 
+                  LTRIM(RTRIM(s.codser)) as codins, 
                   LTRIM(RTRIM(s.nomser)) as nomins, 
                   COALESCE(s.ivaser, 0) as tasa_iva,
                   s.valser as ultimo_costo,
@@ -913,7 +899,7 @@ const invoiceController = {
           }
 
           if (productoResult.recordset.length === 0) {
-            throw new Error(`Item ${idx + 1}: Producto/Servicio con código "${codProducto}" no encontrado en inv_insumos ni en ven_servicios. Verifique que el producto existe en el inventario.`);
+            throw new Error(`Item ${idx + 1}: Producto/Servicio con código "${it.codProducto}" (ID: ${productoIdNum}) no encontrado en inv_insumos ni en ven_servicios. Verifique que el producto existe en el inventario.`);
           }
 
           // Usar el código de la BD como fuente de verdad si existe, fallback al del frontend
@@ -966,54 +952,35 @@ const invoiceController = {
 
           const cosinsFinal = costoBaseCalculado;
 
-          // Map UNDVTA based on item unit code or default
-          let undVtaVal = '003'; // Default UNIDAD (003 in legacy?) - User example shows 003, 001, 002
-          if (it.unidadMedidaCodigo) {
-            const code = String(it.unidadMedidaCodigo).trim();
-            if (code === '70' || code === '94') undVtaVal = '003'; // Unidad
-            else if (code === '730') undVtaVal = '001'; // Hora? Legacy 001 seems to be HORA or generic
-            else if (code === '606') undVtaVal = '002'; // Dia? Legacy 002 seems to be DIA
-            else undVtaVal = code.substring(0, 3);
-          } else if (it.unit_measure_id) {
-            // Fallback if frontend sends IDs
-            if (it.unit_measure_id === 70) undVtaVal = '003';
-            else if (it.unit_measure_id === 730) undVtaVal = '001';
-            else if (it.unit_measure_id === 606) undVtaVal = '002';
-          }
-
-          // Legacy often uses 003 for UNIDAD, 001 for something else (maybe service/hr?), 002 for DIA
-          // Based on user input:
-          // 003 -> 10000.00 price -> qty 1.00 -> parece UNIDAD
-          // 001 -> 245793.35 price -> qty 2200 -> parece HORA? (RETRO DE ORUGA)
-          // 002 -> 845064.00 price -> qty 150 -> parece DIA? (VOLQUETA)
-
           reqDet.input('codalm', sql.Char(3), codalmFinal);
           reqDet.input('tipfact', sql.Char(2), tipfacFinal);
-          reqDet.input('numfac', sql.VarChar(15), numfactFinal); // VarChar to match user schema type (nvarchar/varchar mixed)
+          // CORRECCIÓN: Usar VarChar y sin padding para coincidir con header y evitar "12          "
+          reqDet.input('numfac', sql.VarChar(15), numfactFinal);
           reqDet.input('codins', sql.VarChar(8), codins);
           reqDet.input('qtyins', sql.Decimal(18, 2), qtyinsFinal);
-          reqDet.input('valins', sql.Decimal(18, 6), valinsFinal); // Changed to 6 decimals based on user data
+          reqDet.input('valins', sql.Decimal(18, 2), valinsFinal);
           reqDet.input('ivains', sql.Decimal(18, 2), valorIvaFinal);
-          reqDet.input('desins', sql.Decimal(18, 2), valdescuentoFinal); // Column is numeric(18,2) in schema provided
+          reqDet.input('desins', sql.Decimal(5, 2), desinsFinal);
           reqDet.input('valdescuento', sql.Decimal(18, 2), valdescuentoFinal);
           reqDet.input('cosins', sql.Decimal(18, 2), cosinsFinal);
           reqDet.input('observa', sql.VarChar(50), (it.descripcion || nomins || '').substring(0, 50));
           reqDet.input('estfac', sql.Char(1), estfacFinal);
-          reqDet.input('UNDVTA', sql.Char(3), undVtaVal);
-          reqDet.input('PRECIOUND', sql.Decimal(18, 6), valinsFinal); // PRECIOUND numeric(18,6)
-          reqDet.input('QTYVTA', sql.Decimal(18, 4), qtyinsFinal);    // QTYVTA numeric(18,4)
-          reqDet.input('COSVTA', sql.Decimal(18, 4), cosinsFinal);    // COSVTA numeric(18,4) - New derived field
-          reqDet.input('PRECIO_LISTA', sql.Decimal(18, 6), valinsFinal); // PRECIO_LISTA numeric(18,6)
+          reqDet.input('PRECIOUND', sql.Decimal(18, 2), valinsFinal);
+          reqDet.input('QTYVTA', sql.Decimal(18, 2), qtyinsFinal);
+          reqDet.input('PRECIO_LISTA', sql.Decimal(18, 2), valinsFinal);
           reqDet.input('id_factura', sql.Int, newId);
+          // NEW: Insert UNDVTA
+          const undVtaVal = String(it.unidadMedidaCodigo || it.unitMeasureCode || it.codigoMedida || '003').trim().substring(0, 3);
+          reqDet.input('UNDVTA', sql.VarChar(3), undVtaVal);
 
           await reqDet.query(`
-             INSERT INTO ${TABLE_NAMES.facturas_detalle} (
-               codalm, tipfact, numfac, codins, qtyins, valins, ivains, desins, valdescuento, cosins,
-               observa, estfac, UNDVTA, PRECIOUND, QTYVTA, COSVTA, PRECIO_LISTA, id_factura
-             ) VALUES (
-               @codalm, @tipfact, @numfac, @codins, @qtyins, @valins, @ivains, @desins, @valdescuento, @cosins,
-               @observa, @estfac, @UNDVTA, @PRECIOUND, @QTYVTA, @COSVTA, @PRECIO_LISTA, @id_factura
-             );`);
+            INSERT INTO ${TABLE_NAMES.facturas_detalle} (
+              codalm, tipfact, numfac, codins, qtyins, valins, ivains, desins, valdescuento, cosins,
+              observa, estfac, PRECIOUND, QTYVTA, PRECIO_LISTA, id_factura, UNDVTA
+            ) VALUES (
+              @codalm, @tipfact, @numfac, @codins, @qtyins, @valins, @ivains, @desins, @valdescuento, @cosins,
+              @observa, @estfac, @PRECIOUND, @QTYVTA, @PRECIO_LISTA, @id_factura, @UNDVTA
+            );`);
 
           // KARDEX: Registrar Salida por Factura
           // Solo si NO viene de remisión (allRemisionIds vacío). Si viene de remisión, se asume que la remisión ya descontó.
@@ -1021,15 +988,7 @@ const invoiceController = {
           // Por ahora, asumimos que si hay remisiónId encadenada, toda la factura está cubierta por remisiones o el usuario ya gestionó el inventario.
           // Ajuste: El requerimiento es que "ya sea entrada o salida se debe reflejar". 
           // Si allRemisionIds.length > 0, NO movemos kardex.
-          // KARDEX: DESACTIVADO POR REQUERIMIENTO DEL CLIENTE
-          // El cliente indicó explícitamente que NO manejan inventario.
-          // Por lo tanto, se omite cualquier llamada a InventoryService.registrarSalida.
-
-          /* 
-          // Lógica anterior de Kardex (comentada para referencia futura)
-          const esServicio = productoResult.recordset[0].tipo === 'servicio';
-
-          if (allRemisionIds.length === 0 && !esServicio) {
+          if (allRemisionIds.length === 0) {
             const numFacInt = parseInt(String(numfactFinal).replace(/\D/g, '')) || 0;
             await InventoryService.registrarSalida({
               transaction: tx,
@@ -1039,16 +998,14 @@ const invoiceController = {
               numeroDocumentoInt: numFacInt,
               tipoMovimiento: 'SA',
               precioVenta: valinsFinal,
-              precioBase: cosinsFinal,
-              costo: parseFloat(productoResult.recordset[0].ultimo_costo) || 0,
+              precioBase: cosinsFinal, // -> venkar (Costo base calculado: Lista 07 / 1+IVA)
+              costo: parseFloat(productoResult.recordset[0].ultimo_costo) || 0, // -> coskar (Ultimo costo real)
               observaciones: `Factura ${numfactFinal}`,
               codUsuario: codusuFinal,
               clienteId: codterFinal,
               numComprobante: numFacInt
             });
-          } 
-          */
-          console.log(`ℹ️ Item ${idx + 1}: Movimiento de inventario OMITIDO (Cliente sin control de stock).`);
+          }
         }
 
         await tx.commit();
@@ -1195,7 +1152,7 @@ const invoiceController = {
         }
 
         if (debeTimbrar) {
-          reqUpdate.input('resolucion_dian', sql.Char(2), '98');
+          reqUpdate.input('resolucion_dian', sql.Char(2), '58');
           updates.push('resolucion_dian = @resolucion_dian');
         }
 
@@ -1372,8 +1329,8 @@ const invoiceController = {
       const result = await pool.request().query(`
         SELECT TOP 1 numfact 
         FROM ${TABLE_NAMES.facturas} 
-        WHERE numfact IS NOT NULL AND numfact <> ''
-        ORDER BY TRY_CAST(numfact AS INT) DESC, numfact DESC
+        WHERE ISNUMERIC(numfact) = 1
+        ORDER BY CAST(numfact AS INT) DESC
       `);
 
       let nextNum = '88996';
@@ -1531,6 +1488,34 @@ const invoiceController = {
 
       // Obtener parámetros DIAN
       const dianParams = await DIANService.getDIANParameters(db_name);
+
+      // --- CORRECCIÓN CRÍTICA DE NIT (Para Preview Manual) ---
+      // El JSON viene del frontend, debemos limpiarlo aquí también si el frontend sigue mandando el NIT sucio
+      const cleanNit = (nit) => {
+        const nitStr = String(nit).replace(/[^\d]/g, '');
+        if (nitStr.length === 10 && (nitStr.startsWith('8') || nitStr.startsWith('9'))) {
+          // Asumimos concatenado, quitamos último dígito
+          return Number(nitStr.substring(0, 9));
+        }
+        return Number(nitStr);
+      };
+
+      // Limpiar NIT de la Empresa Principal
+      if (invoiceJson.identification_number) {
+        invoiceJson.identification_number = cleanNit(invoiceJson.identification_number);
+      }
+      if (invoiceJson.company && invoiceJson.company.identification_number) {
+        invoiceJson.company.identification_number = cleanNit(invoiceJson.company.identification_number);
+      }
+
+      // FORZAR NIT 901907454 SI ES EL DE NISA (Por seguridad)
+      if (String(invoiceJson.identification_number).startsWith('901907454')) {
+        invoiceJson.identification_number = 901907454;
+      }
+      if (invoiceJson.company && String(invoiceJson.company.identification_number).startsWith('901907454')) {
+        invoiceJson.company.identification_number = 901907454;
+      }
+      // -------------------------------------------------------
 
       // Inyectar Logo de Nisa
       try {

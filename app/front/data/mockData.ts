@@ -14,13 +14,13 @@ export const departamentos: Departamento[] = [
 ];
 
 export const ciudades: Ciudad[] = [
-    { id: 'c1', departamento_id: 'd1', codigo: '11001', nombre: 'Bogotá D.C.' },
-    { id: 'c2', departamento_id: 'd2', codigo: '05001', nombre: 'Medellín' },
-    { id: 'c3', departamento_id: 'd3', codigo: '76001', nombre: 'Cali' },
-    { id: 'c4', departamento_id: 'd4', codigo: '13001', nombre: 'Cartagena' },
-    { id: 'c5', departamento_id: 'd5', codigo: '68001', nombre: 'Bucaramanga' },
-    { id: 'c6', departamento_id: 'd6', codigo: '08001', nombre: 'Barranquilla' },
-    { id: 'c7', departamento_id: 'd7', codigo: '54001', nombre: 'Cúcuta' },
+    { id: 'c1', departamentoId: 'd1', codigo: '11001', nombre: 'Bogotá D.C.' },
+    { id: 'c2', departamentoId: 'd2', codigo: '05001', nombre: 'Medellín' },
+    { id: 'c3', departamentoId: 'd3', codigo: '76001', nombre: 'Cali' },
+    { id: 'c4', departamentoId: 'd4', codigo: '13001', nombre: 'Cartagena' },
+    { id: 'c5', departamentoId: 'd5', codigo: '68001', nombre: 'Bucaramanga' },
+    { id: 'c6', departamentoId: 'd6', codigo: '08001', nombre: 'Barranquilla' },
+    { id: 'c7', departamentoId: 'd7', codigo: '54001', nombre: 'Cúcuta' },
 ];
 
 export const tiposDocumento: TipoDocumento[] = [
@@ -29,7 +29,8 @@ export const tiposDocumento: TipoDocumento[] = [
 ];
 
 export const tiposPersona: TipoPersona[] = [
-    { id: 'tp1', codigo: '2', nombre: 'Cliente' },
+    { id: 'natural', codigo: '2', nombre: 'Persona Natural' },
+    { id: 'juridica', codigo: '1', nombre: 'Persona Jurídica' },
 ];
 
 export const regimenesFiscales: RegimenFiscal[] = [
@@ -47,7 +48,7 @@ export let categorias: Categoria[] = [
 // --- EMPRESA, USUARIOS Y VENDEDORES (Para autenticación) ---
 
 export const empresas: Empresa[] = [
-    { id: 5, razonSocial: 'GRUPO EMPRESARIAL NISA SAS', nit: '802024306-1', direccion: 'Avenida Siempre Viva 123', ciudad: 'Bogotá D.C.', telefono: '601-555-1234', db_name: 'nisa' },
+    { id: 1, razonSocial: 'EMPRESA', nit: '', direccion: '', ciudad: '', telefono: '', db_name: '' },
 ];
 
 export const sedes: Sede[] = [

@@ -57,10 +57,14 @@ const clientController = {
         pageSize = '100',
         search,
         sortBy = 'razonSocial',
-        sortOrder = 'asc',
+        sortOrder = 'asc'
+      } = req.query;
+
+      const {
         isProveedor,
         tipoPersonaId,
-        diasCredito
+        diasCredito,
+        soloContactosValidos
       } = req.query;
 
       const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
@@ -73,8 +77,9 @@ const clientController = {
         searchTerm = String(search).trim();
       }
 
-      // Base Conditon (Active Terceros)
-      let whereClause = "WHERE t.activo = 1";
+      // Base Conditon (Active Terceros OR Providers)
+      // Providers in this DB seem to be inactive (activo=0), so we include them explicitly.
+      let whereClause = "WHERE (t.activo = 1 OR t.tipter = 1)";
 
       console.log('🔍 [DEBUG] getAllClients - Params:', { page, pageSize, search, sortBy, sortOrder, isProveedor, tipoPersonaId, diasCredito });
 
@@ -90,26 +95,38 @@ const clientController = {
         params.search = `%${searchTerm}%`;
       }
 
-      // Filter by Provider Status (Critical for Tabs)
+      // Filtrar por tipo de tercero usando la columna 'tipter'
       if (isProveedor !== undefined && isProveedor !== null && isProveedor !== 'Todos') {
         const isProvBool = String(isProveedor) === 'true' || String(isProveedor) === '1';
         if (isProvBool) {
-          whereClause += " AND (t.isproveedor = 1)";
+          whereClause += " AND (t.tipter = 1)"; // 1 = Proveedor
         } else {
-          whereClause += " AND (t.isproveedor = 0 OR t.isproveedor IS NULL)";
+          whereClause += " AND (t.tipter = 2)"; // 2 = Cliente
         }
       }
 
-      // Filter by Type
+      // Filter by Regimen Tributario (Natural/Juridica)
       if (tipoPersonaId && tipoPersonaId !== 'Todos') {
-        whereClause += " AND t.tipter = @tipoPersonaId";
-        params.tipoPersonaId = tipoPersonaId;
+        whereClause += " AND t.regimen_tributario = @regimenId";
+        params.regimenId = parseInt(tipoPersonaId, 10);
       }
 
       // Filter by Payment Condition (diasCredito)
       if (diasCredito && diasCredito !== 'Todos') {
         whereClause += " AND t.plazo = @diasCredito";
-        params.diasCredito = diasCredito;
+        params.diasCredito = parseInt(diasCredito, 10);
+      }
+
+      // Filtrar por contactos válidos (Email y Teléfono/Celular)
+      if (soloContactosValidos === 'true' || soloContactosValidos === '1') {
+        whereClause += ` AND (
+            t.EMAIL IS NOT NULL AND LTRIM(RTRIM(t.EMAIL)) <> '' AND t.EMAIL LIKE '%@%.%'
+            AND (
+                (t.TELTER IS NOT NULL AND LTRIM(RTRIM(t.TELTER)) <> '' AND LEN(LTRIM(RTRIM(t.TELTER))) >= 7)
+                OR 
+                (t.CELTER IS NOT NULL AND LTRIM(RTRIM(t.CELTER)) <> '' AND LEN(LTRIM(RTRIM(t.CELTER))) >= 10)
+            )
+        )`;
       }
 
       // Mapeo de columnas para ordenamiento
@@ -176,9 +193,8 @@ const clientController = {
           t.codacteconomica,
           t.coddane as codigoPostal,
           t.Tipo_documento as tipoDocumento,
-          t.tipter,
-          t.isproveedor, 
-          t.FECING as fechaIngreso
+           t.tipter,
+           t.FECING as fechaIngreso
         FROM ${TABLE_NAMES.clientes} t
         LEFT JOIN gen_municipios gm ON LTRIM(RTRIM(t.ciudad)) = LTRIM(RTRIM(gm.coddane))
         ${whereClause}
@@ -195,7 +211,7 @@ const clientController = {
 
       const [clientes, countResult] = await Promise.all([
         executeQueryWithParams(query, params, req.db_name),
-        executeQueryWithParams(countQuery, searchTerm ? { search: params.search } : {}, req.db_name)
+        executeQueryWithParams(countQuery, params, req.db_name)
       ]);
 
 
@@ -262,11 +278,10 @@ const clientController = {
           EMAIL as email,
           ciudad,
           codven as vendedorId,
-          tipter,
-          isproveedor
-        FROM con_terceros
-        WHERE activo = 1 
-          AND (nomter LIKE @like OR codter LIKE @like) -- Reduced fields for speed if needed, but keeping main ones
+           tipter
+        FROM ${TABLE_NAMES.clientes}
+        WHERE (activo = 1 OR tipter = 1)
+          AND (nomter LIKE @like OR codter LIKE @like)
         ORDER BY nomter`;
 
       const data = await executeQueryWithParams(query, { like, limit: Number(limit) }, req.db_name);
@@ -315,14 +330,14 @@ const clientController = {
           coddane as codigoPostal,
           Tipo_documento as tipoDocumento,
           FECING as fechaIngreso
-        FROM con_terceros
+        FROM ${TABLE_NAMES.clientes}
       `;
 
       if (isNumeric) {
-        query = `${baseQuery} WHERE id = @id AND activo = 1`;
+        query = `${baseQuery} WHERE id = @id`;
         params = { id: idNum };
       } else {
-        query = `${baseQuery} WHERE codter = @codter AND activo = 1`;
+        query = `${baseQuery} WHERE codter = @codter`;
         params = { codter: String(id).trim() };
       }
 
@@ -368,7 +383,11 @@ const clientController = {
       const creditLimitDecimal = validateDecimal18_2(limiteCredito, 'limiteCredito');
 
       let tipterVal = 2; // Default Cliente
-      if (tipoPersonaId) tipterVal = parseInt(tipoPersonaId, 10) || 2;
+      if (req.body.tipter !== undefined) {
+        tipterVal = parseInt(req.body.tipter, 10);
+      } else if (req.body.isProveedor !== undefined) {
+        tipterVal = (String(req.body.isProveedor) === 'true' || String(req.body.isProveedor) === '1') ? 1 : 2;
+      }
 
       // Prepare Update Query
       const params = {
@@ -405,7 +424,7 @@ const clientController = {
       params.nomter = nomter.substring(0, 100);
 
       const query = `
-        UPDATE con_terceros
+        UPDATE ${TABLE_NAMES.clientes}
         SET 
           codter = @codter,
           nomter = @nomter,
@@ -434,7 +453,7 @@ const clientController = {
       await executeQueryWithParams(query, params, req.db_name);
 
       // Return updated
-      const updated = await executeQueryWithParams('SELECT * FROM con_terceros WHERE id = @id', { id: params.id }, req.db_name);
+      const updated = await executeQueryWithParams(`SELECT * FROM ${TABLE_NAMES.clientes} WHERE id = @id`, { id: params.id }, req.db_name);
       res.json({ success: true, data: updated[0] });
 
     } catch (error) {
@@ -453,7 +472,7 @@ const clientController = {
       if (!listaPrecioId) return res.status(400).json({ success: false, message: 'listaPrecioId requerido' });
 
       await executeQueryWithParams(
-        `UPDATE con_terceros SET lista_precios_id = @listaPrecioId WHERE id = @clienteId;`,
+        `UPDATE ${TABLE_NAMES.clientes} SET lista_precios_id = @listaPrecioId WHERE id = @clienteId;`,
         { listaPrecioId, clienteId: id },
         req.db_name
       );
@@ -546,15 +565,19 @@ const clientController = {
       // Basic Validation
       if (!numeroDocumento) return res.status(400).json({ success: false, message: 'Número de documento requerido' });
 
-      const checkExists = await executeQueryWithParams(`SELECT id FROM con_terceros WHERE codter = @codter`, { codter: numeroDocumento }, req.db_name);
+      const checkExists = await executeQueryWithParams(`SELECT id FROM ${TABLE_NAMES.clientes} WHERE codter = @codter`, { codter: numeroDocumento }, req.db_name);
       if (checkExists.length > 0) {
         return res.status(400).json({ success: false, message: 'El cliente/tercero con este documento ya existe.' });
       }
 
       const creditLimitDecimal = validateDecimal18_2(limiteCredito, 'limiteCredito');
 
-      let tipterVal = 2;
-      if (tipoPersonaId) tipterVal = parseInt(tipoPersonaId, 10) || 2;
+      let tipterVal = 2; // Default Cliente
+      if (req.body.tipter !== undefined) {
+        tipterVal = parseInt(req.body.tipter, 10);
+      } else if (req.body.isProveedor !== undefined) {
+        tipterVal = (String(req.body.isProveedor) === 'true' || String(req.body.isProveedor) === '1') ? 1 : 2;
+      }
 
       const params = {
         codter: String(numeroDocumento).trim().substring(0, 15),
@@ -574,7 +597,6 @@ const clientController = {
         regimenTributario: parseInt(regimenTributario || 0, 10),
         tipoDocumento: String(tipoDocumento || '13').trim().substring(0, 2), // char(2)
         codacteconomica: String(codacteconomica || '').trim().substring(0, 6),
-        isproveedor: isproveedor ? 1 : 0,
         contacto: String(contacto || '').trim().substring(0, 150),
         coddane: String(req.body.codigoPostal || '').trim().substring(0, 5), // DB Limit: char(5)
         tipter: tipterVal,
@@ -589,17 +611,17 @@ const clientController = {
       params.nomter = nomter.substring(0, 150);
 
       const query = `
-        INSERT INTO con_terceros (
+        INSERT INTO ${TABLE_NAMES.clientes} (
           codter, nomter, apl1, apl2, nom1, nom2,
           dirter, ciudad, codven, EMAIL, TELTER, CELTER,
           plazo, cupo_credito, Forma_pago, regimen_tributario,
-          Tipo_documento, codacteconomica, isproveedor, contacto,
+          Tipo_documento, codacteconomica, contacto,
           coddane, tipter, FECING, activo
         ) VALUES (
           @codter, @nomter, @primerApellido, @segundoApellido, @primerNombre, @segundoNombre,
           @direccion, @ciudad, @vendedorId, @email, @telefono, @celular,
           @diasCredito, ${creditLimitDecimal}, @formaPago, @regimenTributario,
-          @tipoDocumento, @codacteconomica, @isproveedor, @contacto,
+          @tipoDocumento, @codacteconomica, @contacto,
           @coddane, @tipter, @FECING, 1
         );
         SELECT SCOPE_IDENTITY() as id;
@@ -608,7 +630,7 @@ const clientController = {
       const result = await executeQueryWithParams(query, params, req.db_name);
       const newId = result[0].id;
 
-      const newClient = await executeQueryWithParams('SELECT * FROM con_terceros WHERE id = @id', { id: newId }, req.db_name);
+      const newClient = await executeQueryWithParams(`SELECT * FROM ${TABLE_NAMES.clientes} WHERE id = @id`, { id: newId }, req.db_name);
       res.json({ success: true, data: newClient[0] });
 
     } catch (error) {

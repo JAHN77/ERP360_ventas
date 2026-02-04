@@ -48,10 +48,10 @@ const getAllQuotes = async (req, res) => {
     // Query principal con paginación
     const query = `
       SELECT 
-        c.id,
+        c.numcot               AS id,
         c.numcot               AS numeroCotizacion,
-        c.fecha                AS fechaCotizacion,
-        c.fecha_vence          AS fechaVencimiento,
+        c.feccot               AS fechaCotizacion,
+        c.fecven               AS fechaVencimiento,
         c.codter               AS codter,
         COALESCE(cli.id, NULL) AS clienteId,
         CASE 
@@ -62,25 +62,24 @@ const getAllQuotes = async (req, res) => {
         cli.TELTER             AS clienteTelefono,
         cli.CELTER             AS clienteCelular,
         cli.EMAIL              AS clienteEmail,
-        CAST(COALESCE(v.ideven, NULL) AS VARCHAR(20)) AS vendedorId,
-        LTRIM(RTRIM(c.cod_vendedor)) AS codVendedor,
-        LTRIM(RTRIM(v.nomven)) AS vendedorNombre,
+        LTRIM(RTRIM(c.codven)) AS vendedorId,
+        LTRIM(RTRIM(c.codven)) AS codVendedor,
         c.codalm               AS codalm,
         c.codalm               AS empresaId,
-        COALESCE(c.subtotal, 0) AS subtotal,
-        COALESCE(c.val_descuento, 0) AS descuentoValor,
-        COALESCE(c.val_iva, 0) AS ivaValor,
-        COALESCE(c.subtotal,0) - COALESCE(c.val_descuento,0) + COALESCE(c.val_iva,0) AS total,
+        (SELECT SUM(candet * vundet) FROM ven_detacotiz WHERE numcot = c.numcot) AS subtotal,
+        (SELECT SUM((candet * vundet) * (COALESCE(dctdet, 0) / 100.0)) FROM ven_detacotiz WHERE numcot = c.numcot) AS descuentoValor,
+        (SELECT SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (COALESCE(ivadet, 0) / 100.0)) FROM ven_detacotiz WHERE numcot = c.numcot) AS ivaValor,
+        (SELECT SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (1 + (COALESCE(ivadet, 0) / 100.0))) FROM ven_detacotiz WHERE numcot = c.numcot) AS total,
         c.observa              AS observaciones,
-        c.estado,
+        c.estcot               AS estado,
         LTRIM(RTRIM(COALESCE(c.formapago, '01'))) AS formaPago,
-        COALESCE(c.valor_anticipo, 0) AS valorAnticipo,
-        c.num_orden_compra     AS numOrdenCompra,
-        c.fecha_aprobacion     AS fechaAprobacion,
-        c.cod_usuario          AS codUsuario,
-        c.id_usuario           AS idUsuario,
-        c.COD_TARIFA           AS codTarifa,
-        u.firma                AS firmaVendedor,
+        COALESCE(c.abono, 0)   AS valorAnticipo,
+        c.numsol               AS numOrdenCompra,
+        NULL                   AS fechaAprobacion,
+        c.codusu               AS codUsuario,
+        NULL                   AS idUsuario,
+        NULL                   AS codTarifa,
+        NULL                   AS firmaVendedor,
         c.fecsys               AS fechaCreacion,
         NULL                   AS observacionesInternas,
         NULL                   AS listaPrecioId,
@@ -88,19 +87,10 @@ const getAllQuotes = async (req, res) => {
         NULL                   AS ivaPorcentaje,
         NULL                   AS domicilios,
         NULL                   AS approvedItems
-      FROM ${TABLE_NAMES.cotizaciones} c
-      LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter)) AND cli.activo = 1
-      LEFT JOIN ${TABLE_NAMES.usuarios} u ON LTRIM(RTRIM(u.codusu)) = LTRIM(RTRIM(c.cod_usuario))
-      -- JOIN mejorado: Intenta match exacto de string O match numérico para caso 15 vs 015
-      LEFT JOIN ${TABLE_NAMES.vendedores} v ON (
-          LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, '')))
-          OR (
-             ISNUMERIC(v.codven) = 1 AND ISNUMERIC(c.cod_vendedor) = 1 
-             AND CAST(v.codven AS BIGINT) = CAST(c.cod_vendedor AS BIGINT)
-          )
-      ) AND v.Activo = 1
+    FROM ${TABLE_NAMES.cotizaciones} c
+      LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter))
       ${whereClause}
-      ORDER BY c.fecha DESC, c.id DESC
+      ORDER BY c.feccot DESC, c.numcot DESC
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `;
 
@@ -108,14 +98,6 @@ const getAllQuotes = async (req, res) => {
     const countQuery = `
       SELECT COUNT(*) as total
       FROM ${TABLE_NAMES.cotizaciones} c
-      LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter)) AND cli.activo = 1
-      LEFT JOIN ${TABLE_NAMES.vendedores} v ON (
-          LTRIM(RTRIM(ISNULL(v.codven, ''))) = LTRIM(RTRIM(ISNULL(c.cod_vendedor, '')))
-          OR (
-             ISNUMERIC(v.codven) = 1 AND ISNUMERIC(c.cod_vendedor) = 1 
-             AND CAST(v.codven AS BIGINT) = CAST(c.cod_vendedor AS BIGINT)
-          )
-      ) AND v.Activo = 1
       ${whereClause}
     `;
 
@@ -182,30 +164,29 @@ const getQuoteDetails = async (req, res) => {
     // Query optimizado
     const query = `
       SELECT 
-        d.id,
-        d.id_cotizacion           AS cotizacionId,
+        CAST(d.numcot AS VARCHAR) + '-' + LTRIM(RTRIM(d.coddet)) AS id,
+        d.numcot                  AS cotizacionId,
         COALESCE(p.id, NULL)      AS productoId,
-        LTRIM(RTRIM(d.cod_producto)) AS codProducto,
-        d.cantidad,
-        COALESCE(d.cant_facturada, 0) AS cantFacturada,
-        COALESCE(d.qtycot, 0)     AS qtycot,
-        COALESCE(d.preciound, 0)  AS precioUnitario,
-        COALESCE(d.tasa_descuento, 0) AS descuentoPorcentaje,
-        COALESCE(d.tasa_iva, 0)   AS ivaPorcentaje,
-        d.codigo_medida           AS codigoMedida,
-        COALESCE(m.codmed, p.undins, 'UND') AS unidadMedida,
-        COALESCE(p.referencia, LTRIM(RTRIM(d.cod_producto)), '') AS referencia,
+        LTRIM(RTRIM(d.coddet))    AS codProducto,
+        d.candet                  AS cantidad,
+        COALESCE(d.canfac, 0)     AS cantFacturada,
+        d.candet                  AS qtycot,
+        COALESCE(d.vundet, 0)     AS precioUnitario,
+        COALESCE(d.dctdet, 0)     AS descuentoPorcentaje,
+        COALESCE(d.ivadet, 0)     AS ivaPorcentaje,
+        NULL                      AS codigoMedida,
+        'Unidad'                  AS unidadMedida,
+        LTRIM(RTRIM(d.coddet))    AS referencia,
         d.estado                  AS estado,
-        d.num_factura             AS numFactura,
-        CASE WHEN d.valor IS NOT NULL AND d.tasa_iva IS NOT NULL THEN d.valor - (d.valor * (d.tasa_iva/100.0)) ELSE COALESCE(d.valor,0) END AS subtotal,
-        CASE WHEN d.valor IS NOT NULL AND d.tasa_iva IS NOT NULL THEN (d.valor * (d.tasa_iva/100.0)) ELSE 0 END AS valorIva,
-        COALESCE(d.valor, 0)      AS total,
-        COALESCE(p.nomins, '')    AS descripcion
+        NULL                      AS numFactura,
+        (d.candet * d.vundet)     AS subtotal,
+        ((d.candet * d.vundet) * (1 - (COALESCE(d.dctdet, 0) / 100.0))) * (COALESCE(d.ivadet, 0) / 100.0) AS valorIva,
+        ((d.candet * d.vundet) * (1 - (COALESCE(d.dctdet, 0) / 100.0))) * (1 + (COALESCE(d.ivadet, 0) / 100.0)) AS total,
+        COALESCE(p.nomins, LTRIM(RTRIM(d.nomdet)), '') AS descripcion
       FROM ${TABLE_NAMES.cotizaciones_detalle} d
-      LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(d.cod_producto))
-      LEFT JOIN inv_medidas m ON m.codmed = d.codigo_medida
+      LEFT JOIN ${TABLE_NAMES.productos} p ON LTRIM(RTRIM(p.codins)) = LTRIM(RTRIM(d.coddet))
       ${whereClause}
-      ORDER BY d.id_cotizacion, d.id
+      ORDER BY d.numcot, d.coddet
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `;
 
@@ -248,6 +229,15 @@ const createQuote = async (req, res) => {
       empresaId
     } = req.body;
 
+    // Helper to validate SQL Date
+    const getValidDate = (dateStr, defaultDate = new Date()) => {
+      if (!dateStr) return defaultDate;
+      const d = new Date(dateStr);
+      return isNaN(d.getTime()) ? defaultDate : d;
+    };
+
+    console.log('📝 [createQuote] Raw Body:', JSON.stringify(req.body, null, 2));
+
     if (!clienteId || !items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -261,15 +251,33 @@ const createQuote = async (req, res) => {
     try {
       await tx.begin();
 
-      // 1. Cliente Lookup (codter)
+      // 1. Cliente Lookup (Flexible: Try ID first, then codter)
       const reqCliente = new sql.Request(tx);
       const clienteIdStr = String(clienteId).trim();
       let clienteData = null;
 
-      reqCliente.input('clienteIdVal', sql.VarChar(20), clienteIdStr);
-      const resId = await reqCliente.query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @clienteIdVal`);
-      if (resId.recordset.length > 0) {
-        clienteData = resId.recordset[0];
+      // Try by ID first (SAFE CHECK for potentially numeric ID)
+      if (/^\d+$/.test(clienteIdStr)) {
+        const resById = await tx.request()
+          .input('cid', sql.Int, parseInt(clienteIdStr))
+          .query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = @cid`);
+
+        if (resById.recordset.length > 0) {
+          clienteData = resById.recordset[0];
+          console.log(`✅ Cliente encontrado por ID internal: ${clienteIdStr} -> ${clienteData.codter}`);
+        }
+      }
+
+      // If not found by ID (or not numeric), try by codter (documento)
+      if (!clienteData) {
+        const resByCod = await tx.request()
+          .input('ccod', sql.VarChar(20), clienteIdStr)
+          .query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @ccod`);
+
+        if (resByCod.recordset.length > 0) {
+          clienteData = resByCod.recordset[0];
+          console.log(`✅ Cliente encontrado por CODTER: ${clienteIdStr}`);
+        }
       }
 
       if (!clienteData) {
@@ -279,9 +287,10 @@ const createQuote = async (req, res) => {
       const codTerFinal = clienteData.codter;
 
       // 2. Vendedor Lookup
-      let codVendedorFinal = clienteData.codven;
+      let codVendedorFinal = clienteData.codven || '001';
       if (vendedorId) {
         let vendedorIdStr = String(vendedorId).trim();
+        // Check if it's a code or ID
         const reqVen = new sql.Request(tx);
         reqVen.input('vcod', sql.VarChar(20), vendedorIdStr);
         const resVen = await reqVen.query(`SELECT codven FROM ${TABLE_NAMES.vendedores} WHERE LTRIM(RTRIM(codven)) = @vcod`);
@@ -310,27 +319,22 @@ const createQuote = async (req, res) => {
         }
       }
 
-      // 3. Insertar Header (ven_cotizacion) - Schema Confirmado
+      // 3. Insertar Header (ven_cotizacion) - Schema Actualizado (Legacy)
+      // Columns: numcot, feccot, fecven, codter, codven, codalm, observa, estcot, formapago, fecsys, codusu
       const reqInsertHeader = new sql.Request(tx);
       reqInsertHeader.input('numcot', sql.VarChar(8), nuevoNumero);
-      reqInsertHeader.input('fecha', sql.Date, fechaCotizacion || new Date());
-      reqInsertHeader.input('fecha_vence', sql.Date, fechaVencimiento || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000));
+      reqInsertHeader.input('feccot', sql.Date, getValidDate(fechaCotizacion));
+      reqInsertHeader.input('fecven', sql.Date, getValidDate(fechaVencimiento, new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)));
 
       reqInsertHeader.input('codter', sql.VarChar(15), String(codTerFinal).substring(0, 15));
-      reqInsertHeader.input('cod_vendedor', sql.VarChar(10), String(codVendedorFinal || '').substring(0, 10));
+      reqInsertHeader.input('codven', sql.VarChar(3), String(codVendedorFinal || '001').substring(0, 3));
 
       let codAlmFinal = '001';
       if (empresaId) codAlmFinal = String(empresaId).trim().substring(0, 3);
       reqInsertHeader.input('codalm', sql.VarChar(3), codAlmFinal);
 
-      // Totales
-      reqInsertHeader.input('subtotal', sql.Decimal(18, 2), validateDecimal18_2(subtotal || 0, 'subtotal'));
-      reqInsertHeader.input('val_descuento', sql.Decimal(18, 2), validateDecimal18_2(descuentoValor || 0, 'descuentoValor'));
-      reqInsertHeader.input('val_iva', sql.Decimal(18, 2), validateDecimal18_2(ivaValor || 0, 'ivaValor'));
-      reqInsertHeader.input('valor_anticipo', sql.Decimal(18, 2), 0);
-
       reqInsertHeader.input('observa', sql.VarChar(200), String(observaciones || '').substring(0, 200));
-      reqInsertHeader.input('estado', sql.VarChar(10), 'B'); // 'B' seems to be the active state in new schema, or 'P'
+      reqInsertHeader.input('estcot', sql.VarChar(1), 'B');
 
       let formaPagoFinal = '01';
       if (formaPago) {
@@ -340,71 +344,100 @@ const createQuote = async (req, res) => {
         else if (fpStr === '2' || fpStr.toLowerCase().includes('credito')) formaPagoFinal = '02';
         else formaPagoFinal = fpStr.substring(0, 2);
       }
-      reqInsertHeader.input('formapago', sql.NChar(4), formaPagoFinal);
+      reqInsertHeader.input('formapago', sql.NChar(2), formaPagoFinal);
 
       reqInsertHeader.input('fecsys', sql.Date, new Date());
-      reqInsertHeader.input('cod_usuario', sql.VarChar(10), 'ADMIN');
-      reqInsertHeader.input('COD_TARIFA', sql.Char(2), '01');
+      reqInsertHeader.input('codusu', sql.VarChar(10), 'ADMIN');
 
+      // Schema specific insertion
       const insertHeaderQuery = `
         INSERT INTO ${TABLE_NAMES.cotizaciones} (
-          numcot, fecha, fecha_vence, codter, cod_vendedor, codalm,
-          subtotal, val_descuento, val_iva, valor_anticipo, observa,
-          estado, formapago, fecsys, cod_usuario, COD_TARIFA
+          numcot, feccot, fecven, codter, codven, codalm,
+          observa, estcot, formapago, fecsys, codusu
         ) VALUES (
-          @numcot, @fecha, @fecha_vence, @codter, @cod_vendedor, @codalm,
-          @subtotal, @val_descuento, @val_iva, @valor_anticipo, @observa,
-          @estado, @formapago, @fecsys, @cod_usuario, @COD_TARIFA
+          @numcot, @feccot, @fecven, @codter, @codven, @codalm,
+          @observa, @estcot, @formapago, @fecsys, @codusu
         );
-        SELECT SCOPE_IDENTITY() AS id;
       `;
+      // NO SCOPE_IDENTITY()
+      await reqInsertHeader.query(insertHeaderQuery);
 
-      const headerResult = await reqInsertHeader.query(insertHeaderQuery);
-      const cotizacionId = headerResult.recordset[0].id; // Capture ID for Details
-
-      // 4. Insertar Detalles (ven_detacotizacion)
+      // 4. Insertar Detalles (ven_detacotiz)
       for (const item of items) {
         if (!item.productoId && !item.codProducto) continue;
 
         const reqDetail = new sql.Request(tx);
-        reqDetail.input('id_cotizacion', sql.BigInt, cotizacionId);
+        reqDetail.input('numcot', sql.VarChar(8), nuevoNumero);
+        reqDetail.input('codalm', sql.VarChar(3), codAlmFinal);
 
         let codProductoStr = String(item.codProducto || '').trim();
+        let descripcionItem = item.descripcion || null;
+
         // Fallback lookup
-        if (!codProductoStr && item.productoId) {
+        if ((!codProductoStr || !descripcionItem) && item.productoId) {
           const reqProd = new sql.Request(tx);
           reqProd.input('pid', sql.Int, item.productoId);
           try {
-            const resProd = await reqProd.query(`SELECT codins FROM ${TABLE_NAMES.productos} WHERE id = @pid`);
-            if (resProd.recordset.length > 0) codProductoStr = resProd.recordset[0].codins;
+            const resProd = await reqProd.query(`SELECT codins, nomins FROM ${TABLE_NAMES.productos} WHERE id = @pid`);
+            if (resProd.recordset.length > 0) {
+              if (!codProductoStr) codProductoStr = resProd.recordset[0].codins;
+              if (!descripcionItem) descripcionItem = resProd.recordset[0].nomins;
+            }
           } catch (e) { }
         }
 
-        reqDetail.input('cod_producto', sql.VarChar(8), codProductoStr.substring(0, 8));
+        reqDetail.input('coddet', sql.VarChar(8), codProductoStr.substring(0, 8));
+        reqDetail.input('nomdet', sql.VarChar(40), String(descripcionItem || '').substring(0, 40));
 
         const cant = validateDecimal18_2(item.cantidad, 'cantidad');
         const precio = validateDecimal18_2(item.precioUnitario, 'precio');
-        const tasaDcto = parseFloat(item.descuentoPorcentaje || 0);
-        const tasaIva = parseFloat(item.ivaPorcentaje || 0);
-        const totalItem = validateDecimal18_2(item.total || 0, 'total');
 
-        reqDetail.input('cantidad', sql.Decimal(9, 2), cant);
-        reqDetail.input('preciound', sql.Decimal(19, 5), precio);
-        reqDetail.input('tasa_descuento', sql.Decimal(9, 5), tasaDcto);
-        reqDetail.input('tasa_iva', sql.Decimal(5, 2), tasaIva);
-        reqDetail.input('valor', sql.Decimal(18, 2), totalItem);
+        // CORRECTION: Store PERCENTAGES in dctdet and ivadet as per schema (numeric(4,2) can only store percentages)
+        let tasaDcto = parseFloat(item.descuentoPorcentaje || 0);
+        let tasaIva = parseFloat(item.ivaPorcentaje || 0);
 
-        reqDetail.input('codigo_medida', sql.VarChar(3), String(item.codigoMedida || 'UND').substring(0, 3));
+        // STRICT VALIDATION FOR SCHEMA LIMITS
+        if (tasaDcto >= 100 || tasaDcto <= -100) {
+          throw new Error(`El porcentaje de descuento (${tasaDcto}%) excede el límite permitido (99.99%).`);
+        }
+        if (tasaIva >= 100 || tasaIva <= -100) {
+          throw new Error(`El porcentaje de IVA (${tasaIva}%) excede el límite permitido (99.99%).`);
+        }
+
+        // candet is numeric(9, 2) -> Max 9,999,999.99
+        if (cant > 9999999.99) {
+          throw new Error(`La cantidad (${cant}) excede el límite permitido (9,999,999.99).`);
+        }
+
+        // vundet is numeric(14, 2) -> Max 999,999,999,999.99
+        if (precio > 999999999999.99) {
+          throw new Error(`El precio unitario (${precio}) excede el límite permitido.`);
+        }
+
+        // Ensure we don't pass values that JS float precision messed up (e.g. 99.990000001)
+        tasaDcto = Math.min(99.99, Math.max(-99.99, tasaDcto));
+        tasaIva = Math.min(99.99, Math.max(-99.99, tasaIva));
+
+        // Schema limits: 
+        // candet: numeric(9,2)
+        // vundet: numeric(14,2)
+        // dctdet: numeric(4,2) -> Percentage
+        // ivadet: numeric(4,2) -> Percentage
+
+        reqDetail.input('candet', sql.Decimal(9, 2), cant);
+        reqDetail.input('vundet', sql.Decimal(14, 2), precio);
+        reqDetail.input('dctdet', sql.Decimal(4, 2), tasaDcto);
+        reqDetail.input('ivadet', sql.Decimal(4, 2), tasaIva);
+
         reqDetail.input('estado', sql.VarChar(1), 'P');
-        reqDetail.input('qtycot', sql.Decimal(10, 4), cant);
 
         await reqDetail.query(`
           INSERT INTO ${TABLE_NAMES.cotizaciones_detalle} (
-            id_cotizacion, cod_producto, cantidad, preciound, 
-            tasa_descuento, tasa_iva, valor, codigo_medida, estado, qtycot
+            numcot, codalm, coddet, nomdet, candet, vundet,
+            dctdet, ivadet, estado
           ) VALUES (
-            @id_cotizacion, @cod_producto, @cantidad, @preciound,
-            @tasa_descuento, @tasa_iva, @valor, @codigo_medida, @estado, @qtycot
+            @numcot, @codalm, @coddet, @nomdet, @candet, @vundet,
+            @dctdet, @ivadet, @estado
           )
         `);
       }
@@ -415,7 +448,7 @@ const createQuote = async (req, res) => {
         success: true,
         message: 'Cotización creada exitosamente',
         data: {
-          id: cotizacionId, // Retornamos el ID numérico
+          id: nuevoNumero,
           numeroCotizacion: nuevoNumero
         }
       });
@@ -426,11 +459,17 @@ const createQuote = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Error creando cotización:', error);
+    console.error('❌ [createQuote] Error creating quote:', error);
+    console.error('Stack:', error.stack);
+    if (error.originalError) {
+      console.error('Original SQL Error:', error.originalError);
+    }
+
     res.status(500).json({
       success: false,
       message: 'Error creando cotización',
-      error: error.message
+      error: error.message,
+      details: error.originalError ? error.originalError.message : null
     });
   }
 };
@@ -453,7 +492,7 @@ const updateQuote = async (req, res) => {
     // Verificar estado actual
     const reqCheck = new sql.Request(tx);
     reqCheck.input('id', sql.Int, idNum);
-    const checkRes = await reqCheck.query(`SELECT estado, numcot, codter FROM ${TABLE_NAMES.cotizaciones} WHERE id = @id`);
+    const checkRes = await reqCheck.query(`SELECT estcot, numcot, codter FROM ${TABLE_NAMES.cotizaciones} WHERE id = @id`);
 
     if (checkRes.recordset.length === 0) {
       await tx.rollback();
@@ -461,7 +500,7 @@ const updateQuote = async (req, res) => {
     }
 
     const currentState = checkRes.recordset[0];
-    const currentStatusMapped = mapEstadoFromDb(currentState.estado);
+    const currentStatusMapped = mapEstadoFromDb(currentState.estcot);
 
     // Preparar updates dinámicos
     let updates = [];
@@ -470,22 +509,22 @@ const updateQuote = async (req, res) => {
 
     if (body.estado) {
       const estadoDb = mapEstadoToDb(body.estado);
-      updates.push('estado = @estado');
+      updates.push('estcot = @estado');
       reqUpdate.input('estado', sql.VarChar(10), estadoDb);
 
       // Si se aprueba, actualizar fecha_aprobacion
       if (body.estado === 'APROBADA' && currentStatusMapped !== 'APROBADA') {
-        updates.push('fecha_aprobacion = GETDATE()');
+        // updates.push('fecha_aprobacion = GETDATE()'); // No existe en tabla base
       }
     }
 
     if (body.fechaCotizacion) {
-      updates.push('fecha = @fecha');
+      updates.push('feccot = @fecha');
       reqUpdate.input('fecha', sql.Date, body.fechaCotizacion);
     }
 
     if (body.fechaVencimiento) {
-      updates.push('fecha_vence = @fecha_vence');
+      updates.push('fecven = @fecha_vence');
       reqUpdate.input('fecha_vence', sql.Date, body.fechaVencimiento);
     }
 
@@ -826,7 +865,8 @@ const getNextQuoteNumber = async (req, res) => {
     const result = await pool.request().query(`
       SELECT TOP 1 numcot 
       FROM ${TABLE_NAMES.cotizaciones} 
-      ORDER BY id DESC
+      WHERE ISNUMERIC(numcot) = 1
+      ORDER BY CAST(numcot AS BIGINT) DESC
     `);
 
     let nextNum = '000001';
