@@ -81,11 +81,11 @@ const getAllOrders = async (req, res) => {
         COALESCE(p.empresa_id, 1) as empresaId,
         p.fecha_entrega_estimada as fechaEntregaEstimada,
         NULL as listaPrecioId,
-        COALESCE(p.descuento_porcentaje, 0) as descuentoPorcentaje,
-        COALESCE(p.iva_porcentaje, 0) as ivaPorcentaje,
+        0 as descuentoPorcentaje,
+        0 as ivaPorcentaje,
         0 as impoconsumoValor,
         NULL as instruccionesEntrega,
-        LTRIM(RTRIM(COALESCE(p.formapago, '01'))) as formaPago,
+        '01' as formaPago,
         u.firma as firmaVendedor
       FROM ${TABLE_NAMES.pedidos} p
       LEFT JOIN ven_cotizacion c ON c.id = p.cotizacion_id
@@ -363,9 +363,9 @@ const createOrderInternal = async (tx, orderData) => {
 
   reqHead.input('subtotal', sql.Decimal(18, 2), subtotalFinal);
   reqHead.input('descuento_valor', sql.Decimal(18, 2), descuentoFinal);
-  reqHead.input('descuento_porcentaje', sql.Decimal(5, 2), descPorcFinal);
+  // reqHead.input('descuento_porcentaje', sql.Decimal(5, 2), descPorcFinal);
   reqHead.input('iva_valor', sql.Decimal(18, 2), ivaValFinal);
-  reqHead.input('iva_porcentaje', sql.Decimal(5, 2), ivaPorcFinal);
+  // reqHead.input('iva_porcentaje', sql.Decimal(5, 2), ivaPorcFinal);
   reqHead.input('total', sql.Decimal(18, 2), totalFinal);
   reqHead.input('observaciones', sql.VarChar(500), observaciones || '');
   reqHead.input('estado', sql.VarChar(20), 'B'); // Borrador
@@ -380,12 +380,12 @@ const createOrderInternal = async (tx, orderData) => {
   const headQuery = `
         INSERT INTO ${TABLE_NAMES.pedidos} (
           numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, empresa_id,
-          cotizacion_id, subtotal, descuento_valor, descuento_porcentaje, iva_valor,
-          iva_porcentaje, total, observaciones, estado, fec_creacion, fec_modificacion, formapago
+          cotizacion_id, subtotal, descuento_valor, iva_valor,
+          total, observaciones, estado, fec_creacion, fec_modificacion, formapago
         ) VALUES (
           @numero_pedido, @fecha_pedido, @fecha_entrega_estimada, @codter, @codven, @empresa_id,
-          @cotizacion_id, @subtotal, @descuento_valor, @descuento_porcentaje, @iva_valor,
-          @iva_porcentaje, @total, @observaciones, @estado, GETDATE(), GETDATE(), @formapago
+          @cotizacion_id, @subtotal, @descuento_valor, @iva_valor,
+          @total, @observaciones, @estado, GETDATE(), GETDATE(), @formapago
         );
         SELECT SCOPE_IDENTITY() AS id;
       `;

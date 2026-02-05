@@ -186,7 +186,7 @@ const clientController = {
           COALESCE(t.cupo_credito, 0) as limiteCredito,
           COALESCE(t.plazo, 0) as diasCredito,
           COALESCE(t.tasa_descuento, 0) as tasaDescuento,
-          t.Forma_pago as formaPago,
+          -- t.Forma_pago as formaPago,
           t.regimen_tributario as regimenTributario,
           CAST(t.activo AS INT) as activo,
           t.contacto,
@@ -322,7 +322,7 @@ const clientController = {
           COALESCE(cupo_credito, 0) as limiteCredito,
           COALESCE(plazo, 0) as diasCredito,
           COALESCE(tasa_descuento, 0) as tasaDescuento,
-          Forma_pago as formaPago,
+          -- Forma_pago as formaPago,
           regimen_tributario as regimenTributario,
           CAST(activo AS INT) as activo,
           contacto,
@@ -593,7 +593,7 @@ const clientController = {
         celular: (celular || '').trim().substring(0, 30),
         diasCredito: parseInt(diasCredito || 0, 10),
         vendedorId: String(vendedorId || '').trim().substring(0, 3), // char(3)
-        formaPago: parseInt(formaPago || 0, 10),
+        // formaPago: parseInt(formaPago || 0, 10), -- REMOVED
         regimenTributario: parseInt(regimenTributario || 0, 10),
         tipoDocumento: String(tipoDocumento || '13').trim().substring(0, 2), // char(2)
         codacteconomica: String(codacteconomica || '').trim().substring(0, 6),
@@ -614,13 +614,13 @@ const clientController = {
         INSERT INTO ${TABLE_NAMES.clientes} (
           codter, nomter, apl1, apl2, nom1, nom2,
           dirter, ciudad, codven, EMAIL, TELTER, CELTER,
-          plazo, cupo_credito, Forma_pago, regimen_tributario,
+          plazo, cupo_credito, regimen_tributario,
           Tipo_documento, codacteconomica, contacto,
           coddane, tipter, FECING, activo
         ) VALUES (
           @codter, @nomter, @primerApellido, @segundoApellido, @primerNombre, @segundoNombre,
           @direccion, @ciudad, @vendedorId, @email, @telefono, @celular,
-          @diasCredito, ${creditLimitDecimal}, @formaPago, @regimenTributario,
+          @diasCredito, ${creditLimitDecimal}, @regimenTributario,
           @tipoDocumento, @codacteconomica, @contacto,
           @coddane, @tipter, @FECING, 1
         );

@@ -72,7 +72,7 @@ const getAllQuotes = async (req, res) => {
         (SELECT SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (1 + (COALESCE(ivadet, 0) / 100.0))) FROM ven_detacotiz WHERE numcot = c.numcot) AS total,
         c.observa              AS observaciones,
         c.estcot               AS estado,
-        LTRIM(RTRIM(COALESCE(c.formapago, '01'))) AS formaPago,
+        '01' AS formaPago,
         COALESCE(c.abono, 0)   AS valorAnticipo,
         c.numsol               AS numOrdenCompra,
         NULL                   AS fechaAprobacion,
