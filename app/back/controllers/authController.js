@@ -13,12 +13,13 @@ const authController = {
   login: async (req, res) => {
     try {
       const { username, password, companyId } = req.body;
+      const startTime = Date.now();
 
       if (!username || !password) {
         return res.status(400).json({ success: false, message: 'Usuario y contraseña son requeridos' });
       }
 
-      console.log('Login attempt for:', username, 'Company ID:', companyId);
+      console.log(`🔐 Intentando login para: ${username} (Empresa ID: ${companyId || 'Master'})`);
 
       let targetDbName = process.env.DB_DATABASE; // Default to master/env DB if no companyId
 
@@ -36,12 +37,12 @@ const authController = {
             console.warn(`⚠️ Empresa con ID ${companyId} no encontrada o inactiva. Usando BD por defecto.`);
           }
         } catch (err) {
-            // Si la tabla no existe (error 208), ignorar y usar la BD actual
-            if (err.number === 208 || (err.originalError && err.originalError.info && err.originalError.info.number === 208)) {
-                console.warn('⚠️ Tabla config_empresas no existe. Continuando con Single Tenant (DB actual).');
-            } else {
-                console.error('❌ Error consultando config_empresas:', err);
-            }
+          // Si la tabla no existe (error 208), ignorar y usar la BD actual
+          if (err.number === 208 || (err.originalError && err.originalError.info && err.originalError.info.number === 208)) {
+            console.warn('⚠️ Tabla config_empresas no existe. Continuando con Single Tenant (DB actual).');
+          } else {
+            console.error('❌ Error consultando config_empresas:', err);
+          }
           // No retornar error, permitir intentar login en la BD por defecto
         }
       }
@@ -69,40 +70,43 @@ const authController = {
       }
 
       const user = users[0];
-      console.log('Login: User found:', user.codusu, 'Has password_web:', !!user.password_web);
+      console.log(`🔐 Login: Usuario encontrado: ${user.codusu}. Password Hash existe: ${!!user.password_web}. Tipo: ${user.tipousu}`);
 
       // 3. Verify Password
       let isValid = false;
       if (user.password_web) {
         isValid = await bcrypt.compare(password, user.password_web);
-        console.log('Login: Password verification result:', isValid);
+        console.log(`🔐 Login: Resultado de verificación Bcrypt para ${user.codusu}:`, isValid ? 'VÁLIDO' : 'INVÁLIDO');
       } else {
-        console.log('Login: No password_web set');
+        console.log(`🔐 Login: Usuario ${user.codusu} no tiene password_web configurado.`);
         isValid = false;
       }
 
       if (!isValid) {
+        console.warn(`🔐 Login: Credenciales inválidas para usuario: ${username}`);
         return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
       }
 
       // 4. Update Ultimo_Acceso if valid (en la BD del tenant)
       if (isValid) {
-          try {
-              const updateAccessQuery = `UPDATE ${TABLE_NAMES.usuarios} SET Ultimo_Acceso = GETDATE() WHERE codusu = @codusu`;
-              await executeQueryWithParams(updateAccessQuery, { codusu: user.codusu });
-          } catch (accessErr) {
-              console.error('Error updating Last Access Date:', accessErr);
-              // Non-blocking error
-          }
+        try {
+          const updateAccessQuery = `UPDATE ${TABLE_NAMES.usuarios} SET Ultimo_Acceso = GETDATE() WHERE codusu = @codusu`;
+          // FIX: Pasar targetDbName para que se actualice en la base de datos correcta (tenant)
+          await executeQueryWithParams(updateAccessQuery, { codusu: user.codusu }, targetDbName);
+          console.log(`🔐 Login: Ultimo_Acceso actualizado en BD ${targetDbName} para ${user.codusu}`);
+        } catch (accessErr) {
+          console.error(`🔐 Login Error: No se pudo actualizar Ultimo_Acceso para ${user.codusu} en ${targetDbName}:`, accessErr.message);
+          // Non-blocking error
+        }
       }
 
       // 5. Generate JWT including db_name
       const token = jwt.sign(
-        { 
+        {
           id: user.codusu, // Using codusu as ID since actual ID doesn't exist
-          codusu: user.codusu, 
+          codusu: user.codusu,
           role: user.tipousu === 1 ? 'admin' : 'vendedor',
-          db_name: targetDbName 
+          db_name: targetDbName
         },
         process.env.JWT_SECRET || 'erp360_secret_key_development_only',
         { expiresIn: '24h' }
@@ -111,14 +115,14 @@ const authController = {
       res.json({
         success: true,
         data: {
-            token,
-            user: {
-                id: user.codusu,
-                codusu: user.codusu,
-                nomusu: user.nomusu,
-                role: user.tipousu === 1 ? 'admin' : 'vendedor',
-                firma: user.firma
-            }
+          token,
+          user: {
+            id: user.codusu,
+            codusu: user.codusu,
+            nomusu: user.nomusu,
+            role: user.tipousu === 1 ? 'admin' : 'vendedor',
+            firma: user.firma
+          }
         }
       });
 
@@ -133,38 +137,38 @@ const authController = {
    */
   me: async (req, res) => {
     try {
-        // Middleware should have already attached user to req
-        if (!req.user) {
-            return res.status(401).json({ success: false, message: 'No autenticado' });
-        }
-        
-        // Fetch fresh data incl signature
-        const query = `
+      // Middleware should have already attached user to req
+      if (!req.user) {
+        return res.status(401).json({ success: false, message: 'No autenticado' });
+      }
+
+      // Fetch fresh data incl signature
+      const query = `
             SELECT LTRIM(RTRIM(codusu)) as codusu, LTRIM(RTRIM(nomusu)) as nomusu, tipousu, firma
             FROM ${TABLE_NAMES.usuarios}
             WHERE codusu = @id
         `;
-        // req.user.id is actually codusu now
-        const users = await executeQueryWithParams(query, { id: req.user.id });
-        
-        if (users.length === 0) {
-             return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+      // req.user.id is actually codusu now
+      const users = await executeQueryWithParams(query, { id: req.user.id });
+
+      if (users.length === 0) {
+        return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+      }
+
+      const user = users[0];
+
+      res.json({
+        success: true,
+        data: {
+          user: {
+            id: user.codusu,
+            codusu: user.codusu,
+            nomusu: user.nomusu,
+            role: user.tipousu === 1 ? 'admin' : 'vendedor',
+            firma: user.firma || null
+          }
         }
-        
-        const user = users[0];
-        
-        res.json({
-            success: true,
-            data: {
-                user: {
-                    id: user.codusu,
-                    codusu: user.codusu,
-                    nomusu: user.nomusu,
-                    role: user.tipousu === 1 ? 'admin' : 'vendedor',
-                    firma: user.firma || null
-                }
-            }
-        });
+      });
 
     } catch (error) {
       console.error('Me error:', error);
@@ -195,13 +199,13 @@ const authController = {
             SET firma = @firma
             WHERE codusu = @id
           `, { firma: firmaBase64, id: userId });
-          
-          res.json({ success: true, message: 'Firma actualizada exitosamente' });
-          
-      } catch (error) {
-          console.error('Update signature error:', error);
-          res.status(500).json({ success: false, message: 'Error actualizando firma' });
-      }
+
+      res.json({ success: true, message: 'Firma actualizada exitosamente' });
+
+    } catch (error) {
+      console.error('Update signature error:', error);
+      res.status(500).json({ success: false, message: 'Error actualizando firma' });
+    }
   },
 
   /**
@@ -213,7 +217,7 @@ const authController = {
       const userId = req.user.id;
 
       if (!companyId) {
-         return res.status(400).json({ success: false, message: 'ID de empresa requerido' });
+        return res.status(400).json({ success: false, message: 'ID de empresa requerido' });
       }
 
       // 1. Get Company DB Name from Master DB

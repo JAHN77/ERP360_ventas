@@ -17,7 +17,7 @@ const baseConfig = {
   password: process.env.DB_PASSWORD,
   options: {
     encrypt: process.env.DB_ENCRYPT !== 'false',
-    trustServerCertificate: process.env.DB_TRUST_CERT === 'true' || process.env.NODE_ENV !== 'production',
+    trustServerCertificate: process.env.DB_TRUST_SERVER_CERTIFICATE === 'true' || process.env.DB_TRUST_CERT === 'true' || process.env.NODE_ENV !== 'production',
     enableArithAbort: true,
     requestTimeout: parseInt(process.env.DB_REQUEST_TIMEOUT || '30000', 10),
     connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || '30000', 10),
@@ -95,7 +95,13 @@ const executeQueryWithParams = async (query, params = {}, dbName = null) => {
     const result = await request.query(query);
     return result.recordset || [];
   } catch (error) {
-    console.error(`❌ Error ejecutando consulta con params en ${dbName || 'Default'}:`, error);
+    console.error(`❌ ERROR SQL en BD ${dbName || 'Default'}:`, {
+      message: error.message,
+      code: error.code,
+      number: error.number,
+      state: error.state,
+      query: query.substring(0, 100) + (query.length > 100 ? '...' : '')
+    });
     throw error;
   }
 };
