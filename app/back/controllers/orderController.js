@@ -383,28 +383,7 @@ const createOrderInternal = async (tx, orderData) => {
     // Encontrado por ID
   }
 
-      // 1. Validar Cliente
-      const clienteIdStr = String(clienteId).trim();
-      const reqCliente = new sql.Request(tx);
-      let clienteQuery = `SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE LTRIM(RTRIM(codter)) = @codter`;
-      // Si es numérico, podría ser ID
-      if (!isNaN(parseInt(clienteIdStr)) && String(parseInt(clienteIdStr)) === clienteIdStr) {
-           // Intentar por ID también si fuese necesario, pero useremos codter normalmente
-           // Asumimos clienteId es codter
-      }
-      reqCliente.input('codter', sql.VarChar(20), clienteIdStr);
-      const clienteRes = await reqCliente.query(clienteQuery);
-      
-      if (clienteRes.recordset.length === 0) {
-        // Fallback: buscar por ID
-        const reqCliId = new sql.Request(tx);
-        reqCliId.input('id', sql.Int, parseInt(clienteIdStr));
-        const cliIdRes = await reqCliId.query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = @id`);
-        if (cliIdRes.recordset.length === 0) {
-             throw new Error('Cliente no encontrado');
-        }
-        // Encontrado por ID
-      }
+
       
       const clienteData = clienteRes.recordset.length > 0 ? clienteRes.recordset[0] : (await new sql.Request(tx).query(`SELECT codter, nomter, codven FROM ${TABLE_NAMES.clientes} WHERE id = ${parseInt(clienteIdStr)}`)).recordset[0];
       const codTerFinal = clienteData.codter;
@@ -538,6 +517,18 @@ const createOrderInternal = async (tx, orderData) => {
         );
         SELECT SCOPE_IDENTITY() AS id;
       `;
+
+      const headResult = await reqHead.query(headQuery);
+      const pedidoId = headResult.recordset[0].id;
+
+      // 6. Insertar Detalles
+      const numpedLegacy = numeroPedidoFinal.replace(/-/g, '').substring(0, 8); // Ajuste legacy
+
+      for (const item of items) {
+          const codIns = String(item.productoId || item.id || '').trim();
+          if (!codIns) continue;
+
+          const reqDet = new sql.Request(tx);
 
           const cant = validateDecimal18_2(item.cantidad, 'cant');
           const prec = validateDecimal18_2(item.precioUnitario, 'prec');

@@ -77,29 +77,12 @@ const AppRouter: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Sincronizar contexto de empresa con el slug de la URL
+  // TenantGuard simplified for Single Company
   React.useEffect(() => {
-    if (isAuthenticated && user && companySlug && selectedCompany) {
-      if (companySlug !== selectedCompany.db_name) {
-        const targetCompany = user.empresas.find(e => e.db_name === companySlug);
-        if (targetCompany) {
-          console.log(`[TenantGuard] URL slug (${companySlug}) mismatch with context (${selectedCompany.db_name}). Switching...`);
-          setIsSwitching(true);
-          // switchCompany is async
-          (async () => {
-            try {
-              await switchCompany(targetCompany.id);
-            } finally {
-              setIsSwitching(false);
-            }
-          })();
-        } else {
-          console.warn(`[TenantGuard] Company slug "${companySlug}" not found for user. Redirecting to current company.`);
-          navigate(`/${selectedCompany.db_name}${location.pathname.substring(companySlug.length + 1)}`, { replace: true });
-        }
-      }
-    }
-  }, [companySlug, selectedCompany, isAuthenticated, user, switchCompany, navigate, location.pathname]);
+    // If slug is present but doesn't match Orquidea (or current), we could redirect, but 
+    // simply doing nothing is safer as AuthContext forces the token context.
+    // We basically ignore the slug for switching purposes now.
+  }, []);
 
   // Mostrar modal de selección de bodega si es necesario
   React.useEffect(() => {

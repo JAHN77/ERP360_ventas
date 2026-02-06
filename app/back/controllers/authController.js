@@ -20,27 +20,12 @@ const authController = {
 
       console.log('Login attempt for:', username, 'Company ID:', companyId);
 
-      let targetDbName = process.env.DB_DATABASE; // Default to master/env DB if no companyId
+      let targetDbName = process.env.DB_DATABASE; // Inherit correctly from .env (Should be 'orquidea')
 
-      // 1. Si hay companyId, buscar la configuración de la empresa en la BD Maestra
+      // SINGLE COMPANY MODE: Ignore companyId lookup in 'config_empresas' since it doesn't exist.
+      // We assume the environment is already pointing to the target DB.
       if (companyId) {
-        try {
-          const tenantQuery = `SELECT db_name FROM config_empresas WHERE id = @id AND activo = 1`;
-          // Usar executeQueryWithParams sin tercer argumento usa la BD por defecto (Maestra)
-          const tenants = await executeQueryWithParams(tenantQuery, { id: companyId });
-
-          if (tenants.length > 0) {
-            targetDbName = tenants[0].db_name;
-            console.log(`🏢 Empresa encontrada. Conectando a BD: ${targetDbName}`);
-          } else {
-            console.warn(`⚠️ Empresa con ID ${companyId} no encontrada o inactiva.`);
-            return res.status(400).json({ success: false, message: 'Empresa no válida o inactiva' });
-          }
-        } catch (err) {
-          console.error('❌ Error consultando config_empresas:', err);
-          // Fallback o error crítico dependiendo de la política
-          return res.status(500).json({ success: false, message: 'Error verificando empresa' });
-        }
+         console.log('Login: Ignoring companyId lookup (Single Company Mode). Using DB:', targetDbName);
       }
 
       // 2. Autenticar usuario en la base de datos objetivo (Tenant DB)
@@ -98,7 +83,8 @@ const authController = {
         { 
           id: user.codusu, // Using codusu as ID since actual ID doesn't exist
           codusu: user.codusu, 
-          role: user.tipousu === 1 ? 'admin' : 'vendedor' 
+          role: user.tipousu === 1 ? 'admin' : 'vendedor',
+          db_name: targetDbName 
         },
         process.env.JWT_SECRET || 'erp360_secret_key_development_only',
         { expiresIn: '24h' }
@@ -198,9 +184,23 @@ const authController = {
           console.error('Update signature error:', error);
           res.status(500).json({ success: false, message: 'Error actualizando firma' });
       }
+    },
 
-      const targetDbName = tenants[0].db_name;
-      console.log(`🏢 New Target DB: ${targetDbName}`);
+  /**
+   * Switch Company (Get new token)
+   */
+  switchCompany: async (req, res) => {
+    try {
+      const { companyId } = req.body;
+      const userId = req.user.id;
+
+      // SINGLE COMPANY MODE: No 'config_empresas'. 
+      // We essentially just re-issue a token for the current DB if the ID "matches" or we just force it.
+      
+      const targetDbName = process.env.DB_DATABASE || 'orquidea';
+      // Mock validation: In single company, we only accept switching to "us".
+      // We can ignore the specific ID check or assume ID 1 is us.
+      console.log(`🏢 Switch Company (Single Mode). Target DB: ${targetDbName}`);
 
       // 2. Generate new token with new db_name
       const token = jwt.sign(
@@ -242,8 +242,13 @@ const authController = {
       // In a real multi-tenant system, we should filter by user access if there's a mapping table.
       // Assuming 'admin' has access to all, or we just list all active tenants.
 
-      const query = `SELECT id, razon_social as razonSocial, nit, db_name FROM config_empresas WHERE activo = 1`;
-      const companies = await executeQueryWithParams(query, {}); // Uses master DB
+      // SINGLE COMPANY MODE: Return hardcoded Orquidea
+      const companies = [{
+          id: 1,
+          razonSocial: 'ORQUIDEA', // Display Name
+          nit: '900.000.000', // Placeholder or real NIT if known
+          db_name: process.env.DB_DATABASE || 'orquidea'
+      }];
 
       res.json({
         success: true,

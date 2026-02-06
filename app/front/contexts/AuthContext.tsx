@@ -218,15 +218,30 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         try {
           const companiesRes = await apiClient.getCompanies();
           if (companiesRes.success && Array.isArray(companiesRes.data)) {
-            userCompanies = companiesRes.data;
-            logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Empresas cargadas desde backend:', userCompanies.length);
+            // FILTER: Force only Orquidea
+            const allCompanies = companiesRes.data;
+            userCompanies = allCompanies.filter((c: any) =>
+              c.db_name === 'orquidea' ||
+              c.razonSocial?.toLowerCase().includes('orquidea') ||
+              c.id === 1 // Fallback if db_name not set
+            );
+
+            if (userCompanies.length === 0 && allCompanies.length > 0) {
+              // Fallback safely if Orquidea not found via exact match but list exists
+              logger.warn({ prefix: 'AuthContext' }, 'Orquidea company not found strictly, checking strict ID 1 or fallback to first.');
+              const fallback = allCompanies.find((c: any) => c.id === 1);
+              if (fallback) userCompanies = [fallback];
+              else userCompanies = [allCompanies[0]]; // Absolute fallback
+            }
+
+            logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Empresa Orquidea cargada:', userCompanies.length);
           } else {
             logger.warn({ prefix: 'AuthContext' }, '⚠️ Fallo al cargar empresas, usando mock data');
-            userCompanies = allEmpresas;
+            userCompanies = allEmpresas.filter(c => c.db_name === 'orquidea' || c.id === 1);
           }
         } catch (e) {
           logger.error({ prefix: 'AuthContext' }, '❌ Error fetching companies:', e);
-          userCompanies = allEmpresas;
+          userCompanies = allEmpresas.filter(c => c.db_name === 'orquidea' || c.id === 1);
         }
 
         // Construct Usuario object
@@ -264,24 +279,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         if (userObj.empresas.length > 0) {
           let companyToSelect = null;
 
-          // 1. Priority: Match company with current Token DB
-          if (userData.empresaDb) {
-            companyToSelect = userObj.empresas.find(e => e.db_name === userData.empresaDb || e.razonSocial.toLowerCase().includes(userData.empresaDb.toLowerCase()));
-            if (companyToSelect) {
-              logger.log({ prefix: 'AuthContext', level: 'debug' }, '✅ Seleccionando empresa basada en Token DB:', companyToSelect.razonSocial);
-            }
-          }
-
-          // 2. Fallback: Restore from localStorage
-          if (!companyToSelect) {
-            const savedCompanyId = localStorage.getItem('selectedCompanyId');
-            if (savedCompanyId) {
-              const foundCompany = userObj.empresas.find(e => String(e.id) === savedCompanyId);
-              if (foundCompany) {
-                companyToSelect = foundCompany;
-              }
-            }
-          }
+          // 1. Force Orquidea Selection
+          companyToSelect = userObj.empresas[0]; // Since we filtered list to only Orquidea above
 
           // 3. Fallback: First available
           if (!companyToSelect) {
@@ -463,6 +462,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         logger.log({ prefix: 'AuthContext', level: 'info' }, `Switching to company: ${company.razonSocial} (ID: ${companyId})`);
 
         // 1. Call API to get new token for the target company
+        // For Single Company (Orquidea), this prevents switching to others even if triggered
+        if (company.db_name !== 'orquidea' && company.id !== 1) {
+          console.warn("Attempted to switch to non-Orquidea company in Single-Company mode.");
+          return;
+        }
+
         const response = await apiClient.switchCompany(companyId);
 
         if (response.success && response.data && response.data.token) {
@@ -502,7 +507,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         } else {
           logger.error({ prefix: 'AuthContext' }, '❌ Failed to switch company token:', response.message);
           // Fallback: Just update local state (legacy behavior) - but warn user
-          alert('Error al cambiar de empresa. Por favor cierre sesión e intente nuevamente.');
+          // alert('Error al cambiar de empresa. Por favor cierre sesión e intente nuevamente.');
         }
       } catch (error) {
         logger.error({ prefix: 'AuthContext' }, '❌ Error switching company:', error);

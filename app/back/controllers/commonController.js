@@ -105,10 +105,12 @@ const getEmpresa = async (req, res) => {
 
 const getBodegas = async (req, res) => {
   try {
+    console.log(`🔍 Buscando bodegas en BD: ${req.db_name}`);
     const bodegas = await executeQueryWithParams(`
       SELECT codalm, RTRIM(nomalm) as nomalm, RTRIM(COALESCE(diralm, '')) as diralm, RTRIM(COALESCE(ciualm, '')) as ciualm, CAST(activo AS INT) as activo
       FROM inv_almacen WHERE activo = 1 ORDER BY codalm
     `, {}, req.db_name);
+    console.log(`✅ Bodegas encontradas: ${bodegas.length}`);
     const bodegasMapeadas = bodegas.map(b => ({
       id: b.codalm,
       codigo: b.codalm,
