@@ -140,6 +140,7 @@ const clientController = {
         'direccion': 't.dirter',
         'telefono': 't.TELTER',
         'telter': 't.TELTER',
+        'departamento': 't.departamento',
         'fechaIngreso': 't.FECING',
         'id': 't.id'
       };
@@ -181,6 +182,7 @@ const clientController = {
           t.CELTER as celular,
           t.EMAIL as email,
           t.ciudad,
+          t.departamento,
           t.ciudad as ciudadId,
           t.codven as vendedorId,
           COALESCE(t.cupo_credito, 0) as limiteCredito,
@@ -277,6 +279,7 @@ const clientController = {
           CELTER as celular,
           EMAIL as email,
           ciudad,
+          departamento,
           codven as vendedorId,
            tipter
         FROM ${TABLE_NAMES.clientes}
@@ -316,6 +319,7 @@ const clientController = {
           TELTER as telefono,
           CELTER as celular,
           ciudad,
+          departamento,
           ciudad as ciudadId,
           ciudad as ciudadIdCodigo,
           codven as vendedorId,
@@ -370,7 +374,7 @@ const clientController = {
       const { id } = req.params;
       const {
         numeroDocumento, reasonSocial, primerApellido, segundoApellido, primerNombre, segundoNombre,
-        direccion, ciudad, email, telefono, celular,
+        direccion, ciudad, departamento, email, telefono, celular,
         limiteCredito, diasCredito, vendedorId,
         formaPago, regimenTributario, tipoDocumento,
         tipoPersonaId, // '1' or '2' -> maps to tipter
@@ -400,6 +404,7 @@ const clientController = {
         segundoNombre: (segundoNombre || '').trim().substring(0, 20),
         direccion: (direccion || '').trim().substring(0, 100),
         ciudad: (ciudad || '').trim().substring(0, 50),
+        departamento: (departamento || '').trim().substring(0, 50),
         email: (email || '').trim().substring(0, 100),
         telefono: (telefono || '').trim().substring(0, 20),
         celular: (celular || '').trim().substring(0, 20),
@@ -434,6 +439,7 @@ const clientController = {
           nom2 = @segundoNombre,
           dirter = @direccion,
           ciudad = @ciudad,
+          departamento = @departamento,
           codven = @vendedorId,
           EMAIL = @email,
           TELTER = @telefono,
@@ -554,7 +560,7 @@ const clientController = {
     try {
       const {
         numeroDocumento, reasonSocial, primerApellido, segundoApellido, primerNombre, segundoNombre,
-        direccion, ciudad, email, telefono, celular,
+        direccion, ciudad, departamento, email, telefono, celular,
         limiteCredito, diasCredito, vendedorId,
         formaPago, regimenTributario, tipoDocumento,
         codacteconomica, isproveedor,
@@ -588,6 +594,7 @@ const clientController = {
         segundoNombre: (segundoNombre || '').trim().substring(0, 50),
         direccion: (direccion || '').trim().substring(0, 180),
         ciudad: (ciudad || '').trim().substring(0, 40),
+        departamento: (departamento || '').trim().substring(0, 50),
         email: (email || '').trim().substring(0, 70),
         telefono: (telefono || '').trim().substring(0, 20),
         celular: (celular || '').trim().substring(0, 30),
@@ -613,13 +620,13 @@ const clientController = {
       const query = `
         INSERT INTO ${TABLE_NAMES.clientes} (
           codter, nomter, apl1, apl2, nom1, nom2,
-          dirter, ciudad, codven, EMAIL, TELTER, CELTER,
+          dirter, ciudad, departamento, codven, EMAIL, TELTER, CELTER,
           plazo, cupo_credito, regimen_tributario,
           Tipo_documento, codacteconomica, contacto,
           coddane, tipter, FECING, activo
         ) VALUES (
           @codter, @nomter, @primerApellido, @segundoApellido, @primerNombre, @segundoNombre,
-          @direccion, @ciudad, @vendedorId, @email, @telefono, @celular,
+          @direccion, @ciudad, @departamento, @vendedorId, @email, @telefono, @celular,
           @diasCredito, ${creditLimitDecimal}, @regimenTributario,
           @tipoDocumento, @codacteconomica, @contacto,
           @coddane, @tipter, @FECING, 1

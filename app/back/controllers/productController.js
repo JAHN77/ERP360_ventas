@@ -26,76 +26,55 @@ const productController = {
       }
 
       const query = `
-        DECLARE @margen_minimo decimal(10,2) = 0.10;
-        DECLARE @tarifa_cliente char(2) = '01'; 
-
-        DECLARE @almacen char(3);
-        DECLARE @Tarifa char(2) = @tarifa_cliente;
-        DECLARE @controla_existencia integer = 1;
-
-        SELECT @margen_minimo = lismargen, @almacen = codalm 
-        FROM inv_listaprecios 
-        WHERE codtar = @Tarifa;
-
-        DECLARE @Incluir_Iva bit;
-        SELECT @Incluir_Iva = ISNULL(IvaIncluido, 0) FROM ven_parametros;
-
-        -- CTE para paginación sobre la función
-        WITH ProductSource AS (
-            SELECT 
-                src.*,
-                @Incluir_Iva as Precio_Iva_Calc
-            FROM dbo.fn_obtener_insumos_servicios(@margen_minimo, @almacen, @Tarifa) AS src
-            WHERE 1=1 
-            ${searchTerm ? "AND (src.nomins LIKE @search OR src.codins LIKE @search OR src.referencia LIKE @search)" : ""}
-        )
         SELECT 
-             CAST(codins AS VARCHAR(50)) as codins,
-             CAST(nomins AS VARCHAR(255)) as nomins,
-             CAST(tasa_iva AS DECIMAL(18,2)) as tasa_iva,
-             CAST(undins AS VARCHAR(10)) as undins,
-             CAST(caninv AS DECIMAL(18,2)) as caninv,
-             CAST(Valinv AS DECIMAL(18,2)) as Valinv,
-             CAST(Precio_Venta AS DECIMAL(18,2)) as Precio_Venta,
-             CAST(margen_venta AS DECIMAL(18,2)) as margen_venta,
-             CAST(tasa_descuento AS DECIMAL(18,2)) as tasa_descuento,
-             CAST(precio_base AS DECIMAL(18,2)) as precio_base,
-             CAST(precio_lista AS DECIMAL(18,2)) as precio_lista,
-             CAST(referencia AS VARCHAR(100)) as referencia,
-             CAST(unimedida AS VARCHAR(10)) as unimedida,
-             padre,
-             CAST(canmed AS DECIMAL(18,2)) as canmed,
-             abreviatura,
-             servicio,
-             karins,
-             cuenta_compras,
-             Cuenta_ventas,
-             Cuenta_Iva,
-             CAST(costo_producto AS DECIMAL(18,2)) as costo_producto,
-             Cuenta_costo_ventas,
-             nommedida,
-             permite_cambio,
-             Precio_Iva_Calc as Precio_Iva,
+             CAST(i.codins AS VARCHAR(50)) as codins,
+             CAST(i.nomins AS VARCHAR(255)) as nomins,
+             CAST(i.tasa_iva AS DECIMAL(18,2)) as tasa_iva,
+             CAST(i.undins AS VARCHAR(10)) as undins,
+             COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as caninv,
+             0 as Valinv,
+             CAST(i.precio_publico AS DECIMAL(18,2)) as Precio_Venta,
+             CAST(i.margen_venta AS DECIMAL(18,2)) as margen_venta,
+             0 as tasa_descuento,
+             CAST(i.ultimo_costo AS DECIMAL(18,2)) as precio_base,
+             CAST(i.precio_publico AS DECIMAL(18,2)) as precio_lista,
+             CAST(i.referencia AS VARCHAR(100)) as referencia,
+             CAST(i.undins AS VARCHAR(10)) as unimedida,
+             '' as padre,
+             1 as canmed,
+             CAST(i.undins AS VARCHAR(10)) as abreviatura,
+             CASE WHEN i.tipo_producto = 'Servicio' THEN 1 ELSE 0 END as servicio,
+             i.karins,
+             '' as cuenta_compras,
+             '' as Cuenta_ventas,
+             '' as Cuenta_Iva,
+             CAST(i.ultimo_costo AS DECIMAL(18,2)) as costo_producto,
+             '' as Cuenta_costo_ventas,
+             (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) as nommedida,
+             0 as permite_cambio,
+             ISNULL((SELECT IvaIncluido FROM ven_parametros), 0) as Precio_Iva,
 
              -- Mapeos Frontend
-             codins as codigo,
-             nomins as nombre,
-             CAST(costo_producto AS DECIMAL(18,2)) as ultimoCostoCompra,
-             CAST(Precio_Venta AS DECIMAL(18,2)) as ultimoCosto,
-             CAST(Precio_Venta AS DECIMAL(18,2)) as precioConIva,
-             CAST(Precio_Venta AS DECIMAL(18,2)) as precioPublico,
-             CAST(caninv AS DECIMAL(18,2)) as stock,
-             undins as unidadMedidaCodigo,
-             nommedida as unidadMedidaNombre,
-             CAST(tasa_iva AS DECIMAL(18,2)) as tasaIva,
+             i.codins as codigo,
+             i.nomins as nombre,
+             CAST(i.ultimo_costo AS DECIMAL(18,2)) as ultimoCostoCompra,
+             CAST(i.precio_publico AS DECIMAL(18,2)) as ultimoCosto,
+             CAST(i.precio_publico AS DECIMAL(18,2)) as precioConIva,
+             CAST(i.precio_publico AS DECIMAL(18,2)) as precioPublico,
+             COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as stock,
+             i.undins as unidadMedidaCodigo,
+             (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) as unidadMedidaNombre,
+             CAST(i.tasa_iva AS DECIMAL(18,2)) as tasaIva,
              CASE 
-                WHEN LTRIM(RTRIM(undins)) = 'UND' THEN 'UNIDAD'
-                WHEN LTRIM(RTRIM(undins)) = 'HORA' THEN 'HORA'
-                WHEN LTRIM(RTRIM(undins)) = 'DIA' THEN 'DIA'
-                ELSE nommedida 
+                WHEN LTRIM(RTRIM(i.undins)) = 'UND' THEN 'UNIDAD'
+                WHEN LTRIM(RTRIM(i.undins)) = 'HORA' THEN 'HORA'
+                WHEN LTRIM(RTRIM(i.undins)) = 'DIA' THEN 'DIA'
+                ELSE (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida)
              END as unidadMedida
-        FROM ProductSource
-        ORDER BY nomins ASC
+        FROM inv_insumos i
+        WHERE i.activo = 1
+        ${searchTerm ? "AND (i.nomins LIKE @search OR i.codins LIKE @search OR i.referencia LIKE @search)" : ""}
+        ORDER BY i.nomins ASC
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
       `;
 
@@ -110,19 +89,11 @@ const productController = {
 
       const data = await executeQueryWithParams(query, queryParams, req.db_name);
 
-      // Count query must also use the function logic to be accurate with filters
-      // Note: Performance might be impacted if function is heavy.
       const countQuery = `
-        DECLARE @margen_minimo decimal(10,2) = 0.10;
-        DECLARE @tarifa_cliente char(2) = '01';
-        DECLARE @almacen char(3);
-        DECLARE @Tarifa char(2) = @tarifa_cliente;
-        SELECT @margen_minimo = lismargen, @almacen = codalm FROM inv_listaprecios WHERE codtar = @Tarifa;
-
         SELECT COUNT(*) as total
-        FROM dbo.fn_obtener_insumos_servicios(@margen_minimo, @almacen, @Tarifa) AS src
-        WHERE 1=1 
-        ${searchTerm ? "AND (src.nomins LIKE @search OR src.codins LIKE @search OR src.referencia LIKE @search)" : ""}
+        FROM inv_insumos i
+        WHERE i.activo = 1
+        ${searchTerm ? "AND (i.nomins LIKE @search OR i.codins LIKE @search OR i.referencia LIKE @search)" : ""}
       `;
 
       const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {}, req.db_name);
@@ -370,9 +341,9 @@ const productController = {
           
           const query = `
             INSERT INTO ${TABLE_NAMES.productos}
-            (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, undins, karins, activo, codigo_linea, codigo_sublinea, costo_promedio, precio_publico)
+            (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, undins, karins, activo, codigo_linea, codigo_sublinea, costo_promedio, precio_publico, margen_venta, INSUMO_VENTA, ACTIVO_EMPRESA, precio_minorista, precio_mayorista)
             VALUES
-            (@code, @nombre, @iva, @precio, @referencia, @medida, @undins, @karins, 1, '01', @sublinea, @precio, @precio)
+            (@code, @nombre, @iva, @precio, @referencia, @medida, @undins, @karins, 1, '01', @sublinea, @precio, @precio, 30, 1, 1, @precio, @precio)
           `;
           request.input('code', sql.VarChar(20), nextCode);
           request.input('nombre', sql.VarChar(255), nombre || 'Nuevo Producto');
@@ -414,7 +385,50 @@ const productController = {
                  `);
             }
           }
-        }
+          // Insert Price into inv_detaprecios (Required for fn_obtener_insumos_servicios)
+          
+          const costoVal = parseFloat(req.body.costo) || 0;
+          
+          // Calculate Margin: ((Price - Cost) / Price) * 100
+          let marginVal = 0;
+          if (precioVal > 0 && costoVal > 0) {
+             marginVal = ((precioVal - costoVal) / precioVal) * 100;
+          } else {
+             // Fallback if no cost provided (though frontend should require it)
+             marginVal = 30.00;
+          }
+
+          const reqPrice = new sql.Request(transaction);
+          
+          // Use the provided cost
+          const computedCost = costoVal > 0 ? costoVal : (precioVal * 0.7); 
+
+          // Update the initial product insert to use computedCost 
+          await reqPrice.query(`
+            UPDATE ${TABLE_NAMES.productos} 
+            SET ultimo_costo = ${computedCost}, margen_venta = ${marginVal} 
+            WHERE codins = '${nextCode}'
+          `);
+
+
+          
+          
+          // El constraint UNIQUE de la base de datos manejará la duplicidad de referencia.
+          // Si falla el INSERT anterior, saltará al catch.
+
+
+          const priceQuery = `
+            INSERT INTO inv_detaprecios (codins, Codtar, valins, margen)
+            VALUES 
+            (@codins, '01', @precio, @margin),
+            (@codins, '07', @precio, @margin)
+          `;
+          reqPrice.input('codins', sql.VarChar(8), nextCode);
+          reqPrice.input('precio', sql.Decimal(18, 2), precioVal); 
+          reqPrice.input('margin', sql.Decimal(10, 2), marginVal);
+          
+          await reqPrice.query(priceQuery);
+         }
 
         await transaction.commit();
         res.json({ success: true, message: `${isService ? 'Servicio' : 'Producto'} creado correctamente`, data: { id: nextCode, codigo: nextCode } });
@@ -497,70 +511,51 @@ const productController = {
       }
 
       const query = `
-        DECLARE @margen_minimo decimal(10,2) = 0.10;
-        DECLARE @tarifa_cliente char(2) = '01'; -- Default fixed as per requirement
-
-        DECLARE @almacen char(3);
-        DECLARE @Tarifa char(2) = @tarifa_cliente;
-        DECLARE @controla_existencia integer = 1;
-
-        SELECT @margen_minimo = lismargen, @almacen = codalm 
-        FROM inv_listaprecios 
-        WHERE codtar = @Tarifa;
-
-        DECLARE @Incluir_Iva bit;
-        SELECT @Incluir_Iva = ISNULL(IvaIncluido, 0) FROM ven_parametros;
-
         SELECT TOP (@limit) 
-          -- Campos originales requeridos con redondeo
-          CAST(src.codins AS VARCHAR(50)) as codins,
-          CAST(src.nomins AS VARCHAR(255)) as nomins,
-          CAST(src.tasa_iva AS DECIMAL(18,2)) as tasa_iva,
-          CAST(src.undins AS VARCHAR(10)) as undins,
-          CAST(src.caninv AS DECIMAL(18,2)) as caninv,
-          CAST(src.Valinv AS DECIMAL(18,2)) as Valinv,
-          CAST(src.Precio_Venta AS DECIMAL(18,2)) as Precio_Venta,
-          CAST(src.margen_venta AS DECIMAL(18,2)) as margen_venta,
-          CAST(src.tasa_descuento AS DECIMAL(18,2)) as tasa_descuento,
-          CAST(src.precio_base AS DECIMAL(18,2)) as precio_base,
-          CAST(src.precio_lista AS DECIMAL(18,2)) as precio_lista,
-          CAST(src.referencia AS VARCHAR(100)) as referencia,
-          CAST(src.unimedida AS VARCHAR(10)) as unimedida,
-          src.padre,
-          CAST(src.canmed AS DECIMAL(18,2)) as canmed,
-          src.abreviatura,
-          src.servicio,
-          src.karins,
-          src.cuenta_compras,
-          src.Cuenta_ventas,
-          src.Cuenta_Iva,
-          CAST(src.costo_producto AS DECIMAL(18,2)) as costo_producto,
-          src.Cuenta_costo_ventas,
-          src.nommedida,
-          src.permite_cambio,
-          @Incluir_Iva as Precio_Iva,
-
+          CAST(i.codins AS VARCHAR(50)) as codins,
+          CAST(i.nomins AS VARCHAR(255)) as nomins,
+          CAST(i.tasa_iva AS DECIMAL(18,2)) as tasa_iva,
+          CAST(i.undins AS VARCHAR(10)) as undins,
+          COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as caninv,
+          0 as Valinv,
+          CAST(i.precio_publico AS DECIMAL(18,2)) as Precio_Venta,
+          CAST(i.margen_venta AS DECIMAL(18,2)) as margen_venta,
+          0 as tasa_descuento,
+          CAST(i.ultimo_costo AS DECIMAL(18,2)) as precio_base,
+          CAST(i.precio_publico AS DECIMAL(18,2)) as precio_lista,
+          CAST(i.referencia AS VARCHAR(100)) as referencia,
+          CAST(i.undins AS VARCHAR(10)) as unimedida,
+          '' as padre,
+          1 as canmed,
+          CAST(i.undins AS VARCHAR(10)) as abreviatura,
+          CASE WHEN i.tipo_producto = 'Servicio' THEN 1 ELSE 0 END as servicio,
+          i.karins,
+          CAST(i.ultimo_costo AS DECIMAL(18,2)) as costo_producto,
+          (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) as nommedida,
+          
           -- Mapeos para compatibilidad con Frontend
-          src.codins as codigo,
-          src.nomins as nombre,
-          CAST(src.costo_producto AS DECIMAL(18,2)) as ultimoCostoCompra, -- Costo real
-          -- EL usuario especificó: "para el precio a la venta debes tomar Precio_Venta y ese es el precio que va a salir para todos los campos"
-          CAST(src.Precio_Venta AS DECIMAL(18,2)) as ultimoCosto, -- Usamos Precio_Venta como "precio base/costo" para el frontend si así lo pide
-          CAST(src.Precio_Venta AS DECIMAL(18,2)) as precioConIva, -- Precio final
-          CAST(src.Precio_Venta AS DECIMAL(18,2)) as precioPublico,
-          CAST(src.caninv AS DECIMAL(18,2)) as stock,
-          src.undins as unidadMedidaCodigo,
-          src.nommedida as unidadMedidaNombre,
-          CAST(src.tasa_iva AS DECIMAL(18,2)) as tasaIva,
+          i.codins as codigo,
+          i.nomins as nombre,
+          CAST(i.ultimo_costo AS DECIMAL(18,2)) as ultimoCostoCompra,
+          CAST(i.precio_publico AS DECIMAL(18,2)) as ultimoCosto,
+          CAST(i.precio_publico AS DECIMAL(18,2)) as precioConIva,
+          CAST(i.precio_publico AS DECIMAL(18,2)) as precioPublico,
+          COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as stock,
+          i.undins as unidadMedidaCodigo,
+          (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) as unidadMedidaNombre,
+          CAST(i.tasa_iva AS DECIMAL(18,2)) as tasaIva,
           CASE 
-              WHEN LTRIM(RTRIM(src.undins)) = 'UND' THEN 'UNIDAD'
-              WHEN LTRIM(RTRIM(src.undins)) = 'HORA' THEN 'HORA'
-              WHEN LTRIM(RTRIM(src.undins)) = 'DIA' THEN 'DIA'
-              ELSE src.nommedida 
-          END as unidadMedida
+              WHEN LTRIM(RTRIM(i.undins)) = 'UND' THEN 'UNIDAD'
+              WHEN LTRIM(RTRIM(i.undins)) = 'HORA' THEN 'HORA'
+              WHEN LTRIM(RTRIM(i.undins)) = 'DIA' THEN 'DIA'
+              ELSE (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) 
+          END as unidadMedida,
+          i.id
 
-        FROM dbo.fn_obtener_insumos_servicios(@margen_minimo, @almacen, @Tarifa) AS src
-        WHERE src.nomins LIKE @search OR src.codins LIKE @search OR src.referencia LIKE @search
+        FROM inv_insumos i
+        WHERE i.activo = 1 
+          AND (i.nomins LIKE @search OR i.codins LIKE @search OR i.referencia LIKE @search)
+        ORDER BY i.nomins
       `;
 
       const data = await executeQueryWithParams(query, {

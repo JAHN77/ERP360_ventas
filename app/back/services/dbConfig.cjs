@@ -113,7 +113,7 @@ const QUERIES = {
       ins.precio_minorista       AS precioMinorista,
       ins.fecsys                 AS fechaCreacion,
       -- Campos adicionales de la tarifa de precios
-      dp.margen_tarifa           AS margenTarifa,
+      dp.margen                  AS margenTarifa,
       -- Precio CON IVA (para referencia/visualización)
       dp.valins                  AS precioConIva
     FROM ${TABLE_NAMES.productos} ins
@@ -125,7 +125,7 @@ const QUERIES = {
              ins.Codigo_Medida, ins.undins, ins.tasa_iva, ins.ultimo_costo, 
              ins.costo_promedio, ins.referencia, ins.karins, ins.activo, 
              ins.MARGEN_VENTA, ins.precio_publico, ins.precio_mayorista, 
-             ins.precio_minorista, ins.fecsys, dp.valins, dp.margen_tarifa
+             ins.precio_minorista, ins.fecsys, dp.valins, dp.margen
     ORDER BY ins.nomins
   `,
 

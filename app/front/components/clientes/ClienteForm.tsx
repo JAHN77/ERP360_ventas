@@ -82,6 +82,7 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
     direccion: '',
     email: '',
     ciudad: '', // Text Field now
+    departamento: '',
     codigoPostal: '',
 
     // Commercial / Otros
@@ -152,6 +153,7 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
         email: initialData.email || '',
 
         ciudad: initialData.ciudad || '', // Load direct text
+        departamento: initialData.departamento || '',
         codigoPostal: initialData.codigoPostal || initialData.coddane || '',
 
         codacteconomica: initialData.codacteconomica || '',
@@ -207,9 +209,9 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
-    // Special Uppercase enforcing for Ciudad
-    if (name === 'ciudad') {
-      setFormData(prev => ({ ...prev, ciudad: value.toUpperCase() }));
+    // Special Uppercase enforcing for Ciudad and Departamento
+    if (name === 'ciudad' || name === 'departamento') {
+      setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
     }
   };
 
@@ -332,6 +334,7 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
       id: initialData?.id,
       tipoDocumento: formData.tipoDocumentoId,
       ciudad: (formData.ciudad || '').toUpperCase().trim(), // Send Direct Text, Uppercased
+      departamento: (formData.departamento || '').toUpperCase().trim(),
       // Ensure Postal Code is sent explicitly. If Postal Code is empty but City ID is set, use City ID as postal logic.
       coddane: formData.codigoPostal || '',
 
@@ -453,6 +456,17 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
         <div className="col-span-12 md:col-span-4">
           <Label>Email Corporativo</Label>
           <Input name="email" value={formData.email} onChange={handleChange} placeholder="contacto@empresa.com" icon="fa-envelope" />
+        </div>
+
+        <div className="col-span-12 md:col-span-4">
+          <Label required>Departamento</Label>
+          <Input
+            name="departamento"
+            value={formData.departamento}
+            onChange={handleChange}
+            placeholder="NOMBRE DEPARTAMENTO"
+            className="uppercase font-bold text-blue-900"
+          />
         </div>
 
         <div className="col-span-12 md:col-span-4">

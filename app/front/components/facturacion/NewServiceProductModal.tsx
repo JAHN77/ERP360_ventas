@@ -87,6 +87,7 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
         idCategoria: '',
         idSublineas: '',
         precio: '',
+        costo: '',
         stock: '',
         aplicaIva: true,
         controlaExistencia: true
@@ -141,6 +142,7 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                     idCategoria: (editData as any).idCategoria || '',
                     idSublineas: (editData as any).idSublineas || '',
                     precio: String(editData.precio || 0),
+                    costo: String((editData as any).ultimoCostoCompra || (editData as any).costo || 0),
                     stock: String((editData as any).stock || 0),
                     aplicaIva: editData.aplicaIva,
                     controlaExistencia: (editData as any).controlaExistencia ?? true
@@ -154,6 +156,7 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                     idCategoria: '',
                     idSublineas: '',
                     precio: '',
+                    costo: '',
                     stock: '',
                     aplicaIva: true,
                     controlaExistencia: true
@@ -209,6 +212,7 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                 nombre: formData.nombre,
                 idTipoProducto: 1,
                 precio: parseFloat(formData.precio),
+                costo: parseFloat(formData.costo),
                 aplicaIva: formData.aplicaIva,
                 unidadMedida: formData.unidadMedidaCodigo,
                 stock: parseFloat(formData.stock) || 0,
@@ -351,6 +355,34 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                             icon="fa-dollar-sign"
                             error={errors.precio}
                         />
+
+                        <InputField
+                            label="Costo de Compra"
+                            name="costo"
+                            value={formData.costo}
+                            onChange={handleChange}
+                            required
+                            type="number"
+                            min="0"
+                            placeholder="0.00"
+                            icon="fa-tag"
+                            error={errors.costo ? errors.costo : undefined}
+                        />
+
+                        {/* Mostrar Margen Calculado */}
+                        <div className="col-span-2 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg flex justify-between items-center text-sm">
+                            <span className="text-slate-600 dark:text-slate-300">Margen de utilidad estimado:</span>
+                            <span className={`font-bold ${(parseFloat(formData.precio) > 0 && parseFloat(formData.costo) > 0)
+                                    ? (((parseFloat(formData.precio) - parseFloat(formData.costo)) / parseFloat(formData.precio)) * 100) >= 10
+                                        ? 'text-green-600 dark:text-green-400'
+                                        : 'text-amber-500'
+                                    : 'text-slate-400'
+                                }`}>
+                                {(parseFloat(formData.precio) > 0 && parseFloat(formData.costo) > 0)
+                                    ? (((parseFloat(formData.precio) - parseFloat(formData.costo)) / parseFloat(formData.precio)) * 100).toFixed(2) + '%'
+                                    : '---'}
+                            </span>
+                        </div>
 
                         <div className="pt-8">
                             <label className="flex items-center cursor-pointer">

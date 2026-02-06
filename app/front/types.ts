@@ -98,6 +98,7 @@ export interface Cliente {
   celter?: string;
   email?: string;
   ciudad?: string;
+  departamento?: string;
   coddane?: string;
   codven?: string;
   cupoCredito: number;
