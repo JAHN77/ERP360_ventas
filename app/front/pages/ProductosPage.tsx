@@ -148,133 +148,106 @@ const ProductosPage: React.FC = () => {
 
   const defaultColumns = useMemo<Column<InvProducto>[]>(() => [
     {
-      header: 'Nombre',
-      accessor: 'nombre',
+      header: 'Código',
+      accessor: 'codigo' as any,
       cell: (item) => (
-        <div className="flex flex-col">
-          <span className="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[250px]" title={item.nombre}>{item.nombre}</span>
-          <span className="text-xs text-slate-500 dark:text-slate-400">{(item as any).descripcion || ''}</span>
-          <span className="text-[10px] text-green-500 font-semibold bg-green-50 dark:bg-green-900/20 px-1 rounded w-fit mt-0.5">PRODUCTO</span>
-        </div>
+        <span className="font-medium text-sm text-slate-700 dark:text-slate-300">
+          {(item as any).codins || (item as any).codigo || 'N/A'}
+        </span>
       )
     },
     {
-      header: 'Stock',
-      accessor: 'stock' as any,
+      header: 'Nombre',
+      accessor: 'nombre',
       cell: (item) => (
-        <span className={`font-mono font-bold ${Number(item.stock || 0) <= 0 ? 'text-red-500' : 'text-green-600'}`}>
-          {Number(item.stock || 0).toLocaleString()}
-        </span>
+        <div className="flex flex-col min-w-[200px]">
+          <span className="font-medium text-sm text-slate-800 dark:text-slate-200 truncate max-w-[300px]" title={item.nombre}>
+            {item.nombre}
+          </span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Producto</span>
+        </div>
       )
     },
     {
       header: 'Referencia',
       accessor: 'referencia',
-      cell: (item) => <span className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">{item.referencia || 'N/A'}</span>
-    },
-    {
-      header: 'Costo Base',
-      accessor: 'ultimoCosto',
-      cell: (item) => {
-        const isEditing = editingPriceId === item.id;
-        const costoBase = (item as any).ultimoCosto || 0;
-
-        if (isEditing) {
-          return (
-            <div className="flex items-center gap-1">
-              <span className="text-slate-400">$</span>
-              <input
-                type="number"
-                className="w-24 h-8 border border-blue-300 dark:border-blue-500 rounded px-2 py-1 text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                value={tempPrice}
-                onChange={(e) => setTempPrice(e.target.value)}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handlePriceUpdate(item);
-                  if (e.key === 'Escape') setEditingPriceId(null);
-                }}
-              />
-            </div>
-          );
-        }
-
-        return (
-          <div
-            className="group flex flex-col cursor-pointer"
-            onClick={() => {
-              setEditingPriceId(item.id);
-              setTempPrice(costoBase.toFixed(0));
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <span className="font-mono font-medium text-slate-700 dark:text-slate-300">
-                {formatCurrency(costoBase)}
-              </span>
-              <i className="fas fa-pencil-alt text-[10px] text-slate-300 group-hover:text-blue-500 transition-colors"></i>
-            </div>
-          </div>
-        );
-      }
-    },
-    {
-      header: 'IVA',
-      accessor: 'tasaIva' as any,
-      cell: (item) => <span className="text-xs text-slate-500">{(item as any).tasaIva || 0}%</span>
-    },
-    {
-      header: 'Precio Público',
-      accessor: 'precioPublico' as any,
       cell: (item) => (
-        <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
-          {formatCurrency((item as any).precioPublico || 0)}
+        <span className="text-sm text-slate-600 dark:text-slate-400">
+          {item.referencia || '—'}
         </span>
       )
     },
     {
-      header: 'Acciones', accessor: 'id', cell: (item) => {
-        const isEditing = editingPriceId === item.id;
-
-        if (isEditing) {
-          return (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handlePriceUpdate(item)}
-                disabled={isUpdatingPrice}
-                className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-all"
-                title="Guardar"
-              >
-                {isUpdatingPrice ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check"></i>}
-              </button>
-              <button
-                onClick={() => setEditingPriceId(null)}
-                className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                title="Cancelar"
-              >
-                <i className="fas fa-times"></i>
-              </button>
-            </div>
-          );
-        }
-
+      header: 'Unidad',
+      accessor: 'unidadMedida' as any,
+      cell: (item) => (
+        <span className="text-sm text-slate-600 dark:text-slate-400">
+          {(item as any).undins || (item as any).unimedida || 'UND'}
+        </span>
+      )
+    },
+    {
+      header: 'Stock',
+      accessor: 'stock' as any,
+      cell: (item) => {
+        const stock = Number((item as any).caninv || item.stock || 0);
         return (
-          <div className="flex items-center gap-2">
+          <span className={`text-sm font-medium ${stock <= 0 ? 'text-slate-400' : 'text-slate-700 dark:text-slate-300'}`}>
+            {stock.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+          </span>
+        );
+      }
+    },
+    {
+      header: 'Precio Venta',
+      accessor: 'Precio_Venta' as any,
+      cell: (item) => (
+        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+          {formatCurrency((item as any).Precio_Venta || 0)}
+        </span>
+      )
+    },
+    {
+      header: 'Precio al Público',
+      accessor: 'precio_lista' as any,
+      cell: (item) => (
+        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          {formatCurrency((item as any).precio_lista || 0)}
+        </span>
+      )
+    },
+    {
+      header: 'IVA',
+      accessor: 'tasaIva' as any,
+      cell: (item) => (
+        <span className="text-sm text-slate-600 dark:text-slate-400">
+          {(item as any).tasa_iva || (item as any).tasaIva || 0}%
+        </span>
+      )
+    },
+    {
+      header: 'Acciones',
+      accessor: 'id',
+      cell: (item) => {
+        return (
+          <div className="flex items-center gap-1">
             <button
               onClick={() => handleOpenModal(item)}
-              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all duration-200"
+              className="p-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
               title="Ver Detalles"
             >
-              <i className="fas fa-eye"></i>
+              <i className="fas fa-eye text-sm"></i>
             </button>
             <button
               onClick={() => {
                 const productData = {
                   id: item.id,
-                  codigo: (item as any).codigo || '',
+                  codigo: (item as any).codigo || (item as any).codins || '',
                   nombre: item.nombre,
-                  precio: (item as any).precioBase || (item as any).ultimoCosto || 0,
-                  aplicaIva: ((item as any).tasaIva || 0) > 0,
+                  precio: (item as any).precio_base || (item as any).ultimoCosto || 0,
+                  aplicaIva: ((item as any).tasa_iva || (item as any).tasaIva || 0) > 0,
                   referencia: (item as any).referencia || '',
-                  idTipoProducto: 1, // Always product now
+                  idTipoProducto: 1,
                   idCategoria: (item as any).idCategoria,
                   idSublineas: (item as any).idSublineas,
                   unidadMedidaCodigo: (item as any).unidadMedidaCodigo
@@ -282,17 +255,17 @@ const ProductosPage: React.FC = () => {
                 setEditProductData(productData);
                 setIsNewModalOpen(true);
               }}
-              className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-all duration-200"
+              className="p-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
               title="Editar"
             >
-              <i className="fas fa-pencil-alt"></i>
+              <i className="fas fa-pencil-alt text-sm"></i>
             </button>
             <button
               onClick={() => handleDeleteProduct(item)}
-              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all duration-200"
+              className="p-2 text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
               title="Eliminar"
             >
-              <i className="fas fa-trash"></i>
+              <i className="fas fa-trash text-sm"></i>
             </button>
           </div>
         );

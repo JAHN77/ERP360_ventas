@@ -174,8 +174,8 @@ const updateRemission = async (req, res) => {
       }
 
       if (body.observaciones !== undefined) {
-        updates.push('observaciones = @observaciones');
-        reqUpdate.input('observaciones', sql.VarChar(500), body.observaciones || '');
+        updates.push('observacion = @observacion');
+        reqUpdate.input('observacion', sql.VarChar(500), body.observaciones || '');
       }
 
       if (body.codalm !== undefined) {
@@ -197,7 +197,7 @@ const updateRemission = async (req, res) => {
       const reqCheck = new sql.Request(tx);
       reqCheck.input('remisionId', sql.Int, idNum);
       const checkResult = await reqCheck.query(`
-        SELECT id, numero_remision, estado, pedido_id, codter
+        SELECT id, numrem, estado, pedido_id, codter
         FROM ${TABLE_NAMES.remisiones} 
         WHERE id = @remisionId
       `);
@@ -618,10 +618,238 @@ const sendRemissionEmail = async (req, res) => {
   }
 };
 
+/**
+ * Convierte una remisión a factura
+ * POST /api/remisiones/:id/convert-to-invoice
+ */
+const convertToInvoice = async (req, res) => {
+  const { id } = req.params;
+
+  const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
+  const tx = new sql.Transaction(pool);
+
+  try {
+    await tx.begin();
+
+    // 1. Verificar que la remisión existe y no tiene factura asociada
+    const reqCheck = new sql.Request(tx);
+    reqCheck.input('id', sql.Int, parseInt(id));
+    const checkRes = await reqCheck.query(`
+      SELECT * FROM ${TABLE_NAMES.remisiones} WHERE id = @id
+    `);
+
+    if (checkRes.recordset.length === 0) {
+      await tx.rollback();
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Remisión no encontrada' 
+      });
+    }
+
+    const remision = checkRes.recordset[0];
+
+    // Verificar si ya tiene factura asociada
+    if (remision.factura_id) {
+      await tx.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Esta remisión ya tiene una factura asociada',
+        facturaId: remision.factura_id
+      });
+    }
+
+    // 2. Obtener items de la remisión con precios
+    const reqItems = new sql.Request(tx);
+    reqItems.input('remisionId', sql.Int, parseInt(id));
+    const itemsRes = await reqItems.query(`
+      SELECT 
+        rd.codins as codProducto,
+        rd.cantidad_enviada as cantidad,
+        i.nomins as descripcion,
+        i.referencia,
+        i.tasa_iva as ivaPorcentaje,
+        i.ultimo_costo as precioUnitario,
+        i.id as productoId,
+        i.undins as unidadMedida
+      FROM ${TABLE_NAMES.remisiones_detalle} rd
+      LEFT JOIN ${TABLE_NAMES.productos} i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(rd.codins))
+      WHERE rd.remision_id = @remisionId
+    `);
+
+    const itemsRemision = itemsRes.recordset;
+
+    if (itemsRemision.length === 0) {
+      await tx.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: 'La remisión no tiene items para facturar' 
+      });
+    }
+
+    // 3. Calcular totales
+    const { validateDecimal18_2 } = require('../utils/helpers');
+    const rnd = (val) => Math.round((val || 0) * 100) / 100;
+    
+    let subtotalCalculado = 0;
+    let ivaCalculado = 0;
+
+    const itemsParaFactura = itemsRemision.map(i => {
+      const precio = rnd(i.precioUnitario);
+      const cant = rnd(i.cantidad);
+      const ivaPorc = rnd(i.ivaPorcentaje);
+
+      const subtotalItem = precio * cant;
+      const ivaItem = rnd(subtotalItem * (ivaPorc / 100));
+      const totalItem = rnd(subtotalItem + ivaItem);
+
+      subtotalCalculado += subtotalItem;
+      ivaCalculado += ivaItem;
+
+      return {
+        productoId: i.productoId,
+        codProducto: i.codProducto,
+        descripcion: i.descripcion,
+        referencia: i.referencia,
+        cantidad: cant,
+        precioUnitario: precio,
+        ivaPorcentaje: ivaPorc,
+        valorIva: ivaItem,
+        subtotal: subtotalItem,
+        total: totalItem,
+        unidadMedida: i.unidadMedida
+      };
+    });
+
+    const totalCalculado = rnd(subtotalCalculado + ivaCalculado);
+
+    // 4. Generar número de factura
+    const reqUltimoNum = new sql.Request(tx);
+    const ultimoNumResult = await reqUltimoNum.query(`
+      SELECT TOP 1 numfact 
+      FROM ${TABLE_NAMES.facturas} 
+      WHERE ISNUMERIC(numfact) = 1 
+      ORDER BY CAST(numfact AS BIGINT) DESC
+    `);
+
+    let nuevoNumeroFactura = '000001';
+    if (ultimoNumResult.recordset.length > 0) {
+      const ultimoNum = ultimoNumResult.recordset[0].numfact;
+      const consecutivo = parseInt(ultimoNum, 10);
+      if (!isNaN(consecutivo)) {
+        nuevoNumeroFactura = String(consecutivo + 1).padStart(6, '0');
+      }
+    }
+
+    // 5. Insertar encabezado de factura
+    const reqFactHead = new sql.Request(tx);
+    reqFactHead.input('numfact', sql.VarChar(50), nuevoNumeroFactura);
+    reqFactHead.input('fecfac', sql.Date, new Date());
+    reqFactHead.input('venfac', sql.Date, new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)); // 30 días
+    reqFactHead.input('codter', sql.VarChar(20), remision.codter);
+    reqFactHead.input('codven', sql.VarChar(20), remision.codven);
+    reqFactHead.input('codalm', sql.VarChar(10), remision.codalm || '001');
+    reqFactHead.input('valvta', sql.Decimal(18, 2), rnd(subtotalCalculado));
+    reqFactHead.input('valiva', sql.Decimal(18, 2), rnd(ivaCalculado));
+    reqFactHead.input('netfac', sql.Decimal(18, 2), totalCalculado);
+    reqFactHead.input('estfac', sql.VarChar(1), 'B'); // Borrador
+    reqFactHead.input('observa', sql.VarChar(500), `Factura desde remisión ${remision.numrem}`);
+    reqFactHead.input('codusu', sql.VarChar(20), 'ADMIN');
+
+    const factHeadQuery = `
+      INSERT INTO ${TABLE_NAMES.facturas} (
+        numfact, fecfac, venfac, codter, codven, codalm,
+        valvta, valiva, netfac, estfac, observa, codusu, fecsys,
+        tipfac, valdcto, valret, valrica, valriva, valotr, valant, valdev, abofac
+      ) VALUES (
+        @numfact, @fecfac, @venfac, @codter, @codven, @codalm,
+        @valvta, @valiva, @netfac, @estfac, @observa, @codusu, GETDATE(),
+        'V', 0, 0, 0, 0, 0, 0, 0, 0
+      );
+      SELECT SCOPE_IDENTITY() AS id;
+    `;
+
+    const factHeadRes = await reqFactHead.query(factHeadQuery);
+    const facturaId = factHeadRes.recordset[0].id;
+
+    // 6. Insertar detalles de factura
+    for (const item of itemsParaFactura) {
+      const reqFactDet = new sql.Request(tx);
+      reqFactDet.input('id_factura', sql.Int, facturaId);
+      reqFactDet.input('codins', sql.VarChar(50), item.codProducto);
+      reqFactDet.input('qtyins', sql.Decimal(18, 2), item.cantidad);
+      reqFactDet.input('valins', sql.Decimal(18, 2), item.precioUnitario);
+      reqFactDet.input('ivains', sql.Decimal(18, 2), item.valorIva);
+      reqFactDet.input('observa', sql.VarChar(500), item.descripcion || '');
+
+      await reqFactDet.query(`
+        INSERT INTO ${TABLE_NAMES.facturas_detalle} (
+          id_factura, codins, qtyins, valins, ivains, observa, desins, valdescuento
+        ) VALUES (
+          @id_factura, @codins, @qtyins, @valins, @ivains, @observa, 0, 0
+        )
+      `);
+    }
+
+    // 7. Actualizar remisión con factura_id
+    const reqUpdateRem = new sql.Request(tx);
+    reqUpdateRem.input('facturaId', sql.Int, facturaId);
+    reqUpdateRem.input('remisionId', sql.Int, parseInt(id));
+
+    await reqUpdateRem.query(`
+      UPDATE ${TABLE_NAMES.remisiones}
+      SET factura_id = @facturaId
+      WHERE id = @remisionId
+    `);
+
+    // 8. Actualizar cantidad_facturada en remisiones_detalle
+    for (const item of itemsParaFactura) {
+      const reqUpdateRemDet = new sql.Request(tx);
+      reqUpdateRemDet.input('remisionId', sql.Int, parseInt(id));
+      reqUpdateRemDet.input('codins', sql.VarChar(50), item.codProducto);
+      reqUpdateRemDet.input('cantidad', sql.Decimal(18, 2), item.cantidad);
+
+      await reqUpdateRemDet.query(`
+        UPDATE ${TABLE_NAMES.remisiones_detalle}
+        SET cantidad_facturada = @cantidad
+        WHERE remision_id = @remisionId AND codins = @codins
+      `);
+    }
+
+    // 9. Actualizar canfac en pedidos_detalle si la remisión tiene pedido asociado
+    // Nota: ven_remisiones no tiene pedido_id directo en el esquema actual
+    // Si se implementa en el futuro, agregar aquí la lógica
+
+    await tx.commit();
+
+    res.status(201).json({
+      success: true,
+      message: 'Factura creada exitosamente desde remisión',
+      data: {
+        facturaId: facturaId,
+        numeroFactura: nuevoNumeroFactura,
+        remisionId: id,
+        itemsFacturados: itemsParaFactura.length,
+        total: totalCalculado
+      }
+    });
+
+  } catch (error) {
+    if (tx) await tx.rollback();
+    console.error('Error convirtiendo remisión a factura:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error convirtiendo remisión a factura',
+      error: error.message 
+    });
+  }
+};
+
 module.exports = {
   getAllRemissions,
   getRemissionDetails,
   updateRemission,
   createRemission,
-  sendRemissionEmail
+  sendRemissionEmail,
+  convertToInvoice
+
 };

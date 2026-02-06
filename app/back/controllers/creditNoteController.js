@@ -315,25 +315,30 @@ const creditNoteController = {
 
       console.log('🔍 [DEBUG] Executing getAllCreditNotes query on gen_movimiento_notas');
 
-      // Query principal con paginación
-      // Removed id_factura from selection
+      // Query principal con paginación - Incluye información del cliente
       const query = `
         SELECT 
-          id,
-          consecutivo AS numero,
-          LTRIM(RTRIM(codter)) AS clienteId,
-          fecha AS fechaEmision,
-          valor_nota AS subtotal,
-          iva_nota AS iva,
-          total_nota AS total,
-          detalle AS motivo,
-          CASE WHEN estado_envio = 1 THEN '1' ELSE '0' END AS estadoDian,
-          fecsys AS createdAt,
-          fecsys AS updatedAt,
-          cufe
-        FROM gen_movimiento_notas
+          g.id,
+          g.consecutivo AS numero,
+          LTRIM(RTRIM(g.codter)) AS clienteId,
+          g.fecha AS fechaEmision,
+          g.valor_nota AS subtotal,
+          g.iva_nota AS iva,
+          g.total_nota AS total,
+          g.detalle AS motivo,
+          CASE WHEN g.estado_envio = 1 THEN '1' ELSE '0' END AS estadoDian,
+          g.fecsys AS createdAt,
+          g.fecsys AS updatedAt,
+          g.cufe,
+          LTRIM(RTRIM(COALESCE(t.nomter, 
+            LTRIM(RTRIM(t.nom1)) + ' ' + LTRIM(RTRIM(COALESCE(t.nom2, ''))) + ' ' + 
+            LTRIM(RTRIM(t.apl1)) + ' ' + LTRIM(RTRIM(COALESCE(t.apl2, ''))),
+            'Cliente Desconocido'
+          ))) AS clienteNombre
+        FROM gen_movimiento_notas g
+        LEFT JOIN con_terceros t ON LTRIM(RTRIM(t.codter)) = LTRIM(RTRIM(g.codter))
         ${whereClause}
-        ORDER BY fecha DESC, id DESC
+        ORDER BY g.fecha DESC, g.id DESC
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
       `;
 
@@ -387,11 +392,17 @@ const creditNoteController = {
             });
           });
 
-          // Fetch Details
+          // Fetch Details - Incluye ID numérico del producto
           const detallesQuery = `
             SELECT 
               g.id AS notaId,
-              LTRIM(RTRIM(d.Codins)) AS productoId,
+              LTRIM(RTRIM(d.Codins)) AS codProducto,
+              COALESCE(i.id, 
+                CASE 
+                  WHEN s.codser IS NOT NULL THEN 2000000 + CAST(s.codser AS BIGINT)
+                  ELSE NULL 
+                END
+              ) AS productoId,
               d.QTYDEV AS cantidad,
               d.Venta AS precioUnitario,
               d.desins AS descuentoPorcentaje,
@@ -399,7 +410,7 @@ const creditNoteController = {
               CAST(ROUND((d.QTYDEV * d.Venta), 2) AS numeric(18,2)) AS subtotal,
               CAST(ROUND((d.QTYDEV * d.Venta * (d.Iva/100)), 2) AS numeric(18,2)) AS valorIva,
               CAST(ROUND(((d.QTYDEV * d.Venta) + (d.QTYDEV * d.Venta * (d.Iva/100))), 2) AS numeric(18,2)) AS total,
-              LTRIM(RTRIM(COALESCE(i.nomins, s.nomser, ''))) as descripcion,
+              LTRIM(RTRIM(COALESCE(i.nomins, s.nomser, 'Producto sin nombre'))) as descripcion,
               LTRIM(RTRIM(COALESCE(i.referencia, s.REFSER, ''))) as referencia,
               d.id_nota,
               d.Numdev,
@@ -422,6 +433,7 @@ const creditNoteController = {
             }
             acc.get(key).push({
               productoId: detalle.productoId,
+              codProducto: detalle.codProducto,
               cantidad: Number(detalle.cantidad),
               precioUnitario: Number(detalle.precioUnitario),
               descuentoPorcentaje: Number(detalle.descuentoPorcentaje),
@@ -441,8 +453,8 @@ const creditNoteController = {
         const fInfo = facturasMap.get(nota.id) || {};
         return {
           ...mapNotaCreditoHeader(nota),
-          facturaId: fInfo.facturaId || null, // Attach fetched facturaId
-          // numeroFactura: fInfo.numeroFactura, // Optional: add if frontend needs it
+          facturaId: fInfo.facturaId || null,
+          clienteNombre: nota.clienteNombre || null, // Include client name from query
           itemsDevueltos: detalleMap.get(nota.id) || []
         };
       });

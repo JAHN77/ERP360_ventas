@@ -79,11 +79,24 @@ export const TableToolbar: React.FC<TableToolbarProps> = ({
             </button>
           )}
           {onCreateAction && createActionLabel && (
-            <ProtectedComponent permission={createPermission as any}>
-              <button onClick={onCreateAction} className="px-3 sm:px-5 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-sm hover:shadow-md w-full sm:w-auto flex items-center justify-center text-xs sm:text-sm">
-                <i className="fas fa-plus mr-2"></i>
-                <span className="hidden xs:inline">{createActionLabel}</span>
-                <span className="xs:hidden">Nuevo</span>
+            <ProtectedComponent
+              permission={createPermission as any}
+              fallback={
+                <button
+                  onClick={onCreateAction}
+                  className="px-4 sm:px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-all shadow-md hover:shadow-lg w-full sm:w-auto flex items-center justify-center gap-2 text-sm"
+                >
+                  <i className="fas fa-plus"></i>
+                  <span>{createActionLabel}</span>
+                </button>
+              }
+            >
+              <button
+                onClick={onCreateAction}
+                className="px-4 sm:px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-all shadow-md hover:shadow-lg w-full sm:w-auto flex items-center justify-center gap-2 text-sm"
+              >
+                <i className="fas fa-plus"></i>
+                <span>{createActionLabel}</span>
               </button>
             </ProtectedComponent>
           )}

@@ -66,10 +66,10 @@ const getAllQuotes = async (req, res) => {
         LTRIM(RTRIM(c.codven)) AS codVendedor,
         c.codalm               AS codalm,
         c.codalm               AS empresaId,
-        (SELECT SUM(candet * vundet) FROM ven_detacotiz WHERE numcot = c.numcot) AS subtotal,
-        (SELECT SUM((candet * vundet) * (COALESCE(dctdet, 0) / 100.0)) FROM ven_detacotiz WHERE numcot = c.numcot) AS descuentoValor,
-        (SELECT SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (COALESCE(ivadet, 0) / 100.0)) FROM ven_detacotiz WHERE numcot = c.numcot) AS ivaValor,
-        (SELECT SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (1 + (COALESCE(ivadet, 0) / 100.0))) FROM ven_detacotiz WHERE numcot = c.numcot) AS total,
+        COALESCE(totals.subtotal, 0) AS subtotal,
+        COALESCE(totals.descuentoValor, 0) AS descuentoValor,
+        COALESCE(totals.ivaValor, 0) AS ivaValor,
+        COALESCE(totals.total, 0) AS total,
         c.observa              AS observaciones,
         c.estcot               AS estado,
         '01' AS formaPago,
@@ -89,6 +89,16 @@ const getAllQuotes = async (req, res) => {
         NULL                   AS approvedItems
     FROM ${TABLE_NAMES.cotizaciones} c
       LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter))
+      LEFT JOIN (
+        SELECT 
+          numcot, 
+          SUM(candet * vundet) as subtotal,
+          SUM((candet * vundet) * (COALESCE(dctdet, 0) / 100.0)) as descuentoValor,
+          SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (COALESCE(ivadet, 0) / 100.0)) as ivaValor,
+          SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (1 + (COALESCE(ivadet, 0) / 100.0))) as total
+        FROM ven_detacotiz
+        GROUP BY numcot
+      ) totals ON totals.numcot = c.numcot
       ${whereClause}
       ORDER BY c.feccot DESC, c.numcot DESC
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -892,13 +902,168 @@ const getNextQuoteNumber = async (req, res) => {
   }
 };
 
+/**
+ * Convierte una cotización aprobada a pedido
+ * POST /api/cotizaciones/:id/convert-to-order
+ */
+const convertToOrder = async (req, res) => {
+  const { id } = req.params;
+  const idStr = String(id).trim();
+
+  const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
+  const tx = new sql.Transaction(pool);
+
+  try {
+    await tx.begin();
+
+    // 1. Verificar que la cotización existe y está aprobada
+    const reqCheck = new sql.Request(tx);
+    reqCheck.input('id', sql.VarChar(20), idStr);
+    const checkRes = await reqCheck.query(`
+      SELECT * FROM ${TABLE_NAMES.cotizaciones} WHERE numcot = @id
+    `);
+
+    if (checkRes.recordset.length === 0) {
+      await tx.rollback();
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Cotización no encontrada' 
+      });
+    }
+
+    const cotizacion = checkRes.recordset[0];
+    const estadoMapped = mapEstadoFromDb(cotizacion.estcot);
+
+    // Validar que está aprobada
+    if (estadoMapped !== 'APROBADA') {
+      await tx.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: 'La cotización debe estar aprobada para convertirla a pedido' 
+      });
+    }
+
+    // Verificar si ya tiene un pedido asociado (opcional, depende de tu lógica)
+    // Por ahora, permitimos múltiples pedidos de la misma cotización
+
+    // 2. Obtener items de la cotización
+    const reqItems = new sql.Request(tx);
+    reqItems.input('numCot', sql.VarChar(20), idStr);
+    const itemsRes = await reqItems.query(`
+      SELECT 
+        d.coddet as codProducto, 
+        d.candet as cantidad, 
+        d.vundet as precioUnitario, 
+        d.dctdet as descuentoPorcentaje, 
+        d.ivadet as ivaPorcentaje,
+        d.nomdet as descripcion,
+        (SELECT TOP 1 id FROM ${TABLE_NAMES.productos} WHERE LTRIM(RTRIM(codins)) = LTRIM(RTRIM(d.coddet))) as productoId
+      FROM ${TABLE_NAMES.cotizaciones_detalle} d 
+      WHERE d.numcot = @numCot
+    `);
+
+    const itemsCotizacion = itemsRes.recordset;
+
+    if (itemsCotizacion.length === 0) {
+      await tx.rollback();
+      console.error(`❌ Cotización ${cotizacion.numcot} no tiene items en ven_detacotiz`);
+      return res.status(400).json({ 
+        success: false, 
+        message: `La cotización ${cotizacion.numcot} no tiene items válidos para generar el pedido. Por favor, agregue productos a la cotización antes de aprobarla.`
+      });
+    }
+
+    // 3. Calcular totales
+    const rnd = (val) => Math.round((val || 0) * 100) / 100;
+    
+    let subtotalCalculado = 0;
+    let descuentoCalculado = 0;
+    let ivaCalculado = 0;
+
+    const itemsParaPedido = itemsCotizacion.map(i => {
+      const precio = rnd(i.precioUnitario);
+      const cant = rnd(i.cantidad);
+      const descPorc = rnd(i.descuentoPorcentaje);
+      const ivaPorc = rnd(i.ivaPorcentaje);
+
+      const subtotalItem = precio * cant;
+      const descuentoItem = rnd(subtotalItem * (descPorc / 100));
+      const baseImponible = subtotalItem - descuentoItem;
+      const ivaItem = rnd(baseImponible * (ivaPorc / 100));
+      const totalItem = rnd(baseImponible + ivaItem);
+
+      subtotalCalculado += subtotalItem;
+      descuentoCalculado += descuentoItem;
+      ivaCalculado += ivaItem;
+
+      return {
+        productoId: i.productoId,
+        codProducto: i.codProducto,
+        descripcion: i.descripcion,
+        cantidad: cant,
+        precioUnitario: precio,
+        descuentoPorcentaje: descPorc,
+        ivaPorcentaje: ivaPorc,
+        valorIva: ivaItem,
+        total: totalItem
+      };
+    });
+
+    const totalCalculado = rnd(subtotalCalculado - descuentoCalculado + ivaCalculado);
+
+    // 4. Preparar payload para pedido
+    const orderPayload = {
+      clienteId: cotizacion.codter,
+      fechaPedido: new Date(),
+      fechaEntregaEstimada: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 días
+      vendedorId: cotizacion.codven,
+      observaciones: cotizacion.observa ? `Desde Cotización ${cotizacion.numcot}: ${cotizacion.observa}` : `Basado en Cotización ${cotizacion.numcot}`,
+      items: itemsParaPedido,
+      subtotal: rnd(subtotalCalculado),
+      descuentoValor: rnd(descuentoCalculado),
+      ivaValor: rnd(ivaCalculado),
+      total: totalCalculado,
+      formaPago: cotizacion.formapago,
+      cotizacionId: idStr,
+      empresaId: cotizacion.codalm,
+      numeroPedido: 'AUTO'
+    };
+
+    // 5. Crear pedido usando createOrderInternal
+    const { createOrderInternal } = require('./orderController');
+    const pedidoCreado = await createOrderInternal(tx, orderPayload);
+
+    await tx.commit();
+
+    res.status(201).json({
+      success: true,
+      message: 'Pedido creado exitosamente desde cotización',
+      data: {
+        pedido: pedidoCreado,
+        cotizacionId: idStr
+      }
+    });
+
+  } catch (error) {
+    if (tx) await tx.rollback();
+    console.error('Error convirtiendo cotización a pedido:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error convirtiendo cotización a pedido',
+      error: error.message 
+    });
+  }
+};
+
 module.exports = {
   getAllQuotes,
   getQuoteDetails,
   createQuote,
   updateQuote,
   sendQuoteEmail,
-  getNextQuoteNumber
+  getNextQuoteNumber,
+  convertToOrder
+
 };
 
 

@@ -39,7 +39,8 @@ const DevolucionesPage: React.FC = () => {
         motivosDevolucion,
         notasCredito,
         clientes, // Restoring strict needed
-        facturas // Restoring strict needed
+        facturas, // Restoring strict needed
+        isLoadingNotasCredito
     } = useData();
     const { user } = useAuth();
 
@@ -1132,9 +1133,16 @@ const DevolucionesPage: React.FC = () => {
             header: 'Cliente',
             accessor: 'clienteId',
             cell: item => {
-                const match = clientes.find(c => String(c.id) === String(item.clienteId) || c.numeroDocumento === item.clienteId || c.codter === item.clienteId);
-                if (!match && process.env.NODE_ENV === 'development') console.log('Client match failed for:', item.clienteId, 'Available clients:', clientes.length);
-                return match?.nombreCompleto || 'N/A';
+                // Primero intentar usar el nombre que viene del backend
+                if (item.clienteNombre) return item.clienteNombre;
+
+                // Fallback: buscar en la lista de clientes
+                const match = clientes.find(c =>
+                    String(c.id) === String(item.clienteId) ||
+                    c.numeroDocumento === item.clienteId ||
+                    c.codter === item.clienteId
+                );
+                return match?.nombreCompleto || item.clienteId || 'N/A';
             }
         },
         { header: 'Valor Total', accessor: 'total', cell: item => formatCurrency(item.total) },
@@ -1683,7 +1691,14 @@ const DevolucionesPage: React.FC = () => {
                     <Card>
                         <CardHeader><CardTitle>Historial de Devoluciones</CardTitle></CardHeader>
                         <CardContent className="p-0">
-                            <Table columns={historyColumns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} />
+                            {isLoadingNotasCredito ? (
+                                <div className="flex flex-col items-center justify-center py-16">
+                                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+                                    <p className="text-slate-600 dark:text-slate-400 text-sm">Cargando notas de crédito...</p>
+                                </div>
+                            ) : (
+                                <Table columns={historyColumns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} />
+                            )}
                         </CardContent>
                     </Card>
                 )

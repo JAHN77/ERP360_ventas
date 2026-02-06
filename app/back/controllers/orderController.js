@@ -26,7 +26,7 @@ const getAllOrders = async (req, res) => {
         'CANCELADO': 'X'
       };
       const estadoDb = estadoMap[estado] || estado;
-      whereClauses.push(`p.estado = '${estadoDb}'`);
+      whereClauses.push(`p.estped = '${estadoDb}'`);
     }
     if (codter) {
       // Usar codter (estructura real)
@@ -61,38 +61,38 @@ const getAllOrders = async (req, res) => {
     const pedidosQuery = `
       SELECT 
         p.id,
-        p.numero_pedido as numeroPedido,
-        p.fecha_pedido as fechaPedido,
+        p.numped as numeroPedido,
+        p.fecped as fechaPedido,
         LTRIM(RTRIM(COALESCE(p.codter, ''))) as clienteId,
         CASE 
           WHEN cli.nomter IS NOT NULL AND LTRIM(RTRIM(cli.nomter)) != '' 
           THEN LTRIM(RTRIM(cli.nomter))
           ELSE NULL
         END as clienteNombre,
-        LTRIM(RTRIM(COALESCE(p.codven, ''))) as vendedorId,
-        CAST(COALESCE(p.cotizacion_id, NULL) AS VARCHAR(50)) as cotizacionId,
+        LTRIM(RTRIM(COALESCE(p.cod_vendedor, ''))) as vendedorId,
+        CAST(COALESCE(p.numcot, NULL) AS VARCHAR(50)) as cotizacionId,
         LTRIM(RTRIM(COALESCE(c.numcot, ''))) as numeroCotizacionOrigen,
         COALESCE(p.subtotal, 0) as subtotal,
-        COALESCE(p.descuento_valor, 0) as descuentoValor,
-        COALESCE(p.iva_valor, 0) as ivaValor,
-        COALESCE(p.total, 0) as total,
-        LTRIM(RTRIM(COALESCE(p.observaciones, ''))) as observaciones,
-        p.estado,
-        COALESCE(p.empresa_id, 1) as empresaId,
-        p.fecha_entrega_estimada as fechaEntregaEstimada,
+        0 as descuentoValor,
+        COALESCE(p.valiva, 0) as ivaValor,
+        COALESCE(p.valped, 0) as total,
+        LTRIM(RTRIM(COALESCE(p.Observa, ''))) as observaciones,
+        p.estped as estado,
+        COALESCE(p.codalm, '001') as empresaId,
+        NULL as fechaEntregaEstimada,
         NULL as listaPrecioId,
         0 as descuentoPorcentaje,
         0 as ivaPorcentaje,
         0 as impoconsumoValor,
-        NULL as instruccionesEntrega,
+        NULL as instrucciones_entrega,
         '01' as formaPago,
         u.firma as firmaVendedor
       FROM ${TABLE_NAMES.pedidos} p
-      LEFT JOIN ven_cotizacion c ON c.id = p.cotizacion_id
-      LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(p.codter)) AND cli.activo = 1
-      LEFT JOIN ${TABLE_NAMES.usuarios} u ON LTRIM(RTRIM(u.codusu)) = LTRIM(RTRIM(p.codven))
+      LEFT JOIN ven_cotizacion c ON c.numcot = p.numcot
+      LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(p.codter))
+      LEFT JOIN ${TABLE_NAMES.usuarios} u ON LTRIM(RTRIM(u.codusu)) = LTRIM(RTRIM(p.cod_vendedor))
       ${where}
-      ORDER BY p.fecha_pedido DESC, p.id DESC
+      ORDER BY p.fecped DESC, p.id DESC
       OFFSET ${offset} ROWS
       FETCH NEXT ${size} ROWS ONLY
     `;
@@ -340,52 +340,46 @@ const createOrderInternal = async (tx, orderData) => {
   const descPorcFinal = subtotalFinal > 0 ? validateDecimal5_2((descuentoFinal / subtotalFinal) * 100, 'descuentoPorcentaje') : 0;
 
   // 5. Insertar Encabezado
-  // 5. Insertar Encabezado
   const reqHead = new sql.Request(tx);
-  reqHead.input('numero_pedido', sql.VarChar(50), numeroPedidoFinal);
-  reqHead.input('fecha_pedido', sql.Date, fechaPedido || new Date());
-  reqHead.input('fecha_entrega_estimada', sql.Date, fechaEntregaEstimada || null);
+  reqHead.input('numped', sql.Char(8), numeroPedidoFinal.substring(0, 8).padStart(8, '0'));
+  reqHead.input('fecped', sql.Date, fechaPedido || new Date());
   reqHead.input('codter', sql.VarChar(20), codTerFinal);
-
+  
   let codVendedorFinal = clienteData.codven || '';
   if (vendedorId) {
     const vendedorIdStr = String(vendedorId).trim();
     if (!isNaN(parseInt(vendedorIdStr)) && String(parseInt(vendedorIdStr)) === vendedorIdStr) {
-      // Logic same as before
       codVendedorFinal = vendedorIdStr;
     } else {
       codVendedorFinal = vendedorIdStr;
     }
   }
   reqHead.input('codven', sql.VarChar(20), codVendedorFinal);
-  reqHead.input('empresa_id', sql.Int, empresaIdValid);
-  reqHead.input('cotizacion_id', sql.Int, cotizacionId || null);
+  reqHead.input('codalm', sql.Char(3), codAlmFinal);
+  reqHead.input('numcot', sql.VarChar(50), cotizacionId ? String(cotizacionId) : null);
+  reqHead.input('codusu', sql.VarChar(4), 'WEB'); // Default user
 
   reqHead.input('subtotal', sql.Decimal(18, 2), subtotalFinal);
-  reqHead.input('descuento_valor', sql.Decimal(18, 2), descuentoFinal);
-  // reqHead.input('descuento_porcentaje', sql.Decimal(5, 2), descPorcFinal);
-  reqHead.input('iva_valor', sql.Decimal(18, 2), ivaValFinal);
-  // reqHead.input('iva_porcentaje', sql.Decimal(5, 2), ivaPorcFinal);
-  reqHead.input('total', sql.Decimal(18, 2), totalFinal);
-  reqHead.input('observaciones', sql.VarChar(500), observaciones || '');
-  reqHead.input('estado', sql.VarChar(20), 'B'); // Borrador
-
-  const reqCliFP = new sql.Request(tx);
-  // Default logic for FP
-  const formaPagoFinal = formaPago || '001';
-  reqHead.input('formapago', sql.NChar(4), formaPagoFinal);
-
-  // No legacy default fields needed for _web table usually, but we keep mapped standard fields
+  // reqHead.input('val_descuento', sql.Decimal(18, 2), descuentoFinal); // Not in legacy
+  // reqHead.input('tasa_descuento', sql.Decimal(5, 2), descPorcFinal); // Not in legacy
+  reqHead.input('valiva', sql.Decimal(18, 2), ivaValFinal);
+  // reqHead.input('tasa_iva', sql.Decimal(5, 2), ivaPorcFinal); // Not in legacy
+  reqHead.input('valped', sql.Decimal(18, 2), totalFinal);
+  // reqHead.input('impoconsumo', sql.Decimal(18, 2), impoconsumoFinal); // Not in legacy
+  reqHead.input('Observa', sql.VarChar(500), observaciones || '');
+  // reqHead.input('instrucciones_entrega', sql.VarChar(500), instruccionesEntrega || ''); // Not in legacy
+  reqHead.input('estped', sql.Char(1), 'B'); // Borrador
+  // reqHead.input('lista_precio', sql.VarChar(50), null); // Not in legacy
 
   const headQuery = `
         INSERT INTO ${TABLE_NAMES.pedidos} (
-          numero_pedido, fecha_pedido, fecha_entrega_estimada, codter, codven, empresa_id,
-          cotizacion_id, subtotal, descuento_valor, iva_valor,
-          total, observaciones, estado, fec_creacion, fec_modificacion, formapago
+          numped, fecped, codter, codven, codalm,
+          numcot, codusu, subtotal, valiva,
+          valped, Observa, estped, fecsys
         ) VALUES (
-          @numero_pedido, @fecha_pedido, @fecha_entrega_estimada, @codter, @codven, @empresa_id,
-          @cotizacion_id, @subtotal, @descuento_valor, @iva_valor,
-          @total, @observaciones, @estado, GETDATE(), GETDATE(), @formapago
+          @numped, @fecped, @codter, @codven, @codalm,
+          @numcot, @codusu, @subtotal, @valiva,
+          @valped, @Observa, @estped, GETDATE()
         );
         SELECT SCOPE_IDENTITY() AS id;
       `;
@@ -525,11 +519,11 @@ const updateOrder = async (req, res) => {
 
       const query = `
          UPDATE ${TABLE_NAMES.pedidos} 
-         SET estado = @estado, fec_modificacion = GETDATE()
+         SET estado = @estado, fecmod = GETDATE()
          WHERE id = @id;
          
          SELECT 
-           id, numero_pedido, estado 
+           id, numped, estado 
          FROM ${TABLE_NAMES.pedidos} 
          WHERE id = @id;
        `;
@@ -571,14 +565,14 @@ const getNextOrderNumber = async (req, res) => {
   try {
     const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
     const result = await pool.request().query(`
-      SELECT TOP 1 numero_pedido 
+      SELECT TOP 1 numped 
       FROM ${TABLE_NAMES.pedidos} 
       ORDER BY id DESC
     `);
 
     let nextNum = '000001';
     if (result.recordset.length > 0) {
-      const lastNum = result.recordset[0].numero_pedido;
+      const lastNum = result.recordset[0].numped;
       const soloDigitos = lastNum.replace(/\D/g, '');
       const consecutivo = parseInt(soloDigitos, 10);
       if (!isNaN(consecutivo)) {
@@ -666,6 +660,263 @@ const sendOrderEmail = async (req, res) => {
   }
 };
 
+/**
+ * Convierte un pedido a remisión (parcial o total)
+ * POST /api/pedidos/:id/convert-to-remission
+ * Body: { items: [{ codins, cantidad }] } - opcional, si no se envía se toman todos los items pendientes
+ */
+const convertToRemission = async (req, res) => {
+  const { id } = req.params;
+  const { items: itemsSeleccionados } = req.body;
+
+  const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
+  const tx = new sql.Transaction(pool);
+
+  try {
+    await tx.begin();
+
+    // 1. Verificar que el pedido existe
+    const reqCheck = new sql.Request(tx);
+    reqCheck.input('id', sql.Int, parseInt(id));
+    const checkRes = await reqCheck.query(`
+      SELECT * FROM ${TABLE_NAMES.pedidos} WHERE id = @id
+    `);
+
+    if (checkRes.recordset.length === 0) {
+      await tx.rollback();
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Pedido no encontrado' 
+      });
+    }
+
+    const pedido = checkRes.recordset[0];
+    const numeroPedido = pedido.numped;
+
+    // Normalizar numped para consultas legacy
+    let numpedLegacy = numeroPedido;
+    const match = String(numeroPedido).match(/(\d+)/);
+    if (match) {
+      numpedLegacy = match[1].padStart(8, '0');
+    }
+
+    // 2. Obtener items del pedido con cantidades pendientes
+    const reqItems = new sql.Request(tx);
+    reqItems.input('numped', sql.Char(8), numpedLegacy);
+    const itemsRes = await reqItems.query(`
+      SELECT 
+        pd.codins,
+        pd.canped as cantidadPedida,
+        COALESCE(pd.canent, 0) as cantidadEnviada,
+        (pd.canped - COALESCE(pd.canent, 0)) as cantidadPendiente,
+        pd.valins as precioUnitario,
+        pd.dctped as descuentoValor,
+        pd.ivaped as valorIva,
+        i.nomins as descripcion,
+        i.id as productoId
+      FROM ${TABLE_NAMES.pedidos_detalle} pd
+      LEFT JOIN ${TABLE_NAMES.productos} i ON LTRIM(RTRIM(i.codins)) = LTRIM(RTRIM(pd.codins))
+      WHERE pd.numped = @numped
+    `);
+
+    const itemsPedido = itemsRes.recordset;
+
+    if (itemsPedido.length === 0) {
+      await tx.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: 'El pedido no tiene items' 
+      });
+    }
+
+    // 3. Determinar items a remitir
+    let itemsParaRemision = [];
+
+    if (itemsSeleccionados && Array.isArray(itemsSeleccionados) && itemsSeleccionados.length > 0) {
+      // Remisión parcial - validar cantidades
+      for (const itemSel of itemsSeleccionados) {
+        const itemPedido = itemsPedido.find(ip => 
+          String(ip.codins).trim() === String(itemSel.codins).trim()
+        );
+
+        if (!itemPedido) {
+          await tx.rollback();
+          return res.status(400).json({ 
+            success: false, 
+            message: `Item ${itemSel.codins} no encontrado en el pedido` 
+          });
+        }
+
+        const cantidadSolicitada = parseFloat(itemSel.cantidad);
+        
+        if (cantidadSolicitada <= 0) {
+          await tx.rollback();
+          return res.status(400).json({ 
+            success: false, 
+            message: `La cantidad para ${itemSel.codins} debe ser mayor a 0` 
+          });
+        }
+
+        if (cantidadSolicitada > itemPedido.cantidadPendiente) {
+          await tx.rollback();
+          return res.status(400).json({ 
+            success: false, 
+            message: `La cantidad solicitada para ${itemSel.codins} (${cantidadSolicitada}) excede la cantidad pendiente (${itemPedido.cantidadPendiente})` 
+          });
+        }
+
+        itemsParaRemision.push({
+          ...itemPedido,
+          cantidadARemitir: cantidadSolicitada
+        });
+      }
+    } else {
+      // Remisión total - tomar todos los items pendientes
+      itemsParaRemision = itemsPedido
+        .filter(ip => ip.cantidadPendiente > 0)
+        .map(ip => ({
+          ...ip,
+          cantidadARemitir: ip.cantidadPendiente
+        }));
+    }
+
+    if (itemsParaRemision.length === 0) {
+      await tx.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No hay items pendientes para remitir' 
+      });
+    }
+
+    // 4. Generar número de remisión
+    const reqUltimoNum = new sql.Request(tx);
+    const ultimoNumResult = await reqUltimoNum.query(`
+      SELECT TOP 1 numrem 
+      FROM ${TABLE_NAMES.remisiones} 
+      WHERE ISNUMERIC(numrem) = 1 
+      ORDER BY CAST(numrem AS BIGINT) DESC
+    `);
+
+    let nuevoNumeroRemision = '000001';
+    if (ultimoNumResult.recordset.length > 0) {
+      const ultimoNum = ultimoNumResult.recordset[0].numrem;
+      const consecutivo = parseInt(ultimoNum, 10);
+      if (!isNaN(consecutivo)) {
+        nuevoNumeroRemision = String(consecutivo + 1).padStart(6, '0');
+      }
+    }
+
+    // 5. Insertar encabezado de remisión
+    const reqRemHead = new sql.Request(tx);
+    reqRemHead.input('numrem', sql.VarChar(50), nuevoNumeroRemision);
+    reqRemHead.input('fecrem', sql.Date, new Date());
+    reqRemHead.input('codter', sql.VarChar(20), pedido.codter);
+    reqRemHead.input('codven', sql.VarChar(20), pedido.codven);
+    reqRemHead.input('codalm', sql.VarChar(10), pedido.codalm || '001');
+    reqRemHead.input('estado', sql.VarChar(20), 'ENVIADO');
+    reqRemHead.input('observacion', sql.VarChar(500), `Remisión desde pedido ${numeroPedido}`);
+    reqRemHead.input('usuario', sql.VarChar(20), 'ADMIN');
+
+    const remHeadQuery = `
+      INSERT INTO ${TABLE_NAMES.remisiones} (
+        numrem, fecrem, codter, codven, codalm, estado, observacion, usuario
+      ) VALUES (
+        @numrem, @fecrem, @codter, @codven, @codalm, @estado, @observacion, @usuario
+      );
+      SELECT SCOPE_IDENTITY() AS id;
+    `;
+
+    const remHeadRes = await reqRemHead.query(remHeadQuery);
+    const remisionId = remHeadRes.recordset[0].id;
+
+    // 6. Insertar detalles de remisión y actualizar cantidades en pedido
+    for (const item of itemsParaRemision) {
+      // Insertar detalle de remisión
+      const reqRemDet = new sql.Request(tx);
+      reqRemDet.input('remision_id', sql.Int, remisionId);
+      reqRemDet.input('codins', sql.VarChar(50), item.codins);
+      reqRemDet.input('cantidad_enviada', sql.Decimal(18, 2), item.cantidadARemitir);
+      reqRemDet.input('cantidad_facturada', sql.Decimal(18, 2), 0);
+      reqRemDet.input('cantidad_devuelta', sql.Decimal(18, 2), 0);
+
+      await reqRemDet.query(`
+        INSERT INTO ${TABLE_NAMES.remisiones_detalle} (
+          remision_id, codins, cantidad_enviada, cantidad_facturada, cantidad_devuelta
+        ) VALUES (
+          @remision_id, @codins, @cantidad_enviada, @cantidad_facturada, @cantidad_devuelta
+        )
+      `);
+
+      // Actualizar cantidad enviada en el pedido
+      const reqUpdatePed = new sql.Request(tx);
+      reqUpdatePed.input('numped', sql.Char(8), numpedLegacy);
+      reqUpdatePed.input('codins', sql.VarChar(50), item.codins);
+      reqUpdatePed.input('cantidadARemitir', sql.Decimal(18, 2), item.cantidadARemitir);
+
+      await reqUpdatePed.query(`
+        UPDATE ${TABLE_NAMES.pedidos_detalle}
+        SET canent = COALESCE(canent, 0) + @cantidadARemitir
+        WHERE numped = @numped AND codins = @codins
+      `);
+    }
+
+    // 7. Actualizar estado del pedido si está completamente remitido
+    const reqCheckComplete = new sql.Request(tx);
+    reqCheckComplete.input('numped', sql.Char(8), numpedLegacy);
+    const checkCompleteRes = await reqCheckComplete.query(`
+      SELECT 
+        SUM(canped) as totalPedido,
+        SUM(COALESCE(canent, 0)) as totalEnviado
+      FROM ${TABLE_NAMES.pedidos_detalle}
+      WHERE numped = @numped
+    `);
+
+    const totales = checkCompleteRes.recordset[0];
+    if (totales.totalPedido <= totales.totalEnviado) {
+      // Pedido completamente remitido
+      const reqUpdateEstado = new sql.Request(tx);
+      reqUpdateEstado.input('id', sql.Int, parseInt(id));
+      await reqUpdateEstado.query(`
+        UPDATE ${TABLE_NAMES.pedidos}
+        SET estado = 'M', fec_modificacion = GETDATE()
+        WHERE id = @id
+      `);
+    } else {
+      // Pedido parcialmente remitido
+      const reqUpdateEstado = new sql.Request(tx);
+      reqUpdateEstado.input('id', sql.Int, parseInt(id));
+      await reqUpdateEstado.query(`
+        UPDATE ${TABLE_NAMES.pedidos}
+        SET estado = 'P', fec_modificacion = GETDATE()
+        WHERE id = @id
+      `);
+    }
+
+    await tx.commit();
+
+    res.status(201).json({
+      success: true,
+      message: 'Remisión creada exitosamente desde pedido',
+      data: {
+        remisionId: remisionId,
+        numeroRemision: nuevoNumeroRemision,
+        pedidoId: id,
+        itemsRemitidos: itemsParaRemision.length,
+        estadoPedido: totales.totalPedido <= totales.totalEnviado ? 'REMITIDO' : 'PARCIALMENTE_REMITIDO'
+      }
+    });
+
+  } catch (error) {
+    if (tx) await tx.rollback();
+    console.error('Error convirtiendo pedido a remisión:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error convirtiendo pedido a remisión',
+      error: error.message 
+    });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderDetails,
@@ -673,5 +924,7 @@ module.exports = {
   createOrderInternal,
   updateOrder,
   getNextOrderNumber,
-  sendOrderEmail
+  sendOrderEmail,
+  convertToRemission
+
 };

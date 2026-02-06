@@ -30,6 +30,7 @@ router.get('/cotizaciones-detalle', verifyToken, quoteController.getQuoteDetails
 router.post('/cotizaciones', verifyToken, quoteController.createQuote);
 router.put('/cotizaciones/:id', verifyToken, quoteController.updateQuote);
 router.post('/cotizaciones/:id/send-email', verifyToken, quoteController.sendQuoteEmail);
+router.post('/cotizaciones/:id/convert-to-order', verifyToken, quoteController.convertToOrder);
 router.get('/cotizaciones/next-number', verifyToken, quoteController.getNextQuoteNumber);
 
 module.exports = router;

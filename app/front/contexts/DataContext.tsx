@@ -58,6 +58,7 @@ interface DataContextType {
     isLoading: boolean;
     isMainDataLoaded: boolean;
     isLoadingRemisiones: boolean; // New loading state
+    isLoadingNotasCredito: boolean; // New loading state for credit notes
 
     // Core data
     clientes: Cliente[];
@@ -159,6 +160,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
     const [remisiones, setRemisiones] = useState<Remision[]>([]);
     const [isLoadingRemisiones, setIsLoadingRemisiones] = useState(false); // New state
     const [notasCredito, setNotasCredito] = useState<NotaCredito[]>([]);
+    const [isLoadingNotasCredito, setIsLoadingNotasCredito] = useState(false); // New state for credit notes
     const [archivosAdjuntos, setArchivosAdjuntos] = useState<ArchivoAdjunto[]>([]);
 
     // Catalog states
@@ -515,6 +517,9 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             try {
                 // OPTIMIZACIÓN: Cargar datos transaccionales con paginación y lazy loading
                 // No cargar todos los datos al inicio, solo cargar cuando sea necesario
+                // Set loading state for credit notes
+                setIsLoadingNotasCredito(true);
+
                 const [
                     facturasResponse, cotizacionesResponse,
                     pedidosResponse, notasCreditoResponse
@@ -863,6 +868,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                     itemsDevueltos: Array.isArray(nc.itemsDevueltos) ? nc.itemsDevueltos : []
                 }));
                 setNotasCredito(notasCreditoMapeadas);
+                setIsLoadingNotasCredito(false); // Loading complete
 
                 setArchivosAdjuntos([]);
             } catch (error) {
@@ -3708,6 +3714,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
         // Loading states
         isLoading,
         isLoadingRemisiones,
+        isLoadingNotasCredito,
         isMainDataLoaded,
 
         // Core data

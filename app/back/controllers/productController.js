@@ -366,11 +366,13 @@ const productController = {
 
         } else {
           // Insert Product
+          const undinsVal = codMedida === '001' ? 'HORA' : (codMedida === '002' ? 'DIA' : 'UND');
+          
           const query = `
             INSERT INTO ${TABLE_NAMES.productos}
-            (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, karins, activo, codigo_linea, codigo_sublinea, costo_promedio, precio_publico)
+            (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, undins, karins, activo, codigo_linea, codigo_sublinea, costo_promedio, precio_publico)
             VALUES
-            (@code, @nombre, @iva, @precio, @referencia, @medida, @karins, 1, '01', @sublinea, @precio, @precio)
+            (@code, @nombre, @iva, @precio, @referencia, @medida, @undins, @karins, 1, '01', @sublinea, @precio, @precio)
           `;
           request.input('code', sql.VarChar(20), nextCode);
           request.input('nombre', sql.VarChar(255), nombre || 'Nuevo Producto');
@@ -378,26 +380,37 @@ const productController = {
           request.input('precio', sql.Decimal(18, 2), precioVal);
           request.input('referencia', sql.VarChar(50), referencia || '');
           request.input('medida', sql.VarChar(5), codMedida);
+          request.input('undins', sql.VarChar(10), undinsVal);
           request.input('karins', sql.Bit, controlaExistencia ? 1 : 0);
           request.input('sublinea', sql.VarChar(5), idSublineas ? String(idSublineas) : '01');
+
+          console.log('[ProductController] Ejecutando INSERT Producto:', {
+            code: nextCode,
+            nombre,
+            undinsVal,
+            sublinea: idSublineas ? String(idSublineas) : '01'
+          });
 
           await request.query(query);
 
           // Initial stock record? (inv_invent)
           const initialStock = (controlaExistencia && !isNaN(controlaExistencia)) ? parseFloat(controlaExistencia) : 0;
+          // Solo si hay stock inicial explicito O es un servicio tangible que se quiere controlar
+          const stockInicialInput = req.body.stock; // Obtener stock directo del input (si existe)
+          const finalStock = stockInicialInput ? parseFloat(stockInicialInput) : initialStock;
 
-          if (initialStock > 0 || (controlaExistencia && Number(controlaExistencia) !== 0)) {
+          if (finalStock > 0 || (controlaExistencia && Number(controlaExistencia) !== 0)) {
             const reqStock = new sql.Request(transaction);
             reqStock.input('codins', sql.VarChar(20), nextCode); // nextCode is the new codins
-            reqStock.input('cantidad', sql.Decimal(18, 2), initialStock);
+            reqStock.input('cantidad', sql.Decimal(18, 2), finalStock);
             reqStock.input('codalm', sql.VarChar(5), '01'); // Default warehouse
 
             // Check if it already exists (unlikely for new product, but safe)
             const checkStock = await reqStock.query(`SELECT 1 FROM inv_invent WHERE codins = @codins AND codalm = '01'`);
             if (checkStock.recordset.length === 0) {
               await reqStock.query(`
-                    INSERT INTO inv_invent (codalm, codins, caninv, ucoins, invfis)
-                    VALUES (@codalm, @codins, @cantidad, 0, 0)
+                    INSERT INTO inv_invent (codalm, codins, caninv, ucoins)
+                    VALUES (@codalm, @codins, @cantidad, 0)
                  `);
             }
           }
@@ -407,13 +420,14 @@ const productController = {
         res.json({ success: true, message: `${isService ? 'Servicio' : 'Producto'} creado correctamente`, data: { id: nextCode, codigo: nextCode } });
 
       } catch (err) {
+        console.error('[ProductController] Error en transacción SQL:', err);
         await transaction.rollback();
         throw err;
       }
 
     } catch (error) {
       console.error('Error creating product/service:', error);
-      res.status(500).json({ success: false, message: 'Error al crear', error: error.message });
+      res.status(500).json({ success: false, message: 'Error al crear: ' + error.message, error: error.message, stack: process.env.NODE_ENV === 'development' ? error.stack : undefined });
     }
   },
 
