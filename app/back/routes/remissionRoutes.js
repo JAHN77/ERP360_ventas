@@ -22,4 +22,7 @@ router.post('/remisiones', verifyToken, remissionController.createRemission);
 // POST /api/remisiones/:id/send-email
 router.post('/remisiones/:id/send-email', verifyToken, remissionController.sendRemissionEmail);
 
+// POST /api/remisiones/:id/convert-to-invoice
+router.post('/remisiones/:id/convert-to-invoice', verifyToken, remissionController.convertToInvoice);
+
 module.exports = router;

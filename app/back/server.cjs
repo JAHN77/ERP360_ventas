@@ -291,7 +291,7 @@ app.get('/api/buscar/clientes', verifyToken, clientController.searchClients);
 app.get('/api/clientes/search', verifyToken, clientController.searchClients);
 
 // BUSQUEDA PRODUCTOS
-app.get('/api/buscar/productos', verifyToken, productController.searchProducts);
+app.get('/api/buscar/productos', verifyToken, productController.searchProductsCustom);
 // BUSQUEDA SERVICIOS
 app.get('/api/buscar/servicios', verifyToken, productController.searchServices);
 

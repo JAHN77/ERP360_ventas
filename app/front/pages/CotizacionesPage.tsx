@@ -105,6 +105,7 @@ const CotizacionesPage: React.FC = () => {
   const [approvingCotizacionId, setApprovingCotizacionId] = useState<string | null>(null);
   const [approvedCotizacionResult, setApprovedCotizacionResult] = useState<{ cotizacion: Cotizacion, pedido?: Pedido } | null>(null);
   const [cotizacionToEdit, setCotizacionToEdit] = useState<Cotizacion | null>(null);
+  const [isLoadingModal, setIsLoadingModal] = useState(false);
 
   const filteredData = useMemo(() => {
     const sortedQuotes = [...cotizaciones].sort((a, b) => new Date(b.fechaCotizacion).getTime() - new Date(a.fechaCotizacion).getTime());
@@ -162,9 +163,13 @@ const CotizacionesPage: React.FC = () => {
   });
 
   const handleOpenModal = useCallback(async (cotizacion: Cotizacion) => {
+    setIsModalOpen(true);
+    setSelectedCotizacion(cotizacion);
+
     // Si la cotización no tiene items o tiene items vacíos, cargar los detalles
     let cotizacionConItems = cotizacion;
     if (!cotizacion.items || cotizacion.items.length === 0) {
+      setIsLoadingModal(true);
       try {
         const cotizacionesDetalleRes = await fetchCotizacionesDetalle(String(cotizacion.id));
         if (cotizacionesDetalleRes.success && Array.isArray(cotizacionesDetalleRes.data)) {
@@ -183,10 +188,12 @@ const CotizacionesPage: React.FC = () => {
         }
       } catch (error) {
         console.error('Error cargando detalles de cotización:', error);
+        addNotification({ message: 'Error cargando detalles de la cotización', type: 'error' });
+      } finally {
+        setIsLoadingModal(false);
       }
     }
 
-    setSelectedCotizacion(cotizacionConItems);
     setSelectedCotizacion(cotizacionConItems);
     if (cotizacionConItems.estado === 'ENVIADA' || cotizacionConItems.estado === 'BORRADOR') {
       // Auto-select all items for approval by default
@@ -200,13 +207,13 @@ const CotizacionesPage: React.FC = () => {
     } else {
       setApprovedItems(new Set());
     }
-    setIsModalOpen(true);
-  }, []);
+  }, [addNotification]);
 
   const handleCloseModal = useCallback(() => {
     setIsModalOpen(false);
     setSelectedCotizacion(null);
     setApprovedItems(new Set());
+    setIsLoadingModal(false);
     if (params.focusId) {
       setPage('cotizaciones', {}); // Clear param on close
     }
@@ -846,7 +853,18 @@ const CotizacionesPage: React.FC = () => {
           </div>
         )}
 
-        <CardContent className="p-0">
+        <CardContent className="p-0 relative">
+          {isLoading && cotizaciones.length === 0 && (
+            <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm z-10 flex items-center justify-center min-h-[400px]">
+              <div className="flex flex-col items-center gap-3">
+                <div className="relative">
+                  <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
+                  <i className="fas fa-file-invoice absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-blue-600 dark:text-blue-400 text-xl"></i>
+                </div>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Cargando cotizaciones...</p>
+              </div>
+            </div>
+          )}
           <Table columns={columns} data={paginatedData} onSort={requestSort} sortConfig={sortConfig} highlightRowId={params.highlightId ?? params.focusId} isLoading={isLoading} />
         </CardContent>
 
@@ -1062,7 +1080,29 @@ const CotizacionesPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-700 bg-white dark:bg-slate-800">
-                    {selectedCotizacion.items.map((item: DocumentItem, index: number) => {
+                    {isLoadingModal ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-12 text-center">
+                          <div className="flex flex-col items-center gap-3">
+                            <div className="relative">
+                              <div className="w-12 h-12 border-4 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
+                              <i className="fas fa-box-open absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-blue-600 dark:text-blue-400"></i>
+                            </div>
+                            <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Cargando items...</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : selectedCotizacion.items.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center">
+                          <div className="flex flex-col items-center gap-2 text-amber-600 dark:text-amber-400">
+                            <i className="fas fa-exclamation-triangle text-3xl"></i>
+                            <p className="font-semibold">No hay items en esta cotización</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Agregue productos antes de aprobar</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : selectedCotizacion.items.map((item: DocumentItem, index: number) => {
                       const product = productos.find(p =>
                         String(p.id) === String(item.productoId) ||
                         p.id === item.productoId ||

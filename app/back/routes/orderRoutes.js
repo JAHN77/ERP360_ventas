@@ -10,6 +10,7 @@ router.get('/pedidos', verifyToken, orderController.getAllOrders);
 router.get('/pedidos-detalle', verifyToken, orderController.getOrderDetails);
 router.post('/pedidos', verifyToken, orderController.createOrder);
 router.post('/pedidos/:id/send-email', verifyToken, orderController.sendOrderEmail);
+router.post('/pedidos/:id/convert-to-remission', verifyToken, orderController.convertToRemission);
 router.put('/pedidos/:id', verifyToken, orderController.updateOrder);
 router.get('/pedidos/next-number', verifyToken, orderController.getNextOrderNumber);
 

@@ -11,7 +11,6 @@ const productController = {
   getAllProducts: async (req, res) => {
     try {
       const { codalm, page = '1', pageSize = '50', search, sortColumn, sortDirection } = req.query;
-      const codalmFormatted = codalm ? String(codalm).padStart(3, '0') : null;
 
       const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
       const pageSizeNum = Math.min(10000, Math.max(10, parseInt(String(pageSize), 10) || 50));
@@ -26,99 +25,105 @@ const productController = {
         }
       }
 
-      // Query optimizada SIN GROUP BY masivo
-      // Usamos subconsultas para stock y medidas/precios si es necesario, aunque los joins 1:1 de medidas y precios suelen ser seguros sin group by si la relación es correcta.
-      // Asumimos inv_invent puede tener múltiples registros (bodegas), por eso el stock requiere SUM en subconsulta.
-      let query = `
+      const query = `
+        DECLARE @margen_minimo decimal(10,2) = 0.10;
+        DECLARE @tarifa_cliente char(2) = '01'; 
+
+        DECLARE @almacen char(3);
+        DECLARE @Tarifa char(2) = @tarifa_cliente;
+        DECLARE @controla_existencia integer = 1;
+
+        SELECT @margen_minimo = lismargen, @almacen = codalm 
+        FROM inv_listaprecios 
+        WHERE codtar = @Tarifa;
+
+        DECLARE @Incluir_Iva bit;
+        SELECT @Incluir_Iva = ISNULL(IvaIncluido, 0) FROM ven_parametros;
+
+        -- CTE para paginación sobre la función
+        WITH ProductSource AS (
+            SELECT 
+                src.*,
+                @Incluir_Iva as Precio_Iva_Calc
+            FROM dbo.fn_obtener_insumos_servicios(@margen_minimo, @almacen, @Tarifa) AS src
+            WHERE 1=1 
+            ${searchTerm ? "AND (src.nomins LIKE @search OR src.codins LIKE @search OR src.referencia LIKE @search)" : ""}
+        )
         SELECT 
-            ins.id,
-            ins.codins                 AS codigo,
-            ins.nomins                 AS nombre,
-            ins.codigo_linea           AS codigoLinea,
-            ins.codigo_sublinea        AS codigoSublinea,
-            ins.Codigo_Medida          AS idMedida,
-            COALESCE(
-                CASE 
-                    WHEN LTRIM(RTRIM(ins.undins)) = 'UND' THEN 'UNIDAD'
-                    WHEN LTRIM(RTRIM(ins.undins)) = 'HORA' THEN 'HORA'
-                    WHEN LTRIM(RTRIM(ins.undins)) = 'DIA' THEN 'DIA'
-                    ELSE NULL 
-                END,
-                m.nommed, 
-                ins.undins, 
-                ''
-            ) AS unidadMedida,
-            ins.tasa_iva               AS tasaIva,
-            COALESCE(
-                CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(18,2)),
-                ins.ultimo_costo
-            )                          AS ultimoCosto,
-            ins.ultimo_costo           AS ultimoCostoCompra,
-            ins.costo_promedio         AS costoPromedio,
-            ins.referencia,
-            ins.karins                 AS controlaExistencia,
-            COALESCE(
-              (SELECT SUM(inv.caninv) FROM inv_invent inv WHERE inv.codins = ins.codins AND (@codalm IS NULL OR inv.codalm = @codalm)),
-              0
-            ) AS stock,
-            ins.activo,
-            ins.precio_publico         AS precioPublico,
-            ins.precio_mayorista       AS precioMayorista,
-            dp.valins                  AS precioConIva
-        FROM ${TABLE_NAMES.productos} ins
-        LEFT JOIN inv_medidas m ON LTRIM(RTRIM(m.codmed)) = LTRIM(RTRIM(ins.Codigo_Medida))
-        LEFT JOIN inv_detaprecios dp ON dp.codins = ins.codins AND dp.Codtar = '07'
-        WHERE ins.activo = 1
+             CAST(codins AS VARCHAR(50)) as codins,
+             CAST(nomins AS VARCHAR(255)) as nomins,
+             CAST(tasa_iva AS DECIMAL(18,2)) as tasa_iva,
+             CAST(undins AS VARCHAR(10)) as undins,
+             CAST(caninv AS DECIMAL(18,2)) as caninv,
+             CAST(Valinv AS DECIMAL(18,2)) as Valinv,
+             CAST(Precio_Venta AS DECIMAL(18,2)) as Precio_Venta,
+             CAST(margen_venta AS DECIMAL(18,2)) as margen_venta,
+             CAST(tasa_descuento AS DECIMAL(18,2)) as tasa_descuento,
+             CAST(precio_base AS DECIMAL(18,2)) as precio_base,
+             CAST(precio_lista AS DECIMAL(18,2)) as precio_lista,
+             CAST(referencia AS VARCHAR(100)) as referencia,
+             CAST(unimedida AS VARCHAR(10)) as unimedida,
+             padre,
+             CAST(canmed AS DECIMAL(18,2)) as canmed,
+             abreviatura,
+             servicio,
+             karins,
+             cuenta_compras,
+             Cuenta_ventas,
+             Cuenta_Iva,
+             CAST(costo_producto AS DECIMAL(18,2)) as costo_producto,
+             Cuenta_costo_ventas,
+             nommedida,
+             permite_cambio,
+             Precio_Iva_Calc as Precio_Iva,
+
+             -- Mapeos Frontend
+             codins as codigo,
+             nomins as nombre,
+             CAST(costo_producto AS DECIMAL(18,2)) as ultimoCostoCompra,
+             CAST(Precio_Venta AS DECIMAL(18,2)) as ultimoCosto,
+             CAST(Precio_Venta AS DECIMAL(18,2)) as precioConIva,
+             CAST(Precio_Venta AS DECIMAL(18,2)) as precioPublico,
+             CAST(caninv AS DECIMAL(18,2)) as stock,
+             undins as unidadMedidaCodigo,
+             nommedida as unidadMedidaNombre,
+             CAST(tasa_iva AS DECIMAL(18,2)) as tasaIva,
+             CASE 
+                WHEN LTRIM(RTRIM(undins)) = 'UND' THEN 'UNIDAD'
+                WHEN LTRIM(RTRIM(undins)) = 'HORA' THEN 'HORA'
+                WHEN LTRIM(RTRIM(undins)) = 'DIA' THEN 'DIA'
+                ELSE nommedida 
+             END as unidadMedida
+        FROM ProductSource
+        ORDER BY nomins ASC
+        OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
       `;
 
-      if (searchTerm) {
-        query += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search OR ins.codins LIKE @search)`;
-      }
-
-      // NO GROUP BY needed now
-
-      let orderByClause = 'ORDER BY ins.nomins ASC';
-      if (sortColumn && sortDirection) {
-        const direction = sortDirection === 'desc' ? 'DESC' : 'ASC';
-        const validColumns = {
-          'nombre': 'ins.nomins',
-          'referencia': 'ins.referencia',
-          'ultimoCosto': 'ins.ultimoCosto', // Basic sort, computed sort is tricky without alias support in all SQL versions
-          'stock': 'stock' // This might fail if alias not supported in ORDER BY in older SQL
-        };
-
-        if (sortColumn === 'stock') {
-          // Sort by subquery directly for safety
-          orderByClause = `ORDER BY COALESCE((SELECT SUM(inv.caninv) FROM inv_invent inv WHERE inv.codins = ins.codins AND (@codalm IS NULL OR inv.codalm = @codalm)), 0) ${direction}`;
-        } else if (sortColumn === 'ultimoCosto') {
-          orderByClause = `ORDER BY COALESCE(CAST(dp.valins / (1 + (ins.tasa_iva * 0.01)) AS DECIMAL(18,2)), ins.ultimo_costo) ${direction}`;
-        } else if (validColumns[sortColumn]) {
-          orderByClause = `ORDER BY ${validColumns[sortColumn]} ${direction}`;
-        }
-      }
-      query += ` ${orderByClause}`;
-
-      query += ` OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`;
-
       const queryParams = {
-        codalm: codalmFormatted,
         offset,
         pageSize: pageSizeNum
       };
+
       if (searchTerm) {
         queryParams.search = `%${searchTerm}%`;
       }
 
       const data = await executeQueryWithParams(query, queryParams, req.db_name);
 
-      let countQuery = `
+      // Count query must also use the function logic to be accurate with filters
+      // Note: Performance might be impacted if function is heavy.
+      const countQuery = `
+        DECLARE @margen_minimo decimal(10,2) = 0.10;
+        DECLARE @tarifa_cliente char(2) = '01';
+        DECLARE @almacen char(3);
+        DECLARE @Tarifa char(2) = @tarifa_cliente;
+        SELECT @margen_minimo = lismargen, @almacen = codalm FROM inv_listaprecios WHERE codtar = @Tarifa;
+
         SELECT COUNT(*) as total
-        FROM ${TABLE_NAMES.productos} ins
-        WHERE ins.activo = 1
+        FROM dbo.fn_obtener_insumos_servicios(@margen_minimo, @almacen, @Tarifa) AS src
+        WHERE 1=1 
+        ${searchTerm ? "AND (src.nomins LIKE @search OR src.codins LIKE @search OR src.referencia LIKE @search)" : ""}
       `;
-      if (searchTerm) {
-        countQuery += ` AND (ins.nomins LIKE @search OR ins.referencia LIKE @search OR ins.codins LIKE @search)`;
-      }
 
       const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {}, req.db_name);
       const totalRecords = countResult[0]?.total || 0;
@@ -143,6 +148,7 @@ const productController = {
       });
     }
   },
+
 
   /**
    * Get all services with pagination
@@ -360,11 +366,13 @@ const productController = {
 
         } else {
           // Insert Product
+          const undinsVal = codMedida === '001' ? 'HORA' : (codMedida === '002' ? 'DIA' : 'UND');
+          
           const query = `
             INSERT INTO ${TABLE_NAMES.productos}
-            (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, karins, activo, codigo_linea, codigo_sublinea, costo_promedio, precio_publico)
+            (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, undins, karins, activo, codigo_linea, codigo_sublinea, costo_promedio, precio_publico)
             VALUES
-            (@code, @nombre, @iva, @precio, @referencia, @medida, @karins, 1, '01', @sublinea, @precio, @precio)
+            (@code, @nombre, @iva, @precio, @referencia, @medida, @undins, @karins, 1, '01', @sublinea, @precio, @precio)
           `;
           request.input('code', sql.VarChar(20), nextCode);
           request.input('nombre', sql.VarChar(255), nombre || 'Nuevo Producto');
@@ -372,26 +380,37 @@ const productController = {
           request.input('precio', sql.Decimal(18, 2), precioVal);
           request.input('referencia', sql.VarChar(50), referencia || '');
           request.input('medida', sql.VarChar(5), codMedida);
+          request.input('undins', sql.VarChar(10), undinsVal);
           request.input('karins', sql.Bit, controlaExistencia ? 1 : 0);
           request.input('sublinea', sql.VarChar(5), idSublineas ? String(idSublineas) : '01');
+
+          console.log('[ProductController] Ejecutando INSERT Producto:', {
+            code: nextCode,
+            nombre,
+            undinsVal,
+            sublinea: idSublineas ? String(idSublineas) : '01'
+          });
 
           await request.query(query);
 
           // Initial stock record? (inv_invent)
           const initialStock = (controlaExistencia && !isNaN(controlaExistencia)) ? parseFloat(controlaExistencia) : 0;
+          // Solo si hay stock inicial explicito O es un servicio tangible que se quiere controlar
+          const stockInicialInput = req.body.stock; // Obtener stock directo del input (si existe)
+          const finalStock = stockInicialInput ? parseFloat(stockInicialInput) : initialStock;
 
-          if (initialStock > 0 || (controlaExistencia && Number(controlaExistencia) !== 0)) {
+          if (finalStock > 0 || (controlaExistencia && Number(controlaExistencia) !== 0)) {
             const reqStock = new sql.Request(transaction);
             reqStock.input('codins', sql.VarChar(20), nextCode); // nextCode is the new codins
-            reqStock.input('cantidad', sql.Decimal(18, 2), initialStock);
+            reqStock.input('cantidad', sql.Decimal(18, 2), finalStock);
             reqStock.input('codalm', sql.VarChar(5), '01'); // Default warehouse
 
             // Check if it already exists (unlikely for new product, but safe)
             const checkStock = await reqStock.query(`SELECT 1 FROM inv_invent WHERE codins = @codins AND codalm = '01'`);
             if (checkStock.recordset.length === 0) {
               await reqStock.query(`
-                    INSERT INTO inv_invent (codalm, codins, caninv, ucoins, invfis)
-                    VALUES (@codalm, @codins, @cantidad, 0, 0)
+                    INSERT INTO inv_invent (codalm, codins, caninv, ucoins)
+                    VALUES (@codalm, @codins, @cantidad, 0)
                  `);
             }
           }
@@ -401,13 +420,14 @@ const productController = {
         res.json({ success: true, message: `${isService ? 'Servicio' : 'Producto'} creado correctamente`, data: { id: nextCode, codigo: nextCode } });
 
       } catch (err) {
+        console.error('[ProductController] Error en transacción SQL:', err);
         await transaction.rollback();
         throw err;
       }
 
     } catch (error) {
       console.error('Error creating product/service:', error);
-      res.status(500).json({ success: false, message: 'Error al crear', error: error.message });
+      res.status(500).json({ success: false, message: 'Error al crear: ' + error.message, error: error.message, stack: process.env.NODE_ENV === 'development' ? error.stack : undefined });
     }
   },
 
@@ -467,6 +487,92 @@ const productController = {
     } catch (error) {
       console.error('Error in searchProducts:', error);
       res.status(500).json({ success: false, message: 'Error en búsqueda de productos', error: error.message });
+    }
+  },
+  searchProductsCustom: async (req, res) => {
+    try {
+      const { search = '', limit = 20 } = req.query;
+      if (String(search).trim().length < 2) {
+        return res.status(400).json({ success: false, message: 'Ingrese al menos 2 caracteres' });
+      }
+
+      const query = `
+        DECLARE @margen_minimo decimal(10,2) = 0.10;
+        DECLARE @tarifa_cliente char(2) = '01'; -- Default fixed as per requirement
+
+        DECLARE @almacen char(3);
+        DECLARE @Tarifa char(2) = @tarifa_cliente;
+        DECLARE @controla_existencia integer = 1;
+
+        SELECT @margen_minimo = lismargen, @almacen = codalm 
+        FROM inv_listaprecios 
+        WHERE codtar = @Tarifa;
+
+        DECLARE @Incluir_Iva bit;
+        SELECT @Incluir_Iva = ISNULL(IvaIncluido, 0) FROM ven_parametros;
+
+        SELECT TOP (@limit) 
+          -- Campos originales requeridos con redondeo
+          CAST(src.codins AS VARCHAR(50)) as codins,
+          CAST(src.nomins AS VARCHAR(255)) as nomins,
+          CAST(src.tasa_iva AS DECIMAL(18,2)) as tasa_iva,
+          CAST(src.undins AS VARCHAR(10)) as undins,
+          CAST(src.caninv AS DECIMAL(18,2)) as caninv,
+          CAST(src.Valinv AS DECIMAL(18,2)) as Valinv,
+          CAST(src.Precio_Venta AS DECIMAL(18,2)) as Precio_Venta,
+          CAST(src.margen_venta AS DECIMAL(18,2)) as margen_venta,
+          CAST(src.tasa_descuento AS DECIMAL(18,2)) as tasa_descuento,
+          CAST(src.precio_base AS DECIMAL(18,2)) as precio_base,
+          CAST(src.precio_lista AS DECIMAL(18,2)) as precio_lista,
+          CAST(src.referencia AS VARCHAR(100)) as referencia,
+          CAST(src.unimedida AS VARCHAR(10)) as unimedida,
+          src.padre,
+          CAST(src.canmed AS DECIMAL(18,2)) as canmed,
+          src.abreviatura,
+          src.servicio,
+          src.karins,
+          src.cuenta_compras,
+          src.Cuenta_ventas,
+          src.Cuenta_Iva,
+          CAST(src.costo_producto AS DECIMAL(18,2)) as costo_producto,
+          src.Cuenta_costo_ventas,
+          src.nommedida,
+          src.permite_cambio,
+          @Incluir_Iva as Precio_Iva,
+
+          -- Mapeos para compatibilidad con Frontend
+          src.codins as codigo,
+          src.nomins as nombre,
+          CAST(src.costo_producto AS DECIMAL(18,2)) as ultimoCostoCompra, -- Costo real
+          -- EL usuario especificó: "para el precio a la venta debes tomar Precio_Venta y ese es el precio que va a salir para todos los campos"
+          CAST(src.Precio_Venta AS DECIMAL(18,2)) as ultimoCosto, -- Usamos Precio_Venta como "precio base/costo" para el frontend si así lo pide
+          CAST(src.Precio_Venta AS DECIMAL(18,2)) as precioConIva, -- Precio final
+          CAST(src.Precio_Venta AS DECIMAL(18,2)) as precioPublico,
+          CAST(src.caninv AS DECIMAL(18,2)) as stock,
+          src.undins as unidadMedidaCodigo,
+          src.nommedida as unidadMedidaNombre,
+          CAST(src.tasa_iva AS DECIMAL(18,2)) as tasaIva,
+          CASE 
+              WHEN LTRIM(RTRIM(src.undins)) = 'UND' THEN 'UNIDAD'
+              WHEN LTRIM(RTRIM(src.undins)) = 'HORA' THEN 'HORA'
+              WHEN LTRIM(RTRIM(src.undins)) = 'DIA' THEN 'DIA'
+              ELSE src.nommedida 
+          END as unidadMedida
+
+        FROM dbo.fn_obtener_insumos_servicios(@margen_minimo, @almacen, @Tarifa) AS src
+        WHERE src.nomins LIKE @search OR src.codins LIKE @search OR src.referencia LIKE @search
+      `;
+
+      const data = await executeQueryWithParams(query, {
+        search: `%${search}%`,
+        limit: Math.min(parseInt(limit) || 20, 100)
+      }, req.db_name);
+
+      res.json({ success: true, data });
+
+    } catch (error) {
+      console.error('Error in searchProductsCustom:', error);
+      res.status(500).json({ success: false, message: 'Error en búsqueda personalizada de productos', error: error.message });
     }
   },
   /**

@@ -342,6 +342,11 @@ const invoiceController = {
   createInvoice: async (req, res) => {
     const body = req.body || {};
     console.log('📥 Recibida solicitud POST /api/facturas');
+
+    // MODO SP: Si viene isDirectInvoice, usamos el procedimiento almacenado especial
+    if (body.isDirectInvoice) {
+      return invoiceController.createDirectInvoiceSP(req, res);
+    }
     try {
       const {
         numeroFactura, fechaFactura, fechaVencimiento,
@@ -1666,6 +1671,253 @@ const invoiceController = {
     } catch (error) {
       console.error('Error en generatePreviewPdf:', error);
       res.status(500).json({ success: false, message: 'Error interno generando PDF', error: error.message });
+    }
+  },
+
+  // Método especial para crear factura usando el Procedimiento Almacenado
+  createDirectInvoiceSP: async (req, res) => {
+    const body = req.body || {};
+    try {
+      const {
+        clienteId, vendedorId, fechaFactura, subtotal, ivaValor, total,
+        observaciones = '', codalm = '001', items = [],
+        formaPago, efectivo = 0, credito = 0, transferencia = 0,
+        tarjetaCredito = 0, tarjetaDebito = 0, cheques = 0,
+        resolucionDian, // Podría ser '09' o '98' etc
+        valorDomicilio = 0, cufe = '',
+        retencionValor = 0, retencionICA = 0, retencionIVA = 0,
+        descuentoValor = 0, aplicarRetencion = false,
+        vendedorCode, // codven
+        lugarEntrega = '', orden = '', codtar = '01',
+        usuarioId = 'SISTEMA', fechaVencimiento
+      } = body;
+
+      const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
+
+      // Helper para redondeo
+      const round = (val, decimals = 2) => {
+        const factor = Math.pow(10, decimals);
+        return Math.round((parseFloat(val) || 0) * factor) / factor;
+      };
+
+      // Helper para redondeo entero (Numeric X, 0)
+      const roundInt = (val) => Math.round(parseFloat(val) || 0);
+
+      // --- 1. Obtener Cuentas Contables para Pagos ---
+      let cuentaGeneralCaja = '11050501';
+      let cuentaCartera = '13050501';
+      let cuentaBancoDefault = '11100501';
+      let codcbaCaja = '9001';
+      let codcbaBanco = '0701';
+
+      try {
+        // Buscar parámetros generales para cuenta de cartera
+        const paramRes = await pool.request().query('SELECT TOP 1 cuenta_cartera FROM gen_parametros_ventas');
+        if (paramRes.recordset.length > 0) {
+          cuentaCartera = paramRes.recordset[0].cuenta_cartera || cuentaCartera;
+        }
+
+        // Buscar cuenta de caja para el almacén (90 + sufijo almacén)
+        const sufijoAlm = String(codalm || '001').substring(1); // ej: '001' -> '01'
+        codcbaCaja = `90${sufijoAlm}`;
+        const cajaRes = await pool.request().query(`SELECT codcue FROM tes_cuenban WHERE codcba = '${codcbaCaja}'`);
+        if (cajaRes.recordset.length > 0) {
+          cuentaGeneralCaja = cajaRes.recordset[0].codcue;
+        }
+
+        // Buscar un banco por defecto para transferencia
+        const bancoRes = await pool.request().query(`SELECT TOP 1 codcba, codcue FROM tes_cuenban WHERE codcba NOT LIKE '90%'`);
+        if (bancoRes.recordset.length > 0) {
+          codcbaBanco = bancoRes.recordset[0].codcba;
+          cuentaBancoDefault = bancoRes.recordset[0].codcue;
+        }
+      } catch (e) {
+        console.error('⚠️ Error resolviendo cuentas contables:', e.message);
+      }
+
+      // --- 2. Preparar JSON de Pagos ---
+      const pagosArray = [];
+      const fechaActualStr = (fechaFactura ? new Date(fechaFactura) : new Date()).toISOString().split('T')[0];
+
+      const addPago = (tipo, valor, nombre, fixedCodcba, fixedCodcue) => {
+        if (parseFloat(valor) > 0) {
+          pagosArray.push({
+            DETAPAGO: {
+              formapago: tipo,
+              valor: round(valor, 2),
+              fecha: fechaActualStr,
+              nombre: nombre,
+              bco: fixedCodcba || '90',
+              cheque: (tipo === 'EF' ? 'EFECTIVO' : ''),
+              franquicia: '',
+              codcue: fixedCodcue || ''
+            }
+          });
+        }
+      };
+
+      addPago('EF', efectivo, 'EFECTIVO', codcbaCaja, cuentaGeneralCaja);
+      addPago('CR', credito, 'CREDITO', '0', cuentaCartera);
+      addPago('TB', transferencia, 'TRANSFERENCIA', codcbaBanco, cuentaBancoDefault);
+      addPago('TC', tarjetaCredito, 'TARJETA CR', codcbaBanco, cuentaBancoDefault);
+      addPago('TD', tarjetaDebito, 'TARJETA DB', codcbaBanco, cuentaBancoDefault);
+
+      if (pagosArray.length === 0 && total > 0) {
+        if (formaPago === '02') {
+          addPago('CR', total, 'CREDITO', '0', cuentaCartera);
+        } else {
+          addPago('EF', total, 'EFECTIVO', codcbaCaja, cuentaGeneralCaja);
+        }
+      }
+
+      const pagosJson = JSON.stringify(pagosArray);
+
+      // --- 2. Preparar JSON de Detalle ---
+      const detalleArray = items.map(item => {
+        const base = round(item.precioUnitario * item.cantidad);
+        return {
+          detalle_fac: {
+            numped: '',
+            codins: String(item.codProducto || item.referencia || '').trim().substring(0, 8),
+            undvta: String(item.unidadMedida || 'UND').trim().substring(0, 3),
+            factor: 1,
+            cantidad: round(item.cantidad, 2), // Reducido a 2 decimales
+            codalm: String(codalm).substring(0, 3),
+            preciound: round(item.precioUnitario, 2),
+            valunitario: round(item.precioUnitario, 2),
+            precio_base: round(item.precioUnitario, 2),
+            precio_lista: round(item.precioUnitario, 2),
+            costo_unidad: round(item.costo, 2),
+            tasa_iva: round(item.ivaPorcentaje, 2),
+            valor_iva: round(item.valorIva, 2),
+            valor_parcial: round(base, 2),
+            codmedida_vta: String(item.unidadMedida || 'UND').trim().substring(0, 3),
+            qtyvta: round(item.cantidad, 2),
+            cosvta: round(item.costo, 2),
+            tasa_descuento: round(item.descuentoPorcentaje, 2),
+            codusuario: String(usuarioId).substring(0, 10),
+            base_retencion: 0,
+            tasa_retencion: 0,
+            valdescuento: round(item.descuentoValor, 2),
+            totdescuento: round(item.descuentoValor, 2),
+            excedente: 0,
+            tasa_reteica: 0,
+            tasa_reteiva: 0
+          }
+        };
+      });
+
+      const detalleJson = JSON.stringify(detalleArray);
+
+      // --- 3. Obtener Resolución Activa si es necesario ---
+      let codigoDianFinal = resolucionDian;
+      let claseDianFinal = 'FE'; // Valor por defecto según DB
+
+      if (!codigoDianFinal || codigoDianFinal === '98' || codigoDianFinal === 'AUTO') {
+        const resQuery = await pool.request()
+          .query(`SELECT TOP 1 codigo, clase FROM Dian_Resoluciones WHERE activa = 1 AND Codalm = '${codalm.substring(0, 3)}'`);
+
+        if (resQuery.recordset.length > 0) {
+          codigoDianFinal = resQuery.recordset[0].codigo;
+          claseDianFinal = resQuery.recordset[0].clase;
+          console.log(`📌 Usando resolución activa encontrada: ${codigoDianFinal} (${claseDianFinal})`);
+        } else {
+          // Fallback final si no hay activa
+          codigoDianFinal = codigoDianFinal || '09';
+          claseDianFinal = 'FE';
+        }
+      }
+
+      // --- 4. Ejecutar el Store Procedure ---
+      const request = new sql.Request(pool);
+
+      request.input('codalm', sql.Char(3), String(codalm).substring(0, 3));
+      request.input('codter', sql.VarChar(15), String(clienteId).substring(0, 15));
+      request.input('fecha', sql.DateTime, fechaFactura ? new Date(fechaFactura) : new Date());
+      request.input('codven', sql.Char(3), String(vendedorId || vendedorCode || '001').substring(0, 3));
+      request.input('tipfac', sql.Char(2), formaPago === '02' ? 'FC' : 'FV');
+      request.input('subtotal', sql.Numeric(18, 2), round(subtotal));
+      request.input('Totdescuento', sql.Numeric(18, 2), round(descuentoValor));
+      request.input('total_iva', sql.Numeric(18, 2), round(ivaValor));
+      request.input('anticipo_aplicado', sql.Numeric(18, 2), 0);
+      request.input('valdomicilio', sql.Numeric(18, 0), roundInt(valorDomicilio));
+      request.input('total_factura', sql.Numeric(18, 2), round(total));
+      request.input('Aplicar_Retencion', sql.Bit, aplicarRetencion ? 1 : 0);
+      request.input('codusu', sql.Char(10), String(usuarioId).substring(0, 10));
+
+      request.input('codigo_dian', sql.Char(2), String(codigoDianFinal).substring(0, 2));
+      request.input('clase', sql.Char(2), String(claseDianFinal).substring(0, 2));
+
+      request.input('venfac', sql.DateTime, fechaVencimiento ? new Date(fechaVencimiento) : (fechaFactura ? new Date(fechaFactura) : new Date()));
+      request.input('valcosto', sql.Numeric(18, 2), round(body.valcosto || 0));
+      request.input('valret', sql.Numeric(18, 2), round(retencionValor));
+      request.input('Tasaret', sql.Numeric(5, 2), round(body.Tasaret || 0));
+      request.input('valrica', sql.Numeric(12, 0), roundInt(retencionICA));
+      request.input('valriva', sql.Numeric(12, 0), roundInt(retencionIVA));
+      request.input('observa', sql.VarChar(150), String(observaciones || 'Factura Directa').substring(0, 150));
+      request.input('Lugar_Entrega', sql.NVarChar(50), String(lugarEntrega).substring(0, 50));
+      request.input('orden', sql.NVarChar(10), String(orden).substring(0, 10));
+      request.input('codtar', sql.VarChar(2), String(codtar).substring(0, 2));
+      request.input('CUFE', sql.VarChar(100), cufe ? String(cufe).substring(0, 100) : null);
+
+      request.input('pagos', sql.NVarChar(sql.MAX), pagosJson);
+      request.input('DETALLE', sql.NVarChar(sql.MAX), detalleJson);
+
+      const fs = require('fs');
+      const path = require('path');
+      const logFile = path.join(process.cwd(), 'sp_execution.log');
+
+      const logMsg = `[${new Date().toISOString()}] 🚀 Ejecutando SP para cliente ${clienteId}\n📄 CUFE: ${cufe}\n📄 Pagos: ${pagosJson}\n📄 Detalle: ${detalleJson}\n`;
+      fs.appendFileSync(logFile, logMsg);
+
+      console.log('� Preparando ejecución SP Sp_Grabar_Factura_Venta para cliente', clienteId);
+
+      const result = await request.execute('Sp_Grabar_Factura_Venta');
+
+      console.log('📦 Resultado del SP:', JSON.stringify(result.recordset, null, 2));
+      fs.appendFileSync(logFile, `📦 Resultado: ${JSON.stringify(result.recordset, null, 2)}\n`);
+
+      const firstRow = result.recordset && result.recordset[0];
+      const newId = firstRow && (firstRow.id || firstRow.ID || firstRow.id_factura || firstRow.ID_FACTURA);
+
+      if (!newId || newId === 0) {
+        const errorMsg = firstRow && (firstRow.Message || firstRow.message || 'Error desconocido en el SP');
+        fs.appendFileSync(logFile, `❌ El SP no devolvió un ID válido. Fila: ${JSON.stringify(firstRow)}\n`);
+        console.error('❌ El SP no devolvió un ID válido. Fila de resultado:', firstRow);
+        throw new Error(errorMsg);
+      }
+
+      console.log('✅ Factura grabada exitosamente via SP. ID:', newId);
+      fs.appendFileSync(logFile, `✅ Éxito! ID: ${newId}\n\n`);
+
+      res.json({ success: true, message: 'Factura creada exitosamente mediante SP', data: { id: newId } });
+
+    } catch (error) {
+      console.error('❌ Error ejecutando SP Sp_Grabar_Factura_Venta:', error);
+
+      const fs = require('fs');
+      const path = require('path');
+      const logFile = path.join(process.cwd(), 'sp_execution.log');
+
+      const errorDetail = {
+        message: error.message,
+        code: error.code,
+        number: error.number,
+        state: error.state,
+        lineNumber: error.lineNumber,
+        procName: error.procName,
+        precedingErrors: error.precedingErrors,
+        originalError: error.originalError
+      };
+
+      fs.appendFileSync(logFile, `❌ ERROR: ${JSON.stringify(errorDetail, null, 2)}\n\n`);
+
+      res.status(500).json({
+        success: false,
+        message: 'Error al grabar factura mediante SP',
+        error: error.message,
+        details: error
+      });
     }
   }
 };

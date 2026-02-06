@@ -73,7 +73,6 @@ const QUERIES = {
       codven as vendedorId,
       COALESCE(cupo_credito, 0) as limiteCredito,
       COALESCE(plazo, 0) as diasCredito,
-      COALESCE(tasa_descuento, 0) as tasaDescuento,
       Forma_pago as formaPago,
       regimen_tributario as regimenTributario,
       CAST(activo AS INT) as activo,
@@ -287,11 +286,11 @@ const QUERIES = {
       LTRIM(RTRIM(c.codven)) AS codVendedor,
       c.codalm               AS codalm,
       c.codalm               AS empresaId,
-      -- Totales calculados de detalles (dctdet e ivadet son PORCENTAJES)
-      (SELECT SUM(candet * vundet) FROM ven_detacotiz WHERE numcot = c.numcot) AS subtotal,
-      (SELECT SUM((candet * vundet) * (COALESCE(dctdet, 0) / 100.0)) FROM ven_detacotiz WHERE numcot = c.numcot) AS descuentoValor,
-      (SELECT SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (COALESCE(ivadet, 0) / 100.0)) FROM ven_detacotiz WHERE numcot = c.numcot) AS ivaValor,
-      (SELECT SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (1 + (COALESCE(ivadet, 0) / 100.0))) FROM ven_detacotiz WHERE numcot = c.numcot) AS total,
+      -- Totales calculados de detalles (dctdet e ivadet son PORCENTAJES) - OPTIMIZADO CON LEFT JOIN
+      COALESCE(totals.subtotal, 0) AS subtotal,
+      COALESCE(totals.descuentoValor, 0) AS descuentoValor,
+      COALESCE(totals.ivaValor, 0) AS ivaValor,
+      COALESCE(totals.total, 0) AS total,
       c.observa              AS observaciones,
       c.estcot               AS estado,
       c.formapago            AS formaPago,
@@ -309,6 +308,16 @@ const QUERIES = {
       NULL                   AS approvedItems
     FROM ${TABLE_NAMES.cotizaciones} c
     LEFT JOIN ${TABLE_NAMES.clientes} cli ON RTRIM(LTRIM(cli.codter)) = RTRIM(LTRIM(c.codter))
+    LEFT JOIN (
+      SELECT 
+        numcot,
+        SUM(candet * vundet) AS subtotal,
+        SUM((candet * vundet) * (COALESCE(dctdet, 0) / 100.0)) AS descuentoValor,
+        SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (COALESCE(ivadet, 0) / 100.0)) AS ivaValor,
+        SUM(((candet * vundet) * (1 - (COALESCE(dctdet, 0) / 100.0))) * (1 + (COALESCE(ivadet, 0) / 100.0))) AS total
+      FROM ven_detacotiz
+      GROUP BY numcot
+    ) totals ON totals.numcot = c.numcot
     ORDER BY c.feccot DESC, c.numcot DESC
   `,
 
