@@ -1,0 +1,811 @@
+======================================================================
+1. DEFINICIÓN DE LA FUNCIÓN fn_obtener_insumos_servicios
+======================================================================
+
+create FUNCTION [dbo].[fn_obtener_insumos_servicios] (
+    @margen_global Numeric(10,2),
+    @sede char(3),
+    @tarifa char(2)
+)
+RETURNS TABLE
+AS
+RETURN
+( SELECT 
+        codins,
+        nomins,
+        tasa_iva,
+        unidad as undins,
+        existencia as caninv,
+        costo as Valinv,
+        ROUND(Precio_base, 2) as Precio_Venta,
+        margen_venta,
+        tasa_descuento,
+        precio_base,
+        precio_lista,
+        REFERENCIA as referencia,
+        codigo_medida as unimedida,
+        padre,
+        qtypadre as canmed,
+        abreviatura,
+        servicio,
+        karins,
+        cuenta_compras,
+        Cuenta_ventas,
+		CuentaIva_Ventas as Cuenta_Iva,
+		costo as costo_producto,
+        Cuenta_Costos as Cuenta_costo_ventas,
+        nommedida,
+        permite_cambio
+    FROM tarifas(@sede, @tarifa, @margen_global, 1)
+    WHERE existencia > 0 
+    AND costo > 0 
+    AND Precio_base > 0
+union all
+SELECT 
+        codins,
+        nomser as nomins,
+        ivaser as Tasa_iva,
+        'UND' as undins,
+        1 as caninv,
+        0 as valinv,
+		valser as precio_venta,
+        0.00 as margen_venta,
+        0.00 as tasa_descuento,
+        valser as precio_base,
+		valser as precio_lista,
+        REFSER as Referencia,
+        '001' as unimedida,
+        '001' as padre,
+        1 as canmed,
+        'UND' as abreviatura,
+        1 as servicio,
+        0 as karins,
+        '' as cuenta_compras,
+        codcue as cuenta_ventas,
+		IFP.CuentaIva_Ventas as Cuenta_Iva,
+		0 as costo_producto,
+        '' as Cuenta_costo_ventas,
+        'UNIDAD' as nommedida,
+        1 as permite_cambio
+    FROM ven_servicios S
+	left join con_interfaz_producto IFP on IFP.Codigo=S.CODIGO_INTERFASE
+);
+
+
+======================================================================
+2. ESTRUCTURA DE LA TABLA inv_insumos
+======================================================================
+id                             int                NOT NULL
+codins                         char(8)             NOT NULL DEFAULT ('')
+nomins                         varchar(150)           NOT NULL DEFAULT ('')
+ultimo_costo                   numeric                NULL DEFAULT ((0))
+codigo_linea                   char(3)             NOT NULL DEFAULT ('')
+codigo_sublinea                char(3)             NOT NULL DEFAULT ('')
+codigo_interfase               char(2)             NULL DEFAULT ('')
+Codigo_Medida                  nchar(3)             NULL DEFAULT ('')
+unidades_empaque               int                NOT NULL DEFAULT ((0))
+tipo_producto                  char(2)             NULL DEFAULT ('')
+codmarca                       char(3)             NULL
+tasa_iva                       numeric                NOT NULL DEFAULT ((0))
+undins                         char(3)             NULL DEFAULT ('')
+tasa_retencion                 numeric                NULL DEFAULT ((0))
+Tasa_ICO                       decimal                NULL DEFAULT ((0))
+costo_promedio                 numeric                NOT NULL DEFAULT ((0))
+cuenta_compras                 char(8)             NULL DEFAULT ('')
+cuenta_ventas                  char(8)             NULL DEFAULT ('')
+cuenta_costo_ventas            char(8)             NULL DEFAULT ('')
+codter                         varchar(15)            NULL DEFAULT ('')
+costo_dolares                  numeric                NULL DEFAULT ((0))
+INSUMO_VENTA                   bit                NULL DEFAULT ((0))
+MARGEN_VENTA                   numeric                NULL DEFAULT ((0))
+precio_mayorista               numeric                NULL DEFAULT ((0))
+precio_minorista               numeric                NULL DEFAULT ((0))
+precio_publico                 numeric                NULL DEFAULT ((0))
+referencia                     varchar(35)            NULL DEFAULT ('')
+karins                         bit                NULL DEFAULT ((0))
+dias_garantia                  int                NULL DEFAULT ((0))
+activo                         bit                NULL DEFAULT ((0))
+codusu                         char(10)            NULL DEFAULT ('')
+fecsys                         datetime                NULL
+ruta_grafico                   text(2147483647)    NULL DEFAULT ('')
+ACTIVO_EMPRESA                 bit                NULL DEFAULT ((0))
+
+======================================================================
+3. ESTRUCTURA DE LA TABLA inv_listaprecios
+======================================================================
+codtar                         char(2)             NOT NULL DEFAULT ('')
+nomtar                         char(60)            NOT NULL DEFAULT ('')
+codalm                         char(3)             NULL DEFAULT ('')
+ivains                         numeric                NULL DEFAULT ((0))
+lismargen                      numeric                NULL DEFAULT ((0))
+actualiza                      bit                NULL DEFAULT ((0))
+pordes                         numeric                NULL DEFAULT ((0))
+vigente                        bit                NULL DEFAULT ((0))
+Margen1                        numeric                NULL DEFAULT ((0))
+Margen2                        numeric                NULL DEFAULT ((0))
+Margen3                        numeric                NULL DEFAULT ((0))
+Margen4                        numeric                NULL DEFAULT ((0))
+FORMA_PAGO                     int                NULL DEFAULT ((0))
+
+======================================================================
+4. ESTRUCTURA DE LA TABLA inv_detaprecios
+======================================================================
+id                             int                NOT NULL
+codtar                         char(2)             NOT NULL
+codins                         char(8)             NOT NULL
+valins                         numeric                NULL DEFAULT ((0))
+valsug                         numeric                NULL DEFAULT ((0))
+margen                         numeric                NULL DEFAULT ((0))
+TASA_DESCUENTO                 numeric                NULL DEFAULT ((0))
+
+======================================================================
+5. DATOS DE inv_listaprecios
+======================================================================
+[
+  {
+    "codtar": "03",
+    "nomtar": "LISTA DE PRECIOS -DETAL                                     ",
+    "codalm": "001",
+    "ivains": 0,
+    "lismargen": 30,
+    "actualiza": true,
+    "pordes": 0,
+    "vigente": true,
+    "Margen1": 0,
+    "Margen2": 0,
+    "Margen3": 0,
+    "Margen4": 0,
+    "FORMA_PAGO": 0
+  },
+  {
+    "codtar": "01",
+    "nomtar": "LISTA DE PRECIOS MAYORISTA                                  ",
+    "codalm": "001",
+    "ivains": 0,
+    "lismargen": 20,
+    "actualiza": true,
+    "pordes": 0,
+    "vigente": true,
+    "Margen1": 0,
+    "Margen2": 0,
+    "Margen3": 0,
+    "Margen4": 0,
+    "FORMA_PAGO": 0
+  },
+  {
+    "codtar": "04",
+    "nomtar": "LISTA DE PRECIOS MAYORISTA BODEGA                           ",
+    "codalm": "002",
+    "ivains": 0,
+    "lismargen": 20,
+    "actualiza": true,
+    "pordes": 0,
+    "vigente": true,
+    "Margen1": 0,
+    "Margen2": 0,
+    "Margen3": 0,
+    "Margen4": 0,
+    "FORMA_PAGO": 0
+  }
+]
+
+======================================================================
+6. PARÁMETROS DEL SISTEMA (ven_parametros)
+======================================================================
+[]
+
+======================================================================
+7. EJEMPLO DE DATOS EN inv_insumos (primeros 5)
+======================================================================
+[
+  {
+    "id": 41574,
+    "codins": "01010001",
+    "nomins": "BICICLETA INFANTIL 12 GW NIÑO SHADOW,COLORES",
+    "ultimo_costo": 213750,
+    "codigo_linea": "01 ",
+    "codigo_sublinea": "01 ",
+    "codigo_interfase": "02",
+    "Codigo_Medida": "001",
+    "unidades_empaque": 1,
+    "tipo_producto": "01",
+    "codmarca": "012",
+    "tasa_iva": 0,
+    "undins": "Und",
+    "tasa_retencion": 2.5,
+    "Tasa_ICO": 0,
+    "costo_promedio": 186000,
+    "cuenta_compras": "        ",
+    "cuenta_ventas": "41353511",
+    "cuenta_costo_ventas": "61350505",
+    "codter": " ",
+    "costo_dolares": 0,
+    "INSUMO_VENTA": true,
+    "MARGEN_VENTA": 0,
+    "precio_mayorista": 0,
+    "precio_minorista": 0,
+    "precio_publico": 0,
+    "referencia": "060467                             ",
+    "karins": true,
+    "dias_garantia": 0,
+    "activo": true,
+    "codusu": "ADMIN     ",
+    "fecsys": "2021-02-10T09:56:32.543Z",
+    "ruta_grafico": "",
+    "ACTIVO_EMPRESA": true
+  },
+  {
+    "id": 41575,
+    "codins": "01010002",
+    "nomins": "BICICLETA 12 NIÑA DRIVE",
+    "ultimo_costo": 220000,
+    "codigo_linea": "01 ",
+    "codigo_sublinea": "01 ",
+    "codigo_interfase": "02",
+    "Codigo_Medida": "001",
+    "unidades_empaque": 1,
+    "tipo_producto": "01",
+    "codmarca": "008",
+    "tasa_iva": 0,
+    "undins": "Und",
+    "tasa_retencion": 2.5,
+    "Tasa_ICO": 0,
+    "costo_promedio": 210000,
+    "cuenta_compras": "14350502",
+    "cuenta_ventas": "41353511",
+    "cuenta_costo_ventas": "61350505",
+    "codter": " ",
+    "costo_dolares": 0,
+    "INSUMO_VENTA": true,
+    "MARGEN_VENTA": 0,
+    "precio_mayorista": 0,
+    "precio_minorista": 0,
+    "precio_publico": 0,
+    "referencia": "R-01010002",
+    "karins": true,
+    "dias_garantia": 0,
+    "activo": true,
+    "codusu": "ADMIN     ",
+    "fecsys": "2021-02-10T09:56:32.543Z",
+    "ruta_grafico": "",
+    "ACTIVO_EMPRESA": true
+  },
+  {
+    "id": 41576,
+    "codins": "01010003",
+    "nomins": "BICICLETA 12 NIÑO (COLORES) NACIONAL",
+    "ultimo_costo": 152733,
+    "codigo_linea": "01 ",
+    "codigo_sublinea": "01 ",
+    "codigo_interfase": "02",
+    "Codigo_Medida": "001",
+    "unidades_empaque": 1,
+    "tipo_producto": "01",
+    "codmarca": "019",
+    "tasa_iva": 0,
+    "undins": "Und",
+    "tasa_retencion": 0,
+    "Tasa_ICO": 0,
+    "costo_promedio": 145000,
+    "cuenta_compras": "        ",
+    "cuenta_ventas": "41353511",
+    "cuenta_costo_ventas": "61350505",
+    "codter": " ",
+    "costo_dolares": 0,
+    "INSUMO_VENTA": true,
+    "MARGEN_VENTA": 0,
+    "precio_mayorista": 0,
+    "precio_minorista": 0,
+    "precio_publico": 0,
+    "referencia": "R-01010003",
+    "karins": true,
+    "dias_garantia": 0,
+    "activo": true,
+    "codusu": "ADMIN     ",
+    "fecsys": "2021-02-10T09:56:32.543Z",
+    "ruta_grafico": "",
+    "ACTIVO_EMPRESA": true
+  },
+  {
+    "id": 41577,
+    "codins": "01010004",
+    "nomins": "BICICLETA 12 NIÑA - NACIONAL / COLORES",
+    "ultimo_costo": 152733,
+    "codigo_linea": "01 ",
+    "codigo_sublinea": "01 ",
+    "codigo_interfase": "02",
+    "Codigo_Medida": "001",
+    "unidades_empaque": 1,
+    "tipo_producto": "01",
+    "codmarca": null,
+    "tasa_iva": 0,
+    "undins": "UND",
+    "tasa_retencion": 0,
+    "Tasa_ICO": 0,
+    "costo_promedio": 0,
+    "cuenta_compras": "        ",
+    "cuenta_ventas": "41353511",
+    "cuenta_costo_ventas": "61350505",
+    "codter": "",
+    "costo_dolares": 0,
+    "INSUMO_VENTA": false,
+    "MARGEN_VENTA": 0,
+    "precio_mayorista": 0,
+    "precio_minorista": 0,
+    "precio_publico": 0,
+    "referencia": "BIC012",
+    "karins": true,
+    "dias_garantia": 0,
+    "activo": true,
+    "codusu": "          ",
+    "fecsys": "2021-02-13T02:55:51.333Z",
+    "ruta_grafico": "",
+    "ACTIVO_EMPRESA": false
+  },
+  {
+    "id": 41578,
+    "codins": "01010005",
+    "nomins": "BICICLETA 12 BOY ON_TRAIL V-BRAKE,COLORES",
+    "ultimo_costo": 203036,
+    "codigo_linea": "01 ",
+    "codigo_sublinea": "01 ",
+    "codigo_interfase": "02",
+    "Codigo_Medida": "001",
+    "unidades_empaque": 1,
+    "tipo_producto": "01",
+    "codmarca": null,
+    "tasa_iva": 0,
+    "undins": "UND",
+    "tasa_retencion": 0,
+    "Tasa_ICO": 0,
+    "costo_promedio": 0,
+    "cuenta_compras": "        ",
+    "cuenta_ventas": "41353511",
+    "cuenta_costo_ventas": "61350505",
+    "codter": "",
+    "costo_dolares": 0,
+    "INSUMO_VENTA": false,
+    "MARGEN_VENTA": 0,
+    "precio_mayorista": 0,
+    "precio_minorista": 0,
+    "precio_publico": 0,
+    "referencia": "BIC0420",
+    "karins": true,
+    "dias_garantia": 0,
+    "activo": true,
+    "codusu": "          ",
+    "fecsys": "2021-08-27T00:07:48.920Z",
+    "ruta_grafico": "",
+    "ACTIVO_EMPRESA": false
+  }
+]
+
+======================================================================
+8. EJEMPLO DE DATOS EN inv_detaprecios (primeros 10)
+======================================================================
+[
+  {
+    "id": 5423213,
+    "codtar": "01",
+    "codins": "01010001",
+    "valins": 286250,
+    "valsug": 0,
+    "margen": 20,
+    "TASA_DESCUENTO": 0
+  },
+  {
+    "id": 5379158,
+    "codtar": "03",
+    "codins": "01010001",
+    "valins": 327140,
+    "valsug": 0,
+    "margen": 30,
+    "TASA_DESCUENTO": 0
+  },
+  {
+    "id": 4721411,
+    "codtar": "04",
+    "codins": "01010001",
+    "valins": 267190,
+    "valsug": 0,
+    "margen": 20,
+    "TASA_DESCUENTO": 0
+  },
+  {
+    "id": 5423006,
+    "codtar": "01",
+    "codins": "01010002",
+    "valins": 283750,
+    "valsug": 0,
+    "margen": 20,
+    "TASA_DESCUENTO": 0
+  },
+  {
+    "id": 5378952,
+    "codtar": "03",
+    "codins": "01010002",
+    "valins": 324290,
+    "valsug": 0,
+    "margen": 30,
+    "TASA_DESCUENTO": 0
+  },
+  {
+    "id": 4721216,
+    "codtar": "04",
+    "codins": "01010002",
+    "valins": 275000,
+    "valsug": 0,
+    "margen": 20,
+    "TASA_DESCUENTO": 0
+  },
+  {
+    "id": 5423009,
+    "codtar": "01",
+    "codins": "01010003",
+    "valins": 200000,
+    "valsug": 0,
+    "margen": 20,
+    "TASA_DESCUENTO": 0
+  },
+  {
+    "id": 5378955,
+    "codtar": "03",
+    "codins": "01010003",
+    "valins": 218190,
+    "valsug": 0,
+    "margen": 30,
+    "TASA_DESCUENTO": 0
+  },
+  {
+    "id": 4721219,
+    "codtar": "04",
+    "codins": "01010003",
+    "valins": 190920,
+    "valsug": 0,
+    "margen": 20,
+    "TASA_DESCUENTO": 0
+  },
+  {
+    "id": 5423005,
+    "codtar": "01",
+    "codins": "01010004",
+    "valins": 200000,
+    "valsug": 0,
+    "margen": 20,
+    "TASA_DESCUENTO": 0
+  }
+]
+
+======================================================================
+9. PRODUCTOS ACTIVOS SIN PRECIO EN inv_detaprecios para tarifa 01
+======================================================================
+Total productos sin precio: 4
+[
+  {
+    "codins": "9010011 ",
+    "nomins": "prueba",
+    "referencia": "123",
+    "activo": true,
+    "precio_publico": 100,
+    "ultimo_costo": 100
+  },
+  {
+    "codins": "9010012 ",
+    "nomins": "ARRIENDO BODEGA CALLE 35",
+    "referencia": "SS010001",
+    "activo": true,
+    "precio_publico": 4700000,
+    "ultimo_costo": 4700000
+  },
+  {
+    "codins": "9010013 ",
+    "nomins": "prueba",
+    "referencia": "1234",
+    "activo": true,
+    "precio_publico": 100,
+    "ultimo_costo": 100
+  },
+  {
+    "codins": "9010014 ",
+    "nomins": "prueba",
+    "referencia": "12357",
+    "activo": true,
+    "precio_publico": 1501,
+    "ultimo_costo": 1501
+  }
+]
+
+======================================================================
+10. RESULTADO DE LA FUNCIÓN fn_obtener_insumos_servicios
+======================================================================
+Parámetros utilizados:
+{
+  "margen_minimo": 20,
+  "almacen": "001",
+  "tarifa": "01",
+  "incluir_iva": null
+}
+
+Resultados de la función (primeros 10):
+[
+  {
+    "codins": "01010046",
+    "nomins": "TRICICLO PROFIT SPEEDY NIÑO TIPO MOTO COLORES",
+    "tasa_iva": 19,
+    "undins": "UND",
+    "caninv": 8,
+    "Valinv": 95000,
+    "Precio_Venta": 118750.42,
+    "margen_venta": 20.0002,
+    "tasa_descuento": 0,
+    "precio_base": 118750.42,
+    "precio_lista": 141313,
+    "referencia": "331005                             ",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350501",
+    "Cuenta_ventas": "41353505",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 95000,
+    "Cuenta_costo_ventas": "61350502",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  },
+  {
+    "codins": "01010049",
+    "nomins": "BICICLETA 12 ORACLE ZM BIKES JL-12 NIÑO_COLORES",
+    "tasa_iva": 0,
+    "undins": "UND",
+    "caninv": 4,
+    "Valinv": 125000,
+    "Precio_Venta": 170000,
+    "margen_venta": 26.4705,
+    "tasa_descuento": 0,
+    "precio_base": 170000,
+    "precio_lista": 170000,
+    "referencia": "JL-12                              ",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350502",
+    "Cuenta_ventas": "41353511",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 125000,
+    "Cuenta_costo_ventas": "61350505",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  },
+  {
+    "codins": "01020002",
+    "nomins": "BICICLETA INFANTIL 20 GW NIÑA CANDY COLORES",
+    "tasa_iva": 0,
+    "undins": "Und",
+    "caninv": 101,
+    "Valinv": 293550,
+    "Precio_Venta": 368000,
+    "margen_venta": 20.2309,
+    "tasa_descuento": 10,
+    "precio_base": 368000,
+    "precio_lista": 368000,
+    "referencia": "060377                             ",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350502",
+    "Cuenta_ventas": "41353511",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 293550,
+    "Cuenta_costo_ventas": "61350505",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  },
+  {
+    "codins": "01030005",
+    "nomins": "BICICLETA 20 NIÑA ACERO NACIONAL - COLORES",
+    "tasa_iva": 0,
+    "undins": "UND",
+    "caninv": 14,
+    "Valinv": 183708.91,
+    "Precio_Venta": 236650,
+    "margen_venta": 22.371,
+    "tasa_descuento": 11.2,
+    "precio_base": 236650,
+    "precio_lista": 236650,
+    "referencia": "BIC1002I                           ",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350502",
+    "Cuenta_ventas": "41353511",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 183708.91,
+    "Cuenta_costo_ventas": "61350505",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  },
+  {
+    "codins": "01030006",
+    "nomins": "BICICLETA 20 BMX F/DISCO NACIONAL,LLANTA FRESSTYLE",
+    "tasa_iva": 0,
+    "undins": "UND",
+    "caninv": 12,
+    "Valinv": 300864.16,
+    "Precio_Venta": 380000,
+    "margen_venta": 20.8252,
+    "tasa_descuento": 10,
+    "precio_base": 380000,
+    "precio_lista": 380000,
+    "referencia": "BIC0302                            ",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350502",
+    "Cuenta_ventas": "41353511",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 300864.16,
+    "Cuenta_costo_ventas": "61350505",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  },
+  {
+    "codins": "01030015",
+    "nomins": "BICICLETA 20 NIÑO V-BRAKE ACERO, NEW_NACIONAL",
+    "tasa_iva": 0,
+    "undins": "UND",
+    "caninv": 188,
+    "Valinv": 168645,
+    "Precio_Venta": 210810,
+    "margen_venta": 20.0014,
+    "tasa_descuento": 8,
+    "precio_base": 210810,
+    "precio_lista": 210810,
+    "referencia": "BIC2322                            ",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350502",
+    "Cuenta_ventas": "41353511",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 168645,
+    "Cuenta_costo_ventas": "61350505",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  },
+  {
+    "codins": "01030045",
+    "nomins": "BICICLETA 20 GW FRENO DISCO,LLANTA FREESTYLE",
+    "tasa_iva": 0,
+    "undins": "UND",
+    "caninv": 4,
+    "Valinv": 279209.7,
+    "Precio_Venta": 349010,
+    "margen_venta": 19.9995,
+    "tasa_descuento": 0,
+    "precio_base": 349010,
+    "precio_lista": 349010,
+    "referencia": "BIC20FRE                           ",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350502",
+    "Cuenta_ventas": "41353511",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 279209.7,
+    "Cuenta_costo_ventas": "61350505",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  },
+  {
+    "codins": "01030051",
+    "nomins": "BICICLETA 20 PROFIT MAGNIK MAG/ACERO 1VEL COLORES",
+    "tasa_iva": 0,
+    "undins": "UND",
+    "caninv": 2,
+    "Valinv": 334707,
+    "Precio_Venta": 420000,
+    "margen_venta": 20.3078,
+    "tasa_descuento": 0,
+    "precio_base": 420000,
+    "precio_lista": 420000,
+    "referencia": "33834                              ",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350502",
+    "Cuenta_ventas": "41353511",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 334707,
+    "Cuenta_costo_ventas": "61350505",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  },
+  {
+    "codins": "01040003",
+    "nomins": "BICICLETA 24 MTB NEW. 6 VEL. V-BRAKE, ACERO",
+    "tasa_iva": 0,
+    "undins": "UND",
+    "caninv": 5,
+    "Valinv": 216944.14,
+    "Precio_Venta": 280000,
+    "margen_venta": 22.5199,
+    "tasa_descuento": 0,
+    "precio_base": 280000,
+    "precio_lista": 280000,
+    "referencia": "BIC0930                            ",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350502",
+    "Cuenta_ventas": "41353511",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 216944.14,
+    "Cuenta_costo_ventas": "61350505",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  },
+  {
+    "codins": "01040004",
+    "nomins": "BICICLETA 24 MTB, DAMA 6VEL. V-BRAKE ACERO_NACIONAL",
+    "tasa_iva": 0,
+    "undins": "UND",
+    "caninv": 40,
+    "Valinv": 219000,
+    "Precio_Venta": 300000,
+    "margen_venta": 27,
+    "tasa_descuento": 0,
+    "precio_base": 300000,
+    "precio_lista": 300000,
+    "referencia": "BIC2331",
+    "unimedida": "001",
+    "padre": "001",
+    "canmed": 1,
+    "abreviatura": "UND",
+    "servicio": 0,
+    "karins": 1,
+    "cuenta_compras": "14350502",
+    "Cuenta_ventas": "41353511",
+    "Cuenta_Iva": "24080101",
+    "costo_producto": 219000,
+    "Cuenta_costo_ventas": "61350505",
+    "nommedida": "UNIDAD",
+    "permite_cambio": 0,
+    "Precio_Iva": null
+  }
+]

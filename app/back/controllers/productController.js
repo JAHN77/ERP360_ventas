@@ -7,10 +7,11 @@ const { TABLE_NAMES } = require('../services/dbConfig.cjs');
 const productController = {
   /**
    * Get all products with pagination, sorting, and filtering
+   * Uses fn_obtener_insumos_servicios to get products with correct pricing based on customer tariff
    */
   getAllProducts: async (req, res) => {
     try {
-      const { codalm, page = '1', pageSize = '50', search, sortColumn, sortDirection } = req.query;
+      const { codalm, page = '1', pageSize = '50', search, sortColumn, sortDirection, tarifa = '01' } = req.query;
 
       const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
       const pageSizeNum = Math.min(10000, Math.max(10, parseInt(String(pageSize), 10) || 50));
@@ -25,60 +26,52 @@ const productController = {
         }
       }
 
+      // Get parameters from inv_listaprecios
+      const tarifaCode = tarifa || '01'; // Default to MAYORISTA
+      
       const query = `
+        -- Obtener parámetros de la tarifa
+        DECLARE @margen_minimo DECIMAL(10,2) = 0.10
+        DECLARE @almacen CHAR(3)
+        DECLARE @Tarifa CHAR(2) = @tarifaParam
+        DECLARE @Incluir_Iva BIT
+        
+        SELECT @margen_minimo = lismargen, @almacen = codalm 
+        FROM inv_listaprecios 
+        WHERE codtar = @Tarifa
+        
+        SELECT @Incluir_Iva = ISNULL(IvaIncluido, 0) FROM ven_parametros
+        
+        -- Obtener productos usando la función
         SELECT 
-             CAST(i.codins AS VARCHAR(50)) as codins,
-             CAST(i.nomins AS VARCHAR(255)) as nomins,
-             CAST(i.tasa_iva AS DECIMAL(18,2)) as tasa_iva,
-             CAST(i.undins AS VARCHAR(10)) as undins,
-             COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as caninv,
-             0 as Valinv,
-             CAST(i.precio_publico AS DECIMAL(18,2)) as Precio_Venta,
-             CAST(i.margen_venta AS DECIMAL(18,2)) as margen_venta,
-             0 as tasa_descuento,
-             CAST(i.ultimo_costo AS DECIMAL(18,2)) as precio_base,
-             CAST(i.precio_publico AS DECIMAL(18,2)) as precio_lista,
-             CAST(i.referencia AS VARCHAR(100)) as referencia,
-             CAST(i.undins AS VARCHAR(10)) as unimedida,
-             '' as padre,
-             1 as canmed,
-             CAST(i.undins AS VARCHAR(10)) as abreviatura,
-             CASE WHEN i.tipo_producto = 'Servicio' THEN 1 ELSE 0 END as servicio,
-             i.karins,
-             '' as cuenta_compras,
-             '' as Cuenta_ventas,
-             '' as Cuenta_Iva,
-             CAST(i.ultimo_costo AS DECIMAL(18,2)) as costo_producto,
-             '' as Cuenta_costo_ventas,
-             (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) as nommedida,
-             0 as permite_cambio,
-             ISNULL((SELECT IvaIncluido FROM ven_parametros), 0) as Precio_Iva,
-
-             -- Mapeos Frontend
-             i.codins as codigo,
-             i.nomins as nombre,
-             CAST(i.ultimo_costo AS DECIMAL(18,2)) as ultimoCostoCompra,
-             CAST(i.precio_publico AS DECIMAL(18,2)) as ultimoCosto,
-             CAST(i.precio_publico AS DECIMAL(18,2)) as precioConIva,
-             CAST(i.precio_publico AS DECIMAL(18,2)) as precioPublico,
-             COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as stock,
-             i.undins as unidadMedidaCodigo,
-             (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) as unidadMedidaNombre,
-             CAST(i.tasa_iva AS DECIMAL(18,2)) as tasaIva,
-             CASE 
-                WHEN LTRIM(RTRIM(i.undins)) = 'UND' THEN 'UNIDAD'
-                WHEN LTRIM(RTRIM(i.undins)) = 'HORA' THEN 'HORA'
-                WHEN LTRIM(RTRIM(i.undins)) = 'DIA' THEN 'DIA'
-                ELSE (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida)
-             END as unidadMedida
-        FROM inv_insumos i
-        WHERE i.activo = 1
-        ${searchTerm ? "AND (i.nomins LIKE @search OR i.codins LIKE @search OR i.referencia LIKE @search)" : ""}
-        ORDER BY i.nomins ASC
+          p.*,
+          @Incluir_Iva as Precio_Iva,
+          -- Mapeos adicionales para el frontend
+          p.codins as codigo,
+          p.nomins as nombre,
+          CAST(p.costo_producto AS DECIMAL(18,2)) as ultimoCostoCompra,
+          CAST(p.Precio_Venta AS DECIMAL(18,2)) as ultimoCosto,
+          CAST(p.precio_lista AS DECIMAL(18,2)) as precioConIva,
+          CAST(p.precio_lista AS DECIMAL(18,2)) as precioPublico,
+          p.caninv as stock,
+          p.undins as unidadMedidaCodigo,
+          p.nommedida as unidadMedidaNombre,
+          p.tasa_iva as tasaIva,
+          CASE 
+            WHEN LTRIM(RTRIM(p.undins)) = 'UND' THEN 'UNIDAD'
+            WHEN LTRIM(RTRIM(p.undins)) = 'HORA' THEN 'HORA'
+            WHEN LTRIM(RTRIM(p.undins)) = 'DIA' THEN 'DIA'
+            ELSE p.nommedida
+          END as unidadMedida
+        FROM dbo.fn_obtener_insumos_servicios(@margen_minimo, @almacen, @Tarifa) p
+        WHERE 1=1
+        ${searchTerm ? "AND (p.nomins LIKE @search OR p.codins LIKE @search OR p.referencia LIKE @search)" : ""}
+        ORDER BY p.nomins ASC
         OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
       `;
 
       const queryParams = {
+        tarifaParam: tarifaCode,
         offset,
         pageSize: pageSizeNum
       };
@@ -89,14 +82,27 @@ const productController = {
 
       const data = await executeQueryWithParams(query, queryParams, req.db_name);
 
+      // Count query
       const countQuery = `
+        DECLARE @margen_minimo DECIMAL(10,2) = 0.10
+        DECLARE @almacen CHAR(3)
+        DECLARE @Tarifa CHAR(2) = @tarifaParam
+        
+        SELECT @margen_minimo = lismargen, @almacen = codalm 
+        FROM inv_listaprecios 
+        WHERE codtar = @Tarifa
+        
         SELECT COUNT(*) as total
-        FROM inv_insumos i
-        WHERE i.activo = 1
-        ${searchTerm ? "AND (i.nomins LIKE @search OR i.codins LIKE @search OR i.referencia LIKE @search)" : ""}
+        FROM dbo.fn_obtener_insumos_servicios(@margen_minimo, @almacen, @Tarifa) p
+        WHERE 1=1
+        ${searchTerm ? "AND (p.nomins LIKE @search OR p.codins LIKE @search OR p.referencia LIKE @search)" : ""}
       `;
 
-      const countResult = await executeQueryWithParams(countQuery, searchTerm ? { search: `%${searchTerm}%` } : {}, req.db_name);
+      const countResult = await executeQueryWithParams(
+        countQuery, 
+        searchTerm ? { tarifaParam: tarifaCode, search: `%${searchTerm}%` } : { tarifaParam: tarifaCode }, 
+        req.db_name
+      );
       const totalRecords = countResult[0]?.total || 0;
 
       res.json({
@@ -240,6 +246,7 @@ const productController = {
   },
   /**
    * Create a new product or service
+   * Validates all required fields for fn_obtener_insumos_servicios
    */
   createProduct: async (req, res) => {
     try {
@@ -247,6 +254,8 @@ const productController = {
         nombre,
         idTipoProducto, // 1 = Producto, 2 = Servicio
         precio,
+        costo,  // CAMPO OBLIGATORIO
+        stock,  // CAMPO OBLIGATORIO para productos con inventario
         unidadMedida,
         aplicaIva,
         referencia,
@@ -256,7 +265,39 @@ const productController = {
         idCategoria
       } = req.body;
 
+      // ===== VALIDACIONES DE CAMPOS REQUERIDOS =====
+      const errors = [];
+      
+      if (!nombre || nombre.trim() === '') {
+        errors.push('El nombre del producto es obligatorio');
+      }
+      
+      if (!costo || parseFloat(costo) <= 0) {
+        errors.push('El costo del producto es obligatorio y debe ser mayor a 0');
+      }
+      
+      if (!precio || parseFloat(precio) <= 0) {
+        errors.push('El precio del producto es obligatorio y debe ser mayor a 0');
+      }
+
       const isService = Number(idTipoProducto) === 2;
+      
+      if (!isService && (!stock || parseFloat(stock) <= 0)) {
+        errors.push('El stock inicial es obligatorio para productos con inventario y debe ser mayor a 0');
+      }
+
+      if (!referencia || referencia.trim() === '') {
+        errors.push('La referencia del producto es obligatoria');
+      }
+
+      if (errors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Faltan campos obligatorios',
+          errors: errors
+        });
+      }
+
       const tableName = isService ? TABLE_NAMES.servicios : TABLE_NAMES.productos;
       const idCol = isService ? 'codser' : 'codins';
 
@@ -279,12 +320,12 @@ const productController = {
         `;
         const maxRes = await pool.request().query(maxQuery);
         const maxVal = maxRes.recordset[0].maxCode || 0;
-        nextCode = String(maxVal + 1).padStart(3, '0');
-        console.log(`Generated next code for ${tableName}: ${nextCode} (max was ${maxVal})`);
+        nextCode = String(maxVal + 1).padStart(8, '0');
+        console.log(`[ProductController] Generated next code for ${tableName}: ${nextCode} (max was ${maxVal})`);
       } catch (e) {
-        console.warn('Error generating code:', e);
+        console.warn('[ProductController] Error generating code:', e);
         // Fallback: use timestamp-based code
-        nextCode = String(Date.now()).substring(7).padStart(3, '0');
+        nextCode = String(Date.now()).substring(5).padStart(8, '0');
       }
 
       // Map Unit
@@ -295,7 +336,9 @@ const productController = {
       else codMedida = '003';
 
       const tasaIvaVal = aplicaIva ? 19 : 0;
-      const precioVal = parseFloat(precio || 0);
+      const precioVal = parseFloat(precio);
+      const costoVal = parseFloat(costo);
+      const stockVal = parseFloat(stock || 0);
 
       const transaction = new sql.Transaction(pool);
       await transaction.begin();
@@ -305,12 +348,11 @@ const productController = {
 
         if (isService) {
           // Insert Service
-          // Auto-generate reference: S-SER{codigo}
-          const autoRef = `S-SER${nextCode}`;
+          const autoRef = referencia || `S-SER${nextCode}`;
 
-          // Default accounting code for services (Otros Ingresos Operacionales)
-          const codCue = '42201001'; // Cuenta por defecto para servicios
-          const codigoInterfase = '04'; // Código de interfaz para servicios
+          // Default accounting code for services
+          const codCue = '42201001';
+          const codigoInterfase = '04';
 
           const query = `
             INSERT INTO ${TABLE_NAMES.servicios} 
@@ -319,15 +361,14 @@ const productController = {
             (@code, @nombre, @codcue, @precio, @iva, @tasacomis, @codins, @referencia, @concesion, @sublinea, @interfase, @medida)
           `;
           request.input('code', sql.VarChar(3), nextCode);
-          request.input('nombre', sql.VarChar(100), nombre || 'Nuevo Servicio');
+          request.input('nombre', sql.VarChar(100), nombre);
           request.input('codcue', sql.VarChar(8), codCue);
           request.input('precio', sql.Decimal(18, 4), precioVal);
           request.input('iva', sql.Decimal(6, 2), tasaIvaVal);
-          request.input('tasacomis', sql.Decimal(6, 2), 0); // Sin comisión por defecto
+          request.input('tasacomis', sql.Decimal(6, 2), 0);
           request.input('codins', sql.VarChar(8), autoRef);
           request.input('referencia', sql.VarChar(15), autoRef);
           request.input('concesion', sql.Bit, 0);
-          // Format subline with SS prefix: SS01, SS02, etc.
           const sublineaFormatted = idSublineas ? `SS${String(idSublineas).padStart(2, '0')}` : 'SS01';
           request.input('sublinea', sql.VarChar(4), sublineaFormatted);
           request.input('interfase', sql.VarChar(2), codigoInterfase);
@@ -336,108 +377,113 @@ const productController = {
           await request.query(query);
 
         } else {
-          // Insert Product
+          // ===== INSERT PRODUCT =====
           const undinsVal = codMedida === '001' ? 'HORA' : (codMedida === '002' ? 'DIA' : 'UND');
+          
+          // Calcular margen: ((Precio - Costo) / Precio) * 100
+          const marginVal = ((precioVal - costoVal) / precioVal) * 100;
+          
+          console.log('[ProductController] Creando producto:', {
+            code: nextCode,
+            nombre,
+            costo: costoVal,
+            precio: precioVal,
+            margen: marginVal,
+            stock: stockVal,
+            referencia
+          });
           
           const query = `
             INSERT INTO ${TABLE_NAMES.productos}
-            (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, undins, karins, activo, codigo_linea, codigo_sublinea, costo_promedio, precio_publico, margen_venta, INSUMO_VENTA, ACTIVO_EMPRESA, precio_minorista, precio_mayorista)
+            (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, undins, karins, activo, 
+             codigo_linea, codigo_sublinea, costo_promedio, precio_publico, margen_venta, 
+             INSUMO_VENTA, ACTIVO_EMPRESA, precio_minorista, precio_mayorista)
             VALUES
-            (@code, @nombre, @iva, @precio, @referencia, @medida, @undins, @karins, 1, '01', @sublinea, @precio, @precio, 30, 1, 1, @precio, @precio)
+            (@code, @nombre, @iva, @costo, @referencia, @medida, @undins, @karins, 1, 
+             '01', @sublinea, @costo, @precio, @margen, 1, 1, @precio, @precio)
           `;
+          
           request.input('code', sql.VarChar(20), nextCode);
-          request.input('nombre', sql.VarChar(255), nombre || 'Nuevo Producto');
+          request.input('nombre', sql.VarChar(255), nombre);
           request.input('iva', sql.Decimal(5, 2), tasaIvaVal);
+          request.input('costo', sql.Decimal(18, 2), costoVal);
           request.input('precio', sql.Decimal(18, 2), precioVal);
-          request.input('referencia', sql.VarChar(50), referencia || '');
+          request.input('margen', sql.Decimal(18, 2), marginVal);
+          request.input('referencia', sql.VarChar(50), referencia);
           request.input('medida', sql.VarChar(5), codMedida);
           request.input('undins', sql.VarChar(10), undinsVal);
-          request.input('karins', sql.Bit, controlaExistencia ? 1 : 0);
+          request.input('karins', sql.Bit, 1); // Siempre controla existencia
           request.input('sublinea', sql.VarChar(5), idSublineas ? String(idSublineas) : '01');
-
-          console.log('[ProductController] Ejecutando INSERT Producto:', {
-            code: nextCode,
-            nombre,
-            undinsVal,
-            sublinea: idSublineas ? String(idSublineas) : '01'
-          });
 
           await request.query(query);
 
-          // Initial stock record? (inv_invent)
-          const initialStock = (controlaExistencia && !isNaN(controlaExistencia)) ? parseFloat(controlaExistencia) : 0;
-          // Solo si hay stock inicial explicito O es un servicio tangible que se quiere controlar
-          const stockInicialInput = req.body.stock; // Obtener stock directo del input (si existe)
-          const finalStock = stockInicialInput ? parseFloat(stockInicialInput) : initialStock;
+          // ===== INSERT INVENTORY (inv_invent) =====
+          // OBLIGATORIO: Debe tener stock > 0 para aparecer en fn_obtener_insumos_servicios
+          const reqStock = new sql.Request(transaction);
+          reqStock.input('codins', sql.VarChar(20), nextCode);
+          reqStock.input('cantidad', sql.Decimal(18, 2), stockVal);
+          reqStock.input('codalm', sql.VarChar(5), '001'); // Bodega principal
+          reqStock.input('costo', sql.Decimal(18, 2), costoVal);
 
-          if (finalStock > 0 || (controlaExistencia && Number(controlaExistencia) !== 0)) {
-            const reqStock = new sql.Request(transaction);
-            reqStock.input('codins', sql.VarChar(20), nextCode); // nextCode is the new codins
-            reqStock.input('cantidad', sql.Decimal(18, 2), finalStock);
-            reqStock.input('codalm', sql.VarChar(5), '01'); // Default warehouse
-
-            // Check if it already exists (unlikely for new product, but safe)
-            const checkStock = await reqStock.query(`SELECT 1 FROM inv_invent WHERE codins = @codins AND codalm = '01'`);
-            if (checkStock.recordset.length === 0) {
-              await reqStock.query(`
-                    INSERT INTO inv_invent (codalm, codins, caninv, ucoins)
-                    VALUES (@codalm, @codins, @cantidad, 0)
-                 `);
-            }
-          }
-          // Insert Price into inv_detaprecios (Required for fn_obtener_insumos_servicios)
-          
-          const costoVal = parseFloat(req.body.costo) || 0;
-          
-          // Calculate Margin: ((Price - Cost) / Price) * 100
-          let marginVal = 0;
-          if (precioVal > 0 && costoVal > 0) {
-             marginVal = ((precioVal - costoVal) / precioVal) * 100;
-          } else {
-             // Fallback if no cost provided (though frontend should require it)
-             marginVal = 30.00;
-          }
-
-          const reqPrice = new sql.Request(transaction);
-          
-          // Use the provided cost
-          const computedCost = costoVal > 0 ? costoVal : (precioVal * 0.7); 
-
-          // Update the initial product insert to use computedCost 
-          await reqPrice.query(`
-            UPDATE ${TABLE_NAMES.productos} 
-            SET ultimo_costo = ${computedCost}, margen_venta = ${marginVal} 
-            WHERE codins = '${nextCode}'
+          await reqStock.query(`
+            INSERT INTO inv_invent (codalm, codins, caninv, ucoins)
+            VALUES (@codalm, @codins, @cantidad, @costo)
           `);
 
+          console.log(`[ProductController] Inventario creado: ${stockVal} unidades en bodega 001`);
 
+          // ===== INSERT PRICES (inv_detaprecios) =====
+          // CRÍTICO: Debe tener precios para TODAS las tarifas
+          const reqPrice = new sql.Request(transaction);
           
-          
-          // El constraint UNIQUE de la base de datos manejará la duplicidad de referencia.
-          // Si falla el INSERT anterior, saltará al catch.
+          // Obtener todas las tarifas activas
+          const tarifasResult = await reqPrice.query(`
+            SELECT codtar, lismargen FROM inv_listaprecios WHERE vigente = 1
+          `);
 
+          if (tarifasResult.recordset.length === 0) {
+            throw new Error('No hay tarifas activas en el sistema');
+          }
+
+          // Calcular precio para cada tarifa según su margen
+          const priceInserts = tarifasResult.recordset.map(tarifa => {
+            // Precio con margen = costo / (1 - margen/100)
+            const precioConMargen = costoVal / (1 - (tarifa.lismargen / 100));
+            return `('${nextCode}', '${tarifa.codtar}', ${precioConMargen.toFixed(2)}, ${tarifa.lismargen})`;
+          }).join(',\n            ');
 
           const priceQuery = `
             INSERT INTO inv_detaprecios (codins, Codtar, valins, margen)
             VALUES 
-            (@codins, '01', @precio, @margin),
-            (@codins, '07', @precio, @margin)
+            ${priceInserts}
           `;
-          reqPrice.input('codins', sql.VarChar(8), nextCode);
-          reqPrice.input('precio', sql.Decimal(18, 2), precioVal); 
-          reqPrice.input('margin', sql.Decimal(10, 2), marginVal);
-          
+
           await reqPrice.query(priceQuery);
-         }
+
+          console.log(`[ProductController] Precios creados para ${tarifasResult.recordset.length} tarifas`);
+        }
 
         await transaction.commit();
-        res.json({ success: true, message: `${isService ? 'Servicio' : 'Producto'} creado correctamente`, data: { id: nextCode, codigo: nextCode } });
+        
+        res.json({ 
+          success: true, 
+          message: `${isService ? 'Servicio' : 'Producto'} creado correctamente`, 
+          data: { 
+            id: nextCode, 
+            codigo: nextCode,
+            nombre,
+            precio: precioVal,
+            costo: costoVal,
+            stock: stockVal
+          } 
+        });
 
       } catch (err) {
         console.error('[ProductController] Error en transacción SQL:', err);
         await transaction.rollback();
         throw err;
       }
+
 
     } catch (error) {
       console.error('Error creating product/service:', error);
