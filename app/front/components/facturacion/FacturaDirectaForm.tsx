@@ -50,7 +50,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
         date: new Date().toISOString().split('T')[0],
         dueDate: new Date().toISOString().split('T')[0],
         paymentFormId: '1',
-        paymentMethodId: '10',
+        paymentMethodId: '9', // Default to Efectivo (9) per user request
         seller: '',
         customer: {
             identification_number: '',
@@ -345,7 +345,14 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                     <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Forma Pago</label>
                     <select
                         value={formData.paymentFormId}
-                        onChange={(e) => setFormData({ ...formData, paymentFormId: e.target.value })}
+                        onChange={(e) => {
+                            const newFormId = e.target.value;
+                            let newMethodId = '9'; // Default for Contado
+                            if (newFormId === '2') {
+                                newMethodId = '29'; // Default for Credito
+                            }
+                            setFormData(prev => ({ ...prev, paymentFormId: newFormId, paymentMethodId: newMethodId }));
+                        }}
                         className="w-full px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
                     >
                         <option value="1">Contado</option>
@@ -360,9 +367,14 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         onChange={(e) => setFormData({ ...formData, paymentMethodId: e.target.value })}
                         className="w-full px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
                     >
-                        <option value="10">Efectivo</option>
-                        <option value="31">Transferencia</option>
-                        <option value="30">Crédito</option>
+                        {formData.paymentFormId === '1' ? (
+                            <>
+                                <option value="9">Efectivo</option>
+                                <option value="30">Transferencia</option>
+                            </>
+                        ) : (
+                            <option value="29">Crédito</option>
+                        )}
                     </select>
                 </div>
             </div>

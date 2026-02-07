@@ -69,12 +69,13 @@ const FacturaDirectaPage: React.FC = () => {
                     allowance_total_amount: 0
                 },
                 identification_number: 901994818, // Orquidea NIT fijo según ManualInvoiceModal
+                ...(formData.observacionesInternas ? { notes: formData.observacionesInternas } : {}),
                 payment_forms: [
                     {
-                        payment_method_id: parseInt(formData.paymentMethodId),
-                        duration_measure: "0",
+                        payment_method_id: parseInt(formData.paymentMethodId) || 10,
+                        duration_measure: formData.paymentFormId === '2' ? "30" : "0", // 30 days default for credit if chosen
                         payment_due_date: formData.dueDate,
-                        payment_form_id: 1
+                        payment_form_id: parseInt(formData.paymentFormId) || 1
                     }
                 ],
                 tax_totals: [
