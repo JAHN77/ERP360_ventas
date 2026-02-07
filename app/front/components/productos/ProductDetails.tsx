@@ -121,8 +121,10 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ producto }) => {
                             }
                             icon="fa-shopping-cart"
                         />
-                        <DataRow label="Precio de Venta" value={formatCurrency((producto as any).Precio_Venta || 0)} icon="fa-tag" />
-                        <DataRow label="Precio Base" value={formatCurrency((producto as any).precio_base || (producto as any).ultimoCosto || 0)} icon="fa-coins" />
+                        {/* Solo mostrar Precio de Venta si es diferente al Precio al Público */}
+                        {(producto as any).Precio_Venta && Math.abs((producto as any).Precio_Venta - ((producto as any).precio_lista || 0)) > 0.5 && (
+                            <DataRow label="Precio de Venta (sin IVA)" value={formatCurrency((producto as any).Precio_Venta)} icon="fa-tag" />
+                        )}
                         <DataRow
                             label="IVA"
                             value={
@@ -144,15 +146,33 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ producto }) => {
                 </InfoCard>
 
                 {/* Costos de Inventario */}
-                {producto.idTipoProducto !== 2 && (
-                    <InfoCard title="Costos de Inventario" icon="fa-calculator">
-                        <div className="space-y-0">
-                            <DataRow label="Valor Total de Inventario" value={formatCurrency((producto as any).Valinv || 0)} icon="fa-money-bill-wave" />
-                            <DataRow label="Costo Promedio" value={formatCurrency((producto as any).costo_producto || (producto as any).costoPromedio || 0)} icon="fa-calculator" />
-                            <DataRow label="Último Costo de Compra" value={formatCurrency((producto as any).ultimoCostoCompra || (producto as any).ultimoCosto || 0)} icon="fa-receipt" />
-                        </div>
-                    </InfoCard>
-                )}
+                {producto.idTipoProducto !== 2 && (() => {
+                    // Consolidar valores de costo que sean iguales
+                    const costoProducto = (producto as any).costo_producto || 0;
+                    const ultimoCosto = (producto as any).ultimoCosto || (producto as any).ultimoCostoCompra || 0;
+                    const costoPromedio = (producto as any).costoPromedio || 0;
+                    const valorInventario = (producto as any).Valinv || 0;
+
+                    // Usar el costo principal
+                    const costoReal = costoProducto || ultimoCosto;
+
+                    return (
+                        <InfoCard title="Costos de Inventario" icon="fa-calculator">
+                            <div className="space-y-0">
+                                <DataRow
+                                    label="Costo Unitario"
+                                    value={formatCurrency(costoReal)}
+                                    icon="fa-dollar-sign"
+                                />
+                                <DataRow
+                                    label="Valor Total de Inventario"
+                                    value={formatCurrency(valorInventario)}
+                                    icon="fa-money-bill-wave"
+                                />
+                            </div>
+                        </InfoCard>
+                    );
+                })()}
             </div>
 
             {/* Distribución de Stock por Bodega */}

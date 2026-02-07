@@ -93,9 +93,12 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
         controlaExistencia: true
     });
 
+    const [calculationMode, setCalculationMode] = useState<'cost' | 'price'>('cost');
+    const [selectedTarifa, setSelectedTarifa] = useState<string>('01'); // Default MAYORISTA
     const [categories, setCategories] = useState<any[]>([]);
     const [sublines, setSublines] = useState<any[]>([]);
     const [measures, setMeasures] = useState<any[]>([]);
+    const [tarifas, setTarifas] = useState<any[]>([]);
     const [loadingOptions, setLoadingOptions] = useState(false);
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
@@ -104,13 +107,15 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
         const fetchOptions = async () => {
             setLoadingOptions(true);
             try {
-                const [catsRes, measuresRes] = await Promise.all([
+                const [catsRes, measuresRes, tarifasRes] = await Promise.all([
                     apiClient.request<any>('/categorias/lineas-sublineas'),
-                    apiClient.getMedidas()
+                    apiClient.getMedidas(),
+                    apiClient.request<any>('/productos/tarifas')
                 ]);
 
                 if (catsRes.success) setCategories(catsRes.data as any[]);
                 if (measuresRes.success) setMeasures(measuresRes.data as any[]);
+                if (tarifasRes.success) setTarifas(tarifasRes.data as any[]);
             } catch (error) {
                 console.error('Error fetching options:', error);
             } finally {
@@ -166,14 +171,50 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
         }
     }, [isOpen, editData]);
 
+    // Funciones de cálculo
+    const calcularPrecio = (costo: number, margen: number, aplicaIva: boolean): number => {
+        const precioSinIva = costo / (1 - margen / 100);
+        return aplicaIva ? precioSinIva * 1.19 : precioSinIva;
+    };
+
+    const calcularCosto = (precio: number, margen: number, aplicaIva: boolean): number => {
+        const precioSinIva = aplicaIva ? precio / 1.19 : precio;
+        return precioSinIva * (1 - margen / 100);
+    };
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
         const checked = (e.target as HTMLInputElement).checked;
 
-        setFormData(prev => ({
-            ...prev,
-            [name]: type === 'checkbox' ? checked : value
-        }));
+        setFormData(prev => {
+            const newData = {
+                ...prev,
+                [name]: type === 'checkbox' ? checked : value
+            };
+
+            // Calcular automáticamente según el modo
+            if (calculationMode === 'cost' && name === 'costo' && tarifas.length > 0) {
+                const costoVal = parseFloat(value);
+                if (!isNaN(costoVal) && costoVal > 0) {
+                    const tarifa = tarifas.find(t => t.codtar === selectedTarifa);
+                    if (tarifa) {
+                        const precioCalculado = calcularPrecio(costoVal, tarifa.lismargen, newData.aplicaIva);
+                        newData.precio = precioCalculado.toFixed(2);
+                    }
+                }
+            } else if (calculationMode === 'price' && name === 'precio' && tarifas.length > 0) {
+                const precioVal = parseFloat(value);
+                if (!isNaN(precioVal) && precioVal > 0) {
+                    const tarifa = tarifas.find(t => t.codtar === selectedTarifa);
+                    if (tarifa) {
+                        const costoCalculado = calcularCosto(precioVal, tarifa.lismargen, newData.aplicaIva);
+                        newData.costo = costoCalculado.toFixed(2);
+                    }
+                }
+            }
+
+            return newData;
+        });
 
         if (errors[name]) {
             setErrors(prev => {
@@ -184,6 +225,28 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
         }
     };
 
+    // Recalcular cuando cambia el modo o IVA
+    const recalcular = () => {
+        if (tarifas.length === 0) return;
+
+        const tarifa = tarifas.find(t => t.codtar === selectedTarifa);
+        if (!tarifa) return;
+
+        if (calculationMode === 'cost') {
+            const costoVal = parseFloat(formData.costo);
+            if (!isNaN(costoVal) && costoVal > 0) {
+                const precioCalculado = calcularPrecio(costoVal, tarifa.lismargen, formData.aplicaIva);
+                setFormData(prev => ({ ...prev, precio: precioCalculado.toFixed(2) }));
+            }
+        } else {
+            const precioVal = parseFloat(formData.precio);
+            if (!isNaN(precioVal) && precioVal > 0) {
+                const costoCalculado = calcularCosto(precioVal, tarifa.lismargen, formData.aplicaIva);
+                setFormData(prev => ({ ...prev, costo: costoCalculado.toFixed(2) }));
+            }
+        }
+    };
+
     const validate = () => {
         const newErrors: { [key: string]: string } = {};
 
@@ -191,9 +254,19 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
             newErrors.nombre = `El nombre es obligatorio`;
         }
 
-        const precioVal = parseFloat(formData.precio);
-        if (!formData.precio || isNaN(precioVal) || precioVal <= 0) {
-            newErrors.precio = 'El precio debe ser mayor a cero';
+        // Validar según el modo
+        if (calculationMode === 'cost') {
+            // En modo costo, validar que el costo sea válido
+            const costoVal = parseFloat(formData.costo);
+            if (!formData.costo || isNaN(costoVal) || costoVal <= 0) {
+                newErrors.costo = 'El costo debe ser mayor a cero';
+            }
+        } else {
+            // En modo precio, validar que el precio sea válido
+            const precioVal = parseFloat(formData.precio);
+            if (!formData.precio || isNaN(precioVal) || precioVal <= 0) {
+                newErrors.precio = 'El precio debe ser mayor a cero';
+            }
         }
 
         setErrors(newErrors);
@@ -233,7 +306,13 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
             if (isEditMode && editData?.id) {
                 response = await apiClient.updateProducto(editData.id, payload);
             } else {
-                response = await apiClient.createProducto(payload);
+                // Agregar información del modo de cálculo
+                const payloadConModo = {
+                    ...payload,
+                    calculationMode,
+                    tarifaReferencia: selectedTarifa
+                };
+                response = await apiClient.createProducto(payloadConModo);
             }
 
             if (response.success) {
@@ -340,20 +419,91 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                     </div>
                 </div>
 
-                {/* 3. Precio e impuestos */}
+                {/* 3. Modo de Cálculo */}
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800 space-y-3">
+                    <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                        <i className="fas fa-calculator text-blue-600"></i>
+                        Modo de Cálculo
+                    </h3>
+                    <div className="flex gap-4">
+                        <label className="flex items-center cursor-pointer flex-1 bg-white dark:bg-slate-800 p-3 rounded-lg border-2 transition-all" style={{
+                            borderColor: calculationMode === 'cost' ? '#3b82f6' : 'transparent'
+                        }}>
+                            <input
+                                type="radio"
+                                checked={calculationMode === 'cost'}
+                                onChange={() => {
+                                    setCalculationMode('cost');
+                                    setTimeout(recalcular, 50);
+                                }}
+                                className="w-4 h-4 text-blue-600"
+                            />
+                            <span className="ml-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <i className="fas fa-tag mr-1"></i>
+                                Ingresar Costo
+                            </span>
+                        </label>
+                        <label className="flex items-center cursor-pointer flex-1 bg-white dark:bg-slate-800 p-3 rounded-lg border-2 transition-all" style={{
+                            borderColor: calculationMode === 'price' ? '#3b82f6' : 'transparent'
+                        }}>
+                            <input
+                                type="radio"
+                                checked={calculationMode === 'price'}
+                                onChange={() => {
+                                    setCalculationMode('price');
+                                    setTimeout(recalcular, 50);
+                                }}
+                                className="w-4 h-4 text-blue-600"
+                            />
+                            <span className="ml-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <i className="fas fa-dollar-sign mr-1"></i>
+                                Ingresar Precio
+                            </span>
+                        </label>
+                    </div>
+
+                    {calculationMode === 'price' && (
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
+                                Lista de Precios de Referencia <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                value={selectedTarifa}
+                                onChange={(e) => {
+                                    setSelectedTarifa(e.target.value);
+                                    setTimeout(recalcular, 50);
+                                }}
+                                className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                            >
+                                {tarifas.map(t => (
+                                    <option key={t.codtar} value={t.codtar}>
+                                        {t.nomtar} (Margen {t.lismargen}%)
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                El precio ingresado aplicará a esta lista. Los demás se calcularán automáticamente.
+                            </p>
+                        </div>
+                    )}
+                </div>
+
+                {/* 4. Precio e impuestos */}
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700 space-y-4">
                     <div className="grid grid-cols-2 gap-4 items-start">
                         <InputField
-                            label="Precio de Venta"
+                            label={calculationMode === 'price' ? 'Precio Deseado' : 'Precio de Venta'}
                             name="precio"
                             value={formData.precio}
                             onChange={handleChange}
-                            required
+                            required={calculationMode === 'price'}
                             type="number"
                             min="0"
+                            step="0.01"
                             placeholder="0.00"
                             icon="fa-dollar-sign"
                             error={errors.precio}
+                            disabled={calculationMode === 'cost'}
                         />
 
                         <InputField
@@ -361,36 +511,54 @@ const NewServiceProductModal: React.FC<NewServiceProductModalProps> = ({ isOpen,
                             name="costo"
                             value={formData.costo}
                             onChange={handleChange}
-                            required
+                            required={calculationMode === 'cost'}
                             type="number"
                             min="0"
+                            step="0.01"
                             placeholder="0.00"
                             icon="fa-tag"
                             error={errors.costo ? errors.costo : undefined}
+                            disabled={calculationMode === 'price'}
                         />
 
-                        {/* Mostrar Margen Calculado */}
-                        <div className="col-span-2 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg flex justify-between items-center text-sm">
-                            <span className="text-slate-600 dark:text-slate-300">Margen de utilidad estimado:</span>
-                            <span className={`font-bold ${(parseFloat(formData.precio) > 0 && parseFloat(formData.costo) > 0)
-                                    ? (((parseFloat(formData.precio) - parseFloat(formData.costo)) / parseFloat(formData.precio)) * 100) >= 10
-                                        ? 'text-green-600 dark:text-green-400'
-                                        : 'text-amber-500'
-                                    : 'text-slate-400'
-                                }`}>
-                                {(parseFloat(formData.precio) > 0 && parseFloat(formData.costo) > 0)
-                                    ? (((parseFloat(formData.precio) - parseFloat(formData.costo)) / parseFloat(formData.precio)) * 100).toFixed(2) + '%'
-                                    : '---'}
-                            </span>
-                        </div>
+                        {/* Vista Previa de Precios */}
+                        {tarifas.length > 0 && parseFloat(formData.costo) > 0 && (
+                            <div className="col-span-2 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+                                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-2">
+                                    <i className="fas fa-list-ul text-green-600"></i>
+                                    Vista Previa - Precios en Todas las Listas
+                                </h4>
+                                <div className="space-y-2">
+                                    {tarifas.map(tarifa => {
+                                        const precio = calcularPrecio(parseFloat(formData.costo), tarifa.lismargen, formData.aplicaIva);
+                                        const esSeleccionada = tarifa.codtar === selectedTarifa && calculationMode === 'price';
+                                        return (
+                                            <div key={tarifa.codtar} className={`flex justify-between items-center text-sm p-2 rounded ${esSeleccionada ? 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700' : ''
+                                                }`}>
+                                                <span className="text-slate-600 dark:text-slate-300">
+                                                    {tarifa.nomtar} ({tarifa.lismargen}%)
+                                                    {esSeleccionada && <span className="ml-2 text-xs bg-blue-600 text-white px-2 py-0.5 rounded">Referencia</span>}
+                                                </span>
+                                                <span className="font-bold text-green-700 dark:text-green-400">
+                                                    ${precio.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
 
-                        <div className="pt-8">
+                        <div className="col-span-2 pt-2">
                             <label className="flex items-center cursor-pointer">
                                 <input
                                     type="checkbox"
                                     name="aplicaIva"
                                     checked={formData.aplicaIva}
-                                    onChange={handleChange}
+                                    onChange={(e) => {
+                                        handleChange(e);
+                                        setTimeout(recalcular, 50);
+                                    }}
                                     className="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
                                 />
                                 <span className="ml-2 text-sm font-medium text-slate-700 dark:text-slate-300">

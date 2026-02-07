@@ -16,6 +16,9 @@ router.post('/create', verifyToken, productController.createProduct);
 // GET /api/productos/services
 router.get('/services', verifyToken, productController.getAllServices);
 
+// GET /api/productos/tarifas
+router.get('/tarifas', verifyToken, productController.getTarifas);
+
 // GET /api/productos/search (Mapped from /api/buscar/productos logic if we want to consolidate, 
 // OR keep legacy path in server.cjs and point to controller. 
 // Plan: Using this for the MAIN search endpoint if we move 'buscar' here. 

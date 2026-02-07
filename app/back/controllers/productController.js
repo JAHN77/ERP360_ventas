@@ -286,9 +286,7 @@ const productController = {
         errors.push('El stock inicial es obligatorio para productos con inventario y debe ser mayor a 0');
       }
 
-      if (!referencia || referencia.trim() === '') {
-        errors.push('La referencia del producto es obligatoria');
-      }
+      // La referencia es opcional, se generará automáticamente si no se proporciona
 
       if (errors.length > 0) {
         return res.status(400).json({
@@ -329,11 +327,17 @@ const productController = {
       }
 
       // Map Unit
-      let codMedida = '003'; // Default Unidad
-      const uLimit = String(unidadMedida || '').toUpperCase();
-      if (uLimit.includes('HORA')) codMedida = '001';
-      else if (uLimit.includes('DIA') || uLimit.includes('DÍA')) codMedida = '002';
-      else codMedida = '003';
+      // El frontend envía unidadMedidaCodigo directamente (001, 002, 003, etc.)
+      let codMedida = unidadMedida || '003'; // Default Unidad
+      
+      // Si unidadMedida es un código válido (001, 002, 003), usarlo directamente
+      // Sino, intentar mapear por nombre
+      if (!/^\d{3}$/.test(codMedida)) {
+        const uLimit = String(unidadMedida || '').toUpperCase();
+        if (uLimit.includes('HORA')) codMedida = '001';
+        else if (uLimit.includes('DIA') || uLimit.includes('DÍA')) codMedida = '002';
+        else codMedida = '003';
+      }
 
       const tasaIvaVal = aplicaIva ? 19 : 0;
       const precioVal = parseFloat(precio);
@@ -409,7 +413,7 @@ const productController = {
           request.input('costo', sql.Decimal(18, 2), costoVal);
           request.input('precio', sql.Decimal(18, 2), precioVal);
           request.input('margen', sql.Decimal(18, 2), marginVal);
-          request.input('referencia', sql.VarChar(50), referencia);
+          request.input('referencia', sql.VarChar(50), referencia || nextCode); // Usar código si no hay referencia
           request.input('medida', sql.VarChar(5), codMedida);
           request.input('undins', sql.VarChar(10), undinsVal);
           request.input('karins', sql.Bit, 1); // Siempre controla existencia
@@ -445,11 +449,45 @@ const productController = {
             throw new Error('No hay tarifas activas en el sistema');
           }
 
+          // Determinar costo final
+          let costoFinalcalculado = costoVal;
+          const { calculationMode, tarifaReferencia } = req.body;
+
+          // Si viene en modo precio, calcular el costo basado en el precio deseado
+          if (calculationMode === 'price' && tarifaReferencia) {
+            const tarifaRef = tarifasResult.recordset.find(t => t.codtar === tarifaReferencia);
+            if (!tarifaRef) {
+              throw new Error(`Tarifa de referencia '${tarifaReferencia}' no encontrada`);
+            }
+            
+            // Quitar IVA si aplica
+            const precioSinIva = aplicaIva ? precioVal / 1.19 : precioVal;
+            // Calcular costo: precio_sin_iva * (1 - margen/100)
+            costoFinalcalculado = precioSinIva * (1 - tarifaRef.lismargen / 100);
+            
+            console.log('[ProductController] Modo precio activado:', {
+              precioDeseado: precioVal,
+              tarifaReferencia,
+              margen: tarifaRef.lismargen,
+              costoCalculado: costoFinalcalculado
+            });
+          }
+
           // Calcular precio para cada tarifa según su margen
           const priceInserts = tarifasResult.recordset.map(tarifa => {
-            // Precio con margen = costo / (1 - margen/100)
-            const precioConMargen = costoVal / (1 - (tarifa.lismargen / 100));
-            return `('${nextCode}', '${tarifa.codtar}', ${precioConMargen.toFixed(2)}, ${tarifa.lismargen})`;
+            // Para modo precio, si es la tarifa de referencia, usar el precio exacto ingresado
+            let precioParaTarifa;
+            
+            if (calculationMode === 'price' && tarifa.codtar === tarifaReferencia) {
+              // Usar precio exacto ingresado por el usuario
+              precioParaTarifa = precioVal;
+            } else {
+              // Calcular precio: (costo / (1 - margen/100)) * (1 + IVA)
+              const precioSinIva = costoFinalcalculado / (1 - (tarifa.lismargen / 100));
+              precioParaTarifa = aplicaIva ? precioSinIva * 1.19 : precioSinIva;
+            }
+            
+            return `('${nextCode}', '${tarifa.codtar}', ${precioParaTarifa.toFixed(2)}, ${tarifa.lismargen})`;
           }).join(',\n            ');
 
           const priceQuery = `
@@ -461,6 +499,17 @@ const productController = {
           await reqPrice.query(priceQuery);
 
           console.log(`[ProductController] Precios creados para ${tarifasResult.recordset.length} tarifas`);
+          
+          // Actualizar costo en inv_invent con el costo calculado si fue modo precio
+          if (calculationMode === 'price') {
+            const reqUpdateCost = new sql.Request(transaction);
+            await reqUpdateCost.query(`
+              UPDATE inv_invent 
+              SET ucoins = ${costoFinalcalculado.toFixed(2)}
+              WHERE codins = '${nextCode}' AND codalm = '001'
+            `);
+            console.log('[ProductController] Costo actualizado en inventario:', costoFinalcalculado);
+          }
         }
 
         await transaction.commit();
@@ -881,6 +930,39 @@ const productController = {
       res.status(500).json({
         success: false,
         message: 'Error al eliminar',
+        error: error.message
+      });
+    }
+  },
+
+  /**
+   * Get all active price lists (tarifas)
+   */
+  getTarifas: async (req, res) => {
+    try {
+      const query = `
+        SELECT 
+          codtar,
+          nomtar,
+          lismargen,
+          codalm,
+          vigente
+        FROM inv_listaprecios
+        WHERE vigente = 1
+        ORDER BY codtar ASC
+      `;
+
+      const result = await executeQueryWithParams(query, {}, req.db_name);
+
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      console.error('[ProductController] Error getting tarifas:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener listas de precios',
         error: error.message
       });
     }
