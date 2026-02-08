@@ -220,31 +220,57 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
 
     const handleRowProductSelect = (idx: number, p: Producto) => {
         const newItems = [...formData.items];
-        const currentQty = newItems[idx].cantidad;
+        const codProducto = p.codigo || (p as any).codins || 'N/A';
 
-        newItems[idx] = {
-            ...newItems[idx],
-            productoId: p.id,
-            descripcion: p.nombre,
-            codProducto: p.codigo || (p as any).codins || 'N/A',
-            referencia: p.referencia || '',
-            precioUnitario: p.ultimoCosto || 0,
-            ivaPorcentaje: p.tasaIva || 0,
-            unidadMedida: p.unidadMedida || 'UND',
-            unidadMedidaCodigo: (p as any).unidadMedidaCodigo || ''
-        };
+        // Verificar si el producto ya existe en otra fila
+        const existingItemIndex = newItems.findIndex((item, i) =>
+            i !== idx &&
+            item.codProducto === codProducto &&
+            item.codProducto !== 'N/A'
+        );
 
-        // Recalcular con la cantidad actual
-        const item = newItems[idx];
-        const subtotal = (item.precioUnitario * currentQty) * (1 - (item.descuentoPorcentaje / 100));
-        item.subtotal = round(subtotal);
-        item.valorIva = round(subtotal * (item.ivaPorcentaje / 100));
-        item.total = round(subtotal);
+        if (existingItemIndex !== -1) {
+            // El producto ya existe, incrementar la cantidad del existente
+            const existingItem = newItems[existingItemIndex];
+            existingItem.cantidad += 1;
+
+            // Recalcular totales del item existente
+            const subtotal = (existingItem.precioUnitario * existingItem.cantidad) * (1 - (existingItem.descuentoPorcentaje / 100));
+            existingItem.subtotal = round(subtotal);
+            existingItem.valorIva = round(subtotal * (existingItem.ivaPorcentaje / 100));
+            existingItem.total = round(subtotal);
+
+            // Eliminar la fila vacía actual
+            newItems.splice(idx, 1);
+        } else {
+            // El producto no existe, agregarlo a la fila actual
+            const currentQty = newItems[idx].cantidad;
+
+            newItems[idx] = {
+                ...newItems[idx],
+                productoId: p.id,
+                descripcion: p.nombre,
+                codProducto: codProducto,
+                referencia: p.referencia || '',
+                precioUnitario: p.ultimoCosto || 0,
+                ivaPorcentaje: p.tasaIva || 0,
+                unidadMedida: p.unidadMedida || 'UND',
+                unidadMedidaCodigo: (p as any).unidadMedidaCodigo || ''
+            };
+
+            // Recalcular con la cantidad actual
+            const item = newItems[idx];
+            const subtotal = (item.precioUnitario * currentQty) * (1 - (item.descuentoPorcentaje / 100));
+            item.subtotal = round(subtotal);
+            item.valorIva = round(subtotal * (item.ivaPorcentaje / 100));
+            item.total = round(subtotal);
+        }
 
         setFormData(prev => ({ ...prev, items: newItems }));
         setActiveSearchIdx(null);
         setRowResults([]);
     };
+
 
     const pickCliente = async (c: Cliente) => {
         setClienteSearch(c.nombreCompleto || c.razonSocial || '');
@@ -262,6 +288,57 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
         // Obtener codtar directamente del cliente seleccionado
         const codigoTarifa = (c as any).codtar || '01'; // Default MAYORISTA si no tiene
 
+        // Si hay un producto seleccionado en los inputs de "Añadir Producto", actualizar su precio
+        if (selectedProduct) {
+            const codProd = selectedProduct.codigo || (selectedProduct as any).codins;
+            if (codProd) {
+                try {
+                    const resp = await apiSearchProductos(codProd, 1, undefined, codigoTarifa);
+                    if (resp.success && resp.data && resp.data.length > 0) {
+                        const prodActualizado = resp.data[0];
+                        setCurrentUnitPrice(prodActualizado.ultimoCosto || 0);
+                        // Actualizar también el objeto seleccionado para que tenga la info correcta
+                        setSelectedProduct(prev => prev ? ({ ...prev, ultimoCosto: prodActualizado.ultimoCosto }) : null);
+                        addNotification({ message: 'Precio del producto a añadir actualizado según tarifa del cliente', type: 'info' });
+                    }
+                } catch (e) {
+                    console.error('Error al actualizar precio del producto seleccionado:', e);
+                }
+            }
+        }
+
+        // Actualizar precios de los items existentes según la nueva tarifa
+        const updatedItems = await Promise.all(
+            formData.items.map(async (item) => {
+                // Si el item ya tiene un producto asignado, actualizar su precio
+                if (item.codProducto && item.codProducto !== 'N/A') {
+                    try {
+                        // Buscar el producto con la nueva tarifa
+                        const resp = await apiSearchProductos(item.codProducto, 1, undefined, codigoTarifa);
+                        if (resp.success && resp.data && resp.data.length > 0) {
+                            const productoActualizado = resp.data[0];
+
+                            // Actualizar precio y recalcular totales
+                            const nuevoPrecio = productoActualizado.ultimoCosto || item.precioUnitario;
+                            const subtotal = (nuevoPrecio * item.cantidad) * (1 - (item.descuentoPorcentaje / 100));
+
+                            return {
+                                ...item,
+                                precioUnitario: nuevoPrecio,
+                                subtotal: round(subtotal),
+                                valorIva: round(subtotal * (item.ivaPorcentaje / 100)),
+                                total: round(subtotal)
+                            };
+                        }
+                    } catch (e) {
+                        console.error('Error actualizando precio del item:', e);
+                    }
+                }
+                // Si no se pudo actualizar, devolver el item sin cambios
+                return item;
+            })
+        );
+
         setFormData(prev => ({
             ...prev,
             customer: {
@@ -273,7 +350,8 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                 email: c.email || '',
                 dv: dv
             },
-            codigoTarifa // Guardar codtar en el estado
+            codigoTarifa, // Guardar codtar en el estado
+            items: updatedItems // Actualizar items con nuevos precios
         }));
     };
 
@@ -323,23 +401,46 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
         const valorIva = subtotal * (ivaPorcentaje / 100);
         const total = subtotal;
 
-        const newItem: DocumentItem = {
-            productoId: selectedProduct.id,
-            descripcion: selectedProduct.nombre,
-            cantidad: quantityNum,
-            precioUnitario: price,
-            ivaPorcentaje: ivaPorcentaje,
-            descuentoPorcentaje: discountNum,
-            subtotal: round(subtotal),
-            valorIva: round(valorIva),
-            total: round(total),
-            codProducto: selectedProduct.codigo || (selectedProduct as any).codins || 'N/A',
-            referencia: selectedProduct.referencia || '',
-            unidadMedidaCodigo: (selectedProduct as any).unidadMedidaCodigo || '',
-            unidadMedida: selectedProduct.unidadMedida || 'UND'
-        };
+        // Verificar si el producto ya existe
+        const existingItemIndex = formData.items.findIndex(item =>
+            (item.productoId === selectedProduct.id) ||
+            (item.codProducto === (selectedProduct.codigo || (selectedProduct as any).codins))
+        );
 
-        setFormData(prev => ({ ...prev, items: [...prev.items, newItem] }));
+        if (existingItemIndex !== -1) {
+            // Actualizar item existente
+            const newItems = [...formData.items];
+            const existingItem = newItems[existingItemIndex];
+
+            existingItem.cantidad += quantityNum;
+
+            // Recalcular totales
+            const newSubtotal = (existingItem.precioUnitario * existingItem.cantidad) * (1 - (existingItem.descuentoPorcentaje / 100));
+            existingItem.subtotal = round(newSubtotal);
+            existingItem.valorIva = round(newSubtotal * (existingItem.ivaPorcentaje / 100));
+            existingItem.total = round(newSubtotal); // Sin IVA sumado al total en la línea, se suma al final
+
+            setFormData(prev => ({ ...prev, items: newItems }));
+            addNotification({ message: 'Producto actualizado en la lista (cantidad sumada)', type: 'success' });
+        } else {
+            // Agregar nuevo item
+            const newItem: DocumentItem = {
+                productoId: selectedProduct.id,
+                descripcion: selectedProduct.nombre,
+                cantidad: quantityNum,
+                precioUnitario: price,
+                ivaPorcentaje: ivaPorcentaje,
+                descuentoPorcentaje: discountNum,
+                subtotal: round(subtotal),
+                valorIva: round(valorIva),
+                total: round(total),
+                codProducto: selectedProduct.codigo || (selectedProduct as any).codins || 'N/A',
+                referencia: selectedProduct.referencia || '',
+                unidadMedidaCodigo: (selectedProduct as any).unidadMedidaCodigo || '',
+                unidadMedida: selectedProduct.unidadMedida || 'UND'
+            };
+            setFormData(prev => ({ ...prev, items: [...prev.items, newItem] }));
+        }
         setSelectedProduct(null);
         setProductSearchTerm('');
         setCurrentQuantity(1);
