@@ -69,7 +69,8 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             type_regime_id: '1',
             id_location: '08001',
         },
-        items: []
+        items: [],
+        codigoTarifa: '01' // Default MAYORISTA
     });
 
     const [clienteSearch, setClienteSearch] = useState('');
@@ -175,7 +176,9 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             const q = productSearchTerm.trim();
             if (q.length >= 2) {
                 try {
-                    const resp = await apiSearchProductos(q, 20);
+                    // Pasar codtar del cliente seleccionado
+                    const codtar = (formData as any).codigoTarifa || '01';
+                    const resp = await apiSearchProductos(q, 20, undefined, codtar);
                     if (resp.success && resp.data) {
                         const dataArray = resp.data as any[];
                         const mapped = dataArray.map(p => ({
@@ -190,7 +193,7 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             }
         }, 300);
         return () => clearTimeout(handler);
-    }, [productSearchTerm]);
+    }, [productSearchTerm, (formData as any).codigoTarifa]); // Re-buscar si cambia la tarif a
 
     const handleRowProductSearch = async (idx: number, query: string) => {
         handleUpdateItem(idx, 'descripcion', query);
@@ -200,7 +203,9 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             return;
         }
         try {
-            const resp = await apiSearchProductos(query, 10);
+            // Pasar codtar del cliente seleccionado
+            const codtar = (formData as any).codigoTarifa || '01';
+            const resp = await apiSearchProductos(query, 10, undefined, codtar);
             if (resp.success && resp.data) {
                 const mapped = (resp.data as any[]).map(p => ({
                     ...p,
@@ -254,6 +259,9 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
             dv = parts[1];
         }
 
+        // Obtener codtar directamente del cliente seleccionado
+        const codigoTarifa = (c as any).codtar || '01'; // Default MAYORISTA si no tiene
+
         setFormData(prev => ({
             ...prev,
             customer: {
@@ -264,7 +272,8 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                 phone: (c as any).celter || c.celular || (c as any).telter || c.telefono || '',
                 email: c.email || '',
                 dv: dv
-            }
+            },
+            codigoTarifa // Guardar codtar en el estado
         }));
     };
 

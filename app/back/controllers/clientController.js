@@ -281,7 +281,8 @@ const clientController = {
           ciudad,
           departamento,
           codven as vendedorId,
-           tipter
+          tipter,
+          codtar
         FROM ${TABLE_NAMES.clientes}
         WHERE (activo = 1 OR tipter = 1)
           AND (nomter LIKE @like OR codter LIKE @like)

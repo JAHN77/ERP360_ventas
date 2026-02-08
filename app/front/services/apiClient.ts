@@ -567,13 +567,14 @@ class ApiClient {
     return this.request(`/buscar/vendedores?${params.toString()}`);
   }
 
-  async searchProductos(search: string, limit = 20, codalm?: string) {
+  async searchProductos(search: string, limit = 20, codalm?: string, codtar?: string) {
     const trimmedSearch = String(search || '').trim();
     if (trimmedSearch.length < 2) {
       return { success: false, message: 'Ingrese al menos 2 caracteres', data: [] };
     }
     const params = new URLSearchParams({ search: trimmedSearch, limit: String(limit) });
     if (codalm) params.append('codalm', codalm);
+    if (codtar) params.append('codtar', codtar);
     return this.request(`/buscar/productos?${params.toString()}`);
   }
 
@@ -913,7 +914,7 @@ export const apiSearchProveedores = (search: string, limit?: number) => apiClien
 // búsquedas/crear
 export const apiSearchClientes = (q: string, limit?: number) => apiClient.searchClientes(q, limit);
 export const apiSearchVendedores = (q: string, limit?: number) => apiClient.searchVendedores(q, limit);
-export const apiSearchProductos = (q: string, limit?: number, codalm?: string) => apiClient.searchProductos(q, limit, codalm);
+export const apiSearchProductos = (q: string, limit?: number, codalm?: string, codtar?: string) => apiClient.searchProductos(q, limit, codalm, codtar);
 export const apiSearchServices = (q: string, limit?: number) => apiClient.searchServices(q, limit);
 export const apiCreateCotizacion = (payload: any) => apiClient.createCotizacion(payload);
 export const apiUpdateCotizacion = (id: string | number, payload: any) => apiClient.updateCotizacion(id, payload);

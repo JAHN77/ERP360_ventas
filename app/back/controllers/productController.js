@@ -600,7 +600,7 @@ const productController = {
   },
   searchProductsCustom: async (req, res) => {
     try {
-      const { search = '', limit = 20 } = req.query;
+      const { search = '', limit = 20, codtar } = req.query;
       if (String(search).trim().length < 2) {
         return res.status(400).json({ success: false, message: 'Ingrese al menos 2 caracteres' });
       }
@@ -613,11 +613,12 @@ const productController = {
           CAST(i.undins AS VARCHAR(10)) as undins,
           COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as caninv,
           0 as Valinv,
-          CAST(i.precio_publico AS DECIMAL(18,2)) as Precio_Venta,
+          -- Usar precio de la tarifa del cliente si está disponible
+          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as Precio_Venta,
           CAST(i.margen_venta AS DECIMAL(18,2)) as margen_venta,
           0 as tasa_descuento,
           CAST(i.ultimo_costo AS DECIMAL(18,2)) as precio_base,
-          CAST(i.precio_publico AS DECIMAL(18,2)) as precio_lista,
+          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as precio_lista,
           CAST(i.referencia AS VARCHAR(100)) as referencia,
           CAST(i.undins AS VARCHAR(10)) as unimedida,
           '' as padre,
@@ -632,22 +633,22 @@ const productController = {
           i.codins as codigo,
           i.nomins as nombre,
           CAST(i.ultimo_costo AS DECIMAL(18,2)) as ultimoCostoCompra,
-          CAST(i.precio_publico AS DECIMAL(18,2)) as ultimoCosto,
-          CAST(i.precio_publico AS DECIMAL(18,2)) as precioConIva,
-          CAST(i.precio_publico AS DECIMAL(18,2)) as precioPublico,
+          -- Usar precio de lista del cliente
+          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as ultimoCosto,
+          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as precioConIva,
+          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as precioPublico,
           COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as stock,
-          i.undins as unidadMedidaCodigo,
+          i.Codigo_Medida as unidadMedidaCodigo,
           (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) as unidadMedidaNombre,
           CAST(i.tasa_iva AS DECIMAL(18,2)) as tasaIva,
-          CASE 
-              WHEN LTRIM(RTRIM(i.undins)) = 'UND' THEN 'UNIDAD'
-              WHEN LTRIM(RTRIM(i.undins)) = 'HORA' THEN 'HORA'
-              WHEN LTRIM(RTRIM(i.undins)) = 'DIA' THEN 'DIA'
-              ELSE (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) 
-          END as unidadMedida,
+          -- Siempre usar el nombre real de inv_medidas
+          COALESCE((SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida), 'UNIDAD') as unidadMedida,
           i.id
 
         FROM inv_insumos i
+        -- JOIN con inv_detaprecios para obtener precio según tarifa del cliente
+        LEFT JOIN inv_detaprecios dp ON i.codins = dp.codins 
+          AND (@codtar IS NULL OR dp.codtar = @codtar)
         WHERE i.activo = 1 
           AND (i.nomins LIKE @search OR i.codins LIKE @search OR i.referencia LIKE @search)
         ORDER BY i.nomins
@@ -655,7 +656,8 @@ const productController = {
 
       const data = await executeQueryWithParams(query, {
         search: `%${search}%`,
-        limit: Math.min(parseInt(limit) || 20, 100)
+        limit: Math.min(parseInt(limit) || 20, 100),
+        codtar: codtar || null
       }, req.db_name);
 
       res.json({ success: true, data });
