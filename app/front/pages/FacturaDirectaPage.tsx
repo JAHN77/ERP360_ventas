@@ -246,7 +246,8 @@ const FacturaDirectaPage: React.FC = () => {
                 transferencia: valTransferencia,
                 cufe: cufe,
                 resolucionDian: '98', // Corregido a '98' según solicitud
-                estadoEnvio: true // Marcar como enviada
+                estadoEnvio: true, // Marcar como enviada
+                isDirectInvoice: true // ACTIVAR USO DE STORED PROCEDURE (Sp_Grabar_Factura_Venta)
             };
 
             console.log('Enviando a guardar BD:', invoiceBody);
