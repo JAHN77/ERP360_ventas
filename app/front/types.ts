@@ -218,6 +218,7 @@ export interface DocumentoDetalle {
   fletes?: number; // Valor de fletes prorrateado o asignado
   referencia?: string; // Referencia del producto (externa/fabricante)
   unidadMedidaCodigo?: string; // NEW: Código de medida (001, 002, 003)
+  stock?: number; // Existencia disponible del producto en bodega
 }
 export type DocumentItem = DocumentoDetalle;
 

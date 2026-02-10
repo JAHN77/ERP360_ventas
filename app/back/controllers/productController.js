@@ -28,7 +28,7 @@ const productController = {
 
       // Get parameters from inv_listaprecios
       const tarifaCode = tarifa || '01'; // Default to MAYORISTA
-      
+
       const query = `
         -- Obtener parámetros de la tarifa
         DECLARE @margen_minimo DECIMAL(10,2) = 0.10
@@ -99,8 +99,8 @@ const productController = {
       `;
 
       const countResult = await executeQueryWithParams(
-        countQuery, 
-        searchTerm ? { tarifaParam: tarifaCode, search: `%${searchTerm}%` } : { tarifaParam: tarifaCode }, 
+        countQuery,
+        searchTerm ? { tarifaParam: tarifaCode, search: `%${searchTerm}%` } : { tarifaParam: tarifaCode },
         req.db_name
       );
       const totalRecords = countResult[0]?.total || 0;
@@ -267,21 +267,21 @@ const productController = {
 
       // ===== VALIDACIONES DE CAMPOS REQUERIDOS =====
       const errors = [];
-      
+
       if (!nombre || nombre.trim() === '') {
         errors.push('El nombre del producto es obligatorio');
       }
-      
+
       if (!costo || parseFloat(costo) <= 0) {
         errors.push('El costo del producto es obligatorio y debe ser mayor a 0');
       }
-      
+
       if (!precio || parseFloat(precio) <= 0) {
         errors.push('El precio del producto es obligatorio y debe ser mayor a 0');
       }
 
       const isService = Number(idTipoProducto) === 2;
-      
+
       if (!isService && (!stock || parseFloat(stock) <= 0)) {
         errors.push('El stock inicial es obligatorio para productos con inventario y debe ser mayor a 0');
       }
@@ -329,7 +329,7 @@ const productController = {
       // Map Unit
       // El frontend envía unidadMedidaCodigo directamente (001, 002, 003, etc.)
       let codMedida = unidadMedida || '003'; // Default Unidad
-      
+
       // Si unidadMedida es un código válido (001, 002, 003), usarlo directamente
       // Sino, intentar mapear por nombre
       if (!/^\d{3}$/.test(codMedida)) {
@@ -383,10 +383,10 @@ const productController = {
         } else {
           // ===== INSERT PRODUCT =====
           const undinsVal = codMedida === '001' ? 'HORA' : (codMedida === '002' ? 'DIA' : 'UND');
-          
+
           // Calcular margen: ((Precio - Costo) / Precio) * 100
           const marginVal = ((precioVal - costoVal) / precioVal) * 100;
-          
+
           console.log('[ProductController] Creando producto:', {
             code: nextCode,
             nombre,
@@ -396,7 +396,7 @@ const productController = {
             stock: stockVal,
             referencia
           });
-          
+
           const query = `
             INSERT INTO ${TABLE_NAMES.productos}
             (codins, nomins, tasa_iva, ultimo_costo, referencia, Codigo_Medida, undins, karins, activo, 
@@ -406,7 +406,7 @@ const productController = {
             (@code, @nombre, @iva, @costo, @referencia, @medida, @undins, @karins, 1, 
              '01', @sublinea, @costo, @precio, @margen, 1, 1, @precio, @precio)
           `;
-          
+
           request.input('code', sql.VarChar(20), nextCode);
           request.input('nombre', sql.VarChar(255), nombre);
           request.input('iva', sql.Decimal(5, 2), tasaIvaVal);
@@ -439,7 +439,7 @@ const productController = {
           // ===== INSERT PRICES (inv_detaprecios) =====
           // CRÍTICO: Debe tener precios para TODAS las tarifas
           const reqPrice = new sql.Request(transaction);
-          
+
           // Obtener todas las tarifas activas
           const tarifasResult = await reqPrice.query(`
             SELECT codtar, lismargen FROM inv_listaprecios WHERE vigente = 1
@@ -459,12 +459,12 @@ const productController = {
             if (!tarifaRef) {
               throw new Error(`Tarifa de referencia '${tarifaReferencia}' no encontrada`);
             }
-            
+
             // Quitar IVA si aplica
             const precioSinIva = aplicaIva ? precioVal / 1.19 : precioVal;
             // Calcular costo: precio_sin_iva * (1 - margen/100)
             costoFinalcalculado = precioSinIva * (1 - tarifaRef.lismargen / 100);
-            
+
             console.log('[ProductController] Modo precio activado:', {
               precioDeseado: precioVal,
               tarifaReferencia,
@@ -477,7 +477,7 @@ const productController = {
           const priceInserts = tarifasResult.recordset.map(tarifa => {
             // Para modo precio, si es la tarifa de referencia, usar el precio exacto ingresado
             let precioParaTarifa;
-            
+
             if (calculationMode === 'price' && tarifa.codtar === tarifaReferencia) {
               // Usar precio exacto ingresado por el usuario
               precioParaTarifa = precioVal;
@@ -486,7 +486,7 @@ const productController = {
               const precioSinIva = costoFinalcalculado / (1 - (tarifa.lismargen / 100));
               precioParaTarifa = aplicaIva ? precioSinIva * 1.19 : precioSinIva;
             }
-            
+
             return `('${nextCode}', '${tarifa.codtar}', ${precioParaTarifa.toFixed(2)}, ${tarifa.lismargen})`;
           }).join(',\n            ');
 
@@ -499,7 +499,7 @@ const productController = {
           await reqPrice.query(priceQuery);
 
           console.log(`[ProductController] Precios creados para ${tarifasResult.recordset.length} tarifas`);
-          
+
           // Actualizar costo en inv_invent con el costo calculado si fue modo precio
           if (calculationMode === 'price') {
             const reqUpdateCost = new sql.Request(transaction);
@@ -513,18 +513,18 @@ const productController = {
         }
 
         await transaction.commit();
-        
-        res.json({ 
-          success: true, 
-          message: `${isService ? 'Servicio' : 'Producto'} creado correctamente`, 
-          data: { 
-            id: nextCode, 
+
+        res.json({
+          success: true,
+          message: `${isService ? 'Servicio' : 'Producto'} creado correctamente`,
+          data: {
+            id: nextCode,
             codigo: nextCode,
             nombre,
             precio: precioVal,
             costo: costoVal,
             stock: stockVal
-          } 
+          }
         });
 
       } catch (err) {
@@ -600,64 +600,75 @@ const productController = {
   },
   searchProductsCustom: async (req, res) => {
     try {
-      const { search = '', limit = 20, codtar } = req.query;
+      const { search = '', limit = 20, codtar = '01', codalm } = req.query;
       if (String(search).trim().length < 2) {
         return res.status(400).json({ success: false, message: 'Ingrese al menos 2 caracteres' });
       }
 
+      // Usar fn_obtener_insumos_servicios según el script proporcionado
       const query = `
-        SELECT TOP (@limit) 
-          CAST(i.codins AS VARCHAR(50)) as codins,
-          CAST(i.nomins AS VARCHAR(255)) as nomins,
-          CAST(i.tasa_iva AS DECIMAL(18,2)) as tasa_iva,
-          CAST(i.undins AS VARCHAR(10)) as undins,
-          COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as caninv,
+        -- Obtener parámetros de la tarifa
+        DECLARE @margen_minimo DECIMAL(10,2) = 0.10
+        DECLARE @almacen CHAR(3)
+        DECLARE @Tarifa CHAR(2) = @tarifaParam
+        DECLARE @Incluir_Iva BIT
+        
+        SELECT @margen_minimo = lismargen, @almacen = codalm 
+        FROM inv_listaprecios 
+        WHERE codtar = @Tarifa
+        
+        SELECT @Incluir_Iva = ISNULL(IvaIncluido, 0) FROM ven_parametros
+        
+        -- Obtener productos usando la función con filtrado por existencia
+        SELECT TOP (@limit)
+          p.codins as codigo,
+          p.nomins as nombre,
+          p.undins,
+          p.caninv,
+          p.tasa_iva,
+          p.Precio_Venta,
+          p.tasa_descuento,
+          p.precio_lista,
+          @Incluir_Iva as Precio_Iva,
+          
+          -- Mapeos adicionales para compatibilidad con Frontend
+          p.codins,
+          p.nomins,
+          CAST(p.costo_producto AS DECIMAL(18,2)) as ultimoCostoCompra,
+          CAST(p.Precio_Venta AS DECIMAL(18,2)) as ultimoCosto,
+          CAST(p.precio_lista AS DECIMAL(18,2)) as precioConIva,
+          CAST(p.precio_lista AS DECIMAL(18,2)) as precioPublico,
+          p.caninv as stock,
+          p.undins as unidadMedidaCodigo,
+          p.nommedida as unidadMedidaNombre,
+          p.tasa_iva as tasaIva,
+          CASE 
+            WHEN LTRIM(RTRIM(p.undins)) = 'UND' THEN 'UNIDAD'
+            WHEN LTRIM(RTRIM(p.undins)) = 'HORA' THEN 'HORA'
+            WHEN LTRIM(RTRIM(p.undins)) = 'DIA' THEN 'DIA'
+            ELSE p.nommedida
+          END as unidadMedida,
+          p.referencia,
           0 as Valinv,
-          -- Usar precio de la tarifa del cliente si está disponible
-          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as Precio_Venta,
-          CAST(i.margen_venta AS DECIMAL(18,2)) as margen_venta,
-          0 as tasa_descuento,
-          CAST(i.ultimo_costo AS DECIMAL(18,2)) as precio_base,
-          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as precio_lista,
-          CAST(i.referencia AS VARCHAR(100)) as referencia,
-          CAST(i.undins AS VARCHAR(10)) as unimedida,
+          p.margen_venta,
+          p.costo_producto as precio_base,
           '' as padre,
           1 as canmed,
-          CAST(i.undins AS VARCHAR(10)) as abreviatura,
-          CASE WHEN i.tipo_producto = 'Servicio' THEN 1 ELSE 0 END as servicio,
-          i.karins,
-          CAST(i.ultimo_costo AS DECIMAL(18,2)) as costo_producto,
-          (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) as nommedida,
+          p.undins as abreviatura,
+          0 as servicio,
+          1 as karins,
+          CAST(ROW_NUMBER() OVER (ORDER BY p.nomins) AS bigint) as id
           
-          -- Mapeos para compatibilidad con Frontend
-          i.codins as codigo,
-          i.nomins as nombre,
-          CAST(i.ultimo_costo AS DECIMAL(18,2)) as ultimoCostoCompra,
-          -- Usar precio de lista del cliente
-          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as ultimoCosto,
-          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as precioConIva,
-          CAST(COALESCE(dp.valins, i.precio_publico) AS DECIMAL(18,2)) as precioPublico,
-          COALESCE((SELECT SUM(caninv) FROM inv_invent WHERE codins = i.codins), 0) as stock,
-          i.Codigo_Medida as unidadMedidaCodigo,
-          (SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida) as unidadMedidaNombre,
-          CAST(i.tasa_iva AS DECIMAL(18,2)) as tasaIva,
-          -- Siempre usar el nombre real de inv_medidas
-          COALESCE((SELECT TOP 1 nommed FROM inv_medidas WHERE codmed = i.Codigo_Medida), 'UNIDAD') as unidadMedida,
-          i.id
-
-        FROM inv_insumos i
-        -- JOIN con inv_detaprecios para obtener precio según tarifa del cliente
-        LEFT JOIN inv_detaprecios dp ON i.codins = dp.codins 
-          AND (@codtar IS NULL OR dp.codtar = @codtar)
-        WHERE i.activo = 1 
-          AND (i.nomins LIKE @search OR i.codins LIKE @search OR i.referencia LIKE @search)
-        ORDER BY i.nomins
+        FROM dbo.fn_obtener_insumos_servicios(@margen_minimo, @almacen, @Tarifa) p
+        WHERE (p.nomins LIKE @search OR p.codins LIKE @search OR p.referencia LIKE @search)
+          AND p.caninv > 0  -- Solo productos con existencia
+        ORDER BY p.nomins
       `;
 
       const data = await executeQueryWithParams(query, {
         search: `%${search}%`,
         limit: Math.min(parseInt(limit) || 20, 100),
-        codtar: codtar || null
+        tarifaParam: codtar
       }, req.db_name);
 
       res.json({ success: true, data });
@@ -968,7 +979,30 @@ const productController = {
         error: error.message
       });
     }
+  },
+
+  /**
+   * Get IVA inclusion parameter from ven_parametros
+   */
+  getIvaIncluido: async (req, res) => {
+    try {
+      const query = `SELECT ISNULL(IvaIncluido, 0) as ivaIncluido FROM ven_parametros`;
+      const result = await executeQueryWithParams(query, {}, req.db_name);
+
+      res.json({
+        success: true,
+        data: { ivaIncluido: result[0]?.ivaIncluido || 0 }
+      });
+    } catch (error) {
+      console.error('[ProductController] Error getting IVA parameter:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener parámetro IVA',
+        error: error.message
+      });
+    }
   }
 };
 
 module.exports = productController;
+

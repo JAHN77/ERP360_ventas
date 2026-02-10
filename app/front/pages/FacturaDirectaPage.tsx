@@ -275,19 +275,8 @@ const FacturaDirectaPage: React.FC = () => {
 
     return (
         <div className="animate-fade-in space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 pb-4">
-                <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-                        Factura Directa {nextNumber ? `#${nextNumber}` : ''}
-                    </h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-1">
-                        Diligencia el formulario para generar una factura directa y enviarla a la DIAN.
-                    </p>
-                </div>
-            </div>
 
-            <div className="flex justify-between items-center mb-4">
-                <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">Configuración</h1>
+            <div className="flex justify-end items-center mb-4">
 
                 <div className="flex items-center gap-2">
                     <span className={`text-xs font-medium ${isTestMode ? 'text-amber-600' : 'text-slate-400'}`}>
