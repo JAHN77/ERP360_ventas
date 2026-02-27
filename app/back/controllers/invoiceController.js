@@ -297,6 +297,13 @@ const invoiceController = {
           (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) as subtotal,
           fd.ivains as valorIva,
           (fd.valins * fd.qtyins) - COALESCE(fd.valdescuento, 0) + COALESCE(fd.ivains, 0) as total,
+          COALESCE(
+            (SELECT TOP 1 LTRIM(RTRIM(COALESCE(m.nommed, ins.undins, ''))) 
+             FROM inv_insumos ins
+             LEFT JOIN inv_medidas m ON m.codmed = ins.Codigo_Medida
+             WHERE LTRIM(RTRIM(ins.codins)) = LTRIM(RTRIM(fd.codins))),
+            'Unidad'
+          ) as unidadMedida,
           fd.codins as codProducto
         FROM ${TABLE_NAMES.facturas_detalle} fd
         ${whereClause}

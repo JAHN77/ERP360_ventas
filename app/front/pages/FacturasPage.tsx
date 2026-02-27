@@ -255,11 +255,16 @@ const FacturasPage: React.FC = () => {
       return { cliente: null, remisionesRelacionadas: [], pedido: null, formaPago: undefined };
     }
     // Buscar cliente de forma flexible
-    const cliente = clientes.find(c =>
-      String(c.id) === String(selectedFactura.clienteId) ||
-      c.numeroDocumento === selectedFactura.clienteId ||
-      c.codter === selectedFactura.clienteId
-    );
+    const cliente = clientes.find(c => {
+      const facturaClienteId = String(selectedFactura.clienteId || '').trim();
+      const clientId = String(c.id || '').trim();
+      const clientDoc = String(c.numeroDocumento || '').trim();
+      const clientCodter = String(c.codter || '').trim();
+
+      return clientId === facturaClienteId ||
+        clientDoc === facturaClienteId ||
+        clientCodter === facturaClienteId;
+    });
     // Buscar remisiones relacionadas de múltiples formas:
     // 1. Por remisionesIds (array de IDs)
     // 2. Por remisionId (singular) como fallback
@@ -652,7 +657,8 @@ const FacturasPage: React.FC = () => {
       const response = await apiClient.getFacturasDetalle(factura.id);
       if (response.success && Array.isArray(response.data)) {
         const items = response.data.map((d: any) => ({
-          productoId: d.productoId || null,
+          id: d.id,
+          productoId: d.productoId || d.id || null, // Fallback to id if productoId is missing
           cantidad: Number(d.cantidad || d.qtyins || 0),
           precioUnitario: Number(d.precioUnitario || d.valins || 0),
           descuentoPorcentaje: Number(d.descuentoPorcentaje || d.desins || 0),
@@ -662,8 +668,10 @@ const FacturasPage: React.FC = () => {
           valorIva: Number(d.valorIva || d.ivains || 0),
           total: Number(d.total || 0),
           codProducto: d.codProducto || d.codins || '',
-          referencia: d.referencia || ''
+          referencia: d.referencia || '',
+          unidadMedida: d.unidadMedida || ''
         }));
+        console.log('✅ [FacturasPage] Items procesados:', items.length, items);
         setSelectedFacturaItems(items);
       } else {
         setSelectedFacturaItems([]);
@@ -1010,11 +1018,12 @@ const FacturasPage: React.FC = () => {
       header: 'Cliente',
       accessor: 'clienteId',
       cell: (item) => {
-        const cliente = clientes.find(c =>
-          String(c.id) === String(item.clienteId) ||
-          c.numeroDocumento === item.clienteId ||
-          c.codter === item.clienteId
-        );
+        const cliente = clientes.find(c => {
+          const itemClienteId = String(item.clienteId || '').trim();
+          return String(c.id || '').trim() === itemClienteId ||
+            String(c.numeroDocumento || '').trim() === itemClienteId ||
+            (c.codter && String(c.codter).trim() === itemClienteId);
+        });
         return (
           <div className="flex flex-col max-w-[200px]">
             <span className="font-medium text-slate-700 dark:text-slate-200 truncate" title={cliente?.nombreCompleto}>
@@ -1143,11 +1152,12 @@ const FacturasPage: React.FC = () => {
       header: 'Cliente',
       accessor: 'clienteId',
       cell: (item) => {
-        const cliente = clientes.find(c =>
-          String(c.id) === String(item.clienteId) ||
-          c.numeroDocumento === item.clienteId ||
-          c.codter === item.clienteId
-        );
+        const cliente = clientes.find(c => {
+          const itemClienteId = String(item.clienteId || '').trim();
+          return String(c.id || '').trim() === itemClienteId ||
+            String(c.numeroDocumento || '').trim() === itemClienteId ||
+            (c.codter && String(c.codter).trim() === itemClienteId);
+        });
         return (
           <div className="flex flex-col max-w-[200px]">
             <span className="font-medium text-slate-700 dark:text-slate-200 truncate" title={cliente?.nombreCompleto}>
@@ -1219,11 +1229,12 @@ const FacturasPage: React.FC = () => {
 
           // 2. Si aún no se encuentra, intentar inferir del Cliente
           if (!formaPagoFactura && item.clienteId) {
-            const cliente = clientes.find(c =>
-              String(c.id) === String(item.clienteId) ||
-              c.numeroDocumento === item.clienteId ||
-              c.codter === item.clienteId
-            );
+            const cliente = clientes.find(c => {
+              const itemClienteId = String(item.clienteId || '').trim();
+              return String(c.id || '').trim() === itemClienteId ||
+                String(c.numeroDocumento || '').trim() === itemClienteId ||
+                (c.codter && String(c.codter).trim() === itemClienteId);
+            });
             if (cliente) {
               // Si tiene días de crédito > 0 o dice Crédito, asume Crédito (2). Si no, Contado (1).
               if ((cliente.diasCredito && cliente.diasCredito > 0) ||
@@ -1594,7 +1605,7 @@ const FacturasPage: React.FC = () => {
                             No hay items para mostrar
                           </td>
                         </tr>
-                      ) : (selectedFacturaItems).map((item: DocumentItem) => {
+                      ) : (selectedFacturaItems).map((item: DocumentItem, idx: number) => {
                         const producto = productos.find(p => p.id === item.productoId);
                         // IMPORTANTE: Usar valores del backend directamente, NO recalcular
                         // Prioridad 1: usar subtotal del backend (ya calculado desde BD)
@@ -1609,10 +1620,17 @@ const FacturasPage: React.FC = () => {
                           ? item.valorIva
                           : itemSubtotal * ((item.ivaPorcentaje || 0) / 100);
                         return (
-                          <tr key={item.productoId} className="text-sm">
+                          <tr key={item.id || `${item.productoId}-${idx}`} className="text-sm">
                             <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{item.referencia || producto?.referencia || item.codProducto || 'N/A'}</td>
-                            <td className="px-4 py-2 whitespace-nowrap font-semibold">{item.descripcion}</td>
-                            <td className="px-4 py-2 whitespace-nowrap">{producto?.unidadMedida}</td>
+                            <td className="px-4 py-2 whitespace-nowrap font-semibold">
+                              {item.descripcion}
+                              {item.unidadMedida && (
+                                <span className="ml-1 text-xs font-normal text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                  {item.unidadMedida}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 whitespace-nowrap">{item.unidadMedida || producto?.unidadMedida}</td>
                             <td className="px-4 py-2 whitespace-nowrap text-right">{item.cantidad}</td>
                             <td className="px-4 py-2 whitespace-nowrap text-right">{formatCurrency(item.precioUnitario)}</td>
                             <td className="px-4 py-2 whitespace-nowrap text-right text-red-600">{item.descuentoPorcentaje.toFixed(2)}%</td>
