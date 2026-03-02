@@ -110,8 +110,7 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                     <View style={pdfStyles.tableHeader}>
                         <Text style={[pdfStyles.tableHeaderText, { width: '10%' }]}>Referencia</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '31%' }]}>Descripción</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Unidad</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'right' }]}>Cant.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Cant.</Text>
                         {safePreferences.showPrices ? (
                             <>
                                 <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text>
@@ -124,14 +123,26 @@ const PedidoPDFDocument: React.FC<Props> = ({ pedido, cliente, empresa, preferen
                     {pedido.items.map((item, idx) => {
                         const product = productos.find(p => p.id === item.productoId);
                         const referencia = (item as any).referencia || product?.referencia || 'N/A';
-                        const unidad = (item as any).unidadMedida || (item as any).codigoMedida || product?.unidadMedida || 'N/A';
+                        // Obtener unidad de medida
+                        const unidad = (item as any).unidadMedida || (item as any).codigoMedida || product?.unidadMedida || 'UND';
+                        let unidadLimpia = String(unidad).toUpperCase().trim();
+                        // Limpiar unidad duplicada o con comas
+                        if (unidadLimpia.includes(',')) {
+                            const parts = unidadLimpia.split(',').map(p => p.trim()).filter(p => p);
+                            unidadLimpia = [...new Set(parts)].join(', ');
+                        }
+                        if (unidadLimpia.length > 0 && unidadLimpia.length % 2 === 0) {
+                            const half = unidadLimpia.length / 2;
+                            if (unidadLimpia.substring(0, half) === unidadLimpia.substring(half)) {
+                                unidadLimpia = unidadLimpia.substring(0, half);
+                            }
+                        }
 
                         return (
                             <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
                                 <Text style={[pdfStyles.tableCellText, { width: '10%', fontSize: 8 }]}>{referencia}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '31%', fontSize: 8 }]}>{item.descripcion}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>{unidad}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '10%', textAlign: 'right', fontSize: 8 }]}>{item.cantidad} {unidadLimpia}</Text>
                                 {safePreferences.showPrices ? (
                                     <>
                                         <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrencySafe(item.precioUnitario)}</Text>

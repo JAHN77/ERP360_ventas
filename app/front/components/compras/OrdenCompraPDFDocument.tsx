@@ -268,14 +268,28 @@ const OrdenCompraPDFDocument: React.FC<OrdenCompraPDFProps> = ({ data, empresa }
                     <View style={styles.tableHeader}>
                         <Text style={[styles.th, styles.colRef]}>Referencia</Text>
                         <Text style={[styles.th, styles.colDesc]}>Descripción</Text>
-                        <Text style={[styles.th, styles.colUnit]}>Unidad</Text>
                         <Text style={[styles.th, styles.colQty]}>Cant.</Text>
                         <Text style={[styles.th, styles.colPrice]}>P. Unit</Text>
                         <Text style={[styles.th, styles.colDisc]}>% Dcto</Text>
                         <Text style={[styles.th, styles.colTotal]}>Subtotal</Text>
                     </View>
 
-                    {data.items && data.items.map((item: any, index: number) => (
+                    {data.items && data.items.map((item: any, index: number) => {
+                        // Obtener unidad de medida
+                        const unidad = item.unidadMedida || 'UND';
+                        let unidadLimpia = String(unidad).toUpperCase().trim();
+                        // Limpiar unidad duplicada o con comas
+                        if (unidadLimpia.includes(',')) {
+                            const parts = unidadLimpia.split(',').map((p: string) => p.trim()).filter((p: string) => p);
+                            unidadLimpia = [...new Set(parts)].join(', ');
+                        }
+                        if (unidadLimpia.length > 0 && unidadLimpia.length % 2 === 0) {
+                            const half = unidadLimpia.length / 2;
+                            if (unidadLimpia.substring(0, half) === unidadLimpia.substring(half)) {
+                                unidadLimpia = unidadLimpia.substring(0, half);
+                            }
+                        }
+                        return (
                         <View key={index} style={styles.tableRow}>
                             <Text style={[styles.td, styles.colRef]}>
                                 {(item.referencia || item.productoReferencia || item.refins || '').substring(0, 12)}
@@ -283,11 +297,8 @@ const OrdenCompraPDFDocument: React.FC<OrdenCompraPDFProps> = ({ data, empresa }
                             <Text style={[styles.td, styles.colDesc]}>
                                 {(item.descripcion || item.productoNombre || item.nomins || '').substring(0, 35)}
                             </Text>
-                            <Text style={[styles.td, styles.colUnit]}>
-                                {item.unidadMedida || 'UND'}
-                            </Text>
                             <Text style={[styles.td, styles.colQty]}>
-                                {item.cantidad || item.cancom || 0}
+                                {item.cantidad || item.cancom || 0} {unidadLimpia}
                             </Text>
                             <Text style={[styles.td, styles.colPrice]}>
                                 {formatCurrency(Number(item.precioUnitario) || Number(item.vuncom) || 0)}

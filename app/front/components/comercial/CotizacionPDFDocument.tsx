@@ -122,8 +122,7 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                     <View style={pdfStyles.tableHeader}>
                         <Text style={[pdfStyles.tableHeaderText, { width: '12%', paddingLeft: 4 }]}>Referencia</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '35%', paddingHorizontal: 4 }]}>Descripción</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Unidad</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Cant.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'center' }]}>Cant.</Text>
                         {preferences.showPrices ? (<>
                             <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text>
                             <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Desc.</Text>
@@ -131,27 +130,26 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                             <Text style={[pdfStyles.tableHeaderText, { width: '15%', textAlign: 'right', paddingRight: 4 }]}>Total</Text>
                         </>) : null}
                     </View>
-                    {cotizacion.items.map((item, idx) => (
+                    {cotizacion.items.map((item, idx) => {
+                        // Obtener unidad de medida
+                        const unidad = (item as any).unidadMedida || (item as any).codigoMedida || 'UND';
+                        let unidadLimpia = String(unidad).toUpperCase().trim();
+                        // Limpiar unidad duplicada o con comas
+                        if (unidadLimpia.includes(',')) {
+                            const parts = unidadLimpia.split(',').map(p => p.trim()).filter(p => p);
+                            unidadLimpia = [...new Set(parts)].join(', ');
+                        }
+                        if (unidadLimpia.length > 0 && unidadLimpia.length % 2 === 0) {
+                            const half = unidadLimpia.length / 2;
+                            if (unidadLimpia.substring(0, half) === unidadLimpia.substring(half)) {
+                                unidadLimpia = unidadLimpia.substring(0, half);
+                            }
+                        }
+                        return (
                         <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
                             <Text style={[pdfStyles.tableCellText, { width: '12%', fontSize: 8, paddingLeft: 4 }]}>{(item as any).referencia || (item as any).codProducto || 'N/A'}</Text>
                             <Text style={[pdfStyles.tableCellText, { width: '35%', fontSize: 8, paddingHorizontal: 4 }]}>{item.descripcion}</Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'center', fontSize: 8, color: '#334155' }]}>
-                                {(() => {
-                                    let unit = String((item as any).unidadMedida || 'UND').toUpperCase();
-                                    if (unit.includes(',')) {
-                                        const parts = unit.split(',').map(p => p.trim()).filter(p => p);
-                                        unit = [...new Set(parts)].join(', ');
-                                    }
-                                    if (unit.length > 0 && unit.length % 2 === 0) {
-                                        const half = unit.length / 2;
-                                        if (unit.substring(0, half) === unit.substring(half)) {
-                                            unit = unit.substring(0, half);
-                                        }
-                                    }
-                                    return unit;
-                                })()}
-                            </Text>
-                            <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'center', fontSize: 8 }]}>{item.cantidad}</Text>
+                            <Text style={[pdfStyles.tableCellText, { width: '10%', textAlign: 'center', fontSize: 8 }]}>{item.cantidad} {unidadLimpia}</Text>
                             {preferences.showPrices ? (<>
                                 <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>{formatCurrency(item.precioUnitario)}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2, textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>{(item.descuentoPorcentaje || 0).toFixed(2)}%</Text>
@@ -159,7 +157,8 @@ const CotizacionPDFDocument: React.FC<Props> = ({
                                 <Text style={[pdfStyles.tableCellText, { width: '15%', textAlign: 'right', fontSize: 8, fontWeight: 'bold', paddingRight: 4 }]}>{formatCurrency(item.total)}</Text>
                             </>) : null}
                         </View>
-                    ))}
+                        );
+                    })}
                 </View>
 
                 {preferences.showPrices && (

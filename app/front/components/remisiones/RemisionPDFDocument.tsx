@@ -160,12 +160,26 @@ const RemisionPDFDocument: React.FC<Props> = ({ remision, pedido, cliente, empre
                         );
                         const productoNombre = product?.nombre || item.descripcion;
                         const referencia = product?.referencia || 'N/A';
+                        // Obtener unidad de medida
+                        const unidad = (item as any).unidadMedida || (item as any).codigoMedida || product?.unidadMedida || 'UND';
+                        let unidadLimpia = String(unidad).toUpperCase().trim();
+                        // Limpiar unidad duplicada o con comas
+                        if (unidadLimpia.includes(',')) {
+                            const parts = unidadLimpia.split(',').map(p => p.trim()).filter(p => p);
+                            unidadLimpia = [...new Set(parts)].join(', ');
+                        }
+                        if (unidadLimpia.length > 0 && unidadLimpia.length % 2 === 0) {
+                            const half = unidadLimpia.length / 2;
+                            if (unidadLimpia.substring(0, half) === unidadLimpia.substring(half)) {
+                                unidadLimpia = unidadLimpia.substring(0, half);
+                            }
+                        }
 
                         return (
                             <View key={idx} style={[pdfStyles.tableRow, { backgroundColor: idx % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
                                 <Text style={[pdfStyles.tableCellText, { width: '10%', paddingHorizontal: 2 }]}>{referencia}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '34%', paddingHorizontal: 2 }]}>{productoNombre}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'right' }]}>{item.cantidad}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '8%', paddingHorizontal: 2, textAlign: 'right' }]}>{item.cantidad} {unidadLimpia}</Text>
                                 {safePreferences.showPrices ? (
                                     <>
                                         <Text style={[pdfStyles.tableCellText, { width: '13%', paddingHorizontal: 2, textAlign: 'right' }]}>{formatCurrencySafe(item.precioUnitario)}</Text>

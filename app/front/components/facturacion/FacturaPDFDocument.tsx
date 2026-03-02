@@ -157,12 +157,26 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                         // Prioritize codProducto as reference
                         const referencia = item.codProducto || item.referencia || product?.referencia || 'N/A';
                         const itemTotal = Number(item.total) || 0; // Use local const for clarity
+                        // Obtener unidad de medida
+                        const unidad = (item as any).unidadMedida || (item as any).codigoMedida || product?.unidadMedida || 'UND';
+                        let unidadLimpia = String(unidad).toUpperCase().trim();
+                        // Limpiar unidad duplicada o con comas
+                        if (unidadLimpia.includes(',')) {
+                            const parts = unidadLimpia.split(',').map(p => p.trim()).filter(p => p);
+                            unidadLimpia = [...new Set(parts)].join(', ');
+                        }
+                        if (unidadLimpia.length > 0 && unidadLimpia.length % 2 === 0) {
+                            const half = unidadLimpia.length / 2;
+                            if (unidadLimpia.substring(0, half) === unidadLimpia.substring(half)) {
+                                unidadLimpia = unidadLimpia.substring(0, half);
+                            }
+                        }
 
                         return (
                             <View key={index} style={[pdfStyles.tableRow, { backgroundColor: index % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
                                 <Text style={[pdfStyles.tableCellText, { width: '12%', fontSize: 8, paddingLeft: 4 }]}>{referencia}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '35%', fontSize: 8, paddingHorizontal: 4 }]}>{item.descripcion}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'center', fontSize: 8 }]}>{item.cantidad}</Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'center', fontSize: 8 }]}>{item.cantidad} {unidadLimpia}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>
                                     {safePreferences.showPrices ? formatCurrencySafe(item.precioUnitario) : '***'}
                                 </Text>
