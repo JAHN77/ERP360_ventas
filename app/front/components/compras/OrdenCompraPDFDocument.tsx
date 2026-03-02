@@ -290,30 +290,31 @@ const OrdenCompraPDFDocument: React.FC<OrdenCompraPDFProps> = ({ data, empresa }
                             }
                         }
                         return (
-                        <View key={index} style={styles.tableRow}>
-                            <Text style={[styles.td, styles.colRef]}>
-                                {(item.referencia || item.productoReferencia || item.refins || '').substring(0, 12)}
-                            </Text>
-                            <Text style={[styles.td, styles.colDesc]}>
-                                {(item.descripcion || item.productoNombre || item.nomins || '').substring(0, 35)}
-                            </Text>
-                            <Text style={[styles.td, styles.colQty]}>
-                                {item.cantidad || item.cancom || 0} {unidadLimpia}
-                            </Text>
-                            <Text style={[styles.td, styles.colPrice]}>
-                                {formatCurrency(Number(item.precioUnitario) || Number(item.vuncom) || 0)}
-                            </Text>
-                            <Text style={[styles.td, styles.colDisc, { color: (item.descuentoPorcentaje || item.desins) > 0 ? '#ef4444' : '#94a3b8' }]}>
-                                {item.descuentoPorcentaje || item.desins ? `${item.descuentoPorcentaje || item.desins}%` : '0%'}
-                            </Text>
-                            <Text style={[styles.td, styles.colTotal, { fontWeight: 'bold' }]}>
-                                {formatCurrency(
-                                    (Number(item.total) || Number(item.netcom)) ||
-                                    ((Number(item.cantidad) || Number(item.cancom) || 0) * (Number(item.precioUnitario) || Number(item.vuncom) || 0))
-                                )}
-                            </Text>
-                        </View>
-                    ))}
+                            <View key={index} style={styles.tableRow}>
+                                <Text style={[styles.td, styles.colRef]}>
+                                    {(item.referencia || item.productoReferencia || item.refins || '').substring(0, 12)}
+                                </Text>
+                                <Text style={[styles.td, styles.colDesc]}>
+                                    {(item.descripcion || item.productoNombre || item.nomins || '').substring(0, 35)}
+                                </Text>
+                                <Text style={[styles.td, styles.colQty]}>
+                                    {item.cantidad || item.cancom || 0} {unidadLimpia}
+                                </Text>
+                                <Text style={[styles.td, styles.colPrice]}>
+                                    {formatCurrency(Number(item.precioUnitario) || Number(item.vuncom) || 0)}
+                                </Text>
+                                <Text style={[styles.td, styles.colDisc, { color: (item.descuentoPorcentaje || item.desins) > 0 ? '#ef4444' : '#94a3b8' }]}>
+                                    {item.descuentoPorcentaje || item.desins ? `${item.descuentoPorcentaje || item.desins}%` : '0%'}
+                                </Text>
+                                <Text style={[styles.td, styles.colTotal, { fontWeight: 'bold' }]}>
+                                    {formatCurrency(
+                                        (Number(item.total) || Number(item.netcom)) ||
+                                        ((Number(item.cantidad) || Number(item.cancom) || 0) * (Number(item.precioUnitario) || Number(item.vuncom) || 0))
+                                    )}
+                                </Text>
+                            </View>
+                        );
+                    })}
                 </View>
 
                 {/* Totals & Notes */}
