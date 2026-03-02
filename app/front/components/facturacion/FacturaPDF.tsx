@@ -106,8 +106,7 @@ const FacturaPDF = React.forwardRef<HTMLDivElement, FacturaPDFProps>(
                             <tr className="text-white text-sm font-semibold bg-blue-800">
                                 <th className="p-3 text-left rounded-l-lg whitespace-nowrap">Referencia</th>
                                 <th className="p-3 text-left w-2/5">Descripción</th>
-                                <th className="p-3 text-left whitespace-nowrap">Unidad</th>
-                                <th className="p-3 text-right whitespace-nowrap">Cant.</th>
+                                <th className="p-3 text-center whitespace-nowrap">Cant.</th>
                                 {preferences.showPrices && (
                                     <>
                                         <th className="p-3 text-right whitespace-nowrap">P. Unitario</th>
@@ -127,8 +126,10 @@ const FacturaPDF = React.forwardRef<HTMLDivElement, FacturaPDFProps>(
                                     <tr key={item.productoId} className="text-sm">
                                         <td className="p-3 text-slate-600 align-top">{product?.referencia || 'N/A'}</td>
                                         <td className="p-3 font-semibold text-slate-800 align-top">{item.descripcion}</td>
-                                        <td className="p-3 text-slate-600 align-top">{product?.unidadMedida}</td>
-                                        <td className="p-3 text-right text-slate-600 align-top">{item.cantidad}</td>
+                                        <td className="p-3 text-center align-top">
+                                            <span className="font-semibold text-slate-800">{item.cantidad}</span>
+                                            <span className="text-xs text-slate-500 ml-1.5">{product?.unidadMedida || (item as any).unidadMedida || '-'}</span>
+                                        </td>
                                         {preferences.showPrices ? (
                                             <>
                                                 <td className="p-3 text-right text-slate-600 align-top">{formatCurrency(item.precioUnitario)}</td>

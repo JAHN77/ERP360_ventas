@@ -146,7 +146,7 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                     <View style={pdfStyles.tableHeader}>
                         <Text style={[pdfStyles.tableHeaderText, { width: '12%', paddingLeft: 4 }]}>Ref.</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '35%', paddingHorizontal: 4 }]}>Descripción</Text>
-                        <Text style={[pdfStyles.tableHeaderText, { width: '8%', textAlign: 'center' }]}>Cant.</Text>
+                        <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'center' }]}>Cant.</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '13%', textAlign: 'right' }]}>Precio</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '10%', textAlign: 'right' }]}>Dcto.</Text>
                         <Text style={[pdfStyles.tableHeaderText, { width: '7%', textAlign: 'right' }]}>IVA</Text>
@@ -176,8 +176,10 @@ const FacturaPDFDocument: React.FC<FacturaPDFDocumentProps> = ({
                             <View key={index} style={[pdfStyles.tableRow, { backgroundColor: index % 2 === 1 ? '#f8fafc' : '#ffffff' }]}>
                                 <Text style={[pdfStyles.tableCellText, { width: '12%', fontSize: 8, paddingLeft: 4 }]}>{referencia}</Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '35%', fontSize: 8, paddingHorizontal: 4 }]}>{item.descripcion}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '8%', textAlign: 'center', fontSize: 8 }]}>{item.cantidad} {unidadLimpia}</Text>
-                                <Text style={[pdfStyles.tableCellText, { width: '13%', textAlign: 'right', fontSize: 8 }]}>
+                                <Text style={[pdfStyles.tableCellText, { width: '10%', textAlign: 'center', fontSize: 8 }]}>
+                                    {item.cantidad} {unidadLimpia}
+                                </Text>
+                                <Text style={[pdfStyles.tableCellText, { width: '11%', textAlign: 'right', fontSize: 8 }]}>
                                     {safePreferences.showPrices ? formatCurrencySafe(item.precioUnitario) : '***'}
                                 </Text>
                                 <Text style={[pdfStyles.tableCellText, { width: '10%', textAlign: 'right', fontSize: 8, color: '#ef4444' }]}>
