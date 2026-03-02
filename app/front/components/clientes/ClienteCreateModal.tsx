@@ -244,7 +244,6 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
         }));
         setShowVendedorResult(false);
     };
-
     // --- AUTOMATIC DV CALCULATION ---
     useEffect(() => {
         if (formData.tipoDocumento === '31') {
