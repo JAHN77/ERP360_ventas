@@ -197,7 +197,7 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
                     const token = localStorage.getItem('token');
                     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-                    const res = await fetch(`${BACKEND_URL}/api/clientes/actividades-ciiu?search=${encodeURIComponent(formData.codacteconomica)}&limit=5`, {
+                    const res = await fetch(`/api/clientes/actividades-ciiu?search=${encodeURIComponent(formData.codacteconomica)}&limit=5`, {
                         headers
                     });
                     const json = await res.json();
@@ -251,7 +251,7 @@ const ClienteCreateModal: React.FC<ClienteCreateModalProps> = ({ isOpen, onClose
             if (formData.vendedorSearchTerm.length >= 1) { // Search on 1 char or more
                 setSearchingVendedor(true);
                 try {
-                    const res = await fetch(`http://localhost:3001/api/vendedores?search=${encodeURIComponent(formData.vendedorSearchTerm)}`);
+                    const res = await fetch(`/api/vendedores?search=${encodeURIComponent(formData.vendedorSearchTerm)}`);
                     const json = await res.json();
                     if (json.success && json.data.length > 0) {
                         setVendedoresFound(json.data);

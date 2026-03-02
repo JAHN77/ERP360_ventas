@@ -4,9 +4,10 @@
 import { GeneratePdfOptions } from '../pdf/types';
 
 const isProduction = import.meta.env.PROD || window.location.hostname !== 'localhost';
+// En desarrollo, usar ruta relativa para aprovechar el proxy de Vite
 const API_BASE_URL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) ||
-  (isProduction ? '/api' : 'http://localhost:3001/api');
+  (isProduction ? '/api' : '/api');
 
 const PDF_ENDPOINT = `${API_BASE_URL}/generar-pdf`;
 

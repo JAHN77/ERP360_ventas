@@ -1,8 +1,10 @@
 
 
+// En desarrollo, usar ruta relativa para aprovechar el proxy de Vite
+const isProduction = import.meta.env.PROD || window.location.hostname !== 'localhost';
 const API_BASE_URL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) ||
-  'http://localhost:3001/api';
+  (isProduction ? '/api' : '/api');
 
 interface GeminiResponse {
   success: boolean;

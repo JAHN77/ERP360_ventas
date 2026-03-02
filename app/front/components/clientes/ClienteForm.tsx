@@ -170,7 +170,7 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
       if (initialData.codacteconomica) {
         const code = String(initialData.codacteconomica).trim();
         if (code) {
-          fetch(`http://localhost:3001/api/clientes/actividades-ciiu?search=${encodeURIComponent(code)}`)
+          fetch(`/api/clientes/actividades-ciiu?search=${encodeURIComponent(code)}`)
             .then(r => r.json())
             .then(json => {
               // Loose match or first result if it looks like a direct hit
@@ -182,7 +182,7 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
       }
       if (initialData.vendedorId || initialData.codven) {
         const vid = initialData.vendedorId || initialData.codven;
-        fetch(`http://localhost:3001/api/vendedores?search=${vid}`)
+        fetch(`/api/vendedores?search=${vid}`)
           .then(r => r.json())
           .then(json => {
             // Try to find exact match
@@ -225,7 +225,7 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
       if (term.length >= 2) {
         setSearchingActividad(true);
         try {
-          const res = await fetch(`http://localhost:3001/api/clientes/actividades-ciiu?search=${encodeURIComponent(term)}&limit=10`);
+          const res = await fetch(`/api/clientes/actividades-ciiu?search=${encodeURIComponent(term)}&limit=10`);
           const json = await res.json();
           if (json.success && json.data.length > 0) {
             setActividadesFound(json.data);
@@ -262,7 +262,7 @@ const ClienteForm: React.FC<ClienteFormProps> = ({ initialData, onSubmit, onCanc
       if (formData.vendedorSearchTerm.length >= 1) {
         setSearchingVendedor(true);
         try {
-          const res = await fetch(`http://localhost:3001/api/vendedores?search=${encodeURIComponent(formData.vendedorSearchTerm)}`);
+          const res = await fetch(`/api/vendedores?search=${encodeURIComponent(formData.vendedorSearchTerm)}`);
           const json = await res.json();
           if (json.success && json.data.length > 0) {
             setVendedoresFound(json.data);

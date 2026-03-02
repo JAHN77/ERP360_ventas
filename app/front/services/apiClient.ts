@@ -1,8 +1,13 @@
 // Cliente API para conectar con el backend SQL Server
 const isProduction = import.meta.env.PROD || window.location.hostname !== 'localhost';
+// En desarrollo, usar ruta relativa para aprovechar el proxy de Vite
+// En producción, usar la URL configurada o ruta relativa
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) ||
-  (isProduction ? '/api' : 'http://localhost:3001/api');
-export const BACKEND_URL = API_BASE_URL.replace('/api', '');
+  (isProduction ? '/api' : '/api');
+// BACKEND_URL se usa para assets estáticos - en desarrollo necesita la URL completa del backend
+// En producción puede ser relativa si los assets están en el mismo dominio
+export const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_BACKEND_URL) ||
+  (isProduction ? '' : 'http://localhost:3001');
 
 import { ProductoConteo } from '../types';
 
