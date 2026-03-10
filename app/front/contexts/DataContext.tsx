@@ -3628,6 +3628,30 @@ export const DataProvider = ({ children }: DataProviderProps) => {
             console.log('   - success:', resp.success);
             console.log('   - validationMode:', (resp as any).validationMode);
             console.log('   - data:', resp.data ? 'Data recibida' : 'No data');
+            console.log('   - message:', resp.message || 'N/A');
+            console.log('   - error:', resp.error || 'N/A');
+
+            if (!resp.success) {
+                let errorMsg = resp.message || resp.error || 'Error desconocido al timbrar la factura';
+                
+                // Detectar errores específicos de certificado DIAN
+                if (errorMsg.includes('PKCS#12') || errorMsg.includes('Invalid password') || errorMsg.includes('MAC could not be verified')) {
+                    errorMsg = 'Error de certificado DIAN: La contraseña del certificado es incorrecta o el certificado no es válido. Verifica la configuración del certificado en los parámetros DIAN.';
+                } else if (errorMsg.includes('DIAN API error')) {
+                    // Extraer el mensaje específico del error de DIAN
+                    try {
+                        const dianErrorMatch = errorMsg.match(/DIAN API error:.*?message":"([^"]+)"/);
+                        if (dianErrorMatch && dianErrorMatch[1]) {
+                            errorMsg = `Error de la DIAN: ${dianErrorMatch[1]}`;
+                        }
+                    } catch (e) {
+                        // Si no se puede parsear, usar el mensaje original
+                    }
+                }
+                
+                console.error('❌ [DataContext] Error del backend:', errorMsg);
+                throw new Error(errorMsg);
+            }
 
             if (resp.success && resp.data) {
                 // MODIFICACIÓN TEMPORAL: Detectar modo de validación

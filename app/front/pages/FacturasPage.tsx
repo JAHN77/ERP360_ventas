@@ -574,6 +574,7 @@ const FacturasPage: React.FC = () => {
 
   const executeTimbrado = async (facturaId: string, mode: 'test' | 'production' = 'production') => {
     console.log(`🚀 [FRONTEND] ========== INICIO DE TIMBRADO (${mode}) ==========`);
+    setIsStamping(true);
     try {
       addNotification({
         message: mode === 'test' ? '🔄 Generando JSON de prueba...' : '🔄 Procesando timbrado de factura...',
@@ -633,11 +634,19 @@ const FacturasPage: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ [FRONTEND] Error al timbrar:', error);
+      const errorMessage = (error as Error).message || 'Error desconocido al timbrar la factura';
       addNotification({
-        message: `Error al timbrar la factura: ${(error as Error).message || 'Error desconocido'}.`,
-        type: 'warning'
+        message: `Error al timbrar la factura: ${errorMessage}. Revisa los logs del servidor para más detalles.`,
+        type: 'error',
+        duration: 8000
       });
+      // Actualizar la factura seleccionada para mostrar el error si está disponible
+      if (selectedFactura) {
+        setSelectedFactura({ ...selectedFactura });
+      }
       throw error;
+    } finally {
+      setIsStamping(false);
     }
   };
 
@@ -1546,16 +1555,52 @@ const FacturasPage: React.FC = () => {
                             <p className="text-xs text-red-700 dark:text-red-400">{selectedFactura.motivoRechazo}</p>
                           </div>
                         )}
+                        <button
+                          onClick={async () => {
+                            if (selectedFactura.id && !isStamping) {
+                              try {
+                                await executeTimbrado(String(selectedFactura.id), 'production');
+                              } catch (error) {
+                                // El error ya se maneja en executeTimbrado
+                                console.error('Error en botón Volver a Facturar:', error);
+                              }
+                            }
+                          }}
+                          disabled={isStamping}
+                          className="mt-3 w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                          <i className={`fas fa-redo ${isStamping ? 'animate-spin' : ''}`}></i>
+                          {isStamping ? 'Procesando...' : 'Volver a Facturar'}
+                        </button>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg border border-yellow-200 dark:border-yellow-700 flex items-center gap-3">
-                    <i className="fas fa-exclamation-triangle text-yellow-500 fa-lg"></i>
-                    <div>
-                      <h5 className="font-semibold text-yellow-800 dark:text-yellow-300">Factura no Timbrada</h5>
-                      <p className="text-xs">Este documento es un borrador y no tiene validez fiscal.</p>
+                  <div className="p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg border border-yellow-200 dark:border-yellow-700">
+                    <div className="flex items-start gap-3 mb-3">
+                      <i className="fas fa-exclamation-triangle text-yellow-500 fa-lg mt-1"></i>
+                      <div className="flex-1">
+                        <h5 className="font-semibold text-yellow-800 dark:text-yellow-300">Factura no Timbrada</h5>
+                        <p className="text-xs">Este documento es un borrador y no tiene validez fiscal.</p>
+                      </div>
                     </div>
+                    <button
+                      onClick={async () => {
+                        if (selectedFactura.id && !isStamping) {
+                          try {
+                            await executeTimbrado(String(selectedFactura.id), 'production');
+                          } catch (error) {
+                            // El error ya se maneja en executeTimbrado
+                            console.error('Error en botón Enviar a la DIAN:', error);
+                          }
+                        }
+                      }}
+                      disabled={isStamping}
+                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      <i className={`fas fa-paper-plane ${isStamping ? 'animate-spin' : ''}`}></i>
+                      {isStamping ? 'Procesando...' : 'Enviar a la DIAN'}
+                    </button>
                   </div>
                 )}
                 <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-700">
@@ -1572,6 +1617,77 @@ const FacturasPage: React.FC = () => {
                     </p>
                   </div>
                 </div>
+
+                {/* Botón Anular Factura */}
+                {selectedFactura.estado !== 'ANULADA' && (
+                  <ProtectedComponent allowedRoles={['admin', 'facturador']}>
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                      <div className="flex items-start gap-3 mb-3">
+                        <i className="fas fa-ban text-red-500 fa-lg mt-1"></i>
+                        <div className="flex-1">
+                          <h5 className="font-semibold text-red-800 dark:text-red-300 mb-1">Anular Factura</h5>
+                          <p className="text-xs text-red-700 dark:text-red-400 mb-3">
+                            {selectedFactura.cufe 
+                              ? 'Generará una nota crédito de anulación total para esta factura timbrada.'
+                              : 'Esta factura será anulada directamente (no tiene CUFE).'}
+                          </p>
+                          <button
+                            onClick={async () => {
+                              if (!selectedFactura.id) return;
+                              
+                              // Si tiene CUFE, usar nota crédito
+                              if (selectedFactura.cufe) {
+                                handleCloseModals();
+                                setPage('devoluciones', {
+                                  clienteId: String(selectedFactura.clienteId),
+                                  facturaId: String(selectedFactura.id),
+                                  tipoNota: 'ANULACION',
+                                  totalDevolucion: 'true'
+                                });
+                              } else {
+                                // Si no tiene CUFE, anular directamente
+                                if (!confirm('¿Está seguro de que desea anular esta factura? Esta acción no se puede deshacer.')) {
+                                  return;
+                                }
+                                
+                                try {
+                                  addNotification({
+                                    message: 'Anulando factura...',
+                                    type: 'info'
+                                  });
+                                  
+                                  const response = await apiClient.voidInvoice(selectedFactura.id);
+                                  
+                                  if (response.success) {
+                                    addNotification({
+                                      message: `Factura ${selectedFactura.numeroFactura.replace('FAC-', '')} anulada exitosamente.`,
+                                      type: 'success'
+                                    });
+                                    await refreshFacturasYRemisiones();
+                                    loadInvoices();
+                                    handleCloseModals();
+                                  } else {
+                                    throw new Error(response.message || 'Error al anular la factura');
+                                  }
+                                } catch (error: any) {
+                                  console.error('Error anulando factura:', error);
+                                  addNotification({
+                                    message: `Error al anular la factura: ${error.message || 'Error desconocido'}`,
+                                    type: 'error'
+                                  });
+                                }
+                              }
+                            }}
+                            className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                          >
+                            <i className="fas fa-ban"></i>
+                            Anular Factura
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </ProtectedComponent>
+                )}
               </div>
 
               {/* Items Table */}

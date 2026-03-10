@@ -714,6 +714,12 @@ class ApiClient {
     });
   }
 
+  async voidInvoice(id: string | number) {
+    return this.request(`/facturas/${id}/anular`, {
+      method: 'PUT',
+    });
+  }
+
   async sendManualDianTest(payload: any) {
     return this.request('/facturas/manual-test', {
       method: 'POST',

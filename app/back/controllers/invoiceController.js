@@ -1251,12 +1251,24 @@ const invoiceController = {
     if (isNaN(idNum)) return res.status(400).json({ success: false, message: 'ID inválido' });
 
     try {
+      console.log(`🚀 [stampInvoice] Iniciando timbrado para factura ID: ${idNum}, db_name: ${req.db_name || 'NO DEFINIDO'}`);
+      
+      if (!req.db_name) {
+        console.error('❌ [stampInvoice] req.db_name no está definido');
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Error: Contexto de empresa no disponible. Por favor inicie sesión nuevamente.',
+          error: 'req.db_name is undefined'
+        });
+      }
+
       const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
       const tx = new sql.Transaction(pool);
       await tx.begin();
       let transactionClosed = false;
 
       try {
+        console.log(`🔍 [stampInvoice] Verificando existencia de factura ID: ${idNum}`);
         const reqCheck = new sql.Request(tx);
         reqCheck.input('id', sql.Int, idNum);
         const checkResult = await reqCheck.query(`SELECT ID, numfact, estfac FROM ${TABLE_NAMES.facturas} WHERE ID = @id`);
@@ -1264,22 +1276,41 @@ const invoiceController = {
         if (checkResult.recordset.length === 0) {
           await tx.rollback();
           transactionClosed = true;
+          console.error(`❌ [stampInvoice] Factura ${idNum} no encontrada`);
           return res.status(404).json({ success: false, message: 'Factura no encontrada' });
         }
 
+        console.log(`✅ [stampInvoice] Factura encontrada: ${checkResult.recordset[0].numfact}`);
+
         // Logic similar to updateInvoice but forced timbrado
+        console.log(`🔍 [stampInvoice] Obteniendo resolución DIAN...`);
         const resolution = await DIANService.getDIANResolution(req.db_name);
+        console.log(`✅ [stampInvoice] Resolución obtenida:`, resolution?.id || 'N/A');
+        
+        console.log(`🔍 [stampInvoice] Obteniendo parámetros DIAN...`);
         const dianParams = await DIANService.getDIANParameters(req.db_name);
+        console.log(`✅ [stampInvoice] Parámetros obtenidos`);
+        
+        console.log(`🔍 [stampInvoice] Obteniendo factura completa...`);
         const facturaCompleta = await DIANService.getFacturaCompleta(idNum, req.db_name);
+        console.log(`✅ [stampInvoice] Factura completa obtenida`);
 
         // Generate invoice JSON payload
         // This was missing and caused ReferenceError
-        const invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompleta, resolution, {
-          isPrueba: body.mode === 'test' || dianParams.isPrueba,
-          sync: dianParams.sync,
-          urlBase: dianParams.url_base,
-          testSetID: dianParams.testSetID
-        });
+        console.log(`🔍 [stampInvoice] Transformando factura para DIAN...`);
+        let invoiceJson;
+        try {
+          invoiceJson = await DIANService.transformVenFacturaForDIAN(facturaCompleta, resolution, {
+            isPrueba: body.mode === 'test' || dianParams.isPrueba,
+            sync: dianParams.sync,
+            urlBase: dianParams.url_base,
+            testSetID: dianParams.testSetID
+          });
+          console.log(`✅ [stampInvoice] Factura transformada exitosamente`);
+        } catch (transformError) {
+          console.error(`❌ [stampInvoice] Error transformando factura:`, transformError);
+          throw new Error(`Error transformando factura para DIAN: ${transformError.message}`);
+        }
 
         // Transformation logic is handled inside transformVenFacturaForDIAN
         // We can remove the placeholder roundCOP if not used elsewhere, or keep it if needed.
@@ -1359,17 +1390,103 @@ const invoiceController = {
         });
 
       } catch (inner) {
+        console.error(`❌ [stampInvoice] Error interno:`, inner);
         if (!transactionClosed) {
-          try { await tx.rollback(); } catch (e) { }
+          try { await tx.rollback(); } catch (e) {
+            console.error(`❌ [stampInvoice] Error en rollback:`, e);
+          }
         }
         throw inner;
       }
 
     } catch (error) {
-      console.error('Error stamping invoice:', error);
-      res.status(500).json({ success: false, message: 'Error timbrando factura', error: error.message });
+      console.error('❌ [stampInvoice] Error timbrando factura:', error);
+      console.error('❌ [stampInvoice] Stack:', error.stack);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Error timbrando factura', 
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
     }
   },
+
+  // PUT /api/facturas/:id/anular
+  voidInvoice: async (req, res) => {
+    const { id } = req.params;
+    const idNum = parseInt(id, 10);
+
+    if (isNaN(idNum)) return res.status(400).json({ success: false, message: 'ID inválido' });
+
+    try {
+      const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);
+      const tx = new sql.Transaction(pool);
+      await tx.begin();
+      let transactionClosed = false;
+
+      try {
+        const reqCheck = new sql.Request(tx);
+        reqCheck.input('id', sql.Int, idNum);
+        const checkResult = await reqCheck.query(`SELECT ID, numfact, estfac, CUFE FROM ${TABLE_NAMES.facturas} WHERE ID = @id`);
+
+        if (checkResult.recordset.length === 0) {
+          await tx.rollback();
+          transactionClosed = true;
+          return res.status(404).json({ success: false, message: 'Factura no encontrada' });
+        }
+
+        const factura = checkResult.recordset[0];
+        const tieneCufe = factura.CUFE && String(factura.CUFE).trim() !== '' && String(factura.CUFE).trim() !== 'null';
+
+        // Si tiene CUFE, no se puede anular directamente, debe usar nota crédito
+        if (tieneCufe) {
+          await tx.rollback();
+          transactionClosed = true;
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Esta factura tiene CUFE y no puede ser anulada directamente. Use la opción de anulación con nota crédito.' 
+          });
+        }
+
+        // Anular factura sin CUFE cambiando el estado
+        const reqUpdate = new sql.Request(tx);
+        reqUpdate.input('id', sql.Int, idNum);
+        reqUpdate.input('estado', sql.VarChar(10), 'X'); // X = ANULADA/CANCELADO
+        reqUpdate.input('fecsys', sql.DateTime, new Date());
+
+        await reqUpdate.query(`UPDATE ${TABLE_NAMES.facturas} SET estfac = @estado, fecsys = @fecsys WHERE ID = @id`);
+        await tx.commit();
+        transactionClosed = true;
+
+        res.json({
+          success: true,
+          message: 'Factura anulada exitosamente',
+          data: {
+            id: idNum,
+            estado: 'ANULADA'
+          }
+        });
+
+      } catch (inner) {
+        console.error(`❌ [voidInvoice] Error interno:`, inner);
+        if (!transactionClosed) {
+          try { await tx.rollback(); } catch (e) {
+            console.error(`❌ [voidInvoice] Error en rollback:`, e);
+          }
+        }
+        throw inner;
+      }
+
+    } catch (error) {
+      console.error('❌ [voidInvoice] Error anulando factura:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Error anulando factura', 
+        error: error.message
+      });
+    }
+  },
+
   getNextInvoiceNumber: async (req, res) => {
     try {
       const pool = await require('../services/sqlServerClient.cjs').getConnectionForDb(req.db_name);

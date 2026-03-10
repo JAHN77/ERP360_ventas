@@ -428,11 +428,8 @@ const FacturaDirectaForm: React.FC<FacturaDirectaFormProps> = ({ onSubmit, onCan
                         type="text"
                         value={formData.number}
                         onChange={(e) => setFormData({ ...formData, number: e.target.value })}
-                        readOnly={selectedCompany?.db_name !== 'orquidea'}
-                        className={`w-full px-3 py-1.5 text-sm border rounded-md outline-none ${selectedCompany?.db_name === 'orquidea'
-                            ? 'bg-white border-blue-500 focus:ring-2 focus:ring-blue-500'
-                            : 'bg-slate-100 border-slate-300 text-slate-500 cursor-not-allowed'
-                            }`}
+                        className="w-full px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-md outline-none bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Número de factura"
                     />
                 </div>
 

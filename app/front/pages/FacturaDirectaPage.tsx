@@ -89,7 +89,6 @@ const FacturaDirectaPage: React.FC = () => {
 
         return {
             number: parseInt(formData.number) || 0,
-            exact_decimals: true,
             legal_monetary_totals: {
                 tax_inclusive_amount: round(totals.payableAmount),
                 line_extension_amount: round(totals.lineExtensionAmount),

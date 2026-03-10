@@ -20,6 +20,7 @@ import SendEmailModal from '../components/comercial/SendEmailModal';
 import DIANSuccessModal from '../components/common/DIANSuccessModal';
 import apiClient from '../services/apiClient';
 import { pdf } from '@react-pdf/renderer';
+import { useNavigation } from '../hooks/useNavigation';
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 
@@ -42,6 +43,7 @@ const DevolucionesPage: React.FC = () => {
         facturas // Restoring strict needed
     } = useData();
     const { user } = useAuth();
+    const { params, setPage } = useNavigation();
 
     // Nueva lógica estricta para clientes y facturas
     const { clientes: clientesEstrictos, isLoading: isLoadingClientes } = useClientesConFacturasAceptadas();
@@ -419,6 +421,21 @@ const DevolucionesPage: React.FC = () => {
             setCantidadesYaDevueltas(new Map());
         }
     }, [selectedFactura, notasCredito]);
+
+    // Manejar parámetros de navegación para anulación automática
+    useEffect(() => {
+        if (params?.clienteId && params?.facturaId && params?.tipoNota === 'ANULACION') {
+            setClienteId(String(params.clienteId));
+            setFacturaId(String(params.facturaId));
+            setTipoNota('ANULACION');
+            if (params.totalDevolucion === 'true') {
+                setIsTotalDevolucion(true);
+            }
+            // Limpiar parámetros después de usarlos
+            const { clienteId: _c, facturaId: _f, tipoNota: _t, totalDevolucion: _td, ...rest } = params;
+            setPage('devoluciones', rest);
+        }
+    }, [params, setPage]);
 
 
 

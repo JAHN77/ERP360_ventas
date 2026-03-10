@@ -19,6 +19,9 @@ router.put('/facturas/:id', verifyToken, invoiceController.updateInvoice);
 // POST /api/facturas/:id/timbrar - Timbrar factura existente
 router.post('/facturas/:id/timbrar', verifyToken, invoiceController.stampInvoice);
 
+// PUT /api/facturas/:id/anular - Anular factura sin CUFE
+router.put('/facturas/:id/anular', verifyToken, invoiceController.voidInvoice);
+
 // POST /api/facturas/:id/send-email
 router.post('/facturas/:id/send-email', verifyToken, invoiceController.sendInvoiceEmail);
 

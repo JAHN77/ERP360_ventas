@@ -997,7 +997,7 @@ class DIANService {
     // Asegurar tipos correctos: números como números, strings como strings
     const dianJson = {
       number: Number(invoiceNumber), // Número explícito
-      exact_decimals: true, // Mantener precisión decimal exacta
+
       type_document_id: Number(typeDocumentId), // 1 = Producción, 2 = Prueba
       identification_number: Number(companyData.identification_number || this.COMPANY_NIT), // Número explícito
       resolution_id: 58, // Hardcoded to 58 as requested
@@ -1135,21 +1135,41 @@ class DIANService {
     // Obtener datos de la empresa
     const companyData = await this.getCompanyData();
 
-    // Fechas
+    // Obtener hora en zona horaria de Colombia (UTC-5)
+    const getColombiaTime = () => {
+      const now = new Date();
+      // Colombia está en UTC-5 (COT - Colombia Time)
+      // Obtener la hora actual en UTC
+      const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
+      // Aplicar offset de Colombia (UTC-5 = -300 minutos)
+      const colombiaOffset = -5 * 60 * 60000; // -5 horas en milisegundos
+      const colombiaTime = new Date(utcTime + colombiaOffset);
+      
+      // Formatear fecha YYYY-MM-DD
+      const year = colombiaTime.getUTCFullYear();
+      const month = String(colombiaTime.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(colombiaTime.getUTCDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      
+      // Formatear hora HH:MM:SS
+      const hours = String(colombiaTime.getUTCHours()).padStart(2, '0');
+      const minutes = String(colombiaTime.getUTCMinutes()).padStart(2, '0');
+      const seconds = String(colombiaTime.getUTCSeconds()).padStart(2, '0');
+      const timeStr = `${hours}:${minutes}:${seconds}`;
+      
+      console.log(`   📅 Hora Colombia (UTC-5): ${dateStr} ${timeStr}`);
+      
+      return { date: dateStr, time: timeStr };
+    };
+
+    const { date: issueDate, time: issueTime } = getColombiaTime();
     const currentDate = new Date();
-    const issueDate = currentDate.toISOString().split('T')[0];
-    const issueTime = currentDate.toTimeString().split(' ')[0];
 
     // Validar fecha (Regla 1: Fecha NC >= Fecha Factura)
     const facturaDate = new Date(facturaOriginal.fecfac || facturaOriginal.fechaFactura);
     if (currentDate < facturaDate) {
       console.warn('⚠️ La fecha actual es anterior a la fecha de la factura. Ajustando a fecha de factura.');
     }
-
-    // Calcular totales
-    const lineExtensionAmount = this.roundCOP(nota.subtotal || 0);
-    const taxAmount = this.roundCOP(nota.iva || 0);
-    const totalAmount = this.roundCOP(nota.total || 0);
 
     // Determinar concepto de corrección
     // 1 = Devolución parcial de los bienes y/o no aceptación parcial del servicio
@@ -1176,22 +1196,40 @@ class DIANService {
           return 70;
         })(),
         invoiced_quantity: cantidad,
-        line_extension_amount: subtotal,
+        line_extension_amount: this.roundCOP(subtotal), // Asegurar redondeo
         discount: 0,
         free_of_charge_indicator: false,
         description: detalle.descripcion || correctionDescription,
         code: String(detalle.referencia || detalle.producto_id || detalle.productoId),
         type_item_identification_id: 4,
-        price_amount: precio,
+        price_amount: this.roundCOP(precio), // Asegurar redondeo
         base_quantity: cantidad,
         tax_totals: [{
           tax_id: 1, // IVA
-          tax_amount: iva,
+          tax_amount: this.roundCOP(iva), // Asegurar redondeo
           percent: ivaPercent,
-          taxable_amount: subtotal
+          taxable_amount: this.roundCOP(subtotal) // Asegurar redondeo
         }]
       };
     });
+
+    // CRÍTICO: Recalcular totales desde las líneas para garantizar consistencia exacta
+    console.log('\n📊 Recalculando totales finales desde las líneas de nota crédito...');
+    const sumaLineExtension = creditNoteLines.reduce((suma, linea) => {
+      return this.roundCOP(suma + (linea.line_extension_amount || 0));
+    }, 0);
+    
+    const sumaTaxAmount = creditNoteLines.reduce((suma, linea) => {
+      const taxLinea = linea.tax_totals?.[0]?.tax_amount || 0;
+      return this.roundCOP(suma + taxLinea);
+    }, 0);
+    
+    const totalAmountRecalculado = this.roundCOP(sumaLineExtension + sumaTaxAmount);
+
+    console.log(`   ✅ Totales recalculados desde líneas:`);
+    console.log(`     - Subtotal (line_extension_amount): ${sumaLineExtension}`);
+    console.log(`     - IVA Total: ${sumaTaxAmount}`);
+    console.log(`     - Total: ${totalAmountRecalculado}`);
 
     // Calcular diferencia de días para correction_type
     const diffTime = currentDate.getTime() - facturaDate.getTime();
@@ -1246,7 +1284,7 @@ class DIANService {
     // Construir JSON
     const creditNoteJson = {
       number: parseInt(nota.numero), // Consecutivo de la NC
-      exact_decimals: true, // Mantener precisión decimal exacta
+
       type_document_id: 5, // Nota Crédito
       identification_number: companyNit,
       dv: companyDv,
@@ -1307,39 +1345,41 @@ class DIANService {
       },
 
       legal_monetary_totals: {
-        line_extension_amount: lineExtensionAmount,
-        tax_exclusive_amount: lineExtensionAmount,
-        tax_inclusive_amount: totalAmount,
+        line_extension_amount: Number(sumaLineExtension), // Recalculado desde líneas
+        tax_exclusive_amount: Number(sumaLineExtension), // Recalculado desde líneas
+        tax_inclusive_amount: Number(totalAmountRecalculado), // Recalculado desde líneas
         allowance_total_amount: 0,
         charge_total_amount: 0,
-        payable_amount: totalAmount
+        payable_amount: Number(totalAmountRecalculado) // Recalculado desde líneas
       },
 
       // Impuestos Totales (Calculados dinámicamente desde las líneas)
-      tax_totals: creditNoteLines.reduce((acc, line) => {
-        if (line.tax_totals) {
-          line.tax_totals.forEach(tax => {
-            const existing = acc.find(t => t.tax_id === tax.tax_id && t.percent === tax.percent);
-            if (existing) {
-              existing.tax_amount += tax.tax_amount;
-              existing.taxable_amount += tax.taxable_amount;
-            } else {
-              acc.push({
-                tax_id: tax.tax_id,
-                tax_amount: tax.tax_amount,
-                percent: tax.percent,
-                taxable_amount: tax.taxable_amount
-              });
-            }
-          });
-        }
-        return acc;
-      }, []).map(t => ({
-        tax_id: t.tax_id,
-        tax_amount: this.roundCOP(t.tax_amount),
-        percent: t.percent,
-        taxable_amount: this.roundCOP(t.taxable_amount)
-      })),
+      // CRÍTICO: taxable_amount debe ser igual a sumaLineExtension (suma de todas las líneas)
+      // No la suma de taxable_amount de cada línea, sino el total de line_extension_amount
+      tax_totals: (() => {
+        // Calcular tax_amount total desde las líneas
+        const totalTaxAmount = creditNoteLines.reduce((suma, linea) => {
+          const taxLinea = linea.tax_totals?.[0]?.tax_amount || 0;
+          return this.roundCOP(suma + taxLinea);
+        }, 0);
+        
+        // Obtener el porcentaje de IVA (debe ser el mismo en todas las líneas)
+        const ivaPercent = creditNoteLines.length > 0 
+          ? (creditNoteLines[0].tax_totals?.[0]?.percent || 19)
+          : 19;
+        
+        console.log(`   ✅ tax_totals calculado:`);
+        console.log(`     - tax_amount: ${totalTaxAmount} (suma de líneas)`);
+        console.log(`     - taxable_amount: ${sumaLineExtension} (igual a line_extension_amount total)`);
+        console.log(`     - percent: ${ivaPercent}`);
+        
+        return [{
+          tax_id: 1, // IVA
+          tax_amount: Number(totalTaxAmount),
+          percent: ivaPercent,
+          taxable_amount: Number(sumaLineExtension) // CRÍTICO: Debe ser igual a sumaLineExtension
+        }];
+      })(),
 
       credit_note_lines: creditNoteLines,
 
@@ -1519,7 +1559,23 @@ class DIANService {
           errorData = responseText;
         }
         console.error(`❌ [DIAN] Error HTTP ${response.status}:`, errorData);
-        throw new Error(`DIAN API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+        
+        // Detectar errores específicos de certificado
+        const errorStr = JSON.stringify(errorData);
+        let errorMessage = `DIAN API error: ${response.status} ${response.statusText}`;
+        
+        if (errorStr.includes('PKCS#12') || errorStr.includes('Invalid password') || errorStr.includes('MAC could not be verified')) {
+          errorMessage = `Error de certificado DIAN: La contraseña del certificado PKCS#12 es incorrecta o el certificado no es válido. Verifica la configuración del certificado en los parámetros DIAN de la base de datos.`;
+        } else if (errorData && errorData.message) {
+          errorMessage = `Error de DIAN: ${errorData.message}`;
+          if (errorData.error && errorData.error.message) {
+            errorMessage += ` - ${errorData.error.message}`;
+          }
+        } else {
+          errorMessage += ` - ${JSON.stringify(errorData)}`;
+        }
+        
+        throw new Error(errorMessage);
       }
 
       // Intentar parsear respuesta como JSON

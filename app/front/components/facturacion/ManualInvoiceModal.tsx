@@ -305,7 +305,7 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
         // Construct the JSON payload matching the user's example
         const payload = {
             number: parseInt(formData.number) || 0,
-            exact_decimals: true,
+     
             legal_monetary_totals: {
                 tax_inclusive_amount: totals.payableAmount,
                 line_extension_amount: totals.lineExtensionAmount,
@@ -461,7 +461,6 @@ const ManualInvoiceModal: React.FC<ManualInvoiceModalProps> = ({ isOpen, onClose
             // 1. Generate JSON Payload
             const payload = {
                 number: parseInt(formData.number) || 0,
-                exact_decimals: true,
                 legal_monetary_totals: {
                     tax_inclusive_amount: totals.payableAmount,
                     line_extension_amount: totals.lineExtensionAmount,
