@@ -47,10 +47,31 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
 
     const cliente = useMemo(() => {
         if (!factura) return null;
-        return findClienteByIdentifier(
+        const found = findClienteByIdentifier(
             clientes,
             factura.clienteId ?? (factura as any).cliente_id ?? (factura as any).nitCliente
-        ) || null;
+        );
+        if (found) return found;
+        // Fallback: construir cliente mínimo desde datos de la factura
+        const nombre = factura.clienteNombre || (factura as any).nomter || 'Cliente';
+        return {
+            id: String(factura.clienteId || ''),
+            numeroDocumento: String(factura.clienteId || ''),
+            nombreCompleto: nombre,
+            nomter: nombre,
+            tipoDocumento: 'NIT',
+            tipoDocumentoId: 'NIT',
+            tipoPersonaId: 'JURIDICA',
+            tipter: 0,
+            isproveedor: false,
+            cupoCredito: 0,
+            plazo: 0,
+            activo: 1,
+            createdAt: '',
+            limiteCredito: 0,
+            diasCredito: 0,
+            empresaId: 0,
+        } as any;
     }, [factura, clientes]);
 
     // Use useMemo for the document component to allow PDFViewer to update correctly without unmounting/remounting
@@ -165,18 +186,6 @@ const FacturaPreviewModal: React.FC<FacturaPreviewModalProps> = ({ factura, onCl
                     <i className="fas fa-exclamation-triangle text-red-500 text-3xl mb-3"></i>
                     <p className="text-red-600 dark:text-red-400 font-semibold mb-2">No se puede mostrar la previsualización</p>
                     <p className="text-slate-600 dark:text-slate-400 text-sm">No hay información de factura disponible.</p>
-                </div>
-            </Modal>
-        );
-    }
-
-    if (!cliente) {
-        return (
-            <Modal isOpen={true} onClose={onClose} title="Error" size="md">
-                <div className="p-4 text-center">
-                    <i className="fas fa-exclamation-triangle text-red-500 text-3xl mb-3"></i>
-                    <p className="text-red-600 dark:text-red-400 font-semibold mb-2">No se puede mostrar la previsualización</p>
-                    <p className="text-slate-600 dark:text-slate-400 text-sm">No se encontró información del cliente asociado a esta factura.</p>
                 </div>
             </Modal>
         );
